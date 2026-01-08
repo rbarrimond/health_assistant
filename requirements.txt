@@ -1,2 +1,6 @@
 azure-functions>=1.14.0
+azure-data-tables>=12.4.0
+azure-identity>=1.14.0
 python-dotenv>=1.0.0
+fitparse>=1.2.0
+python-dateutil>=2.8.2
