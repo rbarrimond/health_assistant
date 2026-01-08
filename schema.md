@@ -27,10 +27,8 @@ It assumes:
 
 ### Keying strategy (recommended)
 
-- `PartitionKey`: `athlete_id#YYYY-MM`  
-  Example: `rob#2026-01`
-- `RowKey`: `YYYYMMDDTHHMMSSZ#workout_id`  
-  Example: `20260107T231500Z#b6d2c0a1e9b4`
+- `PartitionKey`: `athlete_id#YYYY-MM` (e.g., `rob#2026-01`)
+- `RowKey`: `YYYYMMDDTHHMMSSZ#workout_id` (e.g., `20260107T231500Z#b6d2c0a1e9b4`)
 
 Why:
 
@@ -59,9 +57,9 @@ Why:
 
 Preferred order:
 
-1) `source_item_id` (if using Graph): `sha1(source_item_id)`  
-2) else `sha1(file_sha256)`  
-3) else `sha1(source_file_path + source_file_name + start_time_utc)`
+1. `source_item_id` (if using Graph): `sha1(source_item_id)`
+2. `sha1(file_sha256)`
+3. `sha1(source_file_path + source_file_name + start_time_utc)`
 
 > Goal: stable across reprocessing; changes only if the underlying file truly changes.
 
@@ -314,21 +312,10 @@ Tracks what was ingested, avoids duplicates, and preserves errors for troublesho
 
 ## Recommended endpoints (v1)
 
-1. `GET /api/workouts?since=YYYY-MM-DD&limit=N`
-   - returns list of Workouts summary fields (no time-series)
-
-2. `GET /api/workouts/{workout_id}`
-   - returns full Workouts entity
-
-3. `GET /api/rollups/weekly?weeks=12`
-   - returns WeeklyRollups list
-
-4. `GET /api/planning/context?days=45`
-   - returns:
-     - recent workouts (last N)
-     - weekly rollups (weeks covering the range)
-     - “last hard day”, “last long day”, Z2 volume, intensity volume
-     - any flags (missing HR, etc.)
+1. `GET /api/workouts?since=YYYY-MM-DD&limit=N` - returns list of Workouts summary fields (no time-series)
+2. `GET /api/workouts/{workout_id}` - returns full Workouts entity
+3. `GET /api/rollups/weekly?weeks=12` - returns WeeklyRollups list
+4. `GET /api/planning/context?days=45` - returns recent workouts, weekly rollups, "last hard day", "last long day", Z2 volume, intensity volume, and any flags (missing HR, etc.)
 
 Auth for Azure Functions:
 
