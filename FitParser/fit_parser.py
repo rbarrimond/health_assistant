@@ -328,38 +328,85 @@ class FitParser:
                     return float(calories.value)
         return None
 
-    def _compute_hr_zones(self):
-        """Compute time in HR zones (simplified 5-zone model)."""
-        # Default HR zones (would be configurable)
-        # Z1: 50-60%, Z2: 60-70%, Z3: 70-80%, Z4: 80-90%, Z5: 90-100%
-        hr_max = self.metrics.get("hr_max_bpm")
-        if not hr_max:
-            return
-
+    def _compute_hr_zones(self, zone_basis: str = "HRmax", reference_bpm: Optional[float] = None, 
+                          hr_rest: Optional[float] = None):
+        """
+        Compute time in HR zones using specified basis method.
+        
+        Args:
+            zone_basis: "HRmax", "LTHR" (Lactate Threshold), or "HRR" (Heart Rate Reserve/Karvonen)
+            reference_bpm: HRmax or LTHR value (if not provided, uses detected max HR)
+            hr_rest: Resting HR for HRR method (if not provided, uses default 60 bpm)
+        """
         hrs = self._get_record_data("heart_rate")
         if not hrs:
             return
 
-        zones = {
-            "hr_z1": (int(hr_max * 0.50), int(hr_max * 0.60)),
-            "hr_z2": (int(hr_max * 0.60), int(hr_max * 0.70)),
-            "hr_z3": (int(hr_max * 0.70), int(hr_max * 0.80)),
-            "hr_z4": (int(hr_max * 0.80), int(hr_max * 0.90)),
-            "hr_z5": (int(hr_max * 0.90), int(hr_max * 1.00)),
-        }
+        # Determine reference heart rate
+        if reference_bpm is None:
+            if zone_basis == "HRmax":
+                reference_bpm = self.metrics.get("hr_max_bpm")
+            elif zone_basis == "LTHR":
+                # LTHR typically ~85-95% of HRmax, default to 90%
+                hr_max = self.metrics.get("hr_max_bpm")
+                reference_bpm = hr_max * 0.90 if hr_max else None
+            elif zone_basis == "HRR":
+                reference_bpm = self.metrics.get("hr_max_bpm")
+        
+        if not reference_bpm:
+            return
 
+        # Define zone boundaries based on method
+        if zone_basis == "HRmax":
+            # Standard 5-zone model based on % of HRmax
+            zones = {
+                "hr_z1": (int(reference_bpm * 0.50), int(reference_bpm * 0.60)),
+                "hr_z2": (int(reference_bpm * 0.60), int(reference_bpm * 0.70)),
+                "hr_z3": (int(reference_bpm * 0.70), int(reference_bpm * 0.80)),
+                "hr_z4": (int(reference_bpm * 0.80), int(reference_bpm * 0.90)),
+                "hr_z5": (int(reference_bpm * 0.90), int(reference_bpm * 1.00)),
+            }
+        elif zone_basis == "LTHR":
+            # Zones based on % of LTHR (common in cycling)
+            # Z1: <81%, Z2: 81-89%, Z3: 90-93%, Z4: 94-99%, Z5: 100-102%, Z6: 103-106%, Z7: >106%
+            # Simplified to 5 zones here
+            zones = {
+                "hr_z1": (int(reference_bpm * 0.65), int(reference_bpm * 0.81)),
+                "hr_z2": (int(reference_bpm * 0.81), int(reference_bpm * 0.90)),
+                "hr_z3": (int(reference_bpm * 0.90), int(reference_bpm * 0.94)),
+                "hr_z4": (int(reference_bpm * 0.94), int(reference_bpm * 1.00)),
+                "hr_z5": (int(reference_bpm * 1.00), int(reference_bpm * 1.06)),
+            }
+        elif zone_basis == "HRR":
+            # Karvonen method: HR = (HRmax - HRrest) * intensity% + HRrest
+            if hr_rest is None:
+                hr_rest = 60  # Default resting HR
+            hr_reserve = reference_bpm - hr_rest
+            zones = {
+                "hr_z1": (int(hr_reserve * 0.50 + hr_rest), int(hr_reserve * 0.60 + hr_rest)),
+                "hr_z2": (int(hr_reserve * 0.60 + hr_rest), int(hr_reserve * 0.70 + hr_rest)),
+                "hr_z3": (int(hr_reserve * 0.70 + hr_rest), int(hr_reserve * 0.80 + hr_rest)),
+                "hr_z4": (int(hr_reserve * 0.80 + hr_rest), int(hr_reserve * 0.90 + hr_rest)),
+                "hr_z5": (int(hr_reserve * 0.90 + hr_rest), int(hr_reserve * 1.00 + hr_rest)),
+            }
+        else:
+            return
+
+        # Calculate time in each zone and store boundaries
         total_sec = 0
-        for zone_name, (low, high) in zones.items():
+        for i, (zone_name, (low, high)) in enumerate(zones.items(), 1):
             count = sum(1 for hr in hrs if low <= hr <= high)
             sec = count
             self.metrics[f"{zone_name}_sec"] = sec
+            self.metrics[f"hr_z{i}_low_bpm"] = float(low)
+            self.metrics[f"hr_z{i}_high_bpm"] = float(high)
             total_sec += sec
 
         self.metrics["hr_zone_total_sec"] = total_sec
         self.metrics["hr_z2_min"] = round(self.metrics.get("hr_z2_sec", 0) / 60, 1)
         self.metrics["hr_zone_model"] = "garmin_5"
-        self.metrics["hr_zone_basis"] = "HRmax"
-        self.metrics["hr_zone_reference_bpm"] = hr_max
+        self.metrics["hr_zone_basis"] = zone_basis
+        self.metrics["hr_zone_reference_bpm"] = float(reference_bpm)
 
     def _compute_power_zones(self):
         """Compute time in power zones (simplified 7-zone Coggan model)."""

@@ -14,37 +14,40 @@ This guide explains how to set up a Power Automate flow to monitor OneDrive and 
 ### Trigger: OneDrive File Monitor
 
 1. Create new cloud flow → Automated cloud flow
-2. Trigger: "When a file is created (properties only)" 
+2. Trigger: "When a file is created (properties only)"
    - Location: Your OneDrive
    - Folder: `/Apps/HealthFit`
 
 ### Action 1: Get file content
 
-2. Add action → "Get file content"
+1. Add action → "Get file content"
    - File: `{Id}` from trigger
 
 ### Action 2: Convert to Base64
 
-3. Add action → "Compose"
+1. Add action → "Compose"
    - Input: `base64(outputs('Get_file_content')?['body'])`
    - Save as: compose_base64
 
 ### Action 3: Get file metadata
 
-4. Add action → "Get file properties"
+1. Add action → "Get file properties"
    - File: `{Id}` from trigger
    - Save outputs
 
 ### Action 4: Call Azure Function
 
-5. Add action → "HTTP"
+1. Add action → "HTTP"
    - Method: POST
    - URI: `https://<FUNCTION_APP_NAME>.azurewebsites.net/api/process_fit?code=<FUNCTION_KEY>`
    - Headers:
+
      ```
      Content-Type: application/json
      ```
+
    - Body:
+
      ```json
      {
        "athlete_id": "rob",
@@ -60,7 +63,7 @@ This guide explains how to set up a Power Automate flow to monitor OneDrive and 
 
 ### Action 5: Handle Response (Optional)
 
-6. Add condition → Check response status
+1. Add condition → Check response status
    - If success (200-299): Log to Application Insights or send notification
    - If error: Send email alert or log to Azure Blob
 
@@ -83,6 +86,7 @@ The function returns:
 ## Idempotency
 
 The function checks `IngestionState` table before processing:
+
 - **Primary key**: `source_item_id` (recommended - OneDrive itemId)
 - **Fallback**: `file_sha256` hash
 
@@ -112,5 +116,6 @@ def check_onedrive_changes():
 ```
 
 This requires:
+
 - Microsoft Graph SDK: `pip install msgraph-sdk`
 - Graph permissions: `Files.Read` scope

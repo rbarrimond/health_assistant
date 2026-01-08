@@ -1,7 +1,6 @@
-"""
-Health Assistant - FIT File Processor
+# Health Assistant - FIT File Processor
 
-Azure Function for parsing HealthFit FIT files from OneDrive and storing 
+Azure Function for parsing HealthFit FIT files from OneDrive and storing
 metrics in Azure Table Storage according to the workout schema.
 
 ## Architecture
@@ -14,24 +13,31 @@ metrics in Azure Table Storage according to the workout schema.
 ## Configuration
 
 Environment variables required:
+
 - AzureWebJobsStorage: Connection string to Azure Storage account
 - Or AZURE_STORAGE_ACCOUNT_URL: Direct storage account URL (with DefaultAzureCredential)
 
 Optional:
+
 - DEFAULT_ATHLETE_ID: Default athlete identifier (default: 'rob')
 - DEFAULT_FTP: Default FTP for power zones (default: 250W)
 - DEFAULT_MAX_HR: Default max HR for heart rate zones (default: 190bpm)
+- HR_ZONE_BASIS: Heart rate zone calculation method - 'HRmax', 'LTHR' (Lactate Threshold), or 'HRR' (Heart Rate Reserve/Karvonen) (default: 'HRmax')
+- HR_ZONE_REFERENCE_BPM: Reference HR for zone calculation (0 = auto-detect from workout) (default: 0)
+- HR_RESTING_BPM: Resting heart rate for HRR method (default: 60bpm)
 - ONEDRIVE_FOLDER_PATH: OneDrive path being monitored (default: '/Apps/HealthFit')
 
 ## Local Development
 
 1. Set up Python environment:
+
    ```bash
    source .venv/bin/activate
    pip install -r requirements.txt
    ```
 
 2. Create local.settings.json with storage account details:
+
    ```json
    {
      "IsEncrypted": false,
@@ -43,11 +49,13 @@ Optional:
    ```
 
 3. Run locally:
+
    ```bash
    func start
    ```
 
 4. Test the function:
+
    ```bash
    curl -X POST http://localhost:7071/api/process_fit \\
      -H "Content-Type: application/json" \\
@@ -57,6 +65,7 @@ Optional:
 ## Deployment
 
 Deploy to Azure:
+
 ```bash
 func azure functionapp publish <FUNCTION_APP_NAME>
 ```
@@ -64,10 +73,10 @@ func azure functionapp publish <FUNCTION_APP_NAME>
 ## Integration with Power Automate
 
 Create a Power Automate flow that:
+
 1. Monitors /Apps/HealthFit folder in OneDrive
 2. For each new .fit file:
    - Read file content
    - Convert to base64
    - Extract metadata (itemId, name, path, size)
    - POST to ProcessFitFiles endpoint with function key auth
-"""

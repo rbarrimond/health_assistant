@@ -280,6 +280,7 @@ jobs:
 ```
 
 Get publish profile:
+
 ```bash
 az functionapp deployment list-publishing-profiles \
   --name $FUNCTION_APP \
