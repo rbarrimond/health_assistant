@@ -1,7 +1,6 @@
 """Configuration and environment utilities."""
 
 import os
-from typing import Optional
 
 
 class Config:
@@ -16,7 +15,7 @@ class Config:
     
     # FIT parsing - Heart Rate Zones
     HR_ZONE_BASIS = os.getenv("HR_ZONE_BASIS", "HRmax")  # HRmax, LTHR, or HRR
-    HR_ZONE_REFERENCE_BPM = int(os.getenv("HR_ZONE_REFERENCE_BPM", "0")) or None  # 0 = auto-detect
+    HR_ZONE_REFERENCE_BPM = int(os.getenv("HR_ZONE_REFERENCE_BPM", "0")) or None  # 0 = auto-detect  # NOSONAR - S125 - keeping for future use
     HR_RESTING_BPM = int(os.getenv("HR_RESTING_BPM", "60"))  # For HRR method
     
     # FIT parsing - Power Zones
