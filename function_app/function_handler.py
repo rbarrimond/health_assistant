@@ -58,7 +58,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     try:
         # Parse request payload
         payload = parse_onedrive_payload(req)
-        logger.info(f"Processing file: {payload.get('source_file_name')}")
+        logger.info("Processing file: %s", payload.get("source_file_name"))
 
         athlete_id = payload["athlete_id"]
         file_content_b64 = payload["file_content_b64"]
@@ -68,7 +68,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         try:
             file_content = base64.b64decode(file_content_b64)
         except Exception as e:
-            logger.error(f"Failed to decode base64 file content: {e}")
+            logger.error("Failed to decode base64 file content: %s", e)
             return func.HttpResponse(
                 json.dumps({"error": "Invalid base64 encoding"}),
                 status_code=400,
@@ -83,7 +83,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         try:
             # Compute file hash for idempotency
             file_sha256 = compute_file_hash(tmp_path)
-            logger.info(f"File SHA256: {file_sha256}")
+            logger.info("File SHA256: %s", file_sha256)
 
             # Initialize storage and check if already processed
             storage = WorkoutTableStorage()
@@ -92,7 +92,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             existing = storage.get_ingestion_state(athlete_id, file_key)
             
             if existing and existing.get("status") == "ingested":
-                logger.info(f"File already ingested: {file_key}")
+                logger.info("File already ingested: %s", file_key)
                 return func.HttpResponse(
                     json.dumps({
                         "status": "skipped",
@@ -106,7 +106,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             # Parse FIT file
             parser = FitParser(tmp_path)
             metrics = parser.parse()
-            logger.info(f"Parsed metrics: {list(metrics.keys())}")
+            logger.info("Parsed metrics: %s", list(metrics.keys()))
 
             # Build source info
             source_info = {
@@ -131,7 +131,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 workout_id=workout_id
             )
 
-            logger.info(f"Successfully ingested workout {workout_id}")
+            logger.info("Successfully ingested workout %s", workout_id)
 
             return func.HttpResponse(
                 json.dumps({
@@ -151,7 +151,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             )
 
         except Exception as e:
-            logger.error(f"Error parsing or storing FIT file: {e}", exc_info=True)
+            logger.error("Error parsing or storing FIT file: %s", e, exc_info=True)
             
             # Record failed ingestion
             try:
@@ -179,14 +179,14 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 pass
 
     except ValueError as e:
-        logger.error(f"Validation error: {e}")
+        logger.error("Validation error: %s", e)
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
             status_code=400,
             mimetype="application/json"
         )
     except Exception as e:
-        logger.error(f"Unexpected error: {e}", exc_info=True)
+        logger.error("Unexpected error: %s", e, exc_info=True)
         return func.HttpResponse(
             json.dumps({"error": "Internal server error"}),
             status_code=500,

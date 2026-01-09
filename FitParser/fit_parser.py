@@ -28,7 +28,7 @@ class FitParser:
         try:
             self.fit = fitparse.Activity(self.file_path)
         except Exception as e:
-            logger.error(f"Error parsing FIT file {self.file_path}: {e}")
+            logger.error("Error parsing FIT file %s: %s", self.file_path, e)
             raise
 
         self.metrics = {

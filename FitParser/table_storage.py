@@ -29,9 +29,9 @@ class WorkoutTableStorage:
         for table_name in ["Workouts", "WeeklyRollups", "IngestionState"]:
             try:
                 self.service_client.create_table_if_not_exists(table_name)
-                logger.info(f"Table {table_name} ready")
+                logger.info("Table %s ready", table_name)
             except Exception as e:
-                logger.error(f"Error creating table {table_name}: {e}")
+                logger.error("Error creating table %s: %s", table_name, e)
                 raise
 
     def _get_table_client(self, table_name: str) -> TableClient:
@@ -104,10 +104,10 @@ class WorkoutTableStorage:
         try:
             table_client = self._get_table_client("Workouts")
             table_client.upsert_entity(entity)
-            logger.info(f"Stored workout {workout_id} for {athlete_id}")
+            logger.info("Stored workout %s for %s", workout_id, athlete_id)
             return workout_id
         except Exception as e:
-            logger.error(f"Error storing workout: {e}")
+            logger.error("Error storing workout: %s", e)
             raise
 
     def record_ingestion_state(self, athlete_id: str, file_info: Dict, 
@@ -142,9 +142,9 @@ class WorkoutTableStorage:
         try:
             table_client = self._get_table_client("IngestionState")
             table_client.upsert_entity(entity)
-            logger.info(f"Recorded ingestion state for {row_key}: {status}")
+            logger.info("Recorded ingestion state for %s: %s", row_key, status)
         except Exception as e:
-            logger.error(f"Error recording ingestion state: {e}")
+            logger.error("Error recording ingestion state: %s", e)
             # Don't raise - this shouldn't block the main ingestion
 
     def get_ingestion_state(self, athlete_id: str, file_key: str) -> Optional[Dict]:
@@ -176,7 +176,7 @@ class WorkoutTableStorage:
         try:
             table_client = self._get_table_client("WeeklyRollups")
             table_client.upsert_entity(entity)
-            logger.info(f"Updated weekly rollup {year}-W{week} for {athlete_id}")
+            logger.info("Updated weekly rollup %s-W%s for %s", year, week, athlete_id)
         except Exception as e:
-            logger.error(f"Error updating weekly rollup: {e}")
+            logger.error("Error updating weekly rollup: %s", e)
             # Don't raise - rollups are secondary
