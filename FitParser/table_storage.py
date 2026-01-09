@@ -6,6 +6,7 @@ from typing import Dict, Optional
 import os
 
 from azure.data.tables import TableClient, TableServiceClient
+from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 from azure.identity import DefaultAzureCredential
 
 from FitParser.fit_parser import compute_workout_id
@@ -99,7 +100,7 @@ class WorkoutTableStorage:
                 entity[key] = value
 
         # Add ingestion metadata
-        now_utc = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        now_utc = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")  # NOSONAR - explicit literal more legible than constant
         entity["ingest_version"] = "v1.0.0"
         entity["ingested_at_utc"] = now_utc
 
@@ -109,8 +110,8 @@ class WorkoutTableStorage:
             table_client.upsert_entity(entity)
             logger.info("Stored workout %s for %s", workout_id, athlete_id)
             return workout_id
-        except Exception as e:
-            logger.error("Error storing workout: %s", e)
+        except HttpResponseError as e:
+            logger.error("Error storing workout %s: %s", workout_id, e)
             raise
 
     def record_ingestion_state(self, athlete_id: str, file_info: Dict, 
@@ -146,7 +147,7 @@ class WorkoutTableStorage:
             table_client = self._get_table_client("IngestionState")
             table_client.upsert_entity(entity)
             logger.info("Recorded ingestion state for %s: %s", row_key, status)
-        except Exception as e:
+        except HttpResponseError as e:
             logger.error("Error recording ingestion state: %s", e)
             # Don't raise - this shouldn't block the main ingestion
 
@@ -156,7 +157,11 @@ class WorkoutTableStorage:
             table_client = self._get_table_client("IngestionState")
             entity = table_client.get_entity(partition_key=athlete_id, row_key=file_key)
             return entity
-        except Exception:
+        except ResourceNotFoundError:
+            # Entity doesn't exist yet - not an error
+            return None
+        except HttpResponseError as e:
+            logger.warning("Error checking ingestion state for %s: %s", file_key, e)
             return None
 
     def update_weekly_rollup(self, athlete_id: str, year: str, week: str, rollup_data: Dict):
@@ -180,6 +185,6 @@ class WorkoutTableStorage:
             table_client = self._get_table_client("WeeklyRollups")
             table_client.upsert_entity(entity)
             logger.info("Updated weekly rollup %s-W%s for %s", year, week, athlete_id)
-        except Exception as e:
+        except HttpResponseError as e:
             logger.error("Error updating weekly rollup: %s", e)
             # Don't raise - rollups are secondary
