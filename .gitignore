@@ -31,4 +31,7 @@ Thumbs.db
 .coverage
 htmlcov/
 
+# Azurite
+.azurite/
+
 .python_packages
