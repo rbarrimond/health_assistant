@@ -3,9 +3,12 @@
 import logging
 from datetime import datetime
 from typing import Dict, Optional
+import os
+
 from azure.data.tables import TableClient, TableServiceClient
 from azure.identity import DefaultAzureCredential
-import os
+
+from FitParser.fit_parser import compute_workout_id
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +53,6 @@ class WorkoutTableStorage:
         Returns:
             workout_id of stored entity
         """
-        from FitParser.fit_parser import compute_workout_id
-        
         # Generate deterministic workout_id
         workout_id = compute_workout_id(
             source_item_id=source_info.get("source_item_id"),

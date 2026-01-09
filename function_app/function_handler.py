@@ -1,5 +1,6 @@
 """Azure Function to process FIT files from OneDrive."""
 
+import base64
 import azure.functions as func
 import json
 import logging
@@ -64,7 +65,6 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         file_content_b64 = payload["file_content_b64"]
         
         # Decode base64 file content
-        import base64
         try:
             file_content = base64.b64decode(file_content_b64)
         except Exception as e:

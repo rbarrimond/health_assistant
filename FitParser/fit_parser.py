@@ -1,10 +1,11 @@
 """Parse FIT files and extract workout metrics."""
 
 import hashlib
-from datetime import datetime
-from typing import Dict, List, Optional, Tuple
-import fitparse
 import logging
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple
+
+import fitparse
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +161,6 @@ class FitParser:
         start = self._get_start_time()
         duration = self._get_duration()
         if start and duration:
-            from datetime import datetime, timedelta, timezone
             dt = datetime.fromisoformat(start.replace("Z", ""))
             end_dt = dt + timedelta(seconds=duration)
             return end_dt.isoformat() + "Z"

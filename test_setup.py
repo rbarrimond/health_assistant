@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-
 PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     # Ensure project modules are importable when pytest runs from repo root
