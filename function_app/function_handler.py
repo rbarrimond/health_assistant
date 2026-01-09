@@ -1,12 +1,14 @@
 """Azure Function to process FIT files from OneDrive."""
 
 import base64
-import azure.functions as func
 import json
 import logging
 import os
 import tempfile
 from typing import Dict, Optional
+
+import azure.functions as func
+
 from FitParser.fit_parser import FitParser, compute_file_hash
 from FitParser.table_storage import WorkoutTableStorage
 
