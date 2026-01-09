@@ -7,5 +7,10 @@
     "debug.internalConsoleOptions": "neverOpen",
     "files.associations": {
         ".webhintignore": "ignore"
-    }
+    },
+    "webhint.exclude": [
+        "**/htmlcov/**",
+        "**/.venv/**",
+        "**/__pycache__/**"
+    ]
 }
