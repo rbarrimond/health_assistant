@@ -3,7 +3,7 @@
   "ignoredUrls": [
     {
       "domain": ".*",
-      "patterns": ["**/htmlcov/**"],
+      "resources": [".*htmlcov/.*"],
       "hints": ["*"]
     }
   ]
