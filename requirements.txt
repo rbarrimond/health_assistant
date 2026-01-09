@@ -1,3 +1,6 @@
+# Production dependencies for Azure Functions deployment
+# Source of truth: pyproject.toml
+# This file is maintained for Azure Functions compatibility
 azure-functions>=1.14.0
 azure-data-tables>=12.4.0
 azure-identity>=1.14.0
