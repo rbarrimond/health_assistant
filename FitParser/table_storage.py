@@ -22,8 +22,10 @@ class WorkoutTableStorage:
             self.service_client = TableServiceClient.from_connection_string(connection_string)
         else:
             account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
+            if not account_url:
+                raise ValueError("AZURE_STORAGE_ACCOUNT_URL environment variable is required when connection_string is not provided")
             credential = DefaultAzureCredential()
-            self.service_client = TableServiceClient(account_url=account_url, credential=credential)
+            self.service_client = TableServiceClient(endpoint=account_url, credential=credential)
 
         self._ensure_tables_exist()
 
