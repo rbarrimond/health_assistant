@@ -3,7 +3,7 @@
 import hashlib
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, cast
 
 import fitparse
 
@@ -18,6 +18,9 @@ class FitParser:
         self.file_path = file_path
         self.fit = None
         self.metrics = {}
+        self._file_id_msg = None
+        self._session_msg = None
+        self._records = None
 
     def parse(self) -> Dict:
         """
@@ -27,10 +30,13 @@ class FitParser:
             Dict with parsed workout data
         """
         try:
-            self.fit = fitparse.Activity(self.file_path)
+            self.fit = fitparse.FitFile(self.file_path)
         except Exception as e:
             logger.error("Error parsing FIT file %s: %s", self.file_path, e)
             raise
+
+        # Cache message lookups for efficiency
+        self._cache_messages()
 
         self.metrics = {
             # Identity
@@ -90,70 +96,91 @@ class FitParser:
 
         return self.metrics
 
+    def _cache_messages(self) -> None:
+        """Cache frequently-accessed FIT messages for efficiency."""
+        if not self.fit:
+            return
+        for message in self.fit.get_messages("file_id"):
+            self._file_id_msg = message
+        for message in self.fit.get_messages("session"):
+            self._session_msg = message
+
+    def _get_file_id_msg(self):
+        """Get cached file_id message."""
+        return self._file_id_msg
+
+    def _get_session_msg(self):
+        """Get cached session message."""
+        return self._session_msg
+
+    def _get_records(self) -> List:
+        """Get cached records list."""
+        if self._records is None:
+            self._records = list(self.fit.get_messages("record")) if self.fit else []
+        return self._records
+
     def _get_record_data(self, field_name: str) -> List:
         """Extract all values for a field from record messages."""
         values = []
-        for record in self.fit.records:
+        for record in self._get_records():
             data = record.get(field_name)
             if data:
                 values.append(data.value)
         return values
 
+    def _get_field_from_msg(self, msg, field_name: str) -> Optional[Any]:
+        """Safely get a field value from a FIT message."""
+        if msg:
+            field = msg.get(field_name)
+            if field:
+                return field.value
+        return None
+
     def _get_sport(self) -> Optional[str]:
         """Get sport type from file messages."""
-        for file_msg in self.fit.messages:
-            if file_msg.name == "file_id":
-                sport = file_msg.get("type")
-                if sport:
-                    return sport.value.name.lower()
+        file_msg = self._get_file_id_msg()
+        sport = self._get_field_from_msg(file_msg, "type")
+        if sport and hasattr(sport, "name"):
+            return str(cast(Any, sport).name).lower()
         return None
 
     def _get_sub_sport(self) -> Optional[str]:
         """Get sub-sport type."""
-        for session in self.fit.messages:
-            if session.name == "session":
-                sub_sport = session.get("sub_sport")
-                if sub_sport:
-                    return sub_sport.value.name.lower()
+        session = self._get_session_msg()
+        sub_sport = self._get_field_from_msg(session, "sub_sport")
+        if sub_sport and hasattr(sub_sport, "name"):
+            return str(cast(Any, sub_sport).name).lower()
         return None
 
     def _get_workout_name(self) -> Optional[str]:
         """Get workout/session name if available."""
-        for session in self.fit.messages:
-            if session.name == "session":
-                name = session.get("session_name")
-                if name:
-                    return name.value
-        return None
+        session = self._get_session_msg()
+        name = self._get_field_from_msg(session, "session_name")
+        return str(name) if name is not None else None
 
     def _get_device_name(self) -> Optional[str]:
         """Get device/manufacturer info."""
-        for file_msg in self.fit.messages:
-            if file_msg.name == "file_id":
-                manufacturer = file_msg.get("manufacturer")
-                if manufacturer:
-                    return manufacturer.value.name
+        file_msg = self._get_file_id_msg()
+        manufacturer = self._get_field_from_msg(file_msg, "manufacturer")
+        if manufacturer and hasattr(manufacturer, "name"):
+            return str(cast(Any, manufacturer).name)
         return None
 
     def _get_is_indoor(self) -> Optional[bool]:
         """Determine if workout is indoor."""
-        for session in self.fit.messages:
-            if session.name == "session":
-                indoor = session.get("indoor")
-                if indoor:
-                    return indoor.value
-        return None
+        session = self._get_session_msg()
+        indoor = self._get_field_from_msg(session, "indoor")
+        return bool(indoor) if indoor is not None else None
 
     def _get_start_time(self) -> Optional[str]:
         """Get workout start time as ISO string."""
-        for session in self.fit.messages:
-            if session.name == "session":
-                timestamp = session.get("start_time")
-                if timestamp:
-                    dt = timestamp.value
-                    if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=None)
-                    return dt.isoformat() + "Z"
+        session = self._get_session_msg()
+        timestamp = self._get_field_from_msg(session, "start_time")
+        if timestamp and isinstance(timestamp, datetime):
+            dt = timestamp
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=None)
+            return dt.isoformat() + "Z"
         return None
 
     def _get_end_time(self) -> Optional[str]:
@@ -168,78 +195,56 @@ class FitParser:
 
     def _get_timezone(self) -> Optional[str]:
         """Get timezone info if available."""
-        # FIT files don't typically include timezone, would need external mapping
         return None
 
     def _get_duration(self) -> Optional[int]:
         """Get total elapsed time in seconds."""
-        for session in self.fit.messages:
-            if session.name == "session":
-                elapsed = session.get("total_elapsed_time")
-                if elapsed:
-                    return int(elapsed.value)
-        return None
+        session = self._get_session_msg()
+        elapsed = self._get_field_from_msg(session, "total_elapsed_time")
+        return int(cast(int, elapsed)) if elapsed is not None else None
 
     def _get_moving_time(self) -> Optional[int]:
         """Get moving time if available (for cycling usually equals duration)."""
-        for session in self.fit.messages:
-            if session.name == "session":
-                timer = session.get("total_timer_time")
-                if timer:
-                    return int(timer.value)
-        return None
+        session = self._get_session_msg()
+        timer = self._get_field_from_msg(session, "total_timer_time")
+        return int(cast(int, timer)) if timer is not None else None
 
     def _has_gps_data(self) -> bool:
         """Check if GPS data (lat/lon) exists in records."""
-        for record in self.fit.records:
+        for record in self._get_records():
             if record.get("position_lat") and record.get("position_long"):
                 return True
         return False
 
     def _get_distance(self) -> Optional[float]:
         """Get total distance in meters."""
-        for session in self.fit.messages:
-            if session.name == "session":
-                distance = session.get("total_distance")
-                if distance:
-                    return float(distance.value)
-        return None
+        session = self._get_session_msg()
+        distance = self._get_field_from_msg(session, "total_distance")
+        return float(cast(float, distance)) if distance is not None else None
 
     def _get_elevation_gain(self) -> Optional[float]:
         """Get total elevation gain in meters."""
-        for session in self.fit.messages:
-            if session.name == "session":
-                elev = session.get("total_ascent")
-                if elev:
-                    return float(elev.value)
-        return None
+        session = self._get_session_msg()
+        elev = self._get_field_from_msg(session, "total_ascent")
+        return float(cast(float, elev)) if elev is not None else None
 
     def _get_elevation_loss(self) -> Optional[float]:
         """Get total elevation loss in meters."""
-        for session in self.fit.messages:
-            if session.name == "session":
-                elev = session.get("total_descent")
-                if elev:
-                    return float(elev.value)
-        return None
+        session = self._get_session_msg()
+        elev = self._get_field_from_msg(session, "total_descent")
+        return float(cast(float, elev)) if elev is not None else None
 
     def _get_avg_speed(self) -> Optional[float]:
         """Get average speed in m/s."""
-        for session in self.fit.messages:
-            if session.name == "session":
-                speed = session.get("avg_speed")
-                if speed:
-                    return float(speed.value)
-        return None
+        session = self._get_session_msg()
+        speed = self._get_field_from_msg(session, "avg_speed")
+        return float(cast(float, speed)) if speed is not None else None
 
     def _get_max_speed(self) -> Optional[float]:
         """Get max speed in m/s."""
-        for session in self.fit.messages:
-            if session.name == "session":
-                speed = session.get("max_speed")
-                if speed:
-                    return float(speed.value)
-        return None
+        session = self._get_session_msg()
+        speed = self._get_field_from_msg(session, "max_speed")
+        return float(cast(float, speed)) if speed is not None else None
 
     def _get_hr_avg(self) -> Optional[float]:
         """Get average heart rate."""
@@ -321,12 +326,54 @@ class FitParser:
 
     def _get_calories(self) -> Optional[float]:
         """Get total calories."""
-        for session in self.fit.messages:
-            if session.name == "session":
-                calories = session.get("total_calories")
-                if calories:
-                    return float(calories.value)
-        return None
+        session = self._get_session_msg()
+        calories = self._get_field_from_msg(session, "total_calories")
+        return float(cast(float, calories)) if calories is not None else None
+
+    def _get_hr_zones(self, zone_basis: str, reference_bpm: float, 
+                      hr_rest: Optional[float] = None) -> Dict[str, tuple]:
+        """Get HR zone boundaries based on calculation method."""
+        if zone_basis == "HRmax":
+            return {
+                "hr_z1": (int(reference_bpm * 0.50), int(reference_bpm * 0.60)),
+                "hr_z2": (int(reference_bpm * 0.60), int(reference_bpm * 0.70)),
+                "hr_z3": (int(reference_bpm * 0.70), int(reference_bpm * 0.80)),
+                "hr_z4": (int(reference_bpm * 0.80), int(reference_bpm * 0.90)),
+                "hr_z5": (int(reference_bpm * 0.90), int(reference_bpm * 1.00)),
+            }
+        if zone_basis == "LTHR":
+            return {
+                "hr_z1": (int(reference_bpm * 0.65), int(reference_bpm * 0.81)),
+                "hr_z2": (int(reference_bpm * 0.81), int(reference_bpm * 0.90)),
+                "hr_z3": (int(reference_bpm * 0.90), int(reference_bpm * 0.94)),
+                "hr_z4": (int(reference_bpm * 0.94), int(reference_bpm * 1.00)),
+                "hr_z5": (int(reference_bpm * 1.00), int(reference_bpm * 1.06)),
+            }
+        if zone_basis == "HRR":
+            rest_hr = hr_rest if hr_rest else 60
+            hr_reserve = reference_bpm - rest_hr
+            return {
+                "hr_z1": (int(hr_reserve * 0.50 + rest_hr), int(hr_reserve * 0.60 + rest_hr)),
+                "hr_z2": (int(hr_reserve * 0.60 + rest_hr), int(hr_reserve * 0.70 + rest_hr)),
+                "hr_z3": (int(hr_reserve * 0.70 + rest_hr), int(hr_reserve * 0.80 + rest_hr)),
+                "hr_z4": (int(hr_reserve * 0.80 + rest_hr), int(hr_reserve * 0.90 + rest_hr)),
+                "hr_z5": (int(hr_reserve * 0.90 + rest_hr), int(hr_reserve * 1.00 + rest_hr)),
+            }
+        return {}
+
+    def _get_reference_bpm(self, zone_basis: str, 
+                           reference_bpm: Optional[float] = None) -> Optional[float]:
+        """Determine reference BPM for zone calculation."""
+        if reference_bpm is not None:
+            return reference_bpm
+        
+        hr_max = self.metrics.get("hr_max_bpm")
+        if not hr_max:
+            return None
+        
+        if zone_basis == "LTHR":
+            return hr_max * 0.90
+        return hr_max if zone_basis in ("HRmax", "HRR") else None
 
     def _compute_hr_zones(self, zone_basis: str = "HRmax", reference_bpm: Optional[float] = None, 
                           hr_rest: Optional[float] = None):
@@ -342,76 +389,33 @@ class FitParser:
         if not hrs:
             return
 
-        # Determine reference heart rate
-        if reference_bpm is None:
-            if zone_basis == "HRmax":
-                reference_bpm = self.metrics.get("hr_max_bpm")
-            elif zone_basis == "LTHR":
-                # LTHR typically ~85-95% of HRmax, default to 90%
-                hr_max = self.metrics.get("hr_max_bpm")
-                reference_bpm = hr_max * 0.90 if hr_max else None
-            elif zone_basis == "HRR":
-                reference_bpm = self.metrics.get("hr_max_bpm")
-        
-        if not reference_bpm:
+        ref_bpm = self._get_reference_bpm(zone_basis, reference_bpm)
+        if not ref_bpm:
             return
 
-        # Define zone boundaries based on method
-        if zone_basis == "HRmax":
-            # Standard 5-zone model based on % of HRmax
-            zones = {
-                "hr_z1": (int(reference_bpm * 0.50), int(reference_bpm * 0.60)),
-                "hr_z2": (int(reference_bpm * 0.60), int(reference_bpm * 0.70)),
-                "hr_z3": (int(reference_bpm * 0.70), int(reference_bpm * 0.80)),
-                "hr_z4": (int(reference_bpm * 0.80), int(reference_bpm * 0.90)),
-                "hr_z5": (int(reference_bpm * 0.90), int(reference_bpm * 1.00)),
-            }
-        elif zone_basis == "LTHR":
-            # Zones based on % of LTHR (common in cycling)
-            # Z1: <81%, Z2: 81-89%, Z3: 90-93%, Z4: 94-99%, Z5: 100-102%, Z6: 103-106%, Z7: >106%
-            # Simplified to 5 zones here
-            zones = {
-                "hr_z1": (int(reference_bpm * 0.65), int(reference_bpm * 0.81)),
-                "hr_z2": (int(reference_bpm * 0.81), int(reference_bpm * 0.90)),
-                "hr_z3": (int(reference_bpm * 0.90), int(reference_bpm * 0.94)),
-                "hr_z4": (int(reference_bpm * 0.94), int(reference_bpm * 1.00)),
-                "hr_z5": (int(reference_bpm * 1.00), int(reference_bpm * 1.06)),
-            }
-        elif zone_basis == "HRR":
-            # Karvonen method: HR = (HRmax - HRrest) * intensity% + HRrest
-            if hr_rest is None:
-                hr_rest = 60  # Default resting HR
-            hr_reserve = reference_bpm - hr_rest
-            zones = {
-                "hr_z1": (int(hr_reserve * 0.50 + hr_rest), int(hr_reserve * 0.60 + hr_rest)),
-                "hr_z2": (int(hr_reserve * 0.60 + hr_rest), int(hr_reserve * 0.70 + hr_rest)),
-                "hr_z3": (int(hr_reserve * 0.70 + hr_rest), int(hr_reserve * 0.80 + hr_rest)),
-                "hr_z4": (int(hr_reserve * 0.80 + hr_rest), int(hr_reserve * 0.90 + hr_rest)),
-                "hr_z5": (int(hr_reserve * 0.90 + hr_rest), int(hr_reserve * 1.00 + hr_rest)),
-            }
-        else:
+        zones = self._get_hr_zones(zone_basis, ref_bpm, hr_rest)
+        if not zones:
             return
 
-        # Calculate time in each zone and store boundaries
+        # Calculate time in each zone
         total_sec = 0
         for i, (zone_name, (low, high)) in enumerate(zones.items(), 1):
             count = sum(1 for hr in hrs if low <= hr <= high)
-            sec = count
-            self.metrics[f"{zone_name}_sec"] = sec
+            self.metrics[f"{zone_name}_sec"] = count
             self.metrics[f"hr_z{i}_low_bpm"] = float(low)
             self.metrics[f"hr_z{i}_high_bpm"] = float(high)
-            total_sec += sec
+            total_sec += count
 
         self.metrics["hr_zone_total_sec"] = total_sec
         self.metrics["hr_z2_min"] = round(self.metrics.get("hr_z2_sec", 0) / 60, 1)
         self.metrics["hr_zone_model"] = "garmin_5"
         self.metrics["hr_zone_basis"] = zone_basis
-        self.metrics["hr_zone_reference_bpm"] = float(reference_bpm)
+        self.metrics["hr_zone_reference_bpm"] = float(ref_bpm)
 
     def _compute_power_zones(self):
         """Compute time in power zones (simplified 7-zone Coggan model)."""
-        # Default FTP assumed at 250W (would be configurable per athlete)
-        ftp = 250  # TODO: make configurable
+        # FTP (Functional Threshold Power) should be configured per athlete, defaulting to 250W
+        ftp = 250
         
         powers = self._get_record_data("power")
         if not powers:
@@ -430,9 +434,8 @@ class FitParser:
         total_sec = 0
         for zone_name, (low, high) in zones.items():
             count = sum(1 for p in powers if low <= p < high)
-            sec = count
-            self.metrics[f"{zone_name}_sec"] = sec
-            total_sec += sec
+            self.metrics[f"{zone_name}_sec"] = count
+            total_sec += count
 
         self.metrics["pwr_zone_total_sec"] = total_sec
         self.metrics["pwr_z2_min"] = round(self.metrics.get("pwr_z2_sec", 0) / 60, 1)
