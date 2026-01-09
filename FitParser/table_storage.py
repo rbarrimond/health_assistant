@@ -1,7 +1,7 @@
 """Azure Table Storage client for workout data."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional
 import os
 
@@ -97,7 +97,7 @@ class WorkoutTableStorage:
                 entity[key] = value
 
         # Add ingestion metadata
-        now_utc = datetime.utcnow().isoformat() + "Z"
+        now_utc = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         entity["ingest_version"] = "v1.0.0"
         entity["ingested_at_utc"] = now_utc
 
@@ -131,8 +131,8 @@ class WorkoutTableStorage:
             "PartitionKey": athlete_id,
             "RowKey": row_key,
             "status": status,
-            "first_seen_at_utc": file_info.get("first_seen_at_utc", datetime.utcnow().isoformat() + "Z"),
-            "last_attempt_at_utc": datetime.utcnow().isoformat() + "Z",
+            "first_seen_at_utc": file_info.get("first_seen_at_utc", datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")),
+            "last_attempt_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "workout_id": workout_id,
             "retry_count": 0,
         }
@@ -170,7 +170,7 @@ class WorkoutTableStorage:
         entity = {
             "PartitionKey": f"{athlete_id}#{year}",
             "RowKey": f"{year}-{week:0>2}",
-            "last_updated_at_utc": datetime.utcnow().isoformat() + "Z",
+            "last_updated_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         }
         entity.update(rollup_data)
 
