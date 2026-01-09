@@ -12,5 +12,10 @@
         "**/htmlcov/**",
         "**/.venv/**",
         "**/__pycache__/**"
+    ],
+    "todo-tree.general.showInProblems": false,
+    "todo-tree.filtering.excludeGlobs": [
+        "**/.vscode/extensions/**",
+        "**/typeshed/**"
     ]
 }
