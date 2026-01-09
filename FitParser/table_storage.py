@@ -20,11 +20,15 @@ class WorkoutTableStorage:
     def __init__(self, connection_string: Optional[str] = None):
         """Initialize table storage client."""
         if connection_string:
-            self.service_client = TableServiceClient.from_connection_string(connection_string)
+            self.service_client = (
+                TableServiceClient.from_connection_string(connection_string)
+            )
         else:
             account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
             if not account_url:
-                raise ValueError("AZURE_STORAGE_ACCOUNT_URL environment variable is required when connection_string is not provided")
+                msg = ("AZURE_STORAGE_ACCOUNT_URL environment variable "
+                       "is required when connection_string is not provided")
+                raise ValueError(msg)
             credential = DefaultAzureCredential()
             self.service_client = TableServiceClient(endpoint=account_url, credential=credential)
 
@@ -44,15 +48,16 @@ class WorkoutTableStorage:
         """Get table client for specified table."""
         return self.service_client.get_table_client(table_name)
 
-    def store_workout(self, athlete_id: str, metrics: Dict, source_info: Dict) -> str:
+    def store_workout(self, athlete_id: str, metrics: Dict,
+                       source_info: Dict) -> str:
         """
         Store parsed workout metrics in Workouts table.
-        
+
         Args:
             athlete_id: Athlete identifier (e.g., 'rob')
             metrics: Parsed metrics from FIT file
             source_info: OneDrive/source file info
-            
+
         Returns:
             workout_id of stored entity
         """
@@ -114,12 +119,12 @@ class WorkoutTableStorage:
             logger.error("Error storing workout %s: %s", workout_id, e)
             raise
 
-    def record_ingestion_state(self, athlete_id: str, file_info: Dict, 
-                               status: str, error: Optional[str] = None, 
+    def record_ingestion_state(self, athlete_id: str, file_info: Dict,
+                               status: str, error: Optional[str] = None,
                                workout_id: Optional[str] = None):
         """
         Record ingestion state for idempotency and debugging.
-        
+
         Args:
             athlete_id: Athlete identifier
             file_info: Source file information
@@ -128,7 +133,9 @@ class WorkoutTableStorage:
             workout_id: Associated workout_id if successful
         """
         # Use source_item_id as RowKey (primary idempotency key)
-        row_key = file_info.get("source_item_id") or file_info.get("file_sha256") or file_info.get("source_file_name")
+        row_key = (file_info.get("source_item_id") or
+                   file_info.get("file_sha256") or
+                   file_info.get("source_file_name"))
         
         entity = {
             "PartitionKey": athlete_id,

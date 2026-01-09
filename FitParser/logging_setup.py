@@ -1,7 +1,6 @@
 """Logging configuration for Azure Functions."""
 
 import logging
-import azure.functions as func
 
 
 def setup_logging():
