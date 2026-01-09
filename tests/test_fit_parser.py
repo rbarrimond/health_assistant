@@ -81,7 +81,7 @@ class TestFitParserCaching:
         parser._cache_messages()
 
         assert parser._file_id_msg is not None
-        assert parser._get_file_id_msg() is not None
+        assert parser.file_id_msg is not None
 
     def test_cache_messages_stores_session(self, sample_fit_file: Path,
                                            mock_fit_file_with_data: Mock) -> None:
@@ -92,7 +92,7 @@ class TestFitParserCaching:
         parser._cache_messages()
 
         assert parser._session_msg is not None
-        assert parser._get_session_msg() is not None
+        assert parser.session_msg is not None
 
     def test_get_records_caches_on_first_call(self, sample_fit_file: Path,
                                               mock_fit_file_with_records: Mock) -> None:
@@ -100,8 +100,8 @@ class TestFitParserCaching:
         parser = FitParser(str(sample_fit_file))
         parser.fit = mock_fit_file_with_records
 
-        records1 = parser._get_records()
-        records2 = parser._get_records()
+        records1 = parser.records
+        records2 = parser.records
 
         # Should return same object (cached)
         assert records1 is records2
