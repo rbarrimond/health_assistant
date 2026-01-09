@@ -357,7 +357,7 @@ class TestFitParserZoneComputation:
         zones = parser._get_hr_zones("HRR", 200, hr_rest=60)
         
         assert len(zones) == 5
-        # HRR = 200 - 60 = 140
+        # HRR = 200 - 60 = 140  # noqa: S125
         # Z1: 140 * 0.50 + 60 = 130
         assert zones["hr_z1"][0] == 130
 
