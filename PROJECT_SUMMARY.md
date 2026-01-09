@@ -39,6 +39,7 @@ health_assistant/
 │   ├── function_app.json      # Function configuration
 │── host.json                  # Function runtime config
 ├── requirements.txt           # Python dependencies
+├── requirements-dev.txt       # Dev/test dependencies (pytest, coverage, freezegun)
 ├── local.settings.json        # Local development settings
 ├── .python-version            # Python 3.12.12 (pyenv)
 ├── .venv/                     # Virtual environment
@@ -53,6 +54,7 @@ health_assistant/
 ## Key Features
 
 ### FIT Parsing
+
 - ✅ Heart rate metrics (avg, max, samples, missing %)
 - ✅ Power metrics (avg, max, normalized, variability index)
 - ✅ Cadence metrics (avg, max, samples)
@@ -61,12 +63,14 @@ health_assistant/
 - ✅ Temporal data (start, end, duration, moving time)
 
 ### Zone Computation
-- ✅ Heart rate zones (5-zone Garmin model, customizable)
+
+- ✅ Heart rate zones (HRmax, LTHR, HRR methods; 5-zone model)
 - ✅ Power zones (7-zone Coggan model with FTP)
 - ✅ Time-in-zone metrics (seconds + derived minutes)
 - ✅ Convenience fields (Z2 minutes, intensity minutes)
 
 ### Azure Integration
+
 - ✅ HTTP-triggered function
 - ✅ Idempotent processing (avoids duplicates)
 - ✅ Automatic table creation
@@ -74,6 +78,7 @@ health_assistant/
 - ✅ Error recording for debugging
 
 ### Data Schema
+
 - ✅ Comprehensive Workouts table with all metrics
 - ✅ WeeklyRollups for aggregated trends
 - ✅ IngestionState for idempotency tracking
@@ -82,6 +87,7 @@ health_assistant/
 ## Supported Metrics
 
 ### Per-Workout
+
 | Category | Fields |
 |----------|--------|
 | **Identity** | sport, sub_sport, workout_name, device_name, source_system |
@@ -95,6 +101,7 @@ health_assistant/
 | **Efficiency** | decoupling_pct, HR_drift, EF (optional) |
 
 ### Per-Week Rollups
+
 - Workout count, duration, distance
 - Total HR/power zone minutes
 - Hard/long day counts
@@ -113,6 +120,9 @@ AZURE_STORAGE_ACCOUNT_URL    # Storage account URL (with DefaultAzureCredential)
 DEFAULT_ATHLETE_ID=rob
 DEFAULT_FTP=250              # FTP in watts for power zone computation
 DEFAULT_MAX_HR=190           # Max HR for HR zone computation
+HR_ZONE_BASIS=HRmax|LTHR|HRR # Heart rate zone basis
+HR_ZONE_REFERENCE_BPM=0      # Reference HR (0 = auto-detect)
+HR_RESTING_BPM=60            # Resting HR for HRR
 ONEDRIVE_FOLDER_PATH=/Apps/HealthFit
 ```
 
@@ -121,6 +131,7 @@ ONEDRIVE_FOLDER_PATH=/Apps/HealthFit
 ### HTTP Trigger: `POST /api/process_fit`
 
 **Request Body** (JSON):
+
 ```json
 {
   "athlete_id": "rob",
@@ -135,6 +146,7 @@ ONEDRIVE_FOLDER_PATH=/Apps/HealthFit
 ```
 
 **Success Response** (200):
+
 ```json
 {
   "status": "success",
@@ -151,6 +163,7 @@ ONEDRIVE_FOLDER_PATH=/Apps/HealthFit
 ```
 
 **Already Processed** (200):
+
 ```json
 {
   "status": "skipped",
@@ -160,6 +173,7 @@ ONEDRIVE_FOLDER_PATH=/Apps/HealthFit
 ```
 
 **Errors** (400/500):
+
 ```json
 {
   "error": "Missing required fields: file_content_b64"
@@ -186,7 +200,7 @@ python-dotenv>=1.0.0          # Environment management
 source .venv/bin/activate
 
 # Run tests
-python test_setup.py
+pytest
 
 # Start local Azure Functions runtime
 func start
@@ -212,6 +226,7 @@ func azure functionapp publish <FUNCTION_APP_NAME> --python
 ## Integration Points
 
 ### Power Automate
+
 - Monitor OneDrive folder for new .fit files
 - Convert file to base64
 - Extract metadata (itemId, name, path, size)
@@ -220,11 +235,13 @@ func azure functionapp publish <FUNCTION_APP_NAME> --python
 See [POWER_AUTOMATE_SETUP.md](./POWER_AUTOMATE_SETUP.md) for detailed flow configuration.
 
 ### Power BI
+
 - Query Workouts table for interactive dashboards
 - Use WeeklyRollups for trend analysis
 - Filter by athlete_id and date range using partition key
 
 ### Custom APIs
+
 - Build REST API around Workouts table
 - Implement weekly planning context endpoint
 - Return recent workouts + rollups for training decisions
@@ -232,18 +249,21 @@ See [POWER_AUTOMATE_SETUP.md](./POWER_AUTOMATE_SETUP.md) for detailed flow confi
 ## Testing
 
 ### Unit Tests
+
 ```bash
 # Run setup verification
 python test_setup.py
 ```
 
 ### Integration Tests
+
 1. Upload sample FIT file to OneDrive `/Apps/HealthFit/`
 2. Flow triggers automatically (or manually)
 3. Check Application Insights for logs
 4. Query Azure Tables for stored data
 
 ### Performance
+
 - Single FIT file: ~500ms (parsing + storage)
 - Max function timeout: 30 minutes
 - Handles files up to 50MB (FIT files typically 100KB-2MB)
@@ -254,7 +274,7 @@ python test_setup.py
 - [ ] Weekly rollup computation (triggered nightly)
 - [ ] Aerobic efficiency metrics (EF, decoupling)
 - [ ] Training Load Score (TSS) computation
-- [ ] Configurable athlete FTP/max HR per workout
+- [ ] Configurable athlete FTP per athlete/workout
 - [ ] Export to Strava/Garmin APIs
 - [ ] REST API layer for Power BI actions
 - [ ] Batch processing for historical imports
@@ -262,7 +282,7 @@ python test_setup.py
 ## Known Limitations
 
 - Power zones use fixed FTP (250W) - can be made per-athlete
-- HR zones use HRmax percentage model - not LTHR-based
+- HR zones configurable (HRmax/LTHR/HRR) but single default per deployment
 - No GPS track data stored (could use Blob Storage)
 - Zone boundaries stored per-workout for interpretability
 
