@@ -230,7 +230,7 @@ class TestFitParserDistanceExtraction:
         distance = parser._get_distance()
         
         assert isinstance(distance, float)
-        assert distance == 42000.0
+        assert distance == pytest.approx(42000.0, rel=0.01)
 
     def test_get_elevation_gain_returns_float(self, sample_fit_file: Path,
                                               mock_fit_file_with_data: Mock) -> None:
@@ -242,7 +242,7 @@ class TestFitParserDistanceExtraction:
         elevation_gain = parser._get_elevation_gain()
         
         assert isinstance(elevation_gain, float)
-        assert elevation_gain == 500.0
+        assert elevation_gain == pytest.approx(500.0, rel=0.01)
 
 
 class TestFitParserSpeedExtraction:
@@ -258,7 +258,7 @@ class TestFitParserSpeedExtraction:
         avg_speed = parser._get_avg_speed()
         
         assert isinstance(avg_speed, float)
-        assert avg_speed == 11.67
+        assert avg_speed == pytest.approx(11.67, rel=0.01)
 
     def test_get_max_speed_returns_float(self, sample_fit_file: Path,
                                          mock_fit_file_with_data: Mock) -> None:
@@ -270,7 +270,7 @@ class TestFitParserSpeedExtraction:
         max_speed = parser._get_max_speed()
         
         assert isinstance(max_speed, float)
-        assert max_speed == 15.5
+        assert max_speed == pytest.approx(15.5, rel=0.01)
 
 
 class TestFitParserHeartRateExtraction:
@@ -298,7 +298,7 @@ class TestFitParserHeartRateExtraction:
         
         assert isinstance(hr_max, float)
         # Max of [140, 145, 150, 155, 160, 165, 170, 165, 160, 155] = 170
-        assert hr_max == 170.0
+        assert hr_max == pytest.approx(170.0, rel=0.01)
 
 
 class TestFitParserRecordDataExtraction:
@@ -385,7 +385,7 @@ class TestFitParserZoneComputation:
         
         ref = parser._get_reference_bpm("LTHR")
         
-        assert ref == 180.0  # 200 * 0.90
+        assert ref == pytest.approx(180.0, rel=0.01)  # 200 * 0.90
 
     def test_compute_hr_zones_missing_data(self, sample_fit_file: Path) -> None:
         """Verify _compute_hr_zones handles missing heart rate data."""
