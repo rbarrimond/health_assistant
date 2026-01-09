@@ -1,5 +1,8 @@
 """Unit tests for FitParser module."""
 
+# Allow protected member access in tests to validate internal caching behavior.
+# pylint: disable=protected-access
+
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
