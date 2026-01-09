@@ -18,15 +18,18 @@ from FitParser.fit_parser import compute_file_hash  # noqa: E402
 
 @pytest.fixture(scope="module")
 def project_root() -> Path:
+    """Return repository root for import resolution."""
     return PROJECT_ROOT
 
 
 def test_fit_parser_module_exists(project_root: Path) -> None:
+    """Ensure the FIT parser module file exists."""
     parser_path = project_root / "FitParser" / "fit_parser.py"
     assert parser_path.exists(), "fit_parser.py is missing"
 
 
 def test_compute_file_hash(tmp_path: Path) -> None:
+    """Verify compute_file_hash returns a 64-character hex digest."""
     test_file = tmp_path / "sample.fit"
     test_file.write_bytes(b"test file content")
 
@@ -36,16 +39,19 @@ def test_compute_file_hash(tmp_path: Path) -> None:
 
 
 def test_table_storage_module_exists(project_root: Path) -> None:
+    """Ensure the table_storage module file exists."""
     storage_path = project_root / "FitParser" / "table_storage.py"
     assert storage_path.exists(), "table_storage.py is missing"
 
 
 def test_function_handler_exists(project_root: Path) -> None:
+    """Ensure the function_handler module file exists."""
     handler_path = project_root / "function_app" / "function_handler.py"
     assert handler_path.exists(), "function_handler.py is missing"
 
 
 def test_payload_structure() -> None:
+    """Confirm sample payload includes required fields."""
     example_payload = {
         "athlete_id": "rob",
         "source_item_id": "test_item_id",
