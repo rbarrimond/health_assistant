@@ -1,15 +1,12 @@
 """Pytest configuration and fixtures."""
 
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Dict
 from unittest.mock import MagicMock, Mock
 
+import json
 import pytest
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
 
 
 @pytest.fixture
@@ -35,12 +32,15 @@ def mock_fit_message() -> Mock:
         field.value = value
         return field
     
-    msg.get = MagicMock(side_effect=lambda key: create_field(None))
+    def _msg_get(_key):
+        return create_field(None)
+
+    msg.get = MagicMock(side_effect=_msg_get)
     return msg
 
 
-@pytest.fixture
-def mock_fit_file_with_data(mock_fit_message: Mock) -> Mock:
+@pytest.fixture(name="mock_fit_file_with_data")
+def fixture_mock_fit_file_with_data() -> Mock:
     """Create a mock FitFile with sample data."""
     fit_file = MagicMock()
     
@@ -53,10 +53,15 @@ def mock_fit_file_with_data(mock_fit_message: Mock) -> Mock:
     manufacturer_enum = MagicMock()
     manufacturer_enum.name = 'garmin'
     
-    file_id_msg.get = MagicMock(side_effect=lambda key: {
+    _file_id_mapping = {
         'type': MagicMock(value=sport_enum),
         'manufacturer': MagicMock(value=manufacturer_enum),
-    }.get(key))
+    }
+
+    def _file_id_get(key):
+        return _file_id_mapping.get(key)
+
+    file_id_msg.get = MagicMock(side_effect=_file_id_get)
     
     # Create session message
     session_msg = MagicMock()
@@ -67,7 +72,7 @@ def mock_fit_file_with_data(mock_fit_message: Mock) -> Mock:
     session_sport_enum = MagicMock()
     session_sport_enum.name = 'cycling'
     
-    session_msg.get = MagicMock(side_effect=lambda key: {
+    _session_mapping = {
         'sub_sport': MagicMock(value=sub_sport_enum),
         'sport': MagicMock(value=session_sport_enum),
         'start_time': MagicMock(value=datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc)),
@@ -86,7 +91,12 @@ def mock_fit_file_with_data(mock_fit_message: Mock) -> Mock:
         'avg_cadence': MagicMock(value=90),           # rpm
         'max_cadence': MagicMock(value=120),          # rpm
         'total_calories': MagicMock(value=1500),      # kcal
-    }.get(key))
+    }
+
+    def _session_get(key):
+        return _session_mapping.get(key)
+
+    session_msg.get = MagicMock(side_effect=_session_get)
     
     # Setup get_messages to return appropriate message lists
     def get_messages(msg_type):
@@ -102,8 +112,8 @@ def mock_fit_file_with_data(mock_fit_message: Mock) -> Mock:
     return fit_file
 
 
-@pytest.fixture
-def mock_fit_file_with_records(mock_fit_file_with_data: Mock) -> Mock:
+@pytest.fixture(name="mock_fit_file_with_records")
+def fixture_mock_fit_file_with_records(mock_fit_file_with_data: Mock) -> Mock:
     """Create a mock FitFile with record messages (heart rate, power, etc.)."""
     fit_file = mock_fit_file_with_data
     
@@ -115,11 +125,16 @@ def mock_fit_file_with_records(mock_fit_file_with_data: Mock) -> Mock:
     
     for hr, power, cadence in zip(heart_rates, powers, cadences):
         record = MagicMock()
-        record.get = MagicMock(side_effect=lambda key, h=hr, p=power, c=cadence: {
-            'heart_rate': MagicMock(value=h),
-            'power': MagicMock(value=p),
-            'cadence': MagicMock(value=c),
-        }.get(key))
+
+        def _record_get(key, h=hr, p=power, c=cadence):
+            mapping = {
+                'heart_rate': MagicMock(value=h),
+                'power': MagicMock(value=p),
+                'cadence': MagicMock(value=c),
+            }
+            return mapping.get(key)
+
+        record.get = MagicMock(side_effect=_record_get)
         records.append(record)
     
     # Override get_messages for records
@@ -132,3 +147,11 @@ def mock_fit_file_with_records(mock_fit_file_with_data: Mock) -> Mock:
     
     fit_file.get_messages = MagicMock(side_effect=get_messages_with_records)
     return fit_file
+
+
+@pytest.fixture
+def sample_payload() -> Dict[str, Any]:
+    """Load example OneDrive payload JSON used by smoke/integration tests."""
+    data_path = Path(__file__).resolve().parent / "data" / "test_payload_example.json"
+    with data_path.open("r", encoding="utf-8") as f:
+        return json.load(f)
