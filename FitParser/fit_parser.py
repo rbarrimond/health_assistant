@@ -361,10 +361,10 @@ class FitParser:
 
     def _get_power_vi(self) -> Optional[float]:
         """Calculate Variability Index (NP / AP)."""
-        np = self._get_power_normalized()
-        ap = self._get_power_avg()
-        if np and ap and ap > 0:
-            return round(np / ap, 2)
+        normalized_power = self._get_power_normalized()
+        average_power = self._get_power_avg()
+        if normalized_power and average_power and average_power > 0:
+            return round(normalized_power / average_power, 2)
         return None
 
     def _get_power_samples_count(self) -> int:
