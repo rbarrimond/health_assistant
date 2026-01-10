@@ -51,76 +51,86 @@ class FitParser:
         Returns:
             Dict with parsed workout data
         """
+        self._load_fit_sources()
+        self._cache_messages()
+        self.metrics = self._build_metrics()
+        if self.metrics.get("hr_avg_bpm"):
+            self._compute_hr_zones()
+        if self.metrics.get("pwr_avg_watts"):
+            self._compute_power_zones()
+        return self.metrics
+
+    def _load_fit_sources(self) -> None:
+        """Load structured entities and raw fitparse for fallbacks."""
         try:
-            # Build structured workout entities first
             self.workout = load_workout_from_fit(self.file_path)
-            # Keep raw fitparse for any fallback access
             self.fit = fitparse.FitFile(self.file_path)
         except Exception as e:
             logger.error("Error parsing FIT file %s: %s", self.file_path, e)
             raise
 
-        # Cache message lookups for efficiency
-        self._cache_messages()
-
+    def _build_metrics(self) -> Dict:
+        """Assemble metric dictionary from mapped session or raw messages."""
         session = self.workout.session if self.workout else None
-        self.metrics = {
-            # Identity
+        return self._build_base_metrics(session) | self._build_sample_metrics()
+
+    def _build_base_metrics(self, session) -> Dict:
+        """Build session-level metrics."""
+        return {
             "sport": session.sport if session else self._get_sport(),
             "sub_sport": session.sub_sport if session else self._get_sub_sport(),
-            "workout_name": session.workout_name if session else self._get_workout_name(),
+            "workout_name": (
+                session.workout_name if session else self._get_workout_name()
+            ),
             "device_name": self._get_device_name(),
             "is_indoor": session.is_indoor if session else self._get_is_indoor(),
-
-            # Temporal
-            "start_time_utc": session.start_time_utc if session else self._get_start_time(),
+            "start_time_utc": (
+                session.start_time_utc if session else self._get_start_time()
+            ),
             "end_time_utc": session.end_time_utc if session else self._get_end_time(),
             "timezone": session.timezone if session else self._get_timezone(),
-            "duration_sec": session.duration_sec if session else self._get_duration(),
-            "moving_time_sec": session.moving_time_sec if session else self._get_moving_time(),
-
-            # GPS
+            "duration_sec": (
+                session.duration_sec if session else self._get_duration()
+            ),
+            "moving_time_sec": (
+                session.moving_time_sec if session else self._get_moving_time()
+            ),
             "has_gps": self._has_gps_data(),
             "distance_m": session.distance_m if session else self._get_distance(),
+            "elevation_gain_m": (
+                session.elevation_gain_m if session else self._get_elevation_gain()
+            ),
+            "elevation_loss_m": (
+                session.elevation_loss_m if session else self._get_elevation_loss()
+            ),
+            "avg_speed_mps": (
+                session.avg_speed_mps if session else self._get_avg_speed()
+            ),
+            "max_speed_mps": (
+                session.max_speed_mps if session else self._get_max_speed()
+            ),
+            "calories_kcal": (
+                session.calories_kcal if session else self._get_calories()
+            ),
+        }
 
-            # Elevation
-            "elevation_gain_m": session.elevation_gain_m if session else self._get_elevation_gain(),
-            "elevation_loss_m": session.elevation_loss_m if session else self._get_elevation_loss(),
-
-            # Speed
-            "avg_speed_mps": session.avg_speed_mps if session else self._get_avg_speed(),
-            "max_speed_mps": session.max_speed_mps if session else self._get_max_speed(),
-
-            # Heart Rate
+    def _build_sample_metrics(self) -> Dict:
+        """Build sample-based metrics from records."""
+        return {
             "hr_avg_bpm": self._get_hr_avg(),
             "hr_max_bpm": self._get_hr_max(),
             "hr_samples_count": self._get_hr_samples_count(),
             "hr_missing_pct": self._get_hr_missing_pct(),
-
-            # Power (cycling)
             "pwr_avg_watts": self._get_power_avg(),
             "pwr_max_watts": self._get_power_max(),
             "pwr_normalized_watts": self._get_power_normalized(),
             "pwr_variability_index": self._get_power_vi(),
             "pwr_samples_count": self._get_power_samples_count(),
             "pwr_missing_pct": self._get_power_missing_pct(),
-
-            # Cadence
             "cad_avg_rpm": self._get_cadence_avg(),
             "cad_max_rpm": self._get_cadence_max(),
             "cad_samples_count": self._get_cadence_samples_count(),
-
-            # Energy
-            "calories_kcal": session.calories_kcal if session else self._get_calories(),
         }
-
-        # Compute zone metrics if data available
-        if self.metrics.get("hr_avg_bpm"):
-            self._compute_hr_zones()
-        if self.metrics.get("pwr_avg_watts"):
-            self._compute_power_zones()
-
-        return self.metrics
 
     def _cache_messages(self) -> None:
         """Cache frequently-accessed FIT messages for efficiency."""

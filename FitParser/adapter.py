@@ -1,7 +1,8 @@
+"""Adapter to map fitparse messages into pydantic workout entities."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Optional
 
 import fitparse
 
@@ -9,41 +10,51 @@ from .models import DeviceInfo, RecordSample, Workout, WorkoutSession
 
 
 def _get_field_value(msg, field_name: str):
+    """Return field value from a fitparse message if present."""
     if not msg:
         return None
     field = msg.get(field_name)
     return field.value if field else None
 
 
-def load_workout_from_fit(file_path: str) -> Workout:
-    """Parse a FIT file and map it into Workout entities."""
-    fit = fitparse.FitFile(file_path)
-
-    # Cache messages needed for session-level data
+def _cache_core_messages(fit):
+    """Cache the first file_id and session messages for reuse."""
     file_id_msg = None
     session_msg = None
     for m in fit.get_messages("file_id"):
         file_id_msg = m
     for m in fit.get_messages("session"):
         session_msg = m
+    return file_id_msg, session_msg
 
-    # Identity and session fields
+
+def _to_iso_z(dt: datetime | None) -> str | None:
+    """Convert a datetime to an ISO8601 string with trailing Z."""
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=None)
+    return dt.isoformat() + "Z"
+
+
+def _extract_sport_names(file_id_msg, session_msg):
+    """Extract sport and sub_sport enum names."""
     sport = _get_field_value(file_id_msg, "type")
     sport_name = str(sport.name).lower() if sport and hasattr(sport, "name") else None
 
     sub_sport = _get_field_value(session_msg, "sub_sport")
-    sub_sport_name = str(sub_sport.name).lower() if sub_sport and hasattr(sub_sport, "name") else None
+    sub_sport_name = (
+        str(sub_sport.name).lower()
+        if sub_sport and hasattr(sub_sport, "name")
+        else None
+    )
+    return sport_name, sub_sport_name
 
-    workout_name = _get_field_value(session_msg, "session_name")
-    indoor = _get_field_value(session_msg, "indoor")
 
+def _extract_session_times(session_msg):
+    """Extract start, end, and duration times."""
     start_time = _get_field_value(session_msg, "start_time")
-    start_iso = None
-    if start_time and isinstance(start_time, datetime):
-        dt = start_time
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=None)
-        start_iso = dt.isoformat() + "Z"
+    start_iso = _to_iso_z(start_time) if isinstance(start_time, datetime) else None
 
     duration = _get_field_value(session_msg, "total_elapsed_time")
     duration_sec = int(duration) if duration is not None else None
@@ -54,9 +65,11 @@ def load_workout_from_fit(file_path: str) -> Workout:
         end_dt = dt + timedelta(seconds=duration_sec)
         end_iso = end_dt.isoformat() + "Z"
 
-    moving = _get_field_value(session_msg, "total_timer_time")
-    moving_sec = int(moving) if moving is not None else None
+    return start_iso, end_iso, duration_sec
 
+
+def _extract_session_metrics(session_msg):
+    """Extract distance, elevation, and speed metrics."""
     distance = _get_field_value(session_msg, "total_distance")
     distance_m = float(distance) if distance is not None else None
 
@@ -70,17 +83,58 @@ def load_workout_from_fit(file_path: str) -> Workout:
     avg_speed_mps = float(avg_speed) if avg_speed is not None else None
     max_speed_mps = float(max_speed) if max_speed is not None else None
 
+    return distance_m, elev_gain_m, elev_loss_m, avg_speed_mps, max_speed_mps
+
+
+def _build_session(file_id_msg, session_msg) -> WorkoutSession:
+    """Build a WorkoutSession from cached messages."""
+    sport_name, sub_sport_name = _extract_sport_names(
+        file_id_msg, session_msg
+    )
+    start_iso, end_iso, duration_sec = _extract_session_times(session_msg)
+    (distance_m, elev_gain_m, elev_loss_m,
+     avg_speed_mps, max_speed_mps) = _extract_session_metrics(session_msg)
+
+    workout_name = _get_field_value(session_msg, "session_name")
+    indoor = _get_field_value(session_msg, "indoor")
+    moving = _get_field_value(session_msg, "total_timer_time")
+    moving_sec = int(moving) if moving is not None else None
     calories = _get_field_value(session_msg, "total_calories")
     calories_kcal = float(calories) if calories is not None else None
 
-    # Device
+    return WorkoutSession(
+        sport=sport_name,
+        sub_sport=sub_sport_name,
+        workout_name=str(workout_name) if workout_name is not None else None,
+        is_indoor=bool(indoor) if indoor is not None else None,
+        start_time_utc=start_iso,
+        end_time_utc=end_iso,
+        timezone="UTC",
+        duration_sec=duration_sec,
+        moving_time_sec=moving_sec,
+        distance_m=distance_m,
+        elevation_gain_m=elev_gain_m,
+        elevation_loss_m=elev_loss_m,
+        avg_speed_mps=avg_speed_mps,
+        max_speed_mps=max_speed_mps,
+        calories_kcal=calories_kcal,
+    )
+
+
+def _build_device(file_id_msg) -> DeviceInfo:
+    """Build DeviceInfo from the file_id message."""
     manufacturer = _get_field_value(file_id_msg, "manufacturer")
-    manufacturer_name = str(manufacturer.name) if manufacturer and hasattr(manufacturer, "name") else None
+    manufacturer_name = (
+        str(manufacturer.name)
+        if manufacturer and hasattr(manufacturer, "name")
+        else None
+    )
+    return DeviceInfo(manufacturer_name=manufacturer_name)
 
-    device = DeviceInfo(manufacturer_name=manufacturer_name)
 
-    # Records
-    records = []
+def _build_records(fit) -> list[RecordSample]:
+    """Extract record samples into domain objects."""
+    records: list[RecordSample] = []
     for record in fit.get_messages("record"):
         hr = _get_field_value(record, "heart_rate")
         pwr = _get_field_value(record, "power")
@@ -96,23 +150,14 @@ def load_workout_from_fit(file_path: str) -> Workout:
                 position_long=lon,
             )
         )
+    return records
 
-    session = WorkoutSession(
-        sport=sport_name,
-        sub_sport=sub_sport_name,
-        workout_name=str(workout_name) if workout_name is not None else None,
-        is_indoor=bool(indoor) if indoor is not None else None,
-        start_time_utc=start_iso,
-        end_time_utc=end_iso,
-        timezone="UTC",  # FIT timestamps are UTC by spec; devices may include offsets
-        duration_sec=duration_sec,
-        moving_time_sec=moving_sec,
-        distance_m=distance_m,
-        elevation_gain_m=elev_gain_m,
-        elevation_loss_m=elev_loss_m,
-        avg_speed_mps=avg_speed_mps,
-        max_speed_mps=max_speed_mps,
-        calories_kcal=calories_kcal,
-    )
 
+def load_workout_from_fit(file_path: str) -> Workout:
+    """Parse a FIT file and map it into Workout entities."""
+    fit = fitparse.FitFile(file_path)
+    file_id_msg, session_msg = _cache_core_messages(fit)
+    session = _build_session(file_id_msg, session_msg)
+    device = _build_device(file_id_msg)
+    records = _build_records(fit)
     return Workout(session=session, device=device, records=records)
