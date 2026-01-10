@@ -1,11 +1,11 @@
-"""Azure Function to process FIT files from OneDrive."""
+"""Azure Functions app - Process FIT files from OneDrive."""
 
 import base64
 import json
 import logging
 import os
 import tempfile
-from typing import Dict, Optional
+from typing import Dict
 
 import azure.functions as func
 
@@ -14,6 +14,8 @@ from FitParser.table_storage import WorkoutTableStorage
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+app = func.FunctionApp()
 
 
 def parse_onedrive_payload(req: func.HttpRequest) -> Dict:
@@ -44,9 +46,10 @@ def parse_onedrive_payload(req: func.HttpRequest) -> Dict:
     return req_body
 
 
-def main(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Main Azure Function handler - triggered by Power BI/OneDrive changes.
+@app.function_name("ProcessFitFiles")
+@app.route(route="process_fit", methods=["POST"])
+def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
+    """HTTP-triggered function to process FIT files from OneDrive.
     
     Process flow:
     1. Parse incoming OneDrive file payload
@@ -55,7 +58,6 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     4. Store workout data in Azure Tables
     5. Record ingestion state for idempotency
     """
-    
     logger.info("FIT file ingestion function triggered")
 
     try:
