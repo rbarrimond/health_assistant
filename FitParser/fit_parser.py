@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional, cast
 
 import fitparse
 import numpy as np
+from .adapter import load_workout_from_fit
+from .models import Workout
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +20,7 @@ class FitParser:
         """Initialize FIT parser with file path."""
         self.file_path = file_path
         self.fit = None
+        self.workout: Optional[Workout] = None
         self.metrics = {}
         self._file_id_msg = None
         self._session_msg = None
@@ -49,6 +52,9 @@ class FitParser:
             Dict with parsed workout data
         """
         try:
+            # Build structured workout entities first
+            self.workout = load_workout_from_fit(self.file_path)
+            # Keep raw fitparse for any fallback access
             self.fit = fitparse.FitFile(self.file_path)
         except Exception as e:
             logger.error("Error parsing FIT file %s: %s", self.file_path, e)
@@ -57,32 +63,33 @@ class FitParser:
         # Cache message lookups for efficiency
         self._cache_messages()
 
+        session = self.workout.session if self.workout else None
         self.metrics = {
             # Identity
-            "sport": self._get_sport(),
-            "sub_sport": self._get_sub_sport(),
-            "workout_name": self._get_workout_name(),
+            "sport": session.sport if session else self._get_sport(),
+            "sub_sport": session.sub_sport if session else self._get_sub_sport(),
+            "workout_name": session.workout_name if session else self._get_workout_name(),
             "device_name": self._get_device_name(),
-            "is_indoor": self._get_is_indoor(),
+            "is_indoor": session.is_indoor if session else self._get_is_indoor(),
 
             # Temporal
-            "start_time_utc": self._get_start_time(),
-            "end_time_utc": self._get_end_time(),
-            "timezone": self._get_timezone(),
-            "duration_sec": self._get_duration(),
-            "moving_time_sec": self._get_moving_time(),
+            "start_time_utc": session.start_time_utc if session else self._get_start_time(),
+            "end_time_utc": session.end_time_utc if session else self._get_end_time(),
+            "timezone": session.timezone if session else self._get_timezone(),
+            "duration_sec": session.duration_sec if session else self._get_duration(),
+            "moving_time_sec": session.moving_time_sec if session else self._get_moving_time(),
 
             # GPS
             "has_gps": self._has_gps_data(),
-            "distance_m": self._get_distance(),
+            "distance_m": session.distance_m if session else self._get_distance(),
 
             # Elevation
-            "elevation_gain_m": self._get_elevation_gain(),
-            "elevation_loss_m": self._get_elevation_loss(),
+            "elevation_gain_m": session.elevation_gain_m if session else self._get_elevation_gain(),
+            "elevation_loss_m": session.elevation_loss_m if session else self._get_elevation_loss(),
 
             # Speed
-            "avg_speed_mps": self._get_avg_speed(),
-            "max_speed_mps": self._get_max_speed(),
+            "avg_speed_mps": session.avg_speed_mps if session else self._get_avg_speed(),
+            "max_speed_mps": session.max_speed_mps if session else self._get_max_speed(),
 
             # Heart Rate
             "hr_avg_bpm": self._get_hr_avg(),
@@ -104,7 +111,7 @@ class FitParser:
             "cad_samples_count": self._get_cadence_samples_count(),
 
             # Energy
-            "calories_kcal": self._get_calories(),
+            "calories_kcal": session.calories_kcal if session else self._get_calories(),
         }
 
         # Compute zone metrics if data available
@@ -127,7 +134,16 @@ class FitParser:
     # Removed Java-style getters in favor of properties above
 
     def _get_record_data(self, field_name: str) -> List:
-        """Extract all values for a field from record messages."""
+        """Extract all values for a field from record messages or mapped entities."""
+        values: List = []
+        if self.workout:
+            for rec in self.workout.records:
+                val = getattr(rec, field_name, None)
+                if val is not None:
+                    values.append(val)
+            return values
+
+        # Fallback to raw fitparse records
         values = []
         for record in self.records:
             data = record.get(field_name)
@@ -268,6 +284,11 @@ class FitParser:
 
     def _has_gps_data(self) -> bool:
         """Check if GPS data (lat/lon) exists in records."""
+        if self.workout:
+            for rec in self.workout.records:
+                if rec.position_lat is not None and rec.position_long is not None:
+                    return True
+            return False
         for record in self.records:
             if record.get("position_lat") and record.get("position_long"):
                 return True
