@@ -1,12 +1,13 @@
-## FitParser Unit Tests Summary
+# Testing
 
-**Status:** ✅ All 40 tests passing (0.31s execution time)
+## Test Summary
 
-### Test Coverage
+**Status:** ✅ All 47 tests passing
 
-- **FitParser Module:** 91% code coverage
-- **Total Tests:** 40
-- **Test Categories:** 11 test classes covering all major functionality
+- **FitParser Module:** 42 unit tests
+- **Schema Validation:** 5 schema field tests
+- **Test Execution Time:** ~1.4s
+- **Code Coverage:** 91% (FitParser module)
 
 ### Test Organization
 
@@ -113,6 +114,28 @@ Tests for edge cases and boundary conditions
 - Zero values handled correctly (not treated as None)
 - Filtering None values from record data
 
+#### 14. **TestAdapterIntegration** (1 test)
+
+Tests for pydantic entity adapter
+
+- Mapping fitparse messages to Workout entities
+
+#### 15. **TestFitParserWithEntities** (1 test)
+
+Tests for entity-based parsing workflow
+
+- Using pydantic entities in parse output
+
+#### 16. **TestSchemaFieldImplementation** (5 tests)
+
+Tests for WORKOUT_SCHEMA.md field implementation
+
+- `test_power_zone_boundaries_computed` - Verifies 14 power zone boundary fields
+- `test_training_load_metrics_computed` - Verifies TSS and IF calculation
+- `test_aerobic_efficiency_metrics_computed` - Verifies EF, drift, decoupling
+- `test_resting_hr_extraction` - Verifies resting HR extraction
+- `test_short_workout_skips_aerobic_efficiency` - Verifies 30min threshold
+
 ### Test Fixtures
 
 **conftest.py** provides reusable fixtures:
@@ -132,25 +155,26 @@ Tests for edge cases and boundary conditions
 **Run all tests:**
 
 ```bash
-python -m pytest tests/test_fit_parser.py -v
+pytest tests/ -v
+```
+
+**Run specific test file:**
+
+```bash
+pytest tests/test_fit_parser.py -v
+pytest tests/test_schema_fields.py -v
 ```
 
 **Run specific test class:**
 
 ```bash
-python -m pytest tests/test_fit_parser.py::TestComputeFileHash -v
+pytest tests/test_fit_parser.py::TestComputeFileHash -v
 ```
 
 **Run with coverage:**
 
 ```bash
-python -m pytest tests/test_fit_parser.py --cov=FitParser --cov-report=html
-```
-
-**Run fastest (no capture):**
-
-```bash
-python -m pytest tests/test_fit_parser.py -v -s
+pytest tests/ --cov=FitParser --cov-report=html
 ```
 
 ### Key Testing Patterns Used
@@ -166,12 +190,8 @@ python -m pytest tests/test_fit_parser.py -v -s
 
 The 9% of uncovered code includes:
 
-- Exception handling paths in some methods
-- Power zone computation methods (_compute_power_zones)
-- Some optional getter methods that depend on specific data
-- Config and logging modules not tested in this suite
-
-These can be addressed with future test additions if needed.
+- Some exception handling paths
+- Config and logging modules (minimal test coverage)
 
 ### Dependencies
 

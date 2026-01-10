@@ -42,7 +42,7 @@ This guide explains how to set up a Power Automate flow to monitor OneDrive and 
    - URI: `https://<FUNCTION_APP_NAME>.azurewebsites.net/api/process_fit?code=<FUNCTION_KEY>`
    - Headers:
 
-     ```
+     ```http
      Content-Type: application/json
      ```
 

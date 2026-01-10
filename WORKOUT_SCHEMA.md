@@ -260,7 +260,7 @@ These are derived from the zone fields but are worth storing for fast queries.
 
 Precomputing rollups makes API calls fast and avoids scanning many partitions for trend charts.
 
-### Keys
+### WeeklyRollups Keys
 
 - `PartitionKey`: `athlete_id#YYYY` (e.g., `rob#2026`)
 - `RowKey`: `YYYY-WW` (ISO week, e.g., `2026-02`)
@@ -290,12 +290,12 @@ Precomputing rollups makes API calls fast and avoids scanning many partitions fo
 
 Tracks what was ingested, avoids duplicates, and preserves errors for troubleshooting.
 
-### Keys
+### IngestionState Keys
 
 - `PartitionKey`: `athlete_id`
 - `RowKey`: `source_item_id` OR `file_sha256` OR `workout_id`
 
-### Fields
+### IngestionState Fields
 
 |Field|Type|Required|Description|
 |---|---:|:---:|---|
@@ -308,9 +308,9 @@ Tracks what was ingested, avoids duplicates, and preserves errors for troublesho
 
 ---
 
-# API Contract Alignment (for Custom GPT Actions later)
+## API Contract Alignment (for Custom GPT Actions later)
 
-## Recommended endpoints (v1)
+### Recommended endpoints (v1)
 
 1. `GET /api/workouts?since=YYYY-MM-DD&limit=N` - returns list of Workouts summary fields (no time-series)
 2. `GET /api/workouts/{workout_id}` - returns full Workouts entity
@@ -323,7 +323,7 @@ Auth for Azure Functions:
 
 ---
 
-# Field Units & Conventions
+## Field Units & Conventions
 
 - Duration: seconds (`*_sec`) at storage; include derived minutes (`*_min`) for convenience
 - Distance: meters (`distance_m`)
@@ -335,7 +335,7 @@ Auth for Azure Functions:
 
 ---
 
-# Notes on Fit Parsing & Zone Computation
+## Notes on Fit Parsing & Zone Computation
 
 - Time-in-zone should be computed from per-sample records using stored zone boundaries.
 - Store FTP used for the workout (power zones) to keep historical interpretability.

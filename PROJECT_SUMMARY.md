@@ -8,7 +8,7 @@ A complete Azure Functions application that processes HealthFit FIT workout file
 
 ## Architecture
 
-```
+```text
 OneDrive (/Apps/HealthFit)
     ↓
 Power Automate Flow (file monitor)
@@ -25,34 +25,32 @@ Azure Table Storage
 
 ## Project Structure
 
-```
+```text
 health_assistant/
 ├── FitParser/
 │   ├── __init__.py
 │   ├── fit_parser.py          # FIT file parsing + metric computation
+│   ├── models.py              # Pydantic entities (DeviceInfo, Workout, etc)
+│   ├── adapter.py             # fitparse → pydantic model mapping
 │   ├── table_storage.py       # Azure Tables client
 │   ├── config.py              # Configuration management
 │   └── logging_setup.py       # Logging utilities
-├── function_app/
-│   ├── __init__.py            # Azure Functions app definition
-│   ├── function_handler.py    # HTTP trigger handler
-│   ├── function_app.json      # Function configuration
-│── host.json                  # Function runtime config
-├── requirements.txt           # Python dependencies
-├── requirements-dev.txt       # Dev/test dependencies (pytest, coverage, freezegun)
+├── function_app.py            # Azure Functions HTTP trigger
+├── host.json                  # Function runtime config
+├── pyproject.toml             # Dependencies and project metadata
+├── requirements.txt           # Runtime dependencies
 ├── local.settings.json        # Local development settings
 ├── .python-version            # Python 3.12.12 (pyenv)
 ├── .venv/                     # Virtual environment
+├── tests/
+│   ├── conftest.py            # Pytest fixtures
+│   ├── test_fit_parser.py     # 42 unit tests
+│   └── test_schema_fields.py  # 5 schema validation tests
 ├── DEPLOYMENT.md              # Azure deployment instructions
 ├── POWER_AUTOMATE_SETUP.md    # Power Automate integration
 ├── README.md                  # Architecture and setup
-├── SCHEMA_IMPLEMENTATION.md   # Advanced metrics details
-├── TESTING.md                 # Test strategy
+├── TESTING.md                 # Test strategy and coverage
 ├── WORKOUT_SCHEMA.md          # Data schema specification
-├── host.json                  # Function runtime config
-├── local.settings.json        # Local dev settings
-├── pyproject.toml             # Dependencies and config
-├── requirements.txt           # Runtime dependencies
 ├── test_payload_example.json  # Example function payload
 └── test_setup.py              # Setup verification script
 ```
@@ -114,7 +112,7 @@ All tests are in `tests/` directory. Temporary/demo scripts at root level are fo
 ### Per-Workout
 
 | Category | Fields |
-|----------|--------|
+| -------- | ------ |
 | **Identity** | sport, sub_sport, workout_name, device_name, source_system |
 | **Temporal** | start_time, end_time, duration, moving_time, timezone |
 | **Distance/Elevation** | distance_m, elevation_gain_m, elevation_loss_m |
@@ -208,11 +206,13 @@ ONEDRIVE_FOLDER_PATH=/Apps/HealthFit
 
 ## Dependencies
 
-```
+```txt
 azure-functions>=1.14.0       # Azure Functions SDK
 azure-data-tables>=12.4.0     # Table Storage client
 azure-identity>=1.14.0        # Azure authentication
 fitparse>=1.2.0               # FIT file parsing
+pydantic>=2.6.0               # Data validation and entities
+numpy>=1.24.0                 # Array operations for zone calculations
 python-dateutil>=2.8.2        # Date utilities
 python-dotenv>=1.0.0          # Environment management
 ```
@@ -286,6 +286,7 @@ pytest tests/ --cov=FitParser --cov-report=html
 ```
 
 Test suites:
+
 - **test_fit_parser.py** - 42 tests covering parsing, zones, metrics, entities
 - **test_schema_fields.py** - 5 tests verifying new schema fields (boundaries, TSS, EF, decoupling)
 
