@@ -258,13 +258,13 @@ class FitParser:
         """Get total elapsed time in seconds."""
         session = self.session_msg
         elapsed = self._get_field_from_msg(session, "total_elapsed_time")
-        return int(cast(int, elapsed)) if elapsed is not None else None
+        return int(elapsed) if elapsed is not None else None
 
     def _get_moving_time(self) -> Optional[int]:
         """Get moving time if available (for cycling usually equals duration)."""
         session = self.session_msg
         timer = self._get_field_from_msg(session, "total_timer_time")
-        return int(cast(int, timer)) if timer is not None else None
+        return int(timer) if timer is not None else None
 
     def _has_gps_data(self) -> bool:
         """Check if GPS data (lat/lon) exists in records."""
@@ -277,31 +277,31 @@ class FitParser:
         """Get total distance in meters."""
         session = self.session_msg
         distance = self._get_field_from_msg(session, "total_distance")
-        return float(cast(float, distance)) if distance is not None else None
+        return float(distance) if distance is not None else None
 
     def _get_elevation_gain(self) -> Optional[float]:
         """Get total elevation gain in meters."""
         session = self.session_msg
         elev = self._get_field_from_msg(session, "total_ascent")
-        return float(cast(float, elev)) if elev is not None else None
+        return float(elev) if elev is not None else None
 
     def _get_elevation_loss(self) -> Optional[float]:
         """Get total elevation loss in meters."""
         session = self.session_msg
         elev = self._get_field_from_msg(session, "total_descent")
-        return float(cast(float, elev)) if elev is not None else None
+        return float(elev) if elev is not None else None
 
     def _get_avg_speed(self) -> Optional[float]:
         """Get average speed in m/s."""
         session = self.session_msg
         speed = self._get_field_from_msg(session, "avg_speed")
-        return float(cast(float, speed)) if speed is not None else None
+        return float(speed) if speed is not None else None
 
     def _get_max_speed(self) -> Optional[float]:
         """Get max speed in m/s."""
         session = self.session_msg
         speed = self._get_field_from_msg(session, "max_speed")
-        return float(cast(float, speed)) if speed is not None else None
+        return float(speed) if speed is not None else None
 
     def _get_hr_avg(self) -> Optional[float]:
         """Get average heart rate."""
@@ -405,7 +405,7 @@ class FitParser:
         """Get total calories."""
         session = self.session_msg
         calories = self._get_field_from_msg(session, "total_calories")
-        return float(cast(float, calories)) if calories is not None else None
+        return float(calories) if calories is not None else None
 
     def _get_hr_zones(self, zone_basis: str, reference_bpm: float,
                       hr_rest: Optional[float] = None) -> Dict[str, tuple]:
