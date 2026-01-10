@@ -54,10 +54,21 @@ class FitParser:
         self._load_fit_sources()
         self._cache_messages()
         self.metrics = self._build_metrics()
+        
+        # Extract resting HR if available
+        hr_resting = self._extract_hr_resting()
+        if hr_resting:
+            self.metrics["hr_resting_bpm"] = hr_resting
+        
+        # Compute zones if data available
         if self.metrics.get("hr_avg_bpm"):
             self._compute_hr_zones()
         if self.metrics.get("pwr_avg_watts"):
             self._compute_power_zones()
+        
+        # Compute aerobic efficiency metrics
+        self._compute_aerobic_efficiency()
+        
         return self.metrics
 
     def _load_fit_sources(self) -> None:
@@ -549,9 +560,12 @@ class FitParser:
 
         total_sec = 0
         powers_array = np.array(powers)
-        for zone_name, (low, high) in zones.items():
+        for i, (zone_name, (low, high)) in enumerate(zones.items(), 1):
             count = int(np.sum((powers_array >= low) & (powers_array < high)))
             self.metrics[f"{zone_name}_sec"] = count
+            # Store zone boundaries for Power BI interpretability
+            self.metrics[f"pwr_z{i}_low_w"] = float(low)
+            self.metrics[f"pwr_z{i}_high_w"] = float(high if high != 99999 else ftp * 2)
             total_sec += count
 
         self.metrics["pwr_zone_total_sec"] = total_sec
@@ -569,6 +583,105 @@ class FitParser:
         self.metrics["intensity_min"] = round(intensity / 60, 1)
         self.metrics["pwr_zone_model"] = "coggan_7"
         self.metrics["ftp_watts"] = ftp
+        
+        # Compute training load metrics
+        self._compute_training_load(ftp)
+
+    def _compute_training_load(self, ftp: float) -> None:
+        """
+        Compute training load metrics (TSS, IF).
+        
+        Args:
+            ftp: Functional Threshold Power in watts
+        """
+        normalized_power = self.metrics.get("pwr_normalized_watts")
+        duration_sec = self.metrics.get("duration_sec")
+        
+        if not normalized_power or not duration_sec or not ftp or ftp <= 0:
+            return
+        
+        # Intensity Factor (IF) = NP / FTP
+        intensity_factor = normalized_power / ftp
+        self.metrics["intensity_factor"] = round(intensity_factor, 3)
+        
+        # Training Stress Score (TSS) = (duration_hours * NP * IF * 100) / FTP
+        duration_hours = duration_sec / 3600
+        tss = (duration_hours * normalized_power * intensity_factor * 100) / ftp
+        self.metrics["tss"] = round(tss, 1)
+
+    def _compute_aerobic_efficiency(self) -> None:
+        """
+        Compute aerobic efficiency and decoupling metrics.
+        Requires minimum 30 minutes duration with HR and power data.
+        """
+        duration_sec = self.metrics.get("duration_sec")
+        if not duration_sec or duration_sec < 1800:  # 30 minutes minimum
+            return
+        
+        hrs = self._get_record_data("heart_rate")
+        powers = self._get_record_data("power")
+        
+        if not hrs or not powers or len(hrs) < 30 or len(powers) < 30:
+            return
+        
+        # Ensure equal lengths
+        min_len = min(len(hrs), len(powers))
+        hrs = hrs[:min_len]
+        powers = powers[:min_len]
+        
+        # Split into halves
+        mid_point = min_len // 2
+        hrs_first = np.array(hrs[:mid_point])
+        powers_first = np.array(powers[:mid_point])
+        hrs_second = np.array(hrs[mid_point:])
+        powers_second = np.array(powers[mid_point:])
+        
+        # Compute average HR and power for each half
+        avg_hr_first = float(np.mean(hrs_first))
+        avg_pwr_first = float(np.mean(powers_first))
+        avg_hr_second = float(np.mean(hrs_second))
+        avg_pwr_second = float(np.mean(powers_second))
+        
+        if avg_hr_first <= 0 or avg_hr_second <= 0:
+            return
+        
+        # Efficiency Factor (EF) = Power / HR
+        ef_first = avg_pwr_first / avg_hr_first
+        ef_second = avg_pwr_second / avg_hr_second
+        ef_overall = (avg_pwr_first + avg_pwr_second) / (avg_hr_first + avg_hr_second)
+        
+        self.metrics["ef_first_half"] = round(ef_first, 3)
+        self.metrics["ef_second_half"] = round(ef_second, 3)
+        self.metrics["ef_overall"] = round(ef_overall, 3)
+        
+        # HR drift
+        hr_drift = avg_hr_second - avg_hr_first
+        self.metrics["hr_drift_bpm"] = round(hr_drift, 1)
+        
+        # Decoupling % = ((EF_second / EF_first) - 1) * 100
+        # Negative decoupling = efficiency decreased (HR increased relative to power)
+        if ef_first > 0:
+            decoupling_pct = ((ef_second / ef_first) - 1) * 100
+            self.metrics["decoupling_pct"] = round(decoupling_pct, 2)
+
+    def _extract_hr_resting(self) -> Optional[float]:
+        """Extract resting heart rate from FIT file if available."""
+        if not self.fit:
+            return None
+        
+        # Check user profile messages for resting HR
+        for msg in self.fit.get_messages("user_profile"):
+            resting_hr = self._get_field_from_msg(msg, "resting_heart_rate")
+            if resting_hr:
+                return float(resting_hr)
+        
+        # Check monitoring messages (less common in workout files)
+        for msg in self.fit.get_messages("monitoring"):
+            resting_hr = self._get_field_from_msg(msg, "resting_heart_rate")
+            if resting_hr:
+                return float(resting_hr)
+        
+        return None
 
 
 def compute_file_hash(file_path: str) -> str:
