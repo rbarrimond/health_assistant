@@ -15,13 +15,15 @@ from FitParser.table_storage import WorkoutTableStorage
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+JSON_CONTENT_TYPE = "application/json"
+
 app = func.FunctionApp()
 
 
 def parse_onedrive_payload(req: func.HttpRequest) -> Dict:
     """
     Parse OneDrive change notification or direct file payload.
-    
+
     Expected format:
     {
         "athlete_id": "rob",
@@ -35,8 +37,8 @@ def parse_onedrive_payload(req: func.HttpRequest) -> Dict:
     """
     try:
         req_body = req.get_json()
-    except ValueError:
-        raise ValueError("Invalid JSON payload")
+    except ValueError as exc:
+        raise ValueError("Invalid JSON payload") from exc
 
     required_fields = ["athlete_id", "source_file_name", "file_content_b64"]
     missing = [f for f in required_fields if f not in req_body]
@@ -50,7 +52,7 @@ def parse_onedrive_payload(req: func.HttpRequest) -> Dict:
 @app.route(route="process_fit", methods=["POST"])
 def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
     """HTTP-triggered function to process FIT files from OneDrive.
-    
+
     Process flow:
     1. Parse incoming OneDrive file payload
     2. Save file temporarily
@@ -67,16 +69,16 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
 
         athlete_id = payload["athlete_id"]
         file_content_b64 = payload["file_content_b64"]
-        
+
         # Decode base64 file content
         try:
             file_content = base64.b64decode(file_content_b64)
-        except Exception as e:
+        except (TypeError, ValueError) as e:
             logger.error("Failed to decode base64 file content: %s", e)
             return func.HttpResponse(
                 json.dumps({"error": "Invalid base64 encoding"}),
                 status_code=400,
-                mimetype="application/json"
+                mimetype=JSON_CONTENT_TYPE
             )
 
         # Write to temporary file
@@ -91,10 +93,10 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
 
             # Initialize storage and check if already processed
             storage = WorkoutTableStorage()
-            
+
             file_key = payload.get("source_item_id") or file_sha256
             existing = storage.get_ingestion_state(athlete_id, file_key)
-            
+
             if existing and existing.get("status") == "ingested":
                 logger.info("File already ingested: %s", file_key)
                 return func.HttpResponse(
@@ -104,7 +106,7 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
                         "workout_id": existing.get("workout_id")
                     }),
                     status_code=200,
-                    mimetype="application/json"
+                    mimetype=JSON_CONTENT_TYPE
                 )
 
             # Parse FIT file
@@ -126,7 +128,7 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
 
             # Store in Azure Tables
             workout_id = storage.store_workout(athlete_id, metrics, source_info)
-            
+
             # Record successful ingestion
             storage.record_ingestion_state(
                 athlete_id,
@@ -151,12 +153,12 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
                     }
                 }),
                 status_code=200,
-                mimetype="application/json"
+                mimetype=JSON_CONTENT_TYPE
             )
 
-        except Exception as e:
+        except (ValueError, OSError, IOError) as e:
             logger.error("Error parsing or storing FIT file: %s", e, exc_info=True)
-            
+
             # Record failed ingestion
             try:
                 storage = WorkoutTableStorage()
@@ -166,20 +168,20 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
                     status="failed",
                     error=str(e)
                 )
-            except:
+            except (ValueError, OSError, IOError):
                 pass
 
             return func.HttpResponse(
                 json.dumps({"error": f"Failed to process FIT file: {str(e)}"}),
                 status_code=500,
-                mimetype="application/json"
+                mimetype=JSON_CONTENT_TYPE
             )
 
         finally:
             # Clean up temporary file
             try:
                 os.unlink(tmp_path)
-            except:
+            except OSError:
                 pass
 
     except ValueError as e:
@@ -187,12 +189,12 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
             status_code=400,
-            mimetype="application/json"
+            mimetype=JSON_CONTENT_TYPE
         )
-    except Exception as e:
-        logger.error("Unexpected error: %s", e, exc_info=True)
+    except (OSError, IOError) as e:
+        logger.error("System error: %s", e, exc_info=True)
         return func.HttpResponse(
-            json.dumps({"error": "Internal server error"}),
+            json.dumps({"error": "System error processing request"}),
             status_code=500,
-            mimetype="application/json"
+            mimetype=JSON_CONTENT_TYPE
         )
