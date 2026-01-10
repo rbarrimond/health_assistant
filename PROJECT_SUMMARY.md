@@ -293,7 +293,6 @@ Test suites:
 
 - **README.md** - Main documentation and architecture
 - **WORKOUT_SCHEMA.md** - Data schema specification
-- **SCHEMA_IMPLEMENTATION.md** - Implementation details for advanced metrics
 - **POWER_AUTOMATE_SETUP.md** - Power Automate flow integration
 - **DEPLOYMENT.md** - Azure deployment & scaling guide
 - **TESTING.md** - Test strategy and coverage
