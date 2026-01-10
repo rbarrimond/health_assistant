@@ -540,9 +540,8 @@ class FitParser:
 
     def _compute_power_zones(self):
         """Compute time in power zones (simplified 7-zone Coggan model)."""
-        # FTP (Functional Threshold Power) should be configured per athlete,
-        # defaulting to 250W
-        ftp = 250
+        # Extract FTP from user profile, default to 250W
+        ftp = self._extract_ftp() or 250
 
         powers = self._get_record_data("power")
         if not powers:
@@ -680,6 +679,19 @@ class FitParser:
             resting_hr = self._get_field_from_msg(msg, "resting_heart_rate")
             if resting_hr:
                 return float(resting_hr)
+        
+        return None
+
+    def _extract_ftp(self) -> Optional[float]:
+        """Extract FTP (Functional Threshold Power) from FIT file if available."""
+        if not self.fit:
+            return None
+        
+        # Check user profile messages for FTP
+        for msg in self.fit.get_messages("user_profile"):
+            ftp = self._get_field_from_msg(msg, "functional_threshold_power")
+            if ftp:
+                return float(ftp)
         
         return None
 
