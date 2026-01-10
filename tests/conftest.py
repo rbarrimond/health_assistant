@@ -25,13 +25,13 @@ def sample_fit_file(tmp_path: Path) -> Path:
 def mock_fit_message() -> Mock:
     """Create a mock FIT message."""
     msg = MagicMock()
-    
+
     # Create mock field objects with .value attributes
     def create_field(value):
         field = MagicMock()
         field.value = value
         return field
-    
+
     def _msg_get(_key):
         return create_field(None)
 
@@ -43,16 +43,16 @@ def mock_fit_message() -> Mock:
 def fixture_mock_fit_file_with_data() -> Mock:
     """Create a mock FitFile with sample data."""
     fit_file = MagicMock()
-    
+
     # Create file_id message
     file_id_msg = MagicMock()
-    
+
     # Create enum-like objects with .name attributes
     sport_enum = MagicMock()
     sport_enum.name = 'cycling'
     manufacturer_enum = MagicMock()
     manufacturer_enum.name = 'garmin'
-    
+
     _file_id_mapping = {
         'type': MagicMock(value=sport_enum),
         'manufacturer': MagicMock(value=manufacturer_enum),
@@ -62,16 +62,16 @@ def fixture_mock_fit_file_with_data() -> Mock:
         return _file_id_mapping.get(key)
 
     file_id_msg.get = MagicMock(side_effect=_file_id_get)
-    
+
     # Create session message
     session_msg = MagicMock()
-    
+
     # Create enum objects for sub_sport and sport
     sub_sport_enum = MagicMock()
     sub_sport_enum.name = 'road'
     session_sport_enum = MagicMock()
     session_sport_enum.name = 'cycling'
-    
+
     _session_mapping = {
         'sub_sport': MagicMock(value=sub_sport_enum),
         'sport': MagicMock(value=session_sport_enum),
@@ -97,7 +97,7 @@ def fixture_mock_fit_file_with_data() -> Mock:
         return _session_mapping.get(key)
 
     session_msg.get = MagicMock(side_effect=_session_get)
-    
+
     # Setup get_messages to return appropriate message lists
     def get_messages(msg_type):
         if msg_type == 'file_id':
@@ -107,7 +107,7 @@ def fixture_mock_fit_file_with_data() -> Mock:
         elif msg_type == 'record':
             return []
         return []
-    
+
     fit_file.get_messages = MagicMock(side_effect=get_messages)
     return fit_file
 
@@ -116,13 +116,13 @@ def fixture_mock_fit_file_with_data() -> Mock:
 def fixture_mock_fit_file_with_records(mock_fit_file_with_data: Mock) -> Mock:
     """Create a mock FitFile with record messages (heart rate, power, etc.)."""
     fit_file = mock_fit_file_with_data
-    
+
     # Create record messages with heart rate and power data
     records = []
     heart_rates = [140, 145, 150, 155, 160, 165, 170, 165, 160, 155]
     powers = [200, 220, 250, 280, 300, 290, 270, 250, 230, 210]
     cadences = [85, 88, 90, 92, 95, 93, 90, 88, 85, 82]
-    
+
     for hr, power, cadence in zip(heart_rates, powers, cadences):
         record = MagicMock()
 
@@ -136,15 +136,15 @@ def fixture_mock_fit_file_with_records(mock_fit_file_with_data: Mock) -> Mock:
 
         record.get = MagicMock(side_effect=_record_get)
         records.append(record)
-    
+
     # Override get_messages for records
     original_get_messages = fit_file.get_messages
-    
+
     def get_messages_with_records(msg_type):
         if msg_type == 'record':
             return records
         return original_get_messages(msg_type)
-    
+
     fit_file.get_messages = MagicMock(side_effect=get_messages_with_records)
     return fit_file
 
