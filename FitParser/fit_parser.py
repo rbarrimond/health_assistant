@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, cast
 
 import fitparse
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -305,12 +306,17 @@ class FitParser:
     def _get_hr_avg(self) -> Optional[float]:
         """Get average heart rate."""
         hrs = self._get_record_data("heart_rate")
-        return round(sum(hrs) / len(hrs), 1) if hrs else None
+        if not hrs:
+            return None
+        hrs_array = np.array(hrs)
+        return float(np.round(np.mean(hrs_array), 1))
 
     def _get_hr_max(self) -> Optional[float]:
         """Get max heart rate."""
         hrs = self._get_record_data("heart_rate")
-        return float(max(hrs)) if hrs else None
+        if not hrs:
+            return None
+        return float(np.max(hrs))
 
     def _get_hr_samples_count(self) -> int:
         """Get count of HR samples."""
@@ -330,12 +336,17 @@ class FitParser:
     def _get_power_avg(self) -> Optional[float]:
         """Get average power."""
         powers = self._get_record_data("power")
-        return round(sum(powers) / len(powers), 1) if powers else None
+        if not powers:
+            return None
+        powers_array = np.array(powers)
+        return float(np.round(np.mean(powers_array), 1))
 
     def _get_power_max(self) -> Optional[float]:
         """Get max power."""
         powers = self._get_record_data("power")
-        return float(max(powers)) if powers else None
+        if not powers:
+            return None
+        return float(np.max(powers))
 
     def _get_power_normalized(self) -> Optional[float]:
         """Compute Normalized Power (simplified 30s rolling avg)."""
@@ -344,8 +355,9 @@ class FitParser:
             return None
 
         # Simplified: use 4th power mean
-        np_sum = sum(p ** 4 for p in powers) / len(powers)
-        return round(np_sum ** 0.25, 1) if np_sum > 0 else None
+        powers_array = np.array(powers)
+        np_sum = np.mean(powers_array ** 4)
+        return float(np.round(np_sum ** 0.25, 1)) if np_sum > 0 else None
 
     def _get_power_vi(self) -> Optional[float]:
         """Calculate Variability Index (NP / AP)."""
@@ -373,12 +385,17 @@ class FitParser:
     def _get_cadence_avg(self) -> Optional[float]:
         """Get average cadence."""
         cads = self._get_record_data("cadence")
-        return round(sum(cads) / len(cads), 1) if cads else None
+        if not cads:
+            return None
+        cads_array = np.array(cads)
+        return float(np.round(np.mean(cads_array), 1))
 
     def _get_cadence_max(self) -> Optional[float]:
         """Get max cadence."""
         cads = self._get_record_data("cadence")
-        return float(max(cads)) if cads else None
+        if not cads:
+            return None
+        return float(np.max(cads))
 
     def _get_cadence_samples_count(self) -> int:
         """Get count of cadence samples."""
@@ -464,8 +481,9 @@ class FitParser:
 
         # Calculate time in each zone
         total_sec = 0
+        hrs_array = np.array(hrs)
         for i, (zone_name, (low, high)) in enumerate(zones.items(), 1):
-            count = sum(1 for hr in hrs if low <= hr <= high)
+            count = int(np.sum((hrs_array >= low) & (hrs_array <= high)))
             self.metrics[f"{zone_name}_sec"] = count
             self.metrics[f"hr_z{i}_low_bpm"] = float(low)
             self.metrics[f"hr_z{i}_high_bpm"] = float(high)
@@ -499,8 +517,9 @@ class FitParser:
         }
 
         total_sec = 0
+        powers_array = np.array(powers)
         for zone_name, (low, high) in zones.items():
-            count = sum(1 for p in powers if low <= p < high)
+            count = int(np.sum((powers_array >= low) & (powers_array < high)))
             self.metrics[f"{zone_name}_sec"] = count
             total_sec += count
 
