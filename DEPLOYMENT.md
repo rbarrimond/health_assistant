@@ -1,5 +1,7 @@
 # Azure Functions Deployment Guide
 
+> **Source of Truth**: See [WORKOUT_SCHEMA.md](./WORKOUT_SCHEMA.md) and [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./WORKOUT_INTELLIGENCE_AGENT_VISION.md) for system design. This document describes deployment procedures only.
+
 Complete instructions for deploying the Health Assistant FIT file processor to Azure.
 
 ## Prerequisites

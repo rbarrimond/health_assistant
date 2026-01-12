@@ -1,5 +1,7 @@
 # Testing
 
+> **Source of Truth**: See [WORKOUT_SCHEMA.md](./WORKOUT_SCHEMA.md) for the complete specification of expected fields and metrics. This document describes the test coverage of that schema.
+
 ## Test Summary
 
 **Status:** ✅ All 47 tests passing

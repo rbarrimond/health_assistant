@@ -3,6 +3,8 @@
 Azure Function for parsing HealthFit FIT files from OneDrive and storing
 metrics in Azure Table Storage according to the workout schema.
 
+See [WORKOUT_SCHEMA.md](./WORKOUT_SCHEMA.md) for complete data specification and [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./WORKOUT_INTELLIGENCE_AGENT_VISION.md) for system design principles.
+
 ## Architecture
 
 - **Trigger**: HTTP endpoint called by Power Automate monitoring OneDrive
@@ -79,4 +81,4 @@ Create a Power Automate flow that:
    - Read file content
    - Convert to base64
    - Extract metadata (itemId, name, path, size)
-   - POST to ProcessFitFiles endpoint with function key auth
+   - POST to /api/process_fit endpoint with function key auth

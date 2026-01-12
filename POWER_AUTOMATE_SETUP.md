@@ -1,5 +1,7 @@
 # Power Automate Integration Guide
 
+> **Source of Truth**: See [WORKOUT_SCHEMA.md](./WORKOUT_SCHEMA.md) for the complete data model and required fields. This document describes the integration procedure.
+
 This guide explains how to set up a Power Automate flow to monitor OneDrive and trigger the FIT file processor Azure Function.
 
 ## Prerequisites

@@ -1,5 +1,7 @@
 # Health Assistant - Project Summary
 
+> **Source of Truth**: See [WORKOUT_SCHEMA.md](./WORKOUT_SCHEMA.md) for complete data schema and [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./WORKOUT_INTELLIGENCE_AGENT_VISION.md) for system design principles. This document is a derivative summary.
+
 ## Overview
 
 A complete Azure Functions application that processes HealthFit FIT workout files from OneDrive and stores detailed metrics in Azure Table Storage according to a comprehensive schema.
