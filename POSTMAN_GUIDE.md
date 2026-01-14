@@ -10,24 +10,29 @@
 ## Setup
 
 ### Local Development
+
 - Ensure your Azure Function is running locally (default: `http://localhost:7071`)
 - Run the function using: `func host start`
 
 ### Azure Deployment
+
 - Set the Postman variable `azure_function_name` to your deployed function app name
 - Go to: Collection → Variables → Set `azure_function_name`
 
 ## Test Requests
 
 ### 1. Process FIT File - Local Development
+
 **Endpoint:** `POST http://localhost:7071/api/process_fit`
 
 **Required Payload Fields:**
+
 - `athlete_id` - Athlete identifier (e.g., "rob")
 - `source_file_name` - Original file name (e.g., "2026-01-13-workout.fit")
 - `file_content_b64` - Base64-encoded FIT file content
 
 **Optional Fields:**
+
 - `source_item_id` - OneDrive item ID
 - `source_file_path` - File path in OneDrive
 - `source_drive_id` - OneDrive drive ID
@@ -35,6 +40,7 @@
 - `file_size_bytes` - Original file size
 
 **Expected Success Response (200):**
+
 ```json
 {
   "status": "success",
@@ -51,6 +57,7 @@
 ```
 
 **Expected Duplicate Response (200):**
+
 ```json
 {
   "status": "skipped",
@@ -60,9 +67,11 @@
 ```
 
 ### 2. Test Invalid Payload
+
 Tests validation by omitting required fields.
 
 **Expected Error Response (400):**
+
 ```json
 {
   "error": "Missing required fields: ['source_file_name', 'file_content_b64']"
@@ -70,9 +79,11 @@ Tests validation by omitting required fields.
 ```
 
 ### 3. Test Invalid Base64
+
 Tests base64 decoding error handling.
 
 **Expected Error Response (400):**
+
 ```json
 {
   "error": "Invalid base64 encoding"
@@ -81,7 +92,8 @@ Tests base64 decoding error handling.
 
 ## How to Get Base64 Content for Testing
 
-### Using Python:
+### Using Python
+
 ```python
 import base64
 
@@ -91,12 +103,14 @@ with open('your_workout.fit', 'rb') as f:
     print(b64_content)
 ```
 
-### Using Command Line (macOS/Linux):
+### Using Command Line (macOS/Linux)
+
 ```bash
 base64 -i your_workout.fit
 ```
 
-### Using PowerShell (Windows):
+### Using PowerShell (Windows)
+
 ```powershell
 [Convert]::ToBase64String([IO.File]::ReadAllBytes("your_workout.fit"))
 ```
