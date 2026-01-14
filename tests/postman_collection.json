@@ -6,6 +6,108 @@
   },
   "item": [
     {
+      "name": "Real Data Tests",
+      "item": [
+        {
+          "name": "Strength Training - Apple Watch",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "file",
+              "file": {
+                "src": "data/test_payload_2026-01-04-163358-Functional Strength Training-Robert's Apple Watch Ultra 3.json"
+              }
+            },
+            "url": {
+              "raw": "http://localhost:7071/api/process_fit",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "7071",
+              "path": [
+                "api",
+                "process_fit"
+              ]
+            },
+            "description": "Real strength training workout from Apple Watch (11 KB). Tests functional strength training metrics extraction."
+          },
+          "response": []
+        },
+        {
+          "name": "Indoor Cycling - RunGap (Short)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "file",
+              "file": {
+                "src": "data/test_payload_2026-01-10-211457-Indoor Cycling-RunGap.json"
+              }
+            },
+            "url": {
+              "raw": "http://localhost:7071/api/process_fit",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "7071",
+              "path": [
+                "api",
+                "process_fit"
+              ]
+            },
+            "description": "Real indoor cycling workout from RunGap (52 KB). Tests power, cadence, and HR zone calculations."
+          },
+          "response": []
+        },
+        {
+          "name": "Indoor Cycling - RunGap (Long)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "file",
+              "file": {
+                "src": "data/test_payload_2026-01-12-183000-Indoor Cycling-RunGap.json"
+              }
+            },
+            "url": {
+              "raw": "http://localhost:7071/api/process_fit",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "7071",
+              "path": [
+                "api",
+                "process_fit"
+              ]
+            },
+            "description": "Real indoor cycling workout from RunGap (121 KB). Tests parsing of larger files with more data points, TSS, and aerobic efficiency metrics."
+          },
+          "response": []
+        }
+      ],
+      "description": "Test with real FIT files from the data folder. These files contain actual workout data."
+    },
+    {
       "name": "Process FIT File - Local Development",
       "request": {
         "method": "POST",
