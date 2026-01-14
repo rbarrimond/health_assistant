@@ -53,9 +53,8 @@ def main() -> int:
     print(f"Using connection string: {conn_str}")
 
     try:
-        # For local Azurite with self-signed certs, disable TLS verification.
-        # This is safe for local development only.
-        service = TableServiceClient.from_connection_string(conn_str, connection_verify=False)
+        # Always verify TLS for connection string usage.
+        service = TableServiceClient.from_connection_string(conn_str, connection_verify=True)
     except (ValueError, AzureError) as e:
         print(f"Failed to create TableServiceClient: {e}")
         return 1

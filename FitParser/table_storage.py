@@ -36,16 +36,9 @@ class WorkoutTableStorage:
         )
 
         if conn:
-            # Disable TLS verification for local Azurite HTTPS with self-signed certs.
-            # Safe for local development only.
-            should_disable_verify = False
-            lc = conn.lower()
-            if ("https" in lc) and ("127.0.0.1" in lc or "localhost" in lc or ".localhost" in lc):
-                should_disable_verify = True
-
             self.service_client = TableServiceClient.from_connection_string(
                 conn,
-                connection_verify=(False if should_disable_verify else True),
+                connection_verify=True,
             )
         else:
             account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
@@ -56,13 +49,10 @@ class WorkoutTableStorage:
                 )
                 raise ValueError(msg)
             credential = DefaultAzureCredential()
-            # For local Azurite HTTPS with self-signed certs, allow disabling verify via env.
-            verify_env = os.getenv("AZURE_TABLES_VERIFY", "true").lower()
-            verify_flag = verify_env not in ("0", "false", "no")
             self.service_client = TableServiceClient(
                 endpoint=account_url,
                 credential=credential,
-                connection_verify=verify_flag,
+                connection_verify=True,
             )
 
         self._ensure_tables_exist()
