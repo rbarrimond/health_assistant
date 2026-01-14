@@ -8,6 +8,7 @@ import tempfile
 from typing import Dict
 
 import azure.functions as func
+from azure.core.exceptions import AzureError
 
 from FitParser.fit_parser import FitParser, compute_file_hash
 from FitParser.table_storage import WorkoutTableStorage
@@ -18,6 +19,14 @@ logger.setLevel(logging.INFO)
 JSON_CONTENT_TYPE = "application/json"
 
 app = func.FunctionApp()
+
+# Initialize and warm up table storage on host start (idempotent table creation).
+try:
+    _storage_singleton = WorkoutTableStorage()
+    logger.info("Table storage initialized on startup")
+except (ValueError, AzureError, OSError) as _e:
+    # Don't crash host; function will attempt again on first request.
+    logger.warning("Table storage init deferred: %s", _e)
 
 
 def parse_onedrive_payload(req: func.HttpRequest) -> Dict:
@@ -91,8 +100,8 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
             file_sha256 = compute_file_hash(tmp_path)
             logger.info("File SHA256: %s", file_sha256)
 
-            # Initialize storage and check if already processed
-            storage = WorkoutTableStorage()
+            # Use singleton storage if available; else initialize.
+            storage = _storage_singleton if '_storage_singleton' in globals() and _storage_singleton else WorkoutTableStorage()
 
             file_key = payload.get("source_item_id") or file_sha256
             existing = storage.get_ingestion_state(athlete_id, file_key)
@@ -161,7 +170,7 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
 
             # Record failed ingestion
             try:
-                storage = WorkoutTableStorage()
+                storage = _storage_singleton if '_storage_singleton' in globals() and _storage_singleton else WorkoutTableStorage()
                 storage.record_ingestion_state(
                     athlete_id,
                     payload,

@@ -18,19 +18,52 @@ class WorkoutTableStorage:
     """Handle workout data storage in Azure Tables."""
 
     def __init__(self, connection_string: Optional[str] = None):
-        """Initialize table storage client."""
-        if connection_string:
-            self.service_client = (
-                TableServiceClient.from_connection_string(connection_string)
+        """Initialize table storage client.
+
+        Resolution order for local/dev and Azure:
+        1) Explicit `connection_string` arg
+        2) Env `AZURE_TABLES_CONNECTION_STRING`
+        3) Env `AZURE_STORAGE_CONNECTION_STRING`
+        4) Env `AzureWebJobsStorage` (Functions local dev)
+        5) Fallback to `AZURE_STORAGE_ACCOUNT_URL` + DefaultAzureCredential
+        """
+
+        conn = (
+            connection_string
+            or os.getenv("AZURE_TABLES_CONNECTION_STRING")
+            or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+            or os.getenv("AzureWebJobsStorage")
+        )
+
+        if conn:
+            # Disable TLS verification for local Azurite HTTPS with self-signed certs.
+            # Safe for local development only.
+            should_disable_verify = False
+            lc = conn.lower()
+            if ("https" in lc) and ("127.0.0.1" in lc or "localhost" in lc or ".localhost" in lc):
+                should_disable_verify = True
+
+            self.service_client = TableServiceClient.from_connection_string(
+                conn,
+                connection_verify=(False if should_disable_verify else True),
             )
         else:
             account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
             if not account_url:
-                msg = ("AZURE_STORAGE_ACCOUNT_URL environment variable "
-                       "is required when connection_string is not provided")
+                msg = (
+                    "No connection string found. Provide AZURE_TABLES_CONNECTION_STRING, "
+                    "AZURE_STORAGE_CONNECTION_STRING, AzureWebJobsStorage, or AZURE_STORAGE_ACCOUNT_URL."
+                )
                 raise ValueError(msg)
             credential = DefaultAzureCredential()
-            self.service_client = TableServiceClient(endpoint=account_url, credential=credential)
+            # For local Azurite HTTPS with self-signed certs, allow disabling verify via env.
+            verify_env = os.getenv("AZURE_TABLES_VERIFY", "true").lower()
+            verify_flag = verify_env not in ("0", "false", "no")
+            self.service_client = TableServiceClient(
+                endpoint=account_url,
+                credential=credential,
+                connection_verify=verify_flag,
+            )
 
         self._ensure_tables_exist()
 
