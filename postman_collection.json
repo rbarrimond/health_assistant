@@ -1,0 +1,137 @@
+{
+  "info": {
+    "name": "Health Assistant - FIT File Processing",
+    "description": "Test collection for the Azure Function that processes FIT files from OneDrive",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Process FIT File - Local Development",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"athlete_id\": \"rob\",\n  \"source_item_id\": \"01NPFHDM2J3XPMZZZZ\",\n  \"source_file_name\": \"2026-01-13-test-workout.fit\",\n  \"source_file_path\": \"/Apps/HealthFit/2026-01-13-test-workout.fit\",\n  \"source_drive_id\": \"b!test-drive-id\",\n  \"source_etag\": \"\\\"test-etag-123\\\"\",\n  \"file_size_bytes\": 12345,\n  \"file_content_b64\": \"AAAAAAEABgAAAAAAAAABAAAACgAAAO5QoAAEAAAAAwAA...\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:7071/api/process_fit",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "7071",
+          "path": [
+            "api",
+            "process_fit"
+          ]
+        },
+        "description": "Process a FIT file in local development environment. Update the file_content_b64 with actual base64-encoded FIT file content."
+      },
+      "response": []
+    },
+    {
+      "name": "Process FIT File - Azure",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"athlete_id\": \"rob\",\n  \"source_item_id\": \"01NPFHDM2J3XPMZZZZ\",\n  \"source_file_name\": \"2026-01-13-test-workout.fit\",\n  \"source_file_path\": \"/Apps/HealthFit/2026-01-13-test-workout.fit\",\n  \"source_drive_id\": \"b!test-drive-id\",\n  \"source_etag\": \"\\\"test-etag-123\\\"\",\n  \"file_size_bytes\": 12345,\n  \"file_content_b64\": \"AAAAAAEABgAAAAAAAAABAAAACgAAAO5QoAAEAAAAAwAA...\"\n}"
+        },
+        "url": {
+          "raw": "https://{{azure_function_name}}.azurewebsites.net/api/process_fit",
+          "protocol": "https",
+          "host": [
+            "{{azure_function_name}}",
+            "azurewebsites",
+            "net"
+          ],
+          "path": [
+            "api",
+            "process_fit"
+          ]
+        },
+        "description": "Process a FIT file on Azure. Set the {{azure_function_name}} variable to your deployed function app name."
+      },
+      "response": []
+    },
+    {
+      "name": "Test Invalid Payload - Missing Required Fields",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"athlete_id\": \"rob\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:7071/api/process_fit",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "7071",
+          "path": [
+            "api",
+            "process_fit"
+          ]
+        },
+        "description": "Test validation by sending a payload with missing required fields. Expected: 400 error with missing fields listed."
+      },
+      "response": []
+    },
+    {
+      "name": "Test Invalid Base64 Encoding",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"athlete_id\": \"rob\",\n  \"source_file_name\": \"invalid.fit\",\n  \"file_content_b64\": \"not-valid-base64!!!\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:7071/api/process_fit",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "7071",
+          "path": [
+            "api",
+            "process_fit"
+          ]
+        },
+        "description": "Test invalid base64 encoding handling. Expected: 400 error about invalid encoding."
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "azure_function_name",
+      "value": "your-function-app-name",
+      "type": "string"
+    }
+  ]
+}
