@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from azure.data.tables import TableServiceClient
+from azure.core.exceptions import AzureError
 
 TABLES = ["Workouts", "WeeklyRollups", "IngestionState"]
 
@@ -29,12 +30,13 @@ def get_connection_string() -> str:
     settings_path = Path("local.settings.json")
     if settings_path.exists():
         try:
-            data = json.loads(settings_path.read_text())
+            data = json.loads(settings_path.read_text(encoding="utf-8"))
             values = data.get("Values", {})
             cs_from_file = values.get("AzureWebJobsStorage")
             if cs_from_file:
                 return cs_from_file
-        except Exception:
+        except (OSError, json.JSONDecodeError):
+            # Ignore local settings read/parse issues and fall back
             pass
 
     # Default Azurite dev connection string
@@ -42,6 +44,11 @@ def get_connection_string() -> str:
 
 
 def main() -> int:
+    """Create Azurite tables if they do not already exist.
+
+    Returns 0 on success, 1 on client initialization failure,
+    and 2 if any table creation fails.
+    """
     conn_str = get_connection_string()
     print(f"Using connection string: {conn_str}")
 
@@ -49,7 +56,7 @@ def main() -> int:
         # For local Azurite with self-signed certs, disable TLS verification.
         # This is safe for local development only.
         service = TableServiceClient.from_connection_string(conn_str, connection_verify=False)
-    except Exception as e:
+    except (ValueError, AzureError) as e:
         print(f"Failed to create TableServiceClient: {e}")
         return 1
 
@@ -58,7 +65,7 @@ def main() -> int:
         try:
             service.create_table_if_not_exists(name)
             print(f"✔ Table ready: {name}")
-        except Exception as e:
+        except AzureError as e:
             print(f"✖ Error creating table {name}: {e}")
             success = False
 
