@@ -19,10 +19,8 @@
               }
             ],
             "body": {
-              "mode": "file",
-              "file": {
-                "src": "{{$gitProjectRoot}}/tests/data/test_payload_2026-01-04-163358-Functional Strength Training-Robert's Apple Watch Ultra 3.json"
-              }
+              "mode": "raw",
+              "raw": "{\n  \"athlete_id\": \"rob\",\n  \"source_item_id\": \"test_2026-01-04-163358-Functional Strength Training-Robert's Apple Watch Ultra 3\",\n  \"source_file_name\": \"2026-01-04-163358-Functional Strength Training-Robert's Apple Watch Ultra 3.fit\",\n  \"source_file_path\": \"/Apps/HealthFit/2026-01-04-163358-Functional Strength Training-Robert's Apple Watch Ultra 3.fit\",\n  \"source_drive_id\": \"b!test-drive-id\",\n  \"source_etag\": \"\\\"abc123def456\\\"\",\n  \"file_size_bytes\": 11000,\n  \"file_content_b64\": \"DiDYB4PMAAAuRklUe49AAAAAAAUAAQABAoQICwcDBIwEBIYABP8AaVBob25lMTcsMQBpbAAAobvFQ0EAADEAAQAChAFZAEIAABcACP0EhgABAhMOBxsLBxkBAAIChBsLBwMEjAKhu8VDAFJ1bkdhcCAoMTA1NSkAaVBob25lMTcsMQAF/wBpUGhvbmUxNywxAGlsAABDAADPAAMDAQIBEA0EBIYDACdS3PjXxhHtox8bS0VA50JkAAAARAAAzgAFAAECAQECAgECBAECAw0HBAAAAhBTRVNTSU9OIFVVSUQARQAAzgAEAAECAQECAgECAw8HBQABAlNFU1NJT04gSU5ET09SAEYAAM4ABAABAgEBAgIBAgMWBwYAAo9TRVNTSU9OIEFDVElWSVRZIFRZUEUARwAAzgAEAAECAQECAgECAxkHBwADhFNFU1NJT04gV0VBVEhFUiBIVU1JRElUWQAGAAQCV09SS09VVCBSUEUgRVNUSU1BVEVEAEgAABUABf0EhgABAAEBAAMEhgQBAgihu8VDAAAAAAAAAEkAAAwAAwABAAEBAAMFBwkCBkJpa2UASgAABwACAwKEBwEACuQAAUsAABQADP0EhgAEhQEEhR8BAgIChEkEhgMBAgcChB0EhgUEhgQBAjUBAguhu8VDPKn4HB4bY8sBIgviBAAAepUAlQAAAAAAAAAnAAuiu8VDx6j4HEUbY8sBIguMBwAAepUAKgEAAKkAAAAnAAuju8VD3Kf4HH4bY8sBIgvlCQAAen0ApwEAAIkBAAApAAuku8VDyKX4HMMbY8sBIgv2DQAAeqsAUgIAAKYCAAApAAulu8VDs6P4HMobY8sBIgtYDwAAeqsA/QIAAPUDAAArAAumu8VDs6P4HMobY8sBIgutDwAAeq8AsAQAAMQIAAA7AAupu8VDJJ74HMEbY8sBIgvlEgAAe5YAuAQAAJsKAABDAAuqu8VDDpz4HL0bY8sBIgvhEwAAfJ8A7wUAAI0MAABDAAuru8VD3Zn4HLgbY8sBIgu4FAAAg\"\n}\n"
             },
             "url": {
               "raw": "http://localhost:7071/api/process_fit",
@@ -51,10 +49,8 @@
               }
             ],
             "body": {
-              "mode": "file",
-              "file": {
-                "src": "{{$gitProjectRoot}}/tests/data/test_payload_2026-01-10-211457-Indoor Cycling-RunGap.json"
-              }
+              "mode": "raw",
+              "raw": "{\n  \"athlete_id\": \"rob\",\n  \"source_item_id\": \"test_2026-01-10-211457-Indoor Cycling-RunGap\",\n  \"source_file_name\": \"2026-01-10-211457-Indoor Cycling-RunGap.fit\",\n  \"source_file_path\": \"/Apps/HealthFit/2026-01-10-211457-Indoor Cycling-RunGap.fit\",\n  \"source_drive_id\": \"b!test-drive-id\",\n  \"source_etag\": \"\\\"13460f2a\\\"\",\n  \"file_size_bytes\": 52371,\n  \"file_content_b64\": \"DiDYB4PMAAAuRklUe49AAAAAAAUAAQABAoQICwcDBIwEBIYABP8AaVBob25lMTcsMQBpbAAAobvFQ0EAADEAAQAChAFZAEIAABcACP0EhgABAhMOBxsLBxkBAAIChBsLBwMEjAKhu8VDAFJ1bkdhcCAoMTA1NSkAaVBob25lMTcsMQAF/wBpUGhvbmUxNywxAGlsAABDAADPAAMDAQIBEA0EBIYDACdS3PjXxhHtox8bS0VA50JkAAAARAAAzgAFAAECAQECAgECBAECAw0HBAAAAhBTRVNTSU9OIFVVSUQARQAAzgAEAAECAQECAgECAw8HBQABAlNFU1NJT04gSU5ET09SAEYAAM4ABAABAgEBAgIBAgMWBwYAAo9TRVNTSU9OIEFDVElWSVRZIFRZUEUARwAAzgAEAAECAQECAgECAxkHBwADhFNFU1NJT04gV0VBVEhFUiBIVU1JRElUWQAGAAQCV09SS09VVCBSUEUgRVNUSU1BVEVEAEgAABUABf0EhgABAAEBAAMEhgQBAgihu8VDAAAAAAAAAEkAAAwAAwABAAEBAAMFBwkCBkJpa2UASgAABwACAwKEBwEACuQAAUsAABQADP0EhgAEhQEEhR8BAgIChEkEhgMBAgcChB0EhgUEhgQBAjUBAguhu8VDPKn4HB4bY8sBIgviBAAAepUAlQAAAAAAAAAnAAuiu8VDx6j4HEUbY8sBIguMBwAAepUAKgEAAKkAAAAnAAuju8VD3Kf4HH4bY8sBIgvlCQAAen0ApwEAAIkBAAApAAuku8VDyKX4HMMbY8sBIgv2DQAAeqsAUgIAAKYCAAApAAulu8VDs6P4HMobY8sBIgtYDwAAeqsA/QIAAPUDAAArAAumu8VDs6P4HMobY8sBIgutDwAAeq8AsAQAAMQIAAA7AAupu8VDJJ74HMEbY8sBIgvlEgAAe5YAuAQAAJsKAABDAAuqu8VDDpz4HL0bY8sBIgvhEwAAfJ8A7wUAAI0MAABDAAuru8VD3Zn4HLgbY8sBIgu4FAAAg\"\n}\n"
             },
             "url": {
               "raw": "http://localhost:7071/api/process_fit",
@@ -83,10 +79,8 @@
               }
             ],
             "body": {
-              "mode": "file",
-              "file": {
-                "src": "{{$gitProjectRoot}}/tests/data/test_payload_2026-01-12-183000-Indoor Cycling-RunGap.json"
-              }
+              "mode": "raw",
+              "raw": "{\n  \"athlete_id\": \"rob\",\n  \"source_item_id\": \"test_2026-01-12-183000-Indoor Cycling-RunGap\",\n  \"source_file_name\": \"2026-01-12-183000-Indoor Cycling-RunGap.fit\",\n  \"source_file_path\": \"/Apps/HealthFit/2026-01-12-183000-Indoor Cycling-RunGap.fit\",\n  \"source_drive_id\": \"b!test-drive-id\",\n  \"source_etag\": \"\\\"47f45d3a\\\"\",\n  \"file_size_bytes\": 121433,\n  \"file_content_b64\": \"DiDYB4PMAAAuRklUe49AAAAAAAUAAQABAoQICwcDBIwEBIYABP8AaVBob25lMTcsMQBpbAAAobvFQ0EAADEAAQAChAFZAEIAABcACP0EhgABAhMOBxsLBxkBAAIChBsLBwMEjAKhu8VDAFJ1bkdhcCAoMTA1NSkAaVBob25lMTcsMQAF/wBpUGhvbmUxNywxAGlsAABDAADPAAMDAQIBEA0EBIYDACdS3PjXxhHtox8bS0VA50JkAAAARAAAzgAFAAECAQECAgECBAECAw0HBAAAAhBTRVNTSU9OIFVVSUQARQAAzgAEAAECAQECAgECAw8HBQABAlNFU1NJT04gSU5ET09SAEYAAM4ABAABAgEBAgIBAgMWBwYAAo9TRVNTSU9OIEFDVElWSVRZIFRZUEUARwAAzgAEAAECAQECAgECAxkHBwADhFNFU1NJT04gV0VBVEhFUiBIVU1JRElUWQAGAAQCV09SS09VVCBSUEUgRVNUSU1BVEVEAEgAABUABf0EhgABAAEBAAMEhgQBAgihu8VDAAAAAAAAAEkAAAwAAwABAAEBAAMFBwkCBkJpa2UASgAABwACAwKEBwEACuQAAUsAABQADP0EhgAEhQEEhR8BAgIChEkEhgMBAgcChB0EhgUEhgQBAjUBAguhu8VDPKn4HB4bY8sBIgviBAAAepUAlQAAAAAAAAAnAAuiu8VDx6j4HEUbY8sBIguMBwAAepUAKgEAAKkAAAAnAAuju8VD3Kf4HH4bY8sBIgvlCQAAen0ApwEAAIkBAAApAAuku8VDyKX4HMMbY8sBIgv2DQAAeqsAUgIAAKYCAAApAAulu8VDs6P4HMobY8sBIgtYDwAAeqsA/QIAAPUDAAArAAumu8VDs6P4HMobY8sBIgutDwAAeq8AsAQAAMQIAAA7AAupu8VDJJ74HMEbY8sBIgvlEgAAe5YAuAQAAJsKAABDAAuqu8VDDpz4HL0bY8sBIgvhEwAAfJ8A7wUAAI0MAABDAAuru8VD3Zn4HLgbY8sBIgu4FAAAg\"\n}\n"
             },
             "url": {
               "raw": "http://localhost:7071/api/process_fit",
