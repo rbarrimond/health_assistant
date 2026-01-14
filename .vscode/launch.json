@@ -3,7 +3,7 @@
     "configurations": [
         {
             "name": "Attach to Python Azure Functions",
-            "type": "python",
+            "type": "debugpy",
             "request": "attach",
             "connect": {
                 "host": "localhost",
