@@ -44,6 +44,7 @@ def convert_fit_to_payload(fit_file: Path) -> Path:
 
 
 def main():
+    """Main function to convert FIT files to JSON payloads."""
     data_dir = Path(__file__).parent
     
     if len(sys.argv) > 1:
