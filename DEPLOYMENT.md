@@ -172,7 +172,7 @@ az functionapp app-insights-enable \
 
 curl -X POST "https://$FUNCTION_APP.azurewebsites.net/api/process_fit?code=$FUNCTION_KEY" \
   -H "Content-Type: application/json" \
-  -d @test_payload_example.json
+  -d @tests/data/test_payload_example.json
 ```
 
 ### Verify Data in Table Storage

@@ -45,17 +45,18 @@ health_assistant/
 ├── .python-version            # Python 3.12.12 (pyenv)
 ├── .venv/                     # Virtual environment
 ├── tests/
+│   ├── TESTING.md             # Test strategy and coverage
+│   ├── POSTMAN_GUIDE.md       # Postman testing guide
+│   ├── postman_collection.json # Postman collection
 │   ├── conftest.py            # Pytest fixtures
 │   ├── test_fit_parser.py     # 42 unit tests
-│   └── test_schema_fields.py  # 5 schema validation tests
+│   ├── test_schema_fields.py  # 5 schema validation tests
+│   └── data/
+│       └── test_payload_example.json  # Example function payload
 ├── DEPLOYMENT.md              # Azure deployment instructions
 ├── POWER_AUTOMATE_SETUP.md    # Power Automate integration
 ├── README.md                  # Architecture and setup
-├── WORKOUT_SCHEMA.md          # Data schema specification
-├── tests/
-│   ├── TESTING.md             # Test strategy and coverage
-├── test_payload_example.json  # Example function payload
-└── test_setup.py              # Setup verification script
+└── WORKOUT_SCHEMA.md          # Data schema specification
 ```
 
 ## Build & Test Commands
@@ -240,7 +241,7 @@ func start
 ```bash
 curl -X POST http://localhost:7071/api/process_fit \
   -H "Content-Type: application/json" \
-  -d @test_payload_example.json
+  -d @tests/data/test_payload_example.json
 ```
 
 ### Deploy to Azure

@@ -61,7 +61,7 @@ Optional:
    ```bash
    curl -X POST http://localhost:7071/api/process_fit \\
      -H "Content-Type: application/json" \\
-     -d @test_payload.json
+     -d @tests/data/test_payload_example.json
    ```
 
 ## Deployment
