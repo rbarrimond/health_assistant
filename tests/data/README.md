@@ -5,7 +5,7 @@ This directory contains real FIT workout files and their corresponding JSON payl
 ## Real FIT Files
 
 | Filename | Date | Sport | Source | Size | Notes |
-|----------|------|-------|--------|------|-------|
+| -------- | ---- | ----- | ------ | ---- | ----- |
 | `2026-01-04-163358-Functional Strength Training-Robert's Apple Watch Ultra 3.fit` | Jan 4 | Strength | Apple Watch | 11 KB | ✓ Has JSON payload |
 | `2026-01-06-220813-Indoor Cycling-HealthFit.fit` | Jan 6 | Cycling | HealthFit | ? | - |
 | `2026-01-07-142711-Outdoor Walking-Robert's Apple Watch Ultra 3.fit` | Jan 7 | Walking | Apple Watch | ? | - |
