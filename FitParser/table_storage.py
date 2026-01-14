@@ -97,13 +97,14 @@ class WorkoutTableStorage:
         start_time = metrics.get("start_time_utc", "")
         if start_time:
             # Extract YYYY-MM for partition
-            partition_key = f"{athlete_id}#{start_time[:7]}"
-            # Format: YYYYMMDDTHHMMSSZ#workout_id
+            # Azure Tables forbid '/', '\\', '#', '?' in PartitionKey/RowKey
+            partition_key = f"{athlete_id}|{start_time[:7]}"
+            # Format: YYYYMMDDTHHMMSSZ|workout_id
             row_key_time = start_time.replace("-", "").replace(":", "").replace("+", "")
-            row_key = f"{row_key_time}#{workout_id[:12]}"
+            row_key = f"{row_key_time}|{workout_id[:12]}"
         else:
             # Fallback if no start time
-            partition_key = f"{athlete_id}#unknown"
+            partition_key = f"{athlete_id}|unknown"
             row_key = workout_id[:20]
 
         # Build entity with all metrics
