@@ -51,8 +51,9 @@ health_assistant/
 ├── DEPLOYMENT.md              # Azure deployment instructions
 ├── POWER_AUTOMATE_SETUP.md    # Power Automate integration
 ├── README.md                  # Architecture and setup
-├── TESTING.md                 # Test strategy and coverage
 ├── WORKOUT_SCHEMA.md          # Data schema specification
+├── tests/
+│   ├── TESTING.md             # Test strategy and coverage
 ├── test_payload_example.json  # Example function payload
 └── test_setup.py              # Setup verification script
 ```
@@ -298,7 +299,7 @@ Test suites:
 - **WORKOUT_SCHEMA.md** - Data schema specification
 - **POWER_AUTOMATE_SETUP.md** - Power Automate flow integration
 - **DEPLOYMENT.md** - Azure deployment & scaling guide
-- **TESTING.md** - Test strategy and coverage
+- **tests/TESTING.md** - Test strategy and coverage
 
 ## Future Enhancements
 
