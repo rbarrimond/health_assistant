@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, cast
 import fitparse
 import numpy as np
 from .adapter import load_workout_from_fit
+from .config import Config
 from .models import Workout
 
 logger = logging.getLogger(__name__)
@@ -496,24 +497,31 @@ class FitParser:
             return hr_max * 0.90
         return hr_max if zone_basis in ("HRmax", "HRR") else None
 
-    def _compute_hr_zones(
-            self,
-            zone_basis: str = "HRmax",
-            reference_bpm: Optional[float] = None,
-            hr_rest: Optional[float] = None):
+    def _compute_hr_zones(self):
         """
-        Compute time in HR zones using specified basis method.
-
-        Args:
-            zone_basis: "HRmax", "LTHR" (Lactate Threshold), or "HRR" (Heart Rate Reserve/Karvonen)
-            reference_bpm: HRmax or LTHR value (if not provided, uses detected max HR)
-            hr_rest: Resting HR for HRR method (if not provided, uses default 60 bpm)
+        Compute time in HR zones using configured basis method.
+        Configuration is loaded from Config.hr_config().
         """
         hrs = self._get_record_data("heart_rate")
         if not hrs:
             return
 
-        ref_bpm = self._get_reference_bpm(zone_basis, reference_bpm)
+        # Load HR configuration
+        hr_cfg = Config.hr_config()
+        zone_basis = hr_cfg.basis
+        hr_rest = hr_cfg.resting_hr_bpm
+
+        # Determine reference BPM based on zone basis
+        if zone_basis == "LTHR":
+            ref_bpm = hr_cfg.lthr_bpm
+        elif zone_basis == "HRR":
+            ref_bpm = hr_cfg.hr_max_bpm
+        else:  # HRmax
+            ref_bpm = hr_cfg.hr_max_bpm
+
+        # Fallback to detected max HR if config value not available
+        if not ref_bpm:
+            ref_bpm = self.metrics.get("hr_max_bpm")
         if not ref_bpm:
             return
 
@@ -540,8 +548,11 @@ class FitParser:
 
     def _compute_power_zones(self):
         """Compute time in power zones (simplified 7-zone Coggan model)."""
-        # Extract FTP from user profile, default to 250W
-        ftp = self._extract_ftp() or 250
+        # Extract FTP from user profile or config, default to 250W
+        ftp = self._extract_ftp()
+        if not ftp:
+            pwr_cfg = Config.power_config()
+            ftp = pwr_cfg.ftp_watts or 250
 
         powers = self._get_record_data("power")
         if not powers:
