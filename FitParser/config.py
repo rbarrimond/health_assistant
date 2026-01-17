@@ -113,6 +113,7 @@ class Config:
 
     @classmethod
     def load_physiometrics(cls, *, force_reload: bool = False) -> Optional[Dict[str, Any]]:
+        """Load physiometrics.json configuration."""
         if cls._physiometrics_cache is not None and not force_reload:
             return cls._physiometrics_cache
 
