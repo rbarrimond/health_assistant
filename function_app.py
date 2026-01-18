@@ -10,6 +10,7 @@ from typing import Dict
 import azure.functions as func
 from azure.core.exceptions import AzureError
 
+from FitParser.config import Config
 from FitParser.fit_parser import FitParser, compute_file_hash
 from FitParser.table_storage import WorkoutTableStorage
 
@@ -27,6 +28,243 @@ try:
 except (ValueError, AzureError, OSError) as _e:
     # Don't crash host; function will attempt again on first request.
     logger.warning("Table storage init deferred: %s", _e)
+
+
+@app.route(route="health", methods=["GET"])
+def health_check(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable=unused-argument
+    """Health check endpoint."""
+    return func.HttpResponse(
+        json.dumps({"status": "healthy"}),
+        status_code=200,
+        mimetype=JSON_CONTENT_TYPE
+    )
+
+
+@app.route(route="config/reload", methods=["POST"])
+def reload_config(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable=unused-argument
+    """Reload physiometrics configuration from disk.
+
+    POST /config/reload
+
+    Returns:
+        - 200 OK with config details if reload succeeds
+        - 404 Not Found if physiometrics.json does not exist
+        - 500 Internal Error if JSON parsing fails
+    """
+    try:
+        # Force reload from disk
+        config_data = Config.load_physiometrics(force_reload=True)
+
+        if config_data is None:
+            logger.warning("Physiometrics file not found at %s",
+                          Config.physiometrics_file())
+            return func.HttpResponse(
+                json.dumps({
+                    "error": "Physiometrics file not found",
+                    "path": str(Config.physiometrics_file())
+                }),
+                status_code=404,
+                mimetype=JSON_CONTENT_TYPE
+            )
+
+        # Return current configuration
+        hr_cfg = Config.hr_config()
+        pwr_cfg = Config.power_config()
+
+        return func.HttpResponse(
+            json.dumps({
+                "status": "success",
+                "message": "Configuration reloaded from disk",
+                "heart_rate": {
+                    "basis": hr_cfg.basis,
+                    "lthr_bpm": hr_cfg.lthr_bpm,
+                    "hr_max_bpm": hr_cfg.hr_max_bpm,
+                    "resting_hr_bpm": hr_cfg.resting_hr_bpm,
+                },
+                "power": {
+                    "ftp_watts": pwr_cfg.ftp_watts,
+                }
+            }),
+            status_code=200,
+            mimetype=JSON_CONTENT_TYPE
+        )
+
+    except json.JSONDecodeError as e:
+        logger.error("JSON parsing error in physiometrics file: %s", e)
+        return func.HttpResponse(
+            json.dumps({
+                "error": "Invalid JSON in physiometrics file",
+                "details": str(e)
+            }),
+            status_code=500,
+            mimetype=JSON_CONTENT_TYPE
+        )
+    except (OSError, IOError, ValueError, KeyError) as e:
+        logger.error("Error reloading config: %s", e, exc_info=True)
+        return func.HttpResponse(
+            json.dumps({
+                "error": "Failed to reload configuration",
+                "details": str(e)
+            }),
+            status_code=500,
+            mimetype=JSON_CONTENT_TYPE
+        )
+
+
+@app.route(route="config/update", methods=["POST"])
+def update_config(req: func.HttpRequest) -> func.HttpResponse:
+    """Update physiometrics configuration via HTTP POST.
+
+    POST /config/update
+    Content-Type: application/json
+
+    Request body:
+    {
+        "heart_rate": {
+            "basis": "HRmax",
+            "lthr_bpm": 175,
+            "hr_max_bpm": 195,
+            "resting_hr_bpm": 52,
+            "zones": { ... }
+        },
+        "power": {
+            "ftp_watts": 285,
+            "zones": { ... }
+        }
+    }
+
+    Returns:
+        - 200 OK with saved config and timestamp on success
+        - 400 Bad Request if JSON is invalid or missing fields
+        - 500 Internal Error if save fails
+    """
+    try:
+        req_body = req.get_json()
+    except ValueError as e:
+        logger.error("Invalid JSON in update request: %s", e)
+        return func.HttpResponse(
+            json.dumps({"error": "Invalid JSON payload"}),
+            status_code=400,
+            mimetype=JSON_CONTENT_TYPE
+        )
+
+    # Validate required sections
+    if not isinstance(req_body, dict):
+        return func.HttpResponse(
+            json.dumps({"error": "Payload must be a JSON object"}),
+            status_code=400,
+            mimetype=JSON_CONTENT_TYPE
+        )
+
+    try:
+        # Save to Azure Table Storage
+        timestamp = Config.save_physiometrics(req_body)
+
+        # Load and return updated config
+        hr_cfg = Config.hr_config()
+        pwr_cfg = Config.power_config()
+
+        logger.info("Configuration updated at %s", timestamp)
+
+        return func.HttpResponse(
+            json.dumps({
+                "status": "success",
+                "message": "Configuration saved to Azure Table Storage",
+                "updated_at_utc": timestamp,
+                "heart_rate": {
+                    "basis": hr_cfg.basis,
+                    "lthr_bpm": hr_cfg.lthr_bpm,
+                    "hr_max_bpm": hr_cfg.hr_max_bpm,
+                    "resting_hr_bpm": hr_cfg.resting_hr_bpm,
+                },
+                "power": {
+                    "ftp_watts": pwr_cfg.ftp_watts,
+                }
+            }),
+            status_code=200,
+            mimetype=JSON_CONTENT_TYPE
+        )
+
+    except ValueError as e:
+        logger.error("Validation error updating config: %s", e)
+        return func.HttpResponse(
+            json.dumps({
+                "error": "Failed to update configuration",
+                "details": str(e)
+            }),
+            status_code=500,
+            mimetype=JSON_CONTENT_TYPE
+        )
+    except (OSError, IOError, KeyError) as e:
+        logger.error("Error updating config: %s", e, exc_info=True)
+        return func.HttpResponse(
+            json.dumps({
+                "error": "Unexpected error updating configuration",
+                "details": str(e)
+            }),
+            status_code=500,
+            mimetype=JSON_CONTENT_TYPE
+        )
+
+
+@app.route(route="config/history", methods=["GET"])
+def config_history(req: func.HttpRequest) -> func.HttpResponse:
+    """Get physiometrics configuration change history.
+
+    GET /config/history?limit=10
+
+    Query parameters:
+        limit: Maximum number of entries to return (default 10, max 50)
+
+    Returns:
+        - 200 OK with list of config changes (newest first)
+        - 500 Error if retrieval fails
+    """
+    try:
+        limit = req.params.get("limit", "10")
+        try:
+            limit = min(int(limit), 50)  # Cap at 50
+        except ValueError:
+            limit = 10
+
+        history = Config.get_physiometrics_history(limit=limit)
+
+        # Transform for readability
+        result = []
+        for entry in history:
+            result.append({
+                "updated_at_utc": entry.get("RowKey"),
+                "heart_rate": {
+                    "basis": entry.get("heart_rate_basis"),
+                    "lthr_bpm": entry.get("heart_rate_lthr_bpm"),
+                    "hr_max_bpm": entry.get("heart_rate_hr_max_bpm"),
+                    "resting_hr_bpm": entry.get("heart_rate_resting_bpm"),
+                },
+                "power": {
+                    "ftp_watts": entry.get("power_ftp_watts"),
+                }
+            })
+
+        return func.HttpResponse(
+            json.dumps({
+                "status": "success",
+                "count": len(result),
+                "history": result
+            }),
+            status_code=200,
+            mimetype=JSON_CONTENT_TYPE
+        )
+
+    except (ValueError, OSError, KeyError) as e:
+        logger.error("Error retrieving config history: %s", e, exc_info=True)
+        return func.HttpResponse(
+            json.dumps({
+                "error": "Failed to retrieve configuration history",
+                "details": str(e)
+            }),
+            status_code=500,
+            mimetype=JSON_CONTENT_TYPE
+        )
 
 
 def parse_onedrive_payload(req: func.HttpRequest) -> Dict:
@@ -101,7 +339,10 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
             logger.info("File SHA256: %s", file_sha256)
 
             # Use singleton storage if available; else initialize.
-            storage = _storage_singleton if '_storage_singleton' in globals() and _storage_singleton else WorkoutTableStorage()
+            if '_storage_singleton' in globals() and _storage_singleton:
+                storage = _storage_singleton
+            else:
+                storage = WorkoutTableStorage()
 
             file_key = payload.get("source_item_id") or file_sha256
             existing = storage.get_ingestion_state(athlete_id, file_key)
@@ -170,7 +411,10 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
 
             # Record failed ingestion
             try:
-                storage = _storage_singleton if '_storage_singleton' in globals() and _storage_singleton else WorkoutTableStorage()
+                if '_storage_singleton' in globals() and _storage_singleton:
+                    storage = _storage_singleton
+                else:
+                    storage = WorkoutTableStorage()
                 storage.record_ingestion_state(
                     athlete_id,
                     payload,

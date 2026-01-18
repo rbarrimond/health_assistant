@@ -1,0 +1,75 @@
+{
+  "heart_rate": {
+    "basis": "HRmax",
+    "lthr_bpm": 175,
+    "hr_max_bpm": 195,
+    "resting_hr_bpm": 52,
+    "zones": {
+      "z1": {
+        "label": "Recovery",
+        "lower_pct": 0.0,
+        "upper_pct": 0.6
+      },
+      "z2": {
+        "label": "Endurance",
+        "lower_pct": 0.6,
+        "upper_pct": 0.7
+      },
+      "z3": {
+        "label": "Tempo",
+        "lower_pct": 0.7,
+        "upper_pct": 0.8
+      },
+      "z4": {
+        "label": "Threshold",
+        "lower_pct": 0.8,
+        "upper_pct": 0.9
+      },
+      "z5": {
+        "label": "VO2max",
+        "lower_pct": 0.9,
+        "upper_pct": 1.0
+      }
+    }
+  },
+  "power": {
+    "ftp_watts": 285,
+    "zones": {
+      "z1": {
+        "label": "Active Recovery",
+        "lower_pct": 0.0,
+        "upper_pct": 0.55
+      },
+      "z2": {
+        "label": "Endurance",
+        "lower_pct": 0.55,
+        "upper_pct": 0.75
+      },
+      "z3": {
+        "label": "Tempo",
+        "lower_pct": 0.75,
+        "upper_pct": 0.9
+      },
+      "z4": {
+        "label": "Threshold",
+        "lower_pct": 0.9,
+        "upper_pct": 1.05
+      },
+      "z5": {
+        "label": "VO2max",
+        "lower_pct": 1.05,
+        "upper_pct": 1.2
+      },
+      "z6": {
+        "label": "Anaerobic",
+        "lower_pct": 1.2,
+        "upper_pct": 1.5
+      },
+      "z7": {
+        "label": "Neuromuscular",
+        "lower_pct": 1.5,
+        "upper_pct": 3.0
+      }
+    }
+  }
+}

@@ -1,16 +1,18 @@
 """Configuration and environment utilities.
 
-This module supports two configuration sources:
-1) A *current-state* JSON file (recommended): `config/physiometrics.json`
-2) Environment variables (fallback / deployment overrides)
+This module supports three configuration sources (in order of precedence):
+1) Azure Table Storage (Physiometrics table) - recommended for production
+2) Filesystem JSON file (`config/physiometrics.json`)
+3) Environment variables - deployment overrides
 
-Ingestion MUST snapshot the relevant physiometrics into each workout record, so this
-file only needs to represent *current truth*.
+Ingestion MUST snapshot the relevant physiometrics into each workout record, so
+configuration only needs to represent *current truth*.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,7 +46,7 @@ def _as_float(v: Optional[str]) -> Optional[float]:
 @dataclass(frozen=True)
 class HeartRateConfig:
     """Heart rate zone configuration.
-    
+
     Attributes:
         basis: Zone calculation method (HRmax, LTHR, or HRR)
         lthr_bpm: Lactate Threshold Heart Rate in BPM
@@ -62,7 +64,7 @@ class HeartRateConfig:
 @dataclass(frozen=True)
 class PowerConfig:
     """Power zone configuration.
-    
+
     Attributes:
         ftp_watts: Functional Threshold Power in watts
         zones: Zone definitions with lower/upper percentages
@@ -95,11 +97,31 @@ class Config:
     PHYSIOMETRICS_PATH = os.getenv("PHYSIOMETRICS_PATH")
 
     _physiometrics_cache: Optional[Dict[str, Any]] = None
+    _table_storage_client = None
+
+    # Allow imports inside methods to avoid circular dependencies.
+    # pylint: disable=import-outside-toplevel
+    @staticmethod
+    def _get_table_storage():
+        """Lazy-load table storage client."""
+        # Avoid circular imports and only initialize if storage is needed
+        if Config._table_storage_client is None:
+            try:
+                from .table_storage import WorkoutTableStorage
+                Config._table_storage_client = WorkoutTableStorage()
+            except (ImportError, ValueError, OSError) as e:
+                logger = logging.getLogger(__name__)
+                logger.debug(
+                    "Table storage not available; "
+                    "will use filesystem config: %s", e
+                )
+                Config._table_storage_client = False  # Sentinel: unavailable
+        return Config._table_storage_client if Config._table_storage_client is not False else None
 
     @staticmethod
     def _repo_root() -> Path:
         """Return repository root path.
-        
+
         Config.py lives in FitParser/. Default config/ is at repo root.
         """
         return Path(__file__).resolve().parents[1]
@@ -113,10 +135,33 @@ class Config:
 
     @classmethod
     def load_physiometrics(cls, *, force_reload: bool = False) -> Optional[Dict[str, Any]]:
-        """Load physiometrics.json configuration."""
+        """Load physiometrics configuration.
+
+        Precedence:
+        1) Azure Table Storage (Physiometrics table)
+        2) Filesystem JSON file (config/physiometrics.json)
+        3) Returns None if neither available
+        """
         if cls._physiometrics_cache is not None and not force_reload:
             return cls._physiometrics_cache
 
+        # Try Azure Table Storage first
+        athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
+        storage = cls._get_table_storage()
+        if storage:
+            try:
+                table_data = storage.get_physiometrics(athlete_id)
+                if table_data:
+                    cls._physiometrics_cache = table_data
+                    return table_data
+            except (ValueError, OSError, KeyError) as e:
+                logger = logging.getLogger(__name__)
+                logger.debug(
+                    "Failed to load physiometrics from table storage: %s", e
+                )
+                # Fall through to filesystem
+
+        # Fallback to filesystem
         path = cls.physiometrics_file()
         if not path.exists():
             cls._physiometrics_cache = None
@@ -125,7 +170,58 @@ class Config:
         cls._physiometrics_cache = json.loads(path.read_text(encoding="utf-8"))
         return cls._physiometrics_cache
 
-    # -------------------------
+    @classmethod
+    def save_physiometrics(cls, physiometrics_data: Dict[str, Any]) -> str:
+        """Save physiometrics configuration to Azure Table Storage.
+
+        Args:
+            physiometrics_data: Complete physiometrics configuration dict
+
+        Returns:
+            Timestamp of the update (ISO format)
+
+        Raises:
+            ValueError: If table storage is not available or save fails
+        """
+        storage = cls._get_table_storage()
+        if not storage:
+            raise ValueError(
+                "Table storage not available. "
+                "Cannot save configuration to Azure Tables."
+            )
+
+        athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
+        try:
+            timestamp = storage.store_physiometrics(athlete_id, physiometrics_data)
+            # Clear cache so next load gets fresh data
+            cls._physiometrics_cache = None
+            return timestamp
+        except (ValueError, OSError, KeyError) as e:
+            logger = logging.getLogger(__name__)
+            logger.error("Failed to save physiometrics to table storage: %s", e)
+            raise ValueError(f"Failed to save configuration: {str(e)}") from e
+
+    @classmethod
+    def get_physiometrics_history(cls, limit: int = 10) -> list:
+        """Get physiometrics configuration history from Azure Table.
+
+        Args:
+            limit: Maximum number of entries to return
+
+        Returns:
+            List of historical config entries (newest first)
+        """
+        storage = cls._get_table_storage()
+        if not storage:
+            return []
+
+        athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
+        try:
+            return storage.list_physiometrics_history(athlete_id, limit=limit)
+        except (ValueError, OSError, KeyError) as e:
+            logger = logging.getLogger(__name__)
+            logger.warning("Failed to retrieve history: %s", e)
+            return []
     # Heart rate configuration
     # -------------------------
 

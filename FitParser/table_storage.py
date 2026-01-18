@@ -1,5 +1,6 @@
 """Azure Table Storage client for workout data."""
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Dict, Optional
@@ -44,8 +45,10 @@ class WorkoutTableStorage:
             account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
             if not account_url:
                 msg = (
-                    "No connection string found. Provide AZURE_TABLES_CONNECTION_STRING, "
-                    "AZURE_STORAGE_CONNECTION_STRING, AzureWebJobsStorage, or AZURE_STORAGE_ACCOUNT_URL."
+                    "No connection string found. Provide "
+                    "AZURE_TABLES_CONNECTION_STRING, "
+                    "AZURE_STORAGE_CONNECTION_STRING, AzureWebJobsStorage, "
+                    "or AZURE_STORAGE_ACCOUNT_URL."
                 )
                 raise ValueError(msg)
             credential = DefaultAzureCredential()
@@ -59,7 +62,7 @@ class WorkoutTableStorage:
 
     def _ensure_tables_exist(self):
         """Create tables if they don't exist."""
-        for table_name in ["Workouts", "WeeklyRollups", "IngestionState"]:
+        for table_name in ["Workouts", "WeeklyRollups", "IngestionState", "Physiometrics"]:
             try:
                 self.service_client.create_table_if_not_exists(table_name)
                 logger.info("Table %s ready", table_name)
@@ -129,7 +132,12 @@ class WorkoutTableStorage:
                 entity[key] = value
 
         # Add ingestion metadata
-        now_utc = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")  # NOSONAR - explicit literal more legible than constant
+        now_utc = (
+            datetime.now(timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+        # NOSONAR - explicit literal more legible than constant
         entity["ingest_version"] = "v1.0.0"
         entity["ingested_at_utc"] = now_utc
 
@@ -160,13 +168,24 @@ class WorkoutTableStorage:
         row_key = (file_info.get("source_item_id") or
                    file_info.get("file_sha256") or
                    file_info.get("source_file_name"))
-        
+
         entity = {
             "PartitionKey": athlete_id,
             "RowKey": row_key,
             "status": status,
-            "first_seen_at_utc": file_info.get("first_seen_at_utc", datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")),
-            "last_attempt_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "first_seen_at_utc": (
+                file_info.get(
+                    "first_seen_at_utc",
+                    datetime.now(timezone.utc)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                )
+            ),
+            "last_attempt_at_utc": (
+                datetime.now(timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z")
+            ),
             "workout_id": workout_id,
             "retry_count": 0,
         }
@@ -198,7 +217,7 @@ class WorkoutTableStorage:
     def update_weekly_rollup(self, athlete_id: str, year: str, week: str, rollup_data: Dict):
         """
         Update weekly rollup with aggregated metrics.
-        
+
         Args:
             athlete_id: Athlete identifier
             year: Year (YYYY)
@@ -219,3 +238,124 @@ class WorkoutTableStorage:
         except HttpResponseError as e:
             logger.error("Error updating weekly rollup: %s", e)
             # Don't raise - rollups are secondary
+    def store_physiometrics(self, athlete_id: str,
+                           physiometrics_data: Dict) -> str:
+        """
+        Store physiometrics configuration in Physiometrics table.
+
+        Args:
+            athlete_id: Athlete identifier
+            physiometrics_data: Complete physiometrics JSON
+                (heart_rate, power config)
+
+        Returns:
+            Timestamp of update (ISO format)
+        """
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+        entity = {
+            "PartitionKey": athlete_id,
+            "RowKey": timestamp,  # Timestamp as row key preserves history
+            "updated_at_utc": timestamp,
+            "heart_rate_basis": (
+                physiometrics_data.get("heart_rate", {}).get("basis", "HRmax")
+            ),
+            "heart_rate_lthr_bpm": physiometrics_data.get("heart_rate", {}).get(
+                "lthr_bpm"
+            ),
+            "heart_rate_hr_max_bpm": physiometrics_data.get(
+                "heart_rate", {}
+            ).get("hr_max_bpm"),
+            "heart_rate_resting_bpm": (
+                physiometrics_data.get("heart_rate", {}).get("resting_hr_bpm") or 60
+            ),
+            "power_ftp_watts": physiometrics_data.get("power", {}).get(
+                "ftp_watts"
+            ),
+            # Store full JSON as string for auditability
+            "full_config_json": json.dumps(physiometrics_data),
+        }
+
+        try:
+            table_client = self._get_table_client("Physiometrics")
+            table_client.upsert_entity(entity)
+            logger.info(
+                "Stored physiometrics for %s at %s", athlete_id, timestamp
+            )
+            return timestamp
+        except HttpResponseError as e:
+            logger.error("Error storing physiometrics: %s", e)
+            raise
+
+    def get_physiometrics(self, athlete_id: str) -> Optional[Dict]:
+        """
+        Get latest physiometrics configuration for athlete.
+
+        Args:
+            athlete_id: Athlete identifier
+
+        Returns:
+            Dict with physiometrics data, or None if not found
+        """
+        try:
+            table_client = self._get_table_client("Physiometrics")
+            # Query for latest entry (RowKey is timestamp, so sorting descending
+            # gets newest first)
+            query = f"PartitionKey eq '{athlete_id}'"
+            entities = list(table_client.query_entities(query, top=1))
+
+            if not entities:
+                return None
+
+            latest = entities[0]
+            # Reconstruct physiometrics from full_config_json
+            if latest.get("full_config_json"):
+                return json.loads(latest["full_config_json"])
+
+            # Fallback: reconstruct from individual fields
+            return {
+                "heart_rate": {
+                    "basis": latest.get("heart_rate_basis", "HRmax"),
+                    "lthr_bpm": latest.get("heart_rate_lthr_bpm"),
+                    "hr_max_bpm": latest.get("heart_rate_hr_max_bpm"),
+                    "resting_hr_bpm": (
+                        latest.get("heart_rate_resting_bpm") or 60
+                    ),
+                },
+                "power": {"ftp_watts": latest.get("power_ftp_watts")},
+            }
+        except ResourceNotFoundError:
+            return None
+        except HttpResponseError as e:
+            logger.warning(
+                "Error retrieving physiometrics for %s: %s", athlete_id, e
+            )
+            return None
+
+    def list_physiometrics_history(self, athlete_id: str,
+                                  limit: int = 10) -> list:
+        """
+        List physiometrics configuration history for athlete.
+
+        Args:
+            athlete_id: Athlete identifier
+            limit: Maximum number of entries to return
+
+        Returns:
+            List of dicts with physiometrics history (newest first)
+        """
+        try:
+            table_client = self._get_table_client("Physiometrics")
+            query = f"PartitionKey eq '{athlete_id}'"
+            # Rows are stored with timestamp as key, so we iterate and sort
+            entities = list(table_client.query_entities(query))
+            # Sort by timestamp descending (newest first)
+            entities.sort(key=lambda x: x.get("RowKey", ""), reverse=True)
+            return entities[:limit]
+        except HttpResponseError as e:
+            logger.warning(
+                "Error retrieving physiometrics history for %s: %s",
+                athlete_id,
+                e
+            )
+            return []
