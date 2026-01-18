@@ -1,5 +1,8 @@
 """Unit tests for Config and physiometrics management."""
 
+# Allow protected member access in tests for internal state verification.
+# pylint: disable=protected-access
+
 import json
 import os
 from pathlib import Path
@@ -177,7 +180,7 @@ class TestConfigHrConfig:
 
         assert hr_cfg.resting_hr_bpm == 50
 
-    def test_hr_config_from_physiometrics_file(self, tmp_path: Path) -> None:
+    def test_hr_config_from_physiometrics_file(self) -> None:
         """Verify loading from physiometrics.json."""
         config_data = {
             "heart_rate": {
