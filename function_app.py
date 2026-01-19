@@ -397,7 +397,7 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
         logger.info("Processing file: %s", payload.get("source_file_name"))
 
         athlete_id = payload["athlete_id"]
-        
+  
         # Decode and write to temp file
         try:
             file_content = _decode_fit_file_content(payload["file_content_b64"])
