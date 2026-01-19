@@ -2,15 +2,18 @@
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Dict, Optional
-import os
 
-from azure.data.tables import TableClient, TableServiceClient
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
+from azure.data.tables import TableClient, TableServiceClient
 from azure.identity import DefaultAzureCredential
 
 from FitParser.fit_parser import compute_workout_id
+
+# Constant for UTC timezone suffix replacement
+UTC_SUFFIX = "+00:00"
 
 logger = logging.getLogger(__name__)
 
@@ -135,9 +138,8 @@ class WorkoutTableStorage:
         now_utc = (
             datetime.now(timezone.utc)
             .isoformat()
-            .replace("+00:00", "Z")
+            .replace(UTC_SUFFIX, "Z")
         )
-        # NOSONAR - explicit literal more legible than constant
         entity["ingest_version"] = "v1.0.0"
         entity["ingested_at_utc"] = now_utc
 
@@ -178,13 +180,13 @@ class WorkoutTableStorage:
                     "first_seen_at_utc",
                     datetime.now(timezone.utc)
                     .isoformat()
-                    .replace("+00:00", "Z"),
+                    .replace(UTC_SUFFIX, "Z"),
                 )
             ),
             "last_attempt_at_utc": (
                 datetime.now(timezone.utc)
                 .isoformat()
-                .replace("+00:00", "Z")
+                .replace(UTC_SUFFIX, "Z")
             ),
             "workout_id": workout_id,
             "retry_count": 0,
@@ -227,7 +229,7 @@ class WorkoutTableStorage:
         entity = {
             "PartitionKey": f"{athlete_id}#{year}",
             "RowKey": f"{year}-{week:0>2}",
-            "last_updated_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "last_updated_at_utc": datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z"),
         }
         entity.update(rollup_data)
 
@@ -251,7 +253,7 @@ class WorkoutTableStorage:
         Returns:
             Timestamp of update (ISO format)
         """
-        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        timestamp = datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z")
 
         entity = {
             "PartitionKey": athlete_id,
