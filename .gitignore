@@ -42,3 +42,4 @@ htmlcov/
 
 # Python version manager
 .python-version
+.vscode/
