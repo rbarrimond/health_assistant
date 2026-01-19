@@ -17,11 +17,11 @@ build/
 *.egg
 
 # IDE
-
 .idea/
 *.swp
 *.swo
 *~
+.vscode/
 
 # Azure Functions
 local.settings.json
@@ -42,4 +42,3 @@ htmlcov/
 
 # Python version manager
 .python-version
-.vscode/
