@@ -3,6 +3,7 @@
 These tests verify that the Azure Functions HTTP routes correctly
 interface with the semantic layer.
 """
+# pylint: disable=redefined-outer-name  # pytest fixtures intentionally shadow
 
 import json
 from unittest.mock import MagicMock, patch

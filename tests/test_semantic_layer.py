@@ -1,4 +1,7 @@
 """Tests for semantic access layer."""
+# pylint: disable=redefined-outer-name  # pytest fixtures intentionally shadow
+# pylint: disable=unused-argument  # pytest fixtures may be used for side effects
+# pylint: disable=protected-access  # testing private methods intentionally
 
 import json
 from datetime import datetime, timedelta, timezone
@@ -294,7 +297,7 @@ class TestAnalysisQueries:
 
         # Only workout-001 has decoupling data
         assert len(trends["samples"]) == 1
-        assert trends["samples"][0]["decoupling_pct"] == 2.5
+        assert trends["samples"][0]["decoupling_pct"] == pytest.approx(2.5)
 
     def test_efficiency_trends_summary(
         self, semantic_layer, sample_workouts, mock_storage
@@ -307,7 +310,7 @@ class TestAnalysisQueries:
 
         summary = trends["summary"]
         assert summary["total_samples"] == 1
-        assert summary["avg_decoupling"] == 2.5
+        assert summary["avg_decoupling"] == pytest.approx(2.5)
 
 
 class TestHelperMethods:
@@ -380,9 +383,7 @@ class TestHelperMethods:
         """Test high intensity summation."""
         total_intensity = semantic_layer._sum_high_intensity(sample_workouts)
 
-        # workout-001: 5 + 3 = 8
-        # workout-002: 0 + 0 = 0
-        # workout-003: 0 + 0 = 0
+        # workout-001: Z5=5 + Z6=3 = 8 minutes total
         assert total_intensity == 8
 
     def test_detect_notable_flags_missing_hr(self, semantic_layer):
