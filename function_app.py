@@ -25,6 +25,7 @@ ERR_MISSING_ATHLETE_ID = "Missing required parameter: athlete_id"
 app = func.FunctionApp()
 
 # Initialize and warm up table storage on host start (idempotent table creation).
+# pylint: disable=invalid-name  # These are mutable singletons, not constants
 _storage_singleton = None
 _semantic_layer_singleton = None
 
@@ -302,6 +303,80 @@ def parse_onedrive_payload(req: func.HttpRequest) -> Dict:
     return req_body
 
 
+def _decode_fit_file_content(file_content_b64: str) -> bytes:
+    """Decode base64 FIT file content.
+    
+    Args:
+        file_content_b64: Base64-encoded file content
+        
+    Returns:
+        Decoded file bytes
+        
+    Raises:
+        ValueError: If base64 decoding fails
+    """
+    try:
+        return base64.b64decode(file_content_b64)
+    except (TypeError, ValueError) as e:
+        logger.error("Failed to decode base64 file content: %s", e)
+        raise ValueError("Invalid base64 encoding") from e
+
+
+def _get_storage_instance():
+    """Get storage singleton or create new instance."""
+    if '_storage_singleton' in globals() and _storage_singleton:
+        return _storage_singleton
+    return WorkoutTableStorage()
+
+
+def _build_source_info(payload: Dict, file_sha256: str, file_size: int) -> Dict:
+    """Build source information dictionary from payload."""
+    return {
+        "source_system": "HealthFit",
+        "source_file_name": payload.get("source_file_name"),
+        "source_file_path": payload.get("source_file_path", ""),
+        "source_item_id": payload.get("source_item_id"),
+        "source_drive_id": payload.get("source_drive_id"),
+        "source_etag": payload.get("source_etag"),
+        "file_size_bytes": payload.get("file_size_bytes", file_size),
+        "file_sha256": file_sha256,
+    }
+
+
+def _build_success_response(workout_id: str, athlete_id: str, metrics: Dict) -> func.HttpResponse:
+    """Build success response for ingested workout."""
+    return func.HttpResponse(
+        json.dumps({
+            "status": "success",
+            "workout_id": workout_id,
+            "athlete_id": athlete_id,
+            "sport": metrics.get("sport"),
+            "duration_sec": metrics.get("duration_sec"),
+            "metrics": {
+                "distance_m": metrics.get("distance_m"),
+                "avg_power_watts": metrics.get("pwr_avg_watts"),
+                "avg_hr_bpm": metrics.get("hr_avg_bpm"),
+            }
+        }),
+        status_code=200,
+        mimetype=JSON_CONTENT_TYPE
+    )
+
+
+def _record_failed_ingestion(athlete_id: str, payload: Dict, error: str):
+    """Record failed ingestion state (best effort)."""
+    try:
+        storage = _get_storage_instance()
+        storage.record_ingestion_state(
+            athlete_id,
+            payload,
+            status="failed",
+            error=error
+        )
+    except (ValueError, OSError, IOError):
+        pass  # Already logging main error
+
+
 @app.function_name("ProcessFitFiles")
 @app.route(route="process_fit", methods=["POST"])
 def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
@@ -314,43 +389,35 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
     4. Store workout data in Azure Tables
     5. Record ingestion state for idempotency
     """
+    # pylint: disable=too-many-locals
     logger.info("FIT file ingestion function triggered")
 
     try:
-        # Parse request payload
         payload = parse_onedrive_payload(req)
         logger.info("Processing file: %s", payload.get("source_file_name"))
 
         athlete_id = payload["athlete_id"]
-        file_content_b64 = payload["file_content_b64"]
-
-        # Decode base64 file content
+        
+        # Decode and write to temp file
         try:
-            file_content = base64.b64decode(file_content_b64)
-        except (TypeError, ValueError) as e:
-            logger.error("Failed to decode base64 file content: %s", e)
+            file_content = _decode_fit_file_content(payload["file_content_b64"])
+        except ValueError as e:
             return func.HttpResponse(
-                json.dumps({"error": "Invalid base64 encoding"}),
+                json.dumps({"error": str(e)}),
                 status_code=400,
                 mimetype=JSON_CONTENT_TYPE
             )
 
-        # Write to temporary file
         with tempfile.NamedTemporaryFile(suffix=".fit", delete=False) as tmp:
             tmp.write(file_content)
             tmp_path = tmp.name
 
         try:
-            # Compute file hash for idempotency
+            # Check for duplicate
             file_sha256 = compute_file_hash(tmp_path)
             logger.info("File SHA256: %s", file_sha256)
 
-            # Use singleton storage if available; else initialize.
-            if '_storage_singleton' in globals() and _storage_singleton:
-                storage = _storage_singleton
-            else:
-                storage = WorkoutTableStorage()
-
+            storage = _get_storage_instance()
             file_key = payload.get("source_item_id") or file_sha256
             existing = storage.get_ingestion_state(athlete_id, file_key)
 
@@ -366,27 +433,13 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
                     mimetype=JSON_CONTENT_TYPE
                 )
 
-            # Parse FIT file
-            parser = FitParser(tmp_path)
-            metrics = parser.parse()
+            # Parse and store
+            metrics = FitParser(tmp_path).parse()
             logger.info("Parsed metrics: %s", list(metrics.keys()))
 
-            # Build source info
-            source_info = {
-                "source_system": "HealthFit",
-                "source_file_name": payload.get("source_file_name"),
-                "source_file_path": payload.get("source_file_path", ""),
-                "source_item_id": payload.get("source_item_id"),
-                "source_drive_id": payload.get("source_drive_id"),
-                "source_etag": payload.get("source_etag"),
-                "file_size_bytes": payload.get("file_size_bytes", len(file_content)),
-                "file_sha256": file_sha256,
-            }
-
-            # Store in Azure Tables
+            source_info = _build_source_info(payload, file_sha256, len(file_content))
             workout_id = storage.store_workout(athlete_id, metrics, source_info)
 
-            # Record successful ingestion
             storage.record_ingestion_state(
                 athlete_id,
                 {**source_info, "first_seen_at_utc": metrics.get("start_time_utc")},
@@ -395,50 +448,17 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
             )
 
             logger.info("Successfully ingested workout %s", workout_id)
-
-            return func.HttpResponse(
-                json.dumps({
-                    "status": "success",
-                    "workout_id": workout_id,
-                    "athlete_id": athlete_id,
-                    "sport": metrics.get("sport"),
-                    "duration_sec": metrics.get("duration_sec"),
-                    "metrics": {
-                        "distance_m": metrics.get("distance_m"),
-                        "avg_power_watts": metrics.get("pwr_avg_watts"),
-                        "avg_hr_bpm": metrics.get("hr_avg_bpm"),
-                    }
-                }),
-                status_code=200,
-                mimetype=JSON_CONTENT_TYPE
-            )
+            return _build_success_response(workout_id, athlete_id, metrics)
 
         except (ValueError, OSError, IOError) as e:
             logger.error("Error parsing or storing FIT file: %s", e, exc_info=True)
-
-            # Record failed ingestion
-            try:
-                if '_storage_singleton' in globals() and _storage_singleton:
-                    storage = _storage_singleton
-                else:
-                    storage = WorkoutTableStorage()
-                storage.record_ingestion_state(
-                    athlete_id,
-                    payload,
-                    status="failed",
-                    error=str(e)
-                )
-            except (ValueError, OSError, IOError):
-                pass
-
+            _record_failed_ingestion(athlete_id, payload, str(e))
             return func.HttpResponse(
                 json.dumps({"error": f"Failed to process FIT file: {str(e)}"}),
                 status_code=500,
                 mimetype=JSON_CONTENT_TYPE
             )
-
         finally:
-            # Clean up temporary file
             try:
                 os.unlink(tmp_path)
             except OSError:
@@ -517,7 +537,7 @@ def planning_context(req: func.HttpRequest) -> func.HttpResponse:
             status_code=400,
             mimetype=JSON_CONTENT_TYPE
         )
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught  # pylint: disable=broad-exception-caught
         logger.error("Error retrieving planning context: %s", e, exc_info=True)
         return func.HttpResponse(
             json.dumps({"error": "Failed to retrieve planning context"}),
@@ -587,7 +607,7 @@ def list_workouts(req: func.HttpRequest) -> func.HttpResponse:
             status_code=400,
             mimetype=JSON_CONTENT_TYPE
         )
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("Error listing workouts: %s", e, exc_info=True)
         return func.HttpResponse(
             json.dumps({"error": "Failed to list workouts"}),
@@ -660,7 +680,7 @@ def get_workout(req: func.HttpRequest) -> func.HttpResponse:
             status_code=400,
             mimetype=JSON_CONTENT_TYPE
         )
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("Error retrieving workout: %s", e, exc_info=True)
         return func.HttpResponse(
             json.dumps({"error": "Failed to retrieve workout"}),
@@ -723,7 +743,7 @@ def weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
             status_code=400,
             mimetype=JSON_CONTENT_TYPE
         )
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("Error retrieving weekly rollups: %s", e, exc_info=True)
         return func.HttpResponse(
             json.dumps({"error": "Failed to retrieve weekly rollups"}),
@@ -781,7 +801,7 @@ def zone_distribution(req: func.HttpRequest) -> func.HttpResponse:
             status_code=400,
             mimetype=JSON_CONTENT_TYPE
         )
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("Error analyzing zones: %s", e, exc_info=True)
         return func.HttpResponse(
             json.dumps({"error": "Failed to analyze zone distribution"}),
@@ -839,7 +859,7 @@ def efficiency_trends(req: func.HttpRequest) -> func.HttpResponse:
             status_code=400,
             mimetype=JSON_CONTENT_TYPE
         )
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("Error analyzing efficiency: %s", e, exc_info=True)
         return func.HttpResponse(
             json.dumps({"error": "Failed to analyze efficiency trends"}),
