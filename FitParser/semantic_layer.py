@@ -1,0 +1,604 @@
+"""Semantic Access Layer - Exposes meaningful questions about training data.
+
+This layer sits between the raw metrics DB and the ChatGPT UI.
+It shapes data for reasoning, constrains scope, and encodes how humans think about training.
+"""
+
+import json
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Dict, List, Optional
+
+from azure.core.exceptions import HttpResponseError
+
+from FitParser.table_storage import WorkoutTableStorage
+
+logger = logging.getLogger(__name__)
+
+
+class SemanticLayer:
+    """Semantic access layer for workout intelligence queries."""
+
+    def __init__(self, storage: Optional[WorkoutTableStorage] = None):
+        """Initialize semantic layer with storage backend."""
+        self.storage = storage or WorkoutTableStorage()
+
+    # -------------------------------------------------------------------------
+    # Planning Context - The Most Important Endpoint
+    # -------------------------------------------------------------------------
+
+    def get_planning_context(
+        self, athlete_id: str, days: int = 45
+    ) -> Dict:
+        """
+        Get planning context for training decisions.
+
+        This is the single most important endpoint:
+        GET /api/planning/context?days=N
+
+        Returns everything needed to answer:
+        "Given what I've actually done, what does tomorrow look like?"
+
+        Args:
+            athlete_id: Athlete identifier
+            days: Number of days to look back (default 45)
+
+        Returns:
+            Dict containing:
+            - recent_workouts: List of workout summaries (last N days)
+            - weekly_rollups: Weekly aggregated data
+            - last_hard_day: Date of last high-intensity workout
+            - last_long_day: Date of last long aerobic workout
+            - cumulative_z2_minutes: Total Z2 time in window
+            - cumulative_intensity_minutes: Total Z4+ time in window
+            - notable_flags: Warnings (missing HR, excessive drift, etc.)
+            - query_window: Time range of data
+        """
+        end_date = datetime.now(timezone.utc)
+        start_date = end_date - timedelta(days=days)
+
+        # Get recent workouts
+        workouts = self._get_workouts_in_range(
+            athlete_id, start_date, end_date, summary_only=True
+        )
+
+        # Analyze patterns
+        last_hard_day = self._find_last_hard_day(workouts)
+        last_long_day = self._find_last_long_day(workouts)
+        z2_minutes = self._sum_zone_time(workouts, "z2_minutes")
+        intensity_minutes = self._sum_high_intensity(workouts)
+        flags = self._detect_notable_flags(workouts)
+
+        # Get weekly rollups
+        weeks = self._get_weekly_rollups(athlete_id, days)
+
+        return {
+            "athlete_id": athlete_id,
+            "query_window": {
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "days": days,
+            },
+            "recent_workouts": workouts,
+            "weekly_rollups": weeks,
+            "summary": {
+                "last_hard_day": last_hard_day,
+                "last_long_day": last_long_day,
+                "cumulative_z2_minutes": z2_minutes,
+                "cumulative_intensity_minutes": intensity_minutes,
+                "total_workouts": len(workouts),
+            },
+            "notable_flags": flags,
+        }
+
+    # -------------------------------------------------------------------------
+    # Workout Queries
+    # -------------------------------------------------------------------------
+
+    def get_workouts(
+        self,
+        athlete_id: str,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        limit: int = 50,
+        sport: Optional[str] = None,
+    ) -> List[Dict]:
+        """
+        Query workouts with filters.
+
+        GET /api/workouts?since=2026-01-01&limit=50&sport=Cycling
+
+        Args:
+            athlete_id: Athlete identifier
+            since: ISO date string (start of range)
+            until: ISO date string (end of range)
+            limit: Maximum number of workouts to return
+            sport: Filter by sport type
+
+        Returns:
+            List of workout summaries
+        """
+        # Parse date range
+        end_date = (
+            datetime.fromisoformat(until.replace("Z", ""))
+            if until
+            else datetime.now(timezone.utc)
+        )
+
+        # Default to 90 days if no start date
+        start_date = (
+            datetime.fromisoformat(since.replace("Z", ""))
+            if since
+            else end_date - timedelta(days=90)
+        )
+
+        workouts = self._get_workouts_in_range(
+            athlete_id, start_date, end_date, summary_only=True
+        )
+
+        # Filter by sport if specified
+        if sport:
+            workouts = [w for w in workouts if w.get("sport") == sport]
+
+        # Apply limit
+        return workouts[:limit]
+
+    def get_workout_detail(
+        self, athlete_id: str, workout_id: str
+    ) -> Optional[Dict]:
+        """
+        Get detailed workout data including time series.
+
+        GET /api/workouts/{workout_id}
+
+        Args:
+            athlete_id: Athlete identifier
+            workout_id: Unique workout identifier
+
+        Returns:
+            Full workout data including records/samples, or None if not found
+        """
+        try:
+            table_client = self.storage._get_table_client("Workouts")  # pylint: disable=protected-access
+
+            # Query by workout_id across partitions
+            query = f"workout_id eq '{workout_id}'"
+            entities = list(table_client.query_entities(query, top=1))
+
+            if not entities:
+                return None
+
+            entity = entities[0]
+
+            # Verify athlete_id matches
+            if entity.get("athlete_id") != athlete_id:
+                return None
+
+            return self._entity_to_workout_dict(entity, include_records=True)
+
+        except HttpResponseError as e:
+            logger.error("Error retrieving workout %s: %s", workout_id, e)
+            return None
+
+    # -------------------------------------------------------------------------
+    # Rollup Queries
+    # -------------------------------------------------------------------------
+
+    def get_weekly_rollups(
+        self, athlete_id: str, weeks: int = 16
+    ) -> List[Dict]:
+        """
+        Get weekly rollup data.
+
+        GET /api/rollups/weekly?weeks=16
+
+        Args:
+            athlete_id: Athlete identifier
+            weeks: Number of weeks to retrieve
+
+        Returns:
+            List of weekly rollup summaries
+        """
+        return self._get_weekly_rollups(athlete_id, weeks * 7)
+
+    # -------------------------------------------------------------------------
+    # Analysis Queries
+    # -------------------------------------------------------------------------
+
+    def get_zone_distribution(
+        self, athlete_id: str, days: int = 30
+    ) -> Dict:
+        """
+        Get time-in-zone distribution for planning.
+
+        GET /api/analysis/zones?days=30
+
+        Args:
+            athlete_id: Athlete identifier
+            days: Number of days to analyze
+
+        Returns:
+            Dict with zone distribution percentages
+        """
+        end_date = datetime.now(timezone.utc)
+        start_date = end_date - timedelta(days=days)
+
+        workouts = self._get_workouts_in_range(
+            athlete_id, start_date, end_date, summary_only=True
+        )
+
+        # Aggregate zone minutes
+        zones = {
+            "z1": 0,
+            "z2": 0,
+            "z3": 0,
+            "z4": 0,
+            "z5": 0,
+        }
+
+        for workout in workouts:
+            for zone in zones:
+                zone_key = f"{zone}_minutes"
+                if zone_key in workout:
+                    zones[zone] += workout[zone_key] or 0
+
+        total_minutes = sum(zones.values())
+
+        return {
+            "athlete_id": athlete_id,
+            "query_window": {
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "days": days,
+            },
+            "total_minutes": total_minutes,
+            "zones": zones,
+            "percentages": {
+                zone: round((minutes / total_minutes * 100), 1) if total_minutes > 0 else 0
+                for zone, minutes in zones.items()
+            },
+        }
+
+    def get_efficiency_trends(
+        self, athlete_id: str, days: int = 90
+    ) -> Dict:
+        """
+        Get aerobic efficiency and decoupling trends.
+
+        GET /api/analysis/efficiency?days=90
+
+        Args:
+            athlete_id: Athlete identifier
+            days: Number of days to analyze
+
+        Returns:
+            Dict with efficiency metrics over time
+        """
+        end_date = datetime.now(timezone.utc)
+        start_date = end_date - timedelta(days=days)
+
+        workouts = self._get_workouts_in_range(
+            athlete_id, start_date, end_date, summary_only=True
+        )
+
+        # Filter for workouts with efficiency data
+        efficiency_data = []
+        for workout in workouts:
+            if workout.get("pwr_hr_decoupling_pct") is not None:
+                efficiency_data.append({
+                    "date": workout.get("start_time_utc"),
+                    "sport": workout.get("sport"),
+                    "decoupling_pct": workout.get("pwr_hr_decoupling_pct"),
+                    "avg_efficiency": workout.get("pwr_avg_efficiency"),
+                })
+
+        return {
+            "athlete_id": athlete_id,
+            "query_window": {
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "days": days,
+            },
+            "samples": efficiency_data,
+            "summary": {
+                "total_samples": len(efficiency_data),
+                "avg_decoupling": (
+                    round(
+                        sum(d["decoupling_pct"] for d in efficiency_data) / len(efficiency_data),
+                        2
+                    )
+                    if efficiency_data
+                    else None
+                ),
+            },
+        }
+
+    # -------------------------------------------------------------------------
+    # Private Helper Methods
+    # -------------------------------------------------------------------------
+
+    def _get_workouts_in_range(
+        self,
+        athlete_id: str,
+        start_date: datetime,
+        end_date: datetime,
+        summary_only: bool = True,
+    ) -> List[Dict]:
+        """
+        Retrieve workouts within a date range.
+
+        Args:
+            athlete_id: Athlete identifier
+            start_date: Start of range (inclusive)
+            end_date: End of range (inclusive)
+            summary_only: If True, exclude time series data
+
+        Returns:
+            List of workout dicts
+        """
+        try:
+            table_client = self.storage._get_table_client("Workouts")  # pylint: disable=protected-access
+
+            # Build query for athlete and date range
+            # PartitionKey format: athlete_id|YYYY-MM
+            # We need to query multiple partitions if range spans multiple months
+            months = self._get_month_partitions(athlete_id, start_date, end_date)
+
+            workouts = []
+            for partition_key in months:
+                query = f"PartitionKey eq '{partition_key}'"
+                entities = table_client.query_entities(query)
+
+                for entity in entities:
+                    workout_start = entity.get("start_time_utc")
+                    if workout_start:
+                        # Parse workout date and filter
+                        workout_date = datetime.fromisoformat(
+                            workout_start.replace("Z", "")
+                        ).replace(tzinfo=timezone.utc)
+
+                        if start_date <= workout_date <= end_date:
+                            workouts.append(
+                                self._entity_to_workout_dict(
+                                    entity, include_records=not summary_only
+                                )
+                            )
+
+            # Sort by date descending (newest first)
+            workouts.sort(
+                key=lambda w: w.get("start_time_utc", ""), reverse=True
+            )
+
+            return workouts
+
+        except HttpResponseError as e:
+            logger.error("Error querying workouts: %s", e)
+            return []
+
+    def _get_month_partitions(
+        self, athlete_id: str, start_date: datetime, end_date: datetime
+    ) -> List[str]:
+        """
+        Generate partition keys for all months in date range.
+
+        Args:
+            athlete_id: Athlete identifier
+            start_date: Start date
+            end_date: End date
+
+        Returns:
+            List of partition key strings (e.g., ['rob|2026-01', 'rob|2026-02'])
+        """
+        partitions = []
+        current = start_date.replace(day=1)
+
+        while current <= end_date:
+            partition_key = f"{athlete_id}|{current.strftime('%Y-%m')}"
+            partitions.append(partition_key)
+
+            # Move to next month
+            if current.month == 12:
+                current = current.replace(year=current.year + 1, month=1)
+            else:
+                current = current.replace(month=current.month + 1)
+
+        return partitions
+
+    def _entity_to_workout_dict(
+        self, entity: Dict, include_records: bool = False
+    ) -> Dict:
+        """
+        Convert Azure Table entity to workout dict.
+
+        Args:
+            entity: Raw table entity
+            include_records: Whether to include time series data
+
+        Returns:
+            Cleaned workout dict
+        """
+        # Core summary fields
+        workout = {
+            "workout_id": entity.get("workout_id"),
+            "athlete_id": entity.get("athlete_id"),
+            "sport": entity.get("sport"),
+            "sub_sport": entity.get("sub_sport"),
+            "workout_name": entity.get("workout_name"),
+            "is_indoor": entity.get("is_indoor"),
+            "start_time_utc": entity.get("start_time_utc"),
+            "end_time_utc": entity.get("end_time_utc"),
+            "duration_sec": entity.get("duration_sec"),
+            "moving_time_sec": entity.get("moving_time_sec"),
+            "distance_m": entity.get("distance_m"),
+            "elevation_gain_m": entity.get("elevation_gain_m"),
+            "calories_kcal": entity.get("calories_kcal"),
+        }
+
+        # Heart rate summary
+        if entity.get("hr_avg_bpm"):
+            workout.update({
+                "hr_avg_bpm": entity.get("hr_avg_bpm"),
+                "hr_max_bpm": entity.get("hr_max_bpm"),
+                "z1_minutes": entity.get("z1_minutes"),
+                "z2_minutes": entity.get("z2_minutes"),
+                "z3_minutes": entity.get("z3_minutes"),
+                "z4_minutes": entity.get("z4_minutes"),
+                "z5_minutes": entity.get("z5_minutes"),
+            })
+
+        # Power summary
+        if entity.get("pwr_avg_watts"):
+            workout.update({
+                "pwr_avg_watts": entity.get("pwr_avg_watts"),
+                "pwr_max_watts": entity.get("pwr_max_watts"),
+                "pwr_normalized_watts": entity.get("pwr_normalized_watts"),
+                "pwr_intensity_factor": entity.get("pwr_intensity_factor"),
+                "pwr_variability_index": entity.get("pwr_variability_index"),
+                "pwr_hr_decoupling_pct": entity.get("pwr_hr_decoupling_pct"),
+                "pwr_avg_efficiency": entity.get("pwr_avg_efficiency"),
+            })
+
+        # Source metadata
+        workout.update({
+            "source_system": entity.get("source_system"),
+            "source_file_name": entity.get("source_file_name"),
+            "ingested_at_utc": entity.get("ingested_at_utc"),
+        })
+
+        # Include time series only if requested
+        if include_records and entity.get("records_json"):
+            try:
+                records_data = entity.get("records_json")
+                if records_data:
+                    workout["records"] = json.loads(records_data)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        return workout
+
+    def _get_weekly_rollups(
+        self, athlete_id: str, days: int
+    ) -> List[Dict]:
+        """
+        Get weekly rollup data for specified number of days.
+
+        Args:
+            athlete_id: Athlete identifier
+            days: Number of days to look back
+
+        Returns:
+            List of weekly rollup dicts
+        """
+        # Calculate week range
+        end_date = datetime.now(timezone.utc)
+        start_date = end_date - timedelta(days=days)
+
+        try:
+            table_client = self.storage._get_table_client("WeeklyRollups")  # pylint: disable=protected-access
+            rollups = []
+
+            # Query each year partition
+            # Note: Currently queries all weeks in range years (can be optimized later)
+            current = start_date
+            years = set()
+            while current <= end_date:
+                years.add(current.year)
+                current = current + timedelta(days=7)
+
+            for year in sorted(years):
+                partition_key = f"{athlete_id}#{year}"
+                query = f"PartitionKey eq '{partition_key}'"
+                entities = table_client.query_entities(query)
+
+                for entity in entities:
+                    rollups.append(dict(entity))
+
+            # Sort by week descending
+            rollups.sort(key=lambda r: r.get("RowKey", ""), reverse=True)
+
+            return rollups
+
+        except HttpResponseError as e:
+            logger.error("Error retrieving weekly rollups: %s", e)
+            return []
+
+    def _find_last_hard_day(self, workouts: List[Dict]) -> Optional[str]:
+        """
+        Find date of last high-intensity workout.
+
+        High intensity = Z4+ minutes > 5 or normalized power > threshold
+        """
+        for workout in workouts:
+            z4 = workout.get("z4_minutes", 0) or 0
+            z5 = workout.get("z5_minutes", 0) or 0
+
+            if (z4 + z5) > 5:  # More than 5 minutes of hard work
+                return workout.get("start_time_utc")
+
+        return None
+
+    def _find_last_long_day(self, workouts: List[Dict]) -> Optional[str]:
+        """
+        Find date of last long aerobic workout.
+
+        Long = Z2 minutes > 60
+        """
+        for workout in workouts:
+            z2 = workout.get("z2_minutes", 0) or 0
+
+            if z2 > 60:
+                return workout.get("start_time_utc")
+
+        return None
+
+    def _sum_zone_time(
+        self, workouts: List[Dict], zone_field: str
+    ) -> int:
+        """Sum minutes in specific zone across workouts."""
+        total = 0
+        for workout in workouts:
+            minutes = workout.get(zone_field, 0) or 0
+            total += minutes
+        return total
+
+    def _sum_high_intensity(self, workouts: List[Dict]) -> int:
+        """Sum Z4 + Z5 minutes across workouts."""
+        total = 0
+        for workout in workouts:
+            z4 = workout.get("z4_minutes", 0) or 0
+            z5 = workout.get("z5_minutes", 0) or 0
+            total += z4 + z5
+        return total
+
+    def _detect_notable_flags(self, workouts: List[Dict]) -> List[str]:
+        """
+        Detect notable issues in recent workouts.
+
+        Returns list of human-readable warning strings.
+        """
+        flags = []
+
+        # Check for workouts missing HR data
+        no_hr_count = sum(1 for w in workouts if not w.get("hr_avg_bpm"))
+        if no_hr_count > 0:
+            flags.append(f"{no_hr_count} workout(s) missing heart rate data")
+
+        # Check for excessive decoupling
+        high_decoupling = [
+            w for w in workouts
+            if w.get("pwr_hr_decoupling_pct", 0) and w["pwr_hr_decoupling_pct"] > 5.0
+        ]
+        if high_decoupling:
+            flags.append(
+                f"{len(high_decoupling)} workout(s) with high decoupling (>5%)"
+            )
+
+        # Check for very short workouts (possible data issues)
+        very_short = [
+            w for w in workouts
+            if w.get("duration_sec", 0) and w["duration_sec"] < 600  # < 10 min
+        ]
+        if very_short:
+            flags.append(f"{len(very_short)} very short workout(s) (<10 min)")
+
+        return flags
