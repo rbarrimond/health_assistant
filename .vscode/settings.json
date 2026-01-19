@@ -1,21 +1,10 @@
 {
     "azureFunctions.deploySubpath": ".",
     "azureFunctions.scmDoBuildDuringDeployment": true,
-    "azureFunctions.pythonVenv": "/Users/robertbarrimond/Developer/health_assistant/.venv",
     "azureFunctions.projectLanguage": "Python",
     "azureFunctions.projectRuntime": "~4",
     "debug.internalConsoleOptions": "neverOpen",
     "files.associations": {
         ".webhintignore": "ignore"
-    },
-    "webhint.exclude": [
-        "**/htmlcov/**",
-        "**/.venv/**",
-        "**/__pycache__/**"
-    ],
-    "todo-tree.general.showInProblems": false,
-    "todo-tree.filtering.excludeGlobs": [
-        "**/.vscode/extensions/**",
-        "**/typeshed/**"
-    ]
+    }
 }

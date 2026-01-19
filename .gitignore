@@ -40,4 +40,4 @@ htmlcov/
 # Azurite
 .azurite/
 
-.python_packages
+.python_packages.python-version

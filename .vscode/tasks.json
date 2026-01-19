@@ -2,36 +2,31 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"type": "func",
-			"label": "func: host start",
-			"command": "host start",
+			"type": "shell",
+			"label": "func: host start (functions)",
+			"command": "source ${workspaceFolder}/.venv/bin/activate && func host start --verbose",
 			"problemMatcher": "$func-python-watch",
 			"isBackground": true,
-			"dependsOn": "pip install (functions)"
+			"dependsOn": "pip install (functions)",
+			"options": {
+				"cwd": "${workspaceFolder}",
+				"env": {
+					"languageWorkers__python__arguments": "-m debugpy --listen 127.0.0.1:9091 --wait-for-client"
+				}
+			},
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
 		},
 		{
 			"label": "pip install (functions)",
 			"type": "shell",
-			"osx": {
-				"command": "${config:azureFunctions.pythonVenv}/bin/python -m pip install -r requirements.txt"
-			},
-			"windows": {
-				"command": "${config:azureFunctions.pythonVenv}\\Scripts\\python -m pip install -r requirements.txt"
-			},
-			"linux": {
-				"command": "${config:azureFunctions.pythonVenv}/bin/python -m pip install -r requirements.txt"
-			},
-			"problemMatcher": []
-		},
-		{
-			"label": "Start Azure Functions Host",
-			"type": "shell",
-			"command": "func host start",
-			"isBackground": true,
-			"problemMatcher": [
-				"$func-python-watch"
-			],
-			"group": "build"
+			"command": "${workspaceFolder}/.venv/bin/python -m pip install -e '.[dev]'",
+			"problemMatcher": [],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			}
 		}
 	]
 }
