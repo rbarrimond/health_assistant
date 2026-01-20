@@ -14,13 +14,19 @@ from FitParser.config import Config
 from FitParser.fit_parser import FitParser, compute_file_hash
 from FitParser.table_storage import WorkoutTableStorage
 from FitParser.semantic_layer import SemanticLayer
+from FitParser.withings_client import WithingsClient
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+# pylint: disable=too-many-lines
+
 JSON_CONTENT_TYPE = "application/json"
+HTML_CONTENT_TYPE = "text/html"
 ERR_VALIDATION = "Validation error: %s"
 ERR_MISSING_ATHLETE_ID = "Missing required parameter: athlete_id"
+ERR_ATHLETE_ID_REQUIRED = "athlete_id parameter required"
+ERR_INVALID_JSON = "Invalid JSON payload"
 
 app = func.FunctionApp()
 
@@ -48,6 +54,435 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable
     )
 
 
+# =============================================================================
+# Physiometrics Endpoints
+# =============================================================================
+
+@app.route(route="api/physiometrics/current", methods=["GET"])
+def get_current_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Get current physiometric values for an athlete.
+
+    GET /api/physiometrics/current?athlete_id=rob
+
+    Returns:
+        - 200 OK with current physiometric snapshot
+        - 400 Bad Request if athlete_id missing
+        - 500 Internal Error on failure
+    """
+    athlete_id = req.params.get("athlete_id")
+
+    if not athlete_id:
+        return func.HttpResponse(
+            json.dumps({"error": ERR_MISSING_ATHLETE_ID}),
+            status_code=400,
+            mimetype=JSON_CONTENT_TYPE
+        )
+
+    try:
+        layer = SemanticLayer()
+        result = layer.get_current_physiometrics(athlete_id)
+
+        return func.HttpResponse(
+            json.dumps(result),
+            status_code=200,
+            mimetype=JSON_CONTENT_TYPE
+        )
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error getting current physiometrics: %s", e, exc_info=True)
+        return func.HttpResponse(
+            json.dumps({"error": "Failed to retrieve physiometrics"}),
+            status_code=500,
+            mimetype=JSON_CONTENT_TYPE
+        )
+
+
+@app.route(route="api/physiometrics/history", methods=["GET"])
+def get_physiometrics_history(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Get time-series physiometrics data.
+
+    GET /api/physiometrics/history?athlete_id=rob&metrics=weight_kg,cycling_vo2max_ml_kg_min&days=90
+
+    Query parameters:
+        athlete_id (required): Athlete identifier
+        days (optional): Number of days to look back (default 90, max 365)
+        metrics (optional): Comma-separated list of metrics (default: all)
+
+    Returns:
+        - 200 OK with time-series data
+        - 400 Bad Request if athlete_id missing
+        - 500 Internal Error on failure
+    """
+    athlete_id = req.params.get("athlete_id")
+
+    if not athlete_id:
+        return func.HttpResponse(
+            json.dumps({"error": ERR_MISSING_ATHLETE_ID}),
+            status_code=400,
+            mimetype=JSON_CONTENT_TYPE
+        )
+
+    try:
+        days = int(req.params.get("days", "90"))
+        days = min(days, 365)  # Cap at 365
+
+        metrics_param = req.params.get("metrics")
+        metrics = metrics_param.split(",") if metrics_param else None
+
+        layer = SemanticLayer()
+        result = layer.get_physiometrics_trends(
+            athlete_id=athlete_id,
+            days=days,
+            metrics=metrics
+        )
+
+        return func.HttpResponse(
+            json.dumps(result),
+            status_code=200,
+            mimetype=JSON_CONTENT_TYPE
+        )
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error getting physiometrics history: %s", e, exc_info=True)
+        return func.HttpResponse(
+            json.dumps({"error": "Failed to retrieve physiometrics history"}),
+            status_code=500,
+            mimetype=JSON_CONTENT_TYPE
+        )
+
+
+@app.route(route="api/physiometrics/update", methods=["POST"])
+def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Update physiometric values (single metric or bulk partial update).
+
+    POST /api/physiometrics/update
+    Content-Type: application/json
+
+    Single metric update:
+    {
+        "athlete_id": "rob",
+        "metric": "cycling_vo2max_ml_kg_min",
+        "value": 52.3,
+        "effective_date": "2026-01-19",
+        "source": "chatgpt"
+    }
+
+    Bulk partial update:
+    {
+        "athlete_id": "rob",
+        "metrics": {
+            "weight_kg": 75.2,
+            "cycling_vo2max_ml_kg_min": 52.3
+        },
+        "effective_date": "2026-01-19",
+        "source": "chatgpt"
+    }
+
+    Returns:
+        - 200 OK with update confirmation
+        - 400 Bad Request if payload invalid
+        - 500 Internal Error on failure
+    """
+    try:
+        req_body = req.get_json()
+    except ValueError:
+        return func.HttpResponse(
+            json.dumps({"error": ERR_INVALID_JSON}),
+            status_code=400,
+            mimetype=JSON_CONTENT_TYPE
+        )
+
+    athlete_id = req_body.get("athlete_id")
+    if not athlete_id:
+        return func.HttpResponse(
+            json.dumps({"error": "athlete_id required"}),
+            status_code=400,
+            mimetype=JSON_CONTENT_TYPE
+        )
+
+    try:
+        layer = SemanticLayer()
+        effective_date = req_body.get("effective_date")
+        source = req_body.get("source", "chatgpt")
+
+        # Check if single metric update or bulk
+        if "metric" in req_body and "value" in req_body:
+            # Single metric update
+            result = layer.update_physiometric_value(
+                athlete_id=athlete_id,
+                metric=req_body["metric"],
+                value=req_body["value"],
+                effective_date=effective_date,
+                source=source
+            )
+        elif "metrics" in req_body:
+            # Bulk update (update each metric individually)
+            results = []
+            for metric, value in req_body["metrics"].items():
+                result = layer.update_physiometric_value(
+                    athlete_id=athlete_id,
+                    metric=metric,
+                    value=value,
+                    effective_date=effective_date,
+                    source=source
+                )
+                results.append(result)
+            result = {
+                "status": "success",
+                "updates": results
+            }
+        else:
+            return func.HttpResponse(
+                json.dumps({"error": "Either 'metric'+'value' or 'metrics' dict required"}),
+                status_code=400,
+                mimetype=JSON_CONTENT_TYPE
+            )
+
+        return func.HttpResponse(
+            json.dumps(result),
+            status_code=200,
+            mimetype=JSON_CONTENT_TYPE
+        )
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error updating physiometrics: %s", e, exc_info=True)
+        return func.HttpResponse(
+            json.dumps({"error": "Failed to update physiometrics"}),
+            status_code=500,
+            mimetype=JSON_CONTENT_TYPE
+        )
+
+
+# =============================================================================
+# Withings OAuth & Webhook Endpoints
+# =============================================================================
+
+@app.route(route="api/withings/authorize", methods=["GET"])
+def withings_authorize(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Get Withings OAuth authorization URL.
+
+    GET /api/withings/authorize?athlete_id=rob
+
+    Returns:
+        - 200 OK with authorization URL for user to open in browser
+        - 400 Bad Request if athlete_id missing
+        - 500 Internal Error on failure
+    """
+    athlete_id = req.params.get("athlete_id")
+
+    if not athlete_id:
+        return func.HttpResponse(
+            json.dumps({"error": ERR_ATHLETE_ID_REQUIRED}),
+            status_code=400,
+            mimetype=JSON_CONTENT_TYPE
+        )
+
+    try:
+        client = WithingsClient()
+        auth_url, _ = client.get_authorization_url(athlete_id)
+
+        return func.HttpResponse(
+            json.dumps({
+                "authorization_url": auth_url,
+                "instructions": "Open this URL in your browser to authorize Withings access",
+                "athlete_id": athlete_id
+            }),
+            status_code=200,
+            mimetype=JSON_CONTENT_TYPE
+        )
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error generating Withings auth URL: %s", e, exc_info=True)
+        return func.HttpResponse(
+            json.dumps({"error": "Failed to generate authorization URL"}),
+            status_code=500,
+            mimetype=JSON_CONTENT_TYPE
+        )
+
+
+@app.route(route="api/withings/callback", methods=["GET"])
+def withings_callback(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Handle Withings OAuth callback.
+
+    GET /api/withings/callback?code=...&state=...
+
+    Returns:
+        - 200 OK with success HTML page
+        - 400 Bad Request if code/state missing or invalid
+        - 500 Internal Error on failure
+    """
+    code = req.params.get("code")
+    state = req.params.get("state")
+
+    if not code or not state:
+        return func.HttpResponse(
+            "<html><body><h1>Error</h1><p>Missing authorization code or state</p></body></html>",
+            status_code=400,
+            mimetype=HTML_CONTENT_TYPE
+        )
+
+    try:
+        client = WithingsClient()
+        storage = WorkoutTableStorage()
+
+        # Exchange code for tokens
+        token_data = client.exchange_auth_code(code, state)
+
+        # Store tokens
+        storage.store_withings_tokens(
+            athlete_id=token_data["athlete_id"],
+            withings_userid=str(token_data["userid"]),
+            access_token=token_data["access_token"],
+            refresh_token=token_data["refresh_token"],
+            expires_in=token_data["expires_in"],
+            scope=token_data["scope"]
+        )
+
+        # Subscribe to webhook notifications
+        callback_url = os.getenv("WITHINGS_WEBHOOK_URL",
+                                f"{req.url.split('/api/')[0]}/api/withings/webhook")
+        client.subscribe_to_notifications(
+            access_token=token_data["access_token"],
+            callback_url=callback_url
+        )
+
+        logger.info(
+            "Successfully connected Withings for athlete %s (userid: %s)",
+            token_data["athlete_id"], token_data["userid"]
+        )
+
+        success_html = f"""<html>
+            <body>
+                <h1>Success!</h1>
+                <p>Withings connected for athlete {token_data['athlete_id']}.</p>
+                <p>Weight measurements will now sync automatically.</p>
+                <p>You can close this window and return to the chat.</p>
+            </body>
+            </html>"""
+
+        return func.HttpResponse(
+            success_html,
+            status_code=200,
+            mimetype=HTML_CONTENT_TYPE
+        )
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error in Withings callback: %s", e, exc_info=True)
+        error_html = (
+            "<html><body><h1>Error</h1>"
+            f"<p>Failed to connect Withings account: {e}</p>"
+            "</body></html>"
+        )
+        return func.HttpResponse(
+            error_html,
+            status_code=500,
+            mimetype=HTML_CONTENT_TYPE
+        )
+
+
+@app.route(route="api/withings/webhook", methods=["POST"])
+def withings_webhook(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Receive Withings webhook notifications.
+
+    POST /api/withings/webhook
+    Content-Type: application/x-www-form-urlencoded
+
+    Form parameters:
+        userid: Withings user ID
+        appli: Notification type (1 = weight)
+        startdate: Unix timestamp
+        enddate: Unix timestamp
+
+    Returns:
+        - 200 OK (acknowledges webhook immediately)
+        - 400 Bad Request if invalid payload
+    """
+    try:
+        # Parse form data
+        userid = req.form.get("userid")
+        appli = req.form.get("appli")
+        startdate = req.form.get("startdate")
+        enddate = req.form.get("enddate")
+
+        if not all([userid, appli, startdate, enddate]):
+            logger.warning("Invalid Withings webhook payload: missing fields")
+            return func.HttpResponse("Missing required fields", status_code=400)
+
+        # Only process weight notifications (appli=1)
+        if appli != "1":
+            logger.info("Ignoring non-weight notification (appli=%s)", appli)
+            return func.HttpResponse("OK", status_code=200)
+
+        logger.info(
+            "Received Withings webhook: userid=%s, startdate=%s, enddate=%s",
+            userid, startdate, enddate
+        )
+
+        # Queue for async processing (Azure Queue integration pending); acknowledge now
+
+        return func.HttpResponse("OK", status_code=200)
+
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error processing Withings webhook: %s", e, exc_info=True)
+        # Still return 200 to avoid Withings retry flood
+        return func.HttpResponse("OK", status_code=200)
+
+
+@app.route(route="api/workouts/{workout_id}/recalculated", methods=["GET"])
+def get_workout_recalculated(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Get workout with retroactively recalculated zones (read-only view).
+
+    GET /api/workouts/{workout_id}/recalculated?ftp_watts=300&lthr_bpm=175
+
+    Query parameters:
+        ftp_watts (optional): Override FTP value
+        lthr_bpm (optional): Override LTHR value
+
+    Returns:
+        - 200 OK with recalculated zone data (not implemented yet)
+        - 404 Not Found if workout doesn't exist
+        - 501 Not Implemented (placeholder)
+    """
+    workout_id = req.route_params.get("workout_id")
+
+    if not workout_id:
+        return func.HttpResponse(
+            json.dumps({"error": "workout_id required"}),
+            status_code=400,
+            mimetype=JSON_CONTENT_TYPE
+        )
+
+    try:
+        # Extract override parameters
+        ftp_watts = req.params.get("ftp_watts")
+        lthr_bpm = req.params.get("lthr_bpm")
+
+        override = {}
+        if ftp_watts:
+            override["ftp_watts"] = float(ftp_watts)
+        if lthr_bpm:
+            override["lthr_bpm"] = float(lthr_bpm)
+
+        layer = SemanticLayer()
+        result = layer.recalculate_workout_zones(
+            workout_id=workout_id,
+            physiometrics_override=override
+        )
+
+        return func.HttpResponse(
+            json.dumps(result),
+            status_code=501,  # Not Implemented
+            mimetype=JSON_CONTENT_TYPE
+        )
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error recalculating zones: %s", e, exc_info=True)
+        return func.HttpResponse(
+            json.dumps({"error": "Failed to recalculate zones"}),
+            status_code=500,
+            mimetype=JSON_CONTENT_TYPE
+        )
 @app.route(route="config/reload", methods=["POST"])
 def reload_config(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable=unused-argument
     """Reload physiometrics configuration from disk.
@@ -151,7 +586,7 @@ def update_config(req: func.HttpRequest) -> func.HttpResponse:
     except ValueError as e:
         logger.error("Invalid JSON in update request: %s", e)
         return func.HttpResponse(
-            json.dumps({"error": "Invalid JSON payload"}),
+            json.dumps({"error": ERR_INVALID_JSON}),
             status_code=400,
             mimetype=JSON_CONTENT_TYPE
         )
@@ -293,7 +728,7 @@ def parse_onedrive_payload(req: func.HttpRequest) -> Dict:
     try:
         req_body = req.get_json()
     except ValueError as exc:
-        raise ValueError("Invalid JSON payload") from exc
+        raise ValueError(ERR_INVALID_JSON) from exc
 
     required_fields = ["athlete_id", "source_file_name", "file_content_b64"]
     missing = [f for f in required_fields if f not in req_body]
@@ -305,13 +740,13 @@ def parse_onedrive_payload(req: func.HttpRequest) -> Dict:
 
 def _decode_fit_file_content(file_content_b64: str) -> bytes:
     """Decode base64 FIT file content.
-    
+
     Args:
         file_content_b64: Base64-encoded file content
-        
+
     Returns:
         Decoded file bytes
-        
+
     Raises:
         ValueError: If base64 decoding fails
     """
@@ -397,7 +832,7 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
         logger.info("Processing file: %s", payload.get("source_file_name"))
 
         athlete_id = payload["athlete_id"]
-  
+
         # Decode and write to temp file
         try:
             file_content = _decode_fit_file_content(payload["file_content_b64"])
@@ -537,7 +972,7 @@ def planning_context(req: func.HttpRequest) -> func.HttpResponse:
             status_code=400,
             mimetype=JSON_CONTENT_TYPE
         )
-    except Exception as e:  # pylint: disable=broad-exception-caught  # pylint: disable=broad-exception-caught
+    except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("Error retrieving planning context: %s", e, exc_info=True)
         return func.HttpResponse(
             json.dumps({"error": "Failed to retrieve planning context"}),

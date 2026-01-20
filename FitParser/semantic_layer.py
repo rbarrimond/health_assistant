@@ -602,3 +602,176 @@ class SemanticLayer:
             flags.append(f"{len(very_short)} very short workout(s) (<10 min)")
 
         return flags
+
+    # -------------------------------------------------------------------------
+    # Physiometrics Management
+    # -------------------------------------------------------------------------
+
+    def get_current_physiometrics(self, athlete_id: str) -> Dict:
+        """
+        Get current physiometric values for an athlete.
+
+        Args:
+            athlete_id: Athlete identifier
+
+        Returns:
+            Dict containing current weight, FTP, LTHR, cycling VO2Max, body composition, etc.
+        """
+        config = self.storage.get_physiometrics(athlete_id)
+
+        if not config:
+            return {
+                "athlete_id": athlete_id,
+                "error": "No physiometrics data found"
+            }
+
+        # Extract values for easy consumption
+        result = {
+            "athlete_id": athlete_id,
+            "heart_rate": {
+                "basis": config.get("heart_rate", {}).get("basis"),
+                "lthr_bpm": config.get("heart_rate", {}).get("lthr_bpm"),
+                "hr_max_bpm": config.get("heart_rate", {}).get("hr_max_bpm"),
+                "resting_hr_bpm": config.get("heart_rate", {}).get("resting_hr_bpm"),
+            },
+            "power": {
+                "ftp_watts": config.get("power", {}).get("ftp_watts"),
+            },
+        }
+
+        # Add body composition if present
+        if config.get("weight_kg") is not None:
+            result["weight_kg"] = config.get("weight_kg")
+        if config.get("fat_mass_kg") is not None:
+            result["fat_mass_kg"] = config.get("fat_mass_kg")
+        if config.get("muscle_mass_kg") is not None:
+            result["muscle_mass_kg"] = config.get("muscle_mass_kg")
+        if config.get("bone_mass_kg") is not None:
+            result["bone_mass_kg"] = config.get("bone_mass_kg")
+        if config.get("body_fat_pct") is not None:
+            result["body_fat_pct"] = config.get("body_fat_pct")
+        if config.get("visceral_fat_index") is not None:
+            result["visceral_fat_index"] = config.get("visceral_fat_index")
+        if config.get("metabolic_age_years") is not None:
+            result["metabolic_age_years"] = config.get("metabolic_age_years")
+        if config.get("cycling_vo2max_ml_kg_min") is not None:
+            result["cycling_vo2max_ml_kg_min"] = config.get("cycling_vo2max_ml_kg_min")
+
+        # Add metadata
+        if config.get("effective_date"):
+            result["effective_date"] = config.get("effective_date")
+        if config.get("data_source"):
+            result["data_source"] = config.get("data_source")
+
+        return result
+
+    def get_physiometrics_trends(self, athlete_id: str, days: int = 90,
+                                metrics: Optional[List[str]] = None) -> Dict:
+        """
+        Get time-series physiometric trends.
+
+        Args:
+            athlete_id: Athlete identifier
+            days: Number of days to look back
+            metrics: List of specific metrics to return (None = all)
+
+        Returns:
+            Dict with query window and time-series data points
+        """
+        end_date = datetime.now(timezone.utc).date()
+        start_date = end_date - timedelta(days=days)
+
+        history = self.storage.get_physiometrics_history(
+            athlete_id=athlete_id,
+            start_date=start_date.isoformat(),
+            end_date=end_date.isoformat(),
+            metrics=metrics
+        )
+
+        return {
+            "athlete_id": athlete_id,
+            "query_window": {
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "days": days,
+            },
+            "count": len(history),
+            "data_points": history,
+        }
+
+    def update_physiometric_value(self, athlete_id: str,
+                                  metric: str,
+                                  value: float,
+                                  effective_date: Optional[str] = None,
+                                  source: str = "chatgpt") -> Dict:
+        """
+        Update a single physiometric value.
+
+        Args:
+            athlete_id: Athlete identifier
+            metric: Metric name (e.g., "weight_kg", "cycling_vo2max_ml_kg_min")
+            value: New value
+            effective_date: ISO date when effective (defaults to today)
+            source: Source of update (chatgpt, manual, withings)
+
+        Returns:
+            Dict with update confirmation
+        """
+        try:
+            timestamp = self.storage.update_single_metric(
+                athlete_id=athlete_id,
+                metric_name=metric,
+                value=value,
+                effective_date=effective_date,
+                data_source=source
+            )
+
+            logger.info(
+                "Updated %s for %s: %s (source: %s)",
+                metric, athlete_id, value, source
+            )
+
+            return {
+                "status": "success",
+                "athlete_id": athlete_id,
+                "metric": metric,
+                "value": value,
+                "effective_date": effective_date,
+                "source": source,
+                "updated_at_utc": timestamp,
+            }
+
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Error updating physiometric: %s", e)
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+
+    def recalculate_workout_zones(self, workout_id: str,
+                                 physiometrics_override: Optional[Dict] = None) -> Dict:
+        """
+        Recalculate workout zones with different physiometric values (read-only).
+
+        This provides a "what-if" view of how zones would look with different FTP/LTHR,
+        without modifying the original workout data.
+
+        Args:
+            workout_id: Workout identifier
+            physiometrics_override: Dict with ftp_watts and/or lthr_bpm to use
+
+        Returns:
+            Dict with recalculated zone data
+        """
+        # Placeholder until retroactive zone recalculation is implemented.
+        # Expected steps:
+        # 1. Fetch original workout and time series records
+        # 2. Recompute zones using override values
+        # 3. Return new zone distribution without storing
+
+        return {
+            "status": "not_implemented",
+            "message": "Retroactive zone recalculation coming soon",
+            "workout_id": workout_id,
+            "override": physiometrics_override,
+        }

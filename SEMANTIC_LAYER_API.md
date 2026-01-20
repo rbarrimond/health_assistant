@@ -7,7 +7,7 @@ The Semantic Access Layer is the **Read API** that sits between the raw metrics 
 This layer:
 
 - **Shapes data for reasoning** - returns small, coherent payloads optimized for LLM consumption
-- **Constrains scope** - protects against unbounded queries and performance issues  
+- **Constrains scope** - protects against unbounded queries and performance issues
 - **Encodes domain knowledge** - understands how humans think about training
 - **Stays stable** - provides a consistent interface for GPT Actions
 
@@ -71,23 +71,357 @@ GET /api/planning/context?athlete_id=rob&days=45
 
 ---
 
-### 2. List Workouts
+## Physiometrics Management
+
+### 7. Get Current Physiometrics
 
 ```http
-GET /api/workouts?athlete_id=rob&since=2026-01-01&limit=50&sport=Cycling
+GET /api/physiometrics/current?athlete_id=rob
 ```
 
-Query workouts with flexible filters.
+Retrieve current physiometric values for an athlete (weight, FTP, LTHR, cycling VO2Max, body composition).
 
 **Query Parameters:**
 
 - `athlete_id` (required): Athlete identifier
-- `since` (optional): ISO date string - start of range
-- `until` (optional): ISO date string - end of range (default: now)
-- `limit` (optional): Max workouts to return (default 50, max 200)
-- `sport` (optional): Filter by sport type (e.g., "Cycling", "Running")
 
 **Response:**
+
+```json
+{
+  "athlete_id": "rob",
+  "heart_rate": {
+    "basis": "HRmax",
+    "lthr_bpm": 175,
+    "hr_max_bpm": 195,
+    "resting_hr_bpm": 52
+  },
+  "power": {
+    "ftp_watts": 285
+  },
+  "weight_kg": 75.2,
+  "fat_mass_kg": 12.5,
+  "muscle_mass_kg": 38.2,
+  "bone_mass_kg": 3.1,
+  "body_fat_pct": 16.6,
+  "visceral_fat_index": 8,
+  "metabolic_age_years": 32,
+  "cycling_vo2max_ml_kg_min": 52.3,
+  "effective_date": "2026-01-19",
+  "data_source": "withings"
+}
+```
+
+**Use cases:**
+
+- Display current athlete profile
+- Show training zones based on current FTP/LTHR
+- Track body composition changes
+
+---
+
+### 8. Get Physiometrics History
+
+```http
+GET /api/physiometrics/history?athlete_id=rob&metrics=weight_kg,cycling_vo2max_ml_kg_min&days=90
+```
+
+Retrieve time-series physiometric data for trend analysis.
+
+**Query Parameters:**
+
+- `athlete_id` (required): Athlete identifier
+- `days` (optional): Number of days to look back (default 90, max 365)
+- `metrics` (optional): Comma-separated list of metrics (default: all)
+  - Available metrics: `weight_kg`, `fat_mass_kg`, `muscle_mass_kg`, `bone_mass_kg`, `body_fat_pct`, `visceral_fat_index`, `metabolic_age_years`, `cycling_vo2max_ml_kg_min`, `heart_rate_lthr_bpm`, `heart_rate_hr_max_bpm`, `power_ftp_watts`
+
+**Response:**
+
+```json
+{
+  "athlete_id": "rob",
+  "query_window": {
+    "start_date": "2025-10-21",
+    "end_date": "2026-01-19",
+    "days": 90
+  },
+  "count": 85,
+  "data_points": [
+    {
+      "effective_date": "2025-10-21",
+      "updated_at_utc": "2025-10-21T08:15:32Z",
+      "data_source": "withings",
+      "weight_kg": 76.8,
+      "cycling_vo2max_ml_kg_min": 51.2
+    },
+    {
+      "effective_date": "2025-10-22",
+      "updated_at_utc": "2025-10-22T07:45:12Z",
+      "data_source": "withings",
+      "weight_kg": 76.5,
+      "cycling_vo2max_ml_kg_min": 51.2
+    }
+  ]
+}
+```
+
+**Use cases:**
+
+- Weight trend charting
+- FTP progression tracking
+- Body composition analysis over time
+- VO2Max improvement tracking
+
+---
+
+### 9. Update Physiometrics
+
+```http
+POST /api/physiometrics/update
+Content-Type: application/json
+```
+
+Update physiometric values (single metric or bulk partial update).
+
+**Request Body (Single Metric):**
+
+```json
+{
+  "athlete_id": "rob",
+  "metric": "cycling_vo2max_ml_kg_min",
+  "value": 52.3,
+  "effective_date": "2026-01-19",
+  "source": "chatgpt"
+}
+```
+
+**Request Body (Bulk Update):**
+
+```json
+{
+  "athlete_id": "rob",
+  "metrics": {
+    "weight_kg": 75.2,
+    "cycling_vo2max_ml_kg_min": 52.3
+  },
+  "effective_date": "2026-01-19",
+  "source": "chatgpt"
+}
+```
+
+**Parameters:**
+
+- `athlete_id` (required): Athlete identifier
+- `metric` (required for single update): Metric name
+- `value` (required for single update): New value
+- `metrics` (required for bulk): Dict of metric names to values
+- `effective_date` (optional): ISO date when value takes effect (defaults to today)
+- `source` (optional): Data source (`chatgpt`, `manual`, `withings`) - defaults to `chatgpt`
+
+**Response:**
+
+```json
+{
+  "status": "success",
+  "athlete_id": "rob",
+  "metric": "cycling_vo2max_ml_kg_min",
+  "value": 52.3,
+  "effective_date": "2026-01-19",
+  "source": "chatgpt",
+  "updated_at_utc": "2026-01-19T14:32:15Z"
+}
+```
+
+**Use cases:**
+
+- ChatGPT updates cycling VO2Max from user conversation
+- Manual entry of weight if Withings not connected
+- Bulk update of FTP and LTHR after threshold test
+
+---
+
+### 10. Retroactive Zone Recalculation
+
+```http
+GET /api/workouts/{workout_id}/recalculated?ftp_watts=300&lthr_bpm=175
+```
+
+Get a read-only view of workout zones recalculated with different physiometric values.
+
+**Route Parameters:**
+
+- `workout_id` (required): Workout identifier
+
+**Query Parameters:**
+
+- `ftp_watts` (optional): Override FTP value for power zone calculation
+- `lthr_bpm` (optional): Override LTHR value for HR zone calculation
+
+**Response:**
+
+```json
+{
+  "status": "not_implemented",
+  "message": "Retroactive zone recalculation coming soon"
+}
+```
+
+**Use cases:**
+
+- Answer "How would this workout look at my current FTP?"
+- Compare zone distribution before/after threshold improvements
+- Analyze training load with different physiometric baselines
+
+---
+
+## Withings Integration
+
+### OAuth Authorization Flow
+
+#### Step 1: Get Authorization URL
+
+```json
+GET /api/withings/authorize?athlete_id=rob
+```
+
+**Response:**
+
+```json
+{
+  "authorization_url": "https://account.withings.com/oauth2_user/authorize2?...",
+  "instructions": "Open this URL in your browser to authorize Withings access",
+  "athlete_id": "rob"
+}
+```
+
+#### Step 2: User Authorizes in Browser
+
+User opens the URL and authorizes access to their Withings account.
+
+#### Step 3: Callback Handled by Azure
+
+```http
+GET /api/withings/callback?code=...&state=...
+```
+
+Withings redirects back to this endpoint with authorization code. The system:
+
+1. Exchanges code for OAuth tokens
+2. Stores tokens in `WithingsTokens` table
+3. Subscribes to webhook notifications
+4. Returns success HTML page
+
+#### Step 4: Automatic Webhook Sync
+
+When user weighs in with BodyScan or Body+ scales:
+
+1. Withings sends webhook notification to `/api/withings/webhook`
+2. Webhook queued for async processing
+3. Background worker fetches measurement data
+4. Weight and body composition stored in `Physiometrics` table with `source=withings`
+
+---
+
+### Withings Webhook (Internal)
+
+```http
+POST /api/withings/webhook
+Content-Type: application/x-www-form-urlencoded
+
+userid=12345&appli=1&startdate=1705622400&enddate=1705622500
+```bash
+
+This endpoint is called by Withings servers when new measurements are available.
+
+**Processing:**
+
+- Validates webhook payload
+- Checks deduplication (avoids processing same webhook twice)
+- Queues for async processing
+- Returns HTTP 200 immediately (fast acknowledgment)
+- Background worker fetches and stores measurement data
+
+**Supported Measurements:**
+
+- Weight (kg)
+- Fat mass (kg)
+- Muscle mass (kg)
+- Bone mass (kg)
+- Body fat percentage
+- Visceral fat index
+- Metabolic age (years)
+
+---
+
+## ChatGPT Integration Examples
+
+Update Cycling VO2Max
+
+User: "My new cycling VO2Max is 52.3"
+
+ChatGPT calls:
+
+```json
+POST /api/physiometrics/update
+{
+  "athlete_id": "rob",
+  "metric": "cycling_vo2max_ml_kg_min",
+  "value": 52.3,
+  "source": "chatgpt"
+}
+```bash
+
+Connect Withings Account
+
+User: "Connect my Withings scale"
+
+ChatGPT calls:
+
+
+```bash
+GET /api/withings/authorize?athlete_id=rob
+```
+
+ChatGPT responds: "Please open this URL to authorize access to your Withings account: [link]"
+
+Check Weight Trend
+
+User: "Show my weight trend for the last 30 days"
+
+ChatGPT calls:
+
+```bash
+GET /api/physiometrics/history?athlete_id=rob&metrics=weight_kg&days=30
+```
+
+ChatGPT responds: "Your weight has ranged from 74.8 kg to 76.2 kg over the last 30 days, with an average of 75.4 kg. You're trending downward at about 0.2 kg per week."
+
+Update Multiple Metrics
+
+User: "I did a threshold test today. My new FTP is 295 and LTHR is 178"
+
+ChatGPT calls:
+
+```json
+POST /api/physiometrics/update
+{
+  "athlete_id": "rob",
+  "metrics": {
+    "power_ftp_watts": 295,
+    "heart_rate_lthr_bpm": 178
+  },
+  "effective_date": "2026-01-19",
+  "source": "chatgpt"
+}
+```
+
+---
+
+## 2. List Workouts
+
+```http
+GET /api/workouts?athlete_id=rob&since=2026-01-01&limit=50&sport=Cycling
+```
 
 ```json
 {

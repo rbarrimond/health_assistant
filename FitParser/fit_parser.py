@@ -2,7 +2,7 @@
 
 import hashlib
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, cast
 
 import fitparse
@@ -60,6 +60,12 @@ class FitParser:
         hr_resting = self._extract_hr_resting()
         if hr_resting:
             self.metrics["hr_resting_bpm"] = hr_resting
+
+        # Capture physiometrics snapshot timestamp (before zone computation)
+        # This links the workout to the exact config used
+        self.metrics["physiometrics_snapshot_timestamp"] = (
+            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        )
 
         # Compute zones if data available
         if self.metrics.get("hr_avg_bpm"):
