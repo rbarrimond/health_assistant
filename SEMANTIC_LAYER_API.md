@@ -329,7 +329,7 @@ POST /api/withings/webhook
 Content-Type: application/x-www-form-urlencoded
 
 userid=12345&appli=1&startdate=1705622400&enddate=1705622500
-```bash
+```
 
 This endpoint is called by Withings servers when new measurements are available.
 
@@ -369,14 +369,13 @@ POST /api/physiometrics/update
   "value": 52.3,
   "source": "chatgpt"
 }
-```bash
+```
 
 Connect Withings Account
 
 User: "Connect my Withings scale"
 
 ChatGPT calls:
-
 
 ```bash
 GET /api/withings/authorize?athlete_id=rob
