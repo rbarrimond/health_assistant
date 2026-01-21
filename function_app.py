@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import tempfile
+from datetime import datetime, timezone
 from typing import Dict
 
 import azure.functions as func
@@ -15,6 +16,9 @@ from FitParser.fit_parser import FitParser, compute_file_hash
 from FitParser.table_storage import WorkoutTableStorage
 from FitParser.semantic_layer import SemanticLayer
 from FitParser.withings_client import WithingsClient
+from FitParser.backup_exporter import BackupExporter
+
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -1301,3 +1305,39 @@ def efficiency_trends(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
             mimetype=JSON_CONTENT_TYPE
         )
+
+
+# =============================================================================
+# Daily Backup Export (Timer Trigger)
+# =============================================================================
+
+@app.timer_trigger(arg_name="timer", schedule="0 2 * * *")  # 2 AM UTC daily
+def backup_export_timer(timer: func.TimerRequest) -> None:
+    """Daily timer-triggered backup export to read-only blob storage.
+    
+    Schedule: 0 2 * * * = 2 AM UTC every day
+    Output: JSON blobs in backups/ container, organized by date
+    Lifecycle: Move to cool tier after 30 days, delete after 90 days
+    """
+    if timer.past_due:
+        logger.warning("Backup export timer is past due")
+
+    try:
+        logger.info("Starting daily backup export at %s", datetime.now(timezone.utc).isoformat())
+
+        # Ensure storage is initialized
+        if _storage_singleton is None:
+            logger.error("Storage singleton not initialized")
+            return
+
+        # Perform export
+        exporter = BackupExporter(_storage_singleton)
+        result = exporter.export_all_tables()
+
+        if result.get("status") == "success":
+            logger.info("Backup export completed successfully: %s", result)
+        else:
+            logger.error("Backup export failed: %s", result.get("error"))
+
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Timer trigger backup export failed: %s", e, exc_info=True)
