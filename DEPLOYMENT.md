@@ -1,6 +1,8 @@
 # Azure Functions Deployment Guide
 
 > **Source of Truth**: See [WORKOUT_SCHEMA.md](./WORKOUT_SCHEMA.md) and [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./WORKOUT_INTELLIGENCE_AGENT_VISION.md) for system design. This document describes deployment procedures only.
+>
+> **For Monitoring & Analytics**: See [MONITORING.md](./MONITORING.md) for comprehensive monitoring strategy including Power BI dashboards and athlete guide.
 
 Complete instructions for deploying the Health Assistant FIT file processor to Azure.
 
@@ -246,16 +248,70 @@ az functionapp plan create \
 az group delete --name $RESOURCE_GROUP --yes
 ```
 
-## Advanced: Using Microsoft Graph for Monitoring
+## Monitoring & Analytics
 
-Instead of Power Automate, monitor OneDrive directly:
+### Data Analytics with Power BI
+
+For visualizing training trends, physiometrics, and workload management:
+
+**See [MONITORING.md](./MONITORING.md)** for complete monitoring strategy including Power BI dashboard setup and athlete user guide.
+
+**Quick setup:**
+
+1. Get Power BI access ($0 free or $10/month Pro)
+2. Connect to your Storage Account
+3. Build dashboard from provided templates
+4. Set auto-refresh (every 24 hours)
+
+### Application Insights for Function Health
+
+Monitor the Azure Function App itself (errors, latency, throughput):
 
 ```bash
-# Install Graph SDK
-pip install msgraph-sdk
+# Create Application Insights
+az monitor app-insights component create \
+  --app fitprocessor-insights \
+  --location $LOCATION \
+  --resource-group $RESOURCE_GROUP
 
-# Create timer-triggered function to check OneDrive changes
-# See FitParser/graph_monitor.py for implementation
+# Link to Function App
+INSIGHTS_KEY=$(az monitor app-insights component show \
+  --app fitprocessor-insights \
+  --resource-group $RESOURCE_GROUP \
+  --query instrumentationKey -o tsv)
+
+az functionapp config appsettings set \
+  --name $FUNCTION_APP \
+  --resource-group $RESOURCE_GROUP \
+  --settings "APPINSIGHTS_INSTRUMENTATION_KEY=$INSIGHTS_KEY"
+```
+
+### Set Up Alerts
+
+```bash
+# Alert when function errors exceed threshold
+az monitor metrics alert create \
+  --name "FitProcessor Function Errors" \
+  --resource-group $RESOURCE_GROUP \
+  --scopes "/subscriptions/$(az account show -q --query id -o tsv)/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Web/sites/$FUNCTION_APP" \
+  --condition "avg Exceptions > 5" \
+  --window-size 1h \
+  --evaluation-frequency 15m \
+  --action "log"
+```
+
+### View Diagnostics
+
+```bash
+# Stream live logs
+az functionapp log tail \
+  --name $FUNCTION_APP \
+  --resource-group $RESOURCE_GROUP
+
+# View in Azure Portal
+# Function App → Monitoring → Logs
+# or
+# Application Insights resource → Performance, Failures
 ```
 
 ## CI/CD with GitHub Actions

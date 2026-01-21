@@ -2,6 +2,62 @@
 
 The Semantic Access Layer is the **Read API** that sits between the raw metrics database and the ChatGPT UI. It exposes meaningful, human-centric questions about training data rather than raw table access.
 
+---
+
+## Quick Reference
+
+### 🎯 Core Concept
+
+The semantic layer answers **meaningful questions** about training, not raw database queries.
+
+### 🔑 Most Important Endpoint
+
+```http
+GET /api/planning/context?athlete_id=rob&days=45
+```
+
+**Answers:** *"Given what I've actually done, what does tomorrow look like?"*
+
+**Returns:** Recent workouts, weekly rollups, last hard day, Z2 volume, intensity minutes, data flags
+
+### 📋 All 14 Endpoints
+
+| Endpoint | Purpose | Example |
+| -------- | ------- | ------- |
+| `/api/health` | Health check | Always returns 200 |
+| `/api/planning/context` | Planning decisions | `?athlete_id=rob&days=45` |
+| `/api/workouts` | List workouts | `?athlete_id=rob&since=2026-01-01&sport=Cycling` |
+| `/api/workouts/{id}` | Workout detail | `/{workout_id}?athlete_id=rob` |
+| `/api/rollups/weekly` | Weekly summaries | `?athlete_id=rob&weeks=16` |
+| `/api/analysis/zones` | Zone distribution | `?athlete_id=rob&days=30` |
+| `/api/analysis/efficiency` | Efficiency trends | `?athlete_id=rob&days=90` |
+| `/api/physiometrics/current` | Current metrics | `?athlete_id=rob` |
+| `/api/physiometrics/history` | Body metrics trends | `?athlete_id=rob&days=90` |
+| `/api/physiometrics/update` | Update a metric | POST with metric + value |
+| `/api/config/reload` | Reload configuration | POST (admin) |
+| `/api/config/update` | Update configuration | POST (admin) |
+| `/api/config/history` | Config audit trail | `?limit=10` |
+| `/api/withings/webhook` | Withings OAuth callback | POST (Withings) |
+
+### 🛡️ Built-in Protections
+
+- ✓ All queries require `athlete_id`
+- ✓ Workout queries: max 200
+- ✓ Days lookback: max 365
+- ✓ Weeks: max 52
+- ✓ Summary-first (time series on demand only)
+
+### 🤖 ChatGPT Usage Patterns
+
+**"What should I do tomorrow?"**
+
+```
+→ GET /api/planning/context?athlete_id=rob&days=45
+→ Returns: Last hard day, Z2 volume, intensity load, flags
+```
+
+---
+
 ## Philosophy
 
 This layer:
@@ -708,6 +764,167 @@ All endpoints return consistent error responses:
 - `400 Bad Request` - Invalid parameters
 - `404 Not Found` - Resource doesn't exist
 - `500 Internal Server Error` - Server-side failure
+
+---
+
+## Configuration Management Endpoints
+
+These endpoints manage athlete physiometric configuration (FTP, LTHR, HR methods, body composition).
+
+### 11. Get Configuration History
+
+```http
+GET /config/history?athlete_id=rob
+```
+
+Retrieve the history of configuration changes for an athlete (all FTP updates, LTHR changes, method changes).
+
+**Query Parameters:**
+
+- `athlete_id` (required): Athlete identifier
+- `limit` (optional): Max records to return (default 100, max 1000)
+
+**Response:**
+
+```json
+{
+  "athlete_id": "rob",
+  "total_changes": 12,
+  "history": [
+    {
+      "timestamp_utc": "2026-01-20T10:30:00Z",
+      "changed_by": "manual_api",
+      "changes": {
+        "power": {
+          "ftp_watts": { "old": 280, "new": 285 },
+          "reason": "FTP test completed"
+        }
+      },
+      "config_id": "cfg_abc123"
+    },
+    {
+      "timestamp_utc": "2026-01-15T08:00:00Z",
+      "changed_by": "withings_webhook",
+      "changes": {
+        "physiometrics": {
+          "weight_kg": { "old": 75.2, "new": 75.1 }
+        }
+      },
+      "config_id": "cfg_xyz789"
+    }
+  ]
+}
+```
+
+**Use cases:**
+
+- Audit trail for all configuration changes
+- Detecting when zones were adjusted
+- Correlating configuration changes with performance shifts
+- Validating FTP history for retrospective metric recalculation
+
+---
+
+### 12. Update Configuration
+
+```http
+POST /api/physiometrics/update?athlete_id=rob
+```
+
+Update physiometric configuration for an athlete (FTP, LTHR, HR/power zone methods, body composition).
+
+**Query Parameters:**
+
+- `athlete_id` (required): Athlete identifier
+
+**Request Body:**
+
+```json
+{
+  "power": {
+    "ftp_watts": 285,
+    "reason": "20-minute FTP test on 2026-01-20"
+  },
+  "heart_rate": {
+    "lthr_bpm": 175,
+    "hr_max_bpm": 195,
+    "resting_hr_bpm": 52,
+    "zone_basis": "LTHR",
+    "reason": "Updated from recent hard efforts"
+  },
+  "body_composition": {
+    "weight_kg": 75.1,
+    "body_fat_pct": 12.5
+  },
+  "metadata": {
+    "notes": "Post-holiday FTP recovery block",
+    "sport": "cycling"
+  }
+}
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "athlete_id": "rob",
+  "updated_at_utc": "2026-01-20T10:30:00Z",
+  "config_id": "cfg_abc123",
+  "previous_config_id": "cfg_xyz789",
+  "changes_applied": {
+    "power": { "ftp_watts": "280 → 285 W" },
+    "heart_rate": { "zone_basis": "HRmax → LTHR" }
+  },
+  "retroactive_recalculation_needed": true
+}
+```
+
+**Status codes:**
+
+- `200 OK` - Configuration updated successfully
+- `400 Bad Request` - Invalid parameters (e.g., FTP < 50 or > 500)
+- `404 Not Found` - Athlete not found
+- `409 Conflict` - Configuration locked for recalculation
+
+**Validation rules:**
+
+- `ftp_watts`: 50-500 range (sanity check)
+- `lthr_bpm`: > `resting_hr_bpm`, < `hr_max_bpm`
+- `hr_max_bpm`: 120-220 range
+- `weight_kg`: 30-200 range
+- Zone method: One of `HRmax`, `LTHR`, `HRR`
+
+---
+
+### 13. Reload Configuration
+
+```http
+POST /config/reload?athlete_id=rob
+```
+
+Force reload of athlete configuration from storage (useful after external updates or to clear cache).
+
+**Response (200 OK):**
+
+```json
+{
+  "athlete_id": "rob",
+  "reloaded_at_utc": "2026-01-20T10:31:00Z",
+  "config_id": "cfg_abc123",
+  "power": { "ftp_watts": 285 },
+  "heart_rate": {
+    "lthr_bpm": 175,
+    "hr_max_bpm": 195,
+    "zone_basis": "LTHR"
+  }
+}
+```
+
+**Use cases:**
+
+- After manual database edits
+- To clear in-memory cache
+- Before recalculating zones for past workouts
 
 ---
 
