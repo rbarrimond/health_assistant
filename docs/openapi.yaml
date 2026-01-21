@@ -1,0 +1,798 @@
+openapi: 3.0.1
+info:
+  title: Health Assistant API
+  version: "1.0.0"
+  description: |
+    Deterministic workout and physiometric API consumed by ChatGPT Actions.
+    Returns stored metrics only; no model-generated values.
+servers:
+  - url: https://health-assistant.azurewebsites.net
+    description: Deployed Azure Functions host
+  - url: http://localhost:7071
+    description: Local Azure Functions runtime
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+  /api/physiometrics/current:
+    get:
+      summary: Get current physiometric values
+      operationId: getCurrentPhysiometrics
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+      responses:
+        '200':
+          description: Current snapshot of metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhysiometricSnapshot'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/physiometrics/history:
+    get:
+      summary: Get physiometric time series
+      operationId: getPhysiometricsHistory
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+        - name: days
+          in: query
+          required: false
+          description: Days to look back (default 90, max 365)
+          schema:
+            type: integer
+            format: int32
+            default: 90
+            maximum: 365
+        - name: metrics
+          in: query
+          required: false
+          description: Comma-separated list of metric identifiers
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        '200':
+          description: Time-series data for requested metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhysiometricHistory'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/physiometrics/update:
+    post:
+      summary: Update physiometric values
+      operationId: updatePhysiometrics
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePhysiometricRequest'
+            examples:
+              singleMetric:
+                summary: Single metric update
+                value:
+                  athlete_id: rob
+                  metric: cycling_vo2max_ml_kg_min
+                  value: 52.3
+                  effective_date: 2026-01-19
+                  source: chatgpt
+              bulkUpdate:
+                summary: Bulk metric update
+                value:
+                  athlete_id: rob
+                  metrics:
+                    weight_kg: 75.2
+                    cycling_vo2max_ml_kg_min: 52.3
+                  effective_date: 2026-01-19
+                  source: chatgpt
+      responses:
+        '200':
+          description: Update accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdatePhysiometricResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/withings/authorize:
+    get:
+      summary: Get Withings authorization URL
+      operationId: withingsAuthorize
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+      responses:
+        '200':
+          description: Authorization URL to open in browser
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WithingsAuthorizeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/withings/callback:
+    get:
+      summary: Handle Withings OAuth callback
+      operationId: withingsCallback
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success HTML message
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid code/state
+          content:
+            text/html:
+              schema:
+                type: string
+        '500':
+          description: Server error completing OAuth
+          content:
+            text/html:
+              schema:
+                type: string
+  /api/withings/webhook:
+    post:
+      summary: Receive Withings webhook notifications
+      operationId: withingsWebhook
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WithingsWebhookPayload'
+      responses:
+        '200':
+          description: Acknowledged (weight notifications only processed)
+          content:
+            text/plain:
+              schema:
+                type: string
+        '400':
+          description: Missing required fields
+          content:
+            text/plain:
+              schema:
+                type: string
+  /api/workouts/{workout_id}/recalculated:
+    get:
+      summary: Get recalculated workout zones (read-only)
+      operationId: getWorkoutRecalculated
+      parameters:
+        - name: workout_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: ftp_watts
+          in: query
+          required: false
+          schema:
+            type: number
+            format: float
+        - name: lthr_bpm
+          in: query
+          required: false
+          schema:
+            type: number
+            format: float
+      responses:
+        '501':
+          description: Placeholder response for recalculated zones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecalculatedWorkoutResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /config/reload:
+    post:
+      summary: Reload physiometrics configuration from disk
+      operationId: reloadConfig
+      responses:
+        '200':
+          description: Configuration reloaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigSnapshot'
+        '404':
+          description: Physiometrics file not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /config/update:
+    post:
+      summary: Update physiometrics configuration
+      operationId: updateConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigUpdateRequest'
+      responses:
+        '200':
+          description: Configuration saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigUpdateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /config/history:
+    get:
+      summary: Get physiometrics configuration change history
+      operationId: configHistory
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 10
+            maximum: 50
+      responses:
+        '200':
+          description: Configuration history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigHistoryResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /process_fit:
+    post:
+      summary: Ingest a FIT file payload from OneDrive
+      operationId: processFit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProcessFitRequest'
+      responses:
+        '200':
+          description: Workout ingested or skipped as duplicate
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessFitResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/planning/context:
+    get:
+      summary: Get planning context for training decisions
+      operationId: planningContext
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 45
+            maximum: 365
+      responses:
+        '200':
+          description: Planning context payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanningContext'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/workouts:
+    get:
+      summary: Query workouts with filters
+      operationId: listWorkouts
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+        - name: since
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: until
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+        - name: sport
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of workouts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkoutsList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/workouts/{workout_id}:
+    get:
+      summary: Get detailed workout data
+      operationId: getWorkout
+      parameters:
+        - name: workout_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/AthleteId'
+      responses:
+        '200':
+          description: Workout detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkoutDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Workout not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/rollups/weekly:
+    get:
+      summary: Get weekly rollup data
+      operationId: weeklyRollups
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+        - name: weeks
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 16
+            maximum: 52
+      responses:
+        '200':
+          description: Weekly rollups
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeeklyRollups'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/analysis/zones:
+    get:
+      summary: Get time-in-zone distribution
+      operationId: zoneDistribution
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 30
+            maximum: 365
+      responses:
+        '200':
+          description: Zone distribution data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneDistribution'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/analysis/efficiency:
+    get:
+      summary: Get aerobic efficiency and decoupling trends
+      operationId: efficiencyTrends
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 90
+            maximum: 365
+      responses:
+        '200':
+          description: Efficiency trend data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EfficiencyTrends'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  parameters:
+    AthleteId:
+      name: athlete_id
+      in: query
+      required: true
+      description: Athlete identifier
+      schema:
+        type: string
+  responses:
+    BadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          example: healthy
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: athlete_id required
+    PhysiometricSnapshot:
+      type: object
+      description: Key-value map of the latest physiometric metrics for the athlete.
+      additionalProperties:
+        oneOf:
+          - type: number
+          - type: string
+          - type: object
+    PhysiometricHistory:
+      type: object
+      properties:
+        athlete_id:
+          type: string
+        metrics:
+          type: array
+          items:
+            type: object
+            properties:
+              metric:
+                type: string
+              points:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    value:
+                      type: number
+                    timestamp:
+                      type: string
+                      format: date-time
+      additionalProperties: true
+    UpdatePhysiometricRequest:
+      type: object
+      required:
+        - athlete_id
+      properties:
+        athlete_id:
+          type: string
+        metric:
+          type: string
+          description: Single metric identifier to update
+        value:
+          type: number
+          description: Value for the single metric update
+        metrics:
+          type: object
+          description: Map of metric identifiers to values for bulk updates
+          additionalProperties:
+            type: number
+        effective_date:
+          type: string
+          format: date
+        source:
+          type: string
+          description: Source of the data (e.g., chatgpt)
+    UpdatePhysiometricResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: updated
+        athlete_id:
+          type: string
+    WithingsAuthorizeResponse:
+      type: object
+      properties:
+        authorization_url:
+          type: string
+          format: uri
+        instructions:
+          type: string
+        athlete_id:
+          type: string
+    WithingsWebhookPayload:
+      type: object
+      properties:
+        userid:
+          type: string
+        appli:
+          type: string
+          description: Notification type (1 = weight)
+        startdate:
+          type: string
+          description: Unix timestamp
+        enddate:
+          type: string
+          description: Unix timestamp
+      required:
+        - userid
+        - appli
+        - startdate
+        - enddate
+    RecalculatedWorkoutResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Not implemented
+        workout_id:
+          type: string
+        physiometrics_override:
+          type: object
+          additionalProperties: true
+    ConfigSnapshot:
+      type: object
+      properties:
+        status:
+          type: string
+        message:
+          type: string
+        heart_rate:
+          type: object
+          properties:
+            basis:
+              type: string
+            lthr_bpm:
+              type: integer
+            hr_max_bpm:
+              type: integer
+            resting_hr_bpm:
+              type: integer
+        power:
+          type: object
+          properties:
+            ftp_watts:
+              type: integer
+    ConfigUpdateRequest:
+      type: object
+      properties:
+        heart_rate:
+          type: object
+          additionalProperties: true
+        power:
+          type: object
+          additionalProperties: true
+      required:
+        - heart_rate
+        - power
+    ConfigUpdateResponse:
+      allOf:
+        - $ref: '#/components/schemas/ConfigSnapshot'
+        - type: object
+          properties:
+            updated_at_utc:
+              type: string
+    ConfigHistoryResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        count:
+          type: integer
+        history:
+          type: array
+          items:
+            type: object
+            properties:
+              updated_at_utc:
+                type: string
+              heart_rate:
+                type: object
+                additionalProperties: true
+              power:
+                type: object
+                additionalProperties: true
+    ProcessFitRequest:
+      type: object
+      required:
+        - athlete_id
+        - source_file_name
+        - file_content_b64
+      properties:
+        athlete_id:
+          type: string
+        source_item_id:
+          type: string
+        source_file_name:
+          type: string
+        source_file_path:
+          type: string
+        source_drive_id:
+          type: string
+        source_etag:
+          type: string
+        file_content_b64:
+          type: string
+          description: Base64-encoded FIT file content
+        file_size_bytes:
+          type: integer
+    ProcessFitResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        workout_id:
+          type: string
+        athlete_id:
+          type: string
+        sport:
+          type: string
+        duration_sec:
+          type: number
+        metrics:
+          type: object
+          properties:
+            distance_m:
+              type: number
+            avg_power_watts:
+              type: number
+            avg_hr_bpm:
+              type: number
+        reason:
+          type: string
+          description: Present when status is skipped
+    PlanningContext:
+      type: object
+      description: Aggregated planning context for the athlete.
+      additionalProperties: true
+    WorkoutsList:
+      type: object
+      properties:
+        athlete_id:
+          type: string
+        count:
+          type: integer
+        workouts:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkoutSummary'
+    WorkoutSummary:
+      type: object
+      properties:
+        workout_id:
+          type: string
+        sport:
+          type: string
+        start_time_utc:
+          type: string
+          format: date-time
+        duration_sec:
+          type: number
+        distance_m:
+          type: number
+        avg_power_watts:
+          type: number
+        avg_hr_bpm:
+          type: number
+      additionalProperties: true
+    WorkoutDetail:
+      allOf:
+        - $ref: '#/components/schemas/WorkoutSummary'
+        - type: object
+          properties:
+            intervals:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+            time_series:
+              type: object
+              description: Optional time-series channels
+              additionalProperties:
+                type: array
+                items:
+                  oneOf:
+                    - type: number
+                    - type: string
+            source:
+              type: object
+              additionalProperties: true
+    WeeklyRollups:
+      type: object
+      properties:
+        athlete_id:
+          type: string
+        weeks:
+          type: integer
+        count:
+          type: integer
+        rollups:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    ZoneDistribution:
+      type: object
+      description: Time-in-zone distribution.
+      additionalProperties: true
+    EfficiencyTrends:
+      type: object
+      description: Aerobic efficiency and decoupling trends.
+      additionalProperties: true

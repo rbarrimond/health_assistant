@@ -1,0 +1,15 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "Health Assistant",
+  "name_for_model": "health_assistant_metrics",
+  "description_for_human": "Deterministic workout and physiometric assistant for ChatGPT Actions.",
+  "description_for_model": "Access deterministic workout and physiometric metrics. Retrieve current snapshots, historical trends, and post explicit metric updates with source attribution. No LLM-derived metrics.",
+  "auth": {
+    "type": "none"
+  },
+  "api": {
+    "type": "openapi",
+    "url": "http://localhost:7071/openapi.yaml",
+    "is_user_authenticated": false
+  }
+}
