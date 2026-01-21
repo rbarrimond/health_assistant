@@ -26,20 +26,26 @@ See `physiometrics.json.example` for a complete example.
 
 ## Configuration Precedence
 
-The Config system loads values in this order:
+The Config system loads values in this order of precedence:
 
-1. **Environment Variables** (highest priority - deployment overrides)
-   - `HR_ZONE_BASIS` - Heart rate zone basis
+1. **Azure Table Storage** (highest priority - production recommended)
+   - Physiometrics table via table_storage module
+   - Allows runtime updates without redeployment
+   - Requires `AzureWebJobsStorage` or `AZURE_STORAGE_ACCOUNT_URL` configured
+
+2. **Environment Variables** (deployment overrides)
+   - `HR_ZONE_BASIS` - Heart rate zone basis (HRmax, LTHR, or HRR)
    - `HR_ZONE_REFERENCE_BPM` - HR max or LTHR value
    - `HR_RESTING_BPM` - Resting heart rate
    - `DEFAULT_FTP` - Functional Threshold Power
-   - `PHYSIOMETRICS_PATH` - Path to custom physiometrics.json
+   - `PHYSIOMETRICS_PATH` - Path to custom physiometrics.json file
 
-2. **physiometrics.json** (recommended - athlete profile)
+3. **physiometrics.json** (local development)
+   - Filesystem-based configuration
    - Load from `config/physiometrics.json`
    - Or override location with `PHYSIOMETRICS_PATH` env var
 
-3. **Hard Defaults** (lowest priority - fallback values)
+4. **Hard Defaults** (lowest priority - fallback values)
    - HR basis: `HRmax`
    - Resting HR: `60 bpm`
    - FTP: `250 watts`

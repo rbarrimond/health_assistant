@@ -49,9 +49,9 @@ GET /api/planning/context?athlete_id=rob&days=45
 
 ### 🤖 ChatGPT Usage Patterns
 
-**"What should I do tomorrow?"**
+#### "What should I do tomorrow?"
 
-```
+```text
 → GET /api/planning/context?athlete_id=rob&days=45
 → Returns: Last hard day, Z2 volume, intensity load, flags
 ```
