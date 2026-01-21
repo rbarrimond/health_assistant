@@ -7,6 +7,7 @@ import os
 import tempfile
 from datetime import datetime, timezone
 from typing import Dict
+from urllib.parse import urlparse
 
 import azure.functions as func
 from azure.core.exceptions import AzureError
@@ -34,6 +35,21 @@ ERR_INVALID_JSON = "Invalid JSON payload"
 
 app = func.FunctionApp()
 
+# Environment variable names and defaults for plugin metadata
+ENV_DOCS_DIR = "DOCS_DIR"
+ENV_PUBLIC_BASE_URL = "PUBLIC_BASE_URL"
+ENV_PLUGIN_LOGO_URL = "PLUGIN_LOGO_URL"
+ENV_PLUGIN_CONTACT_EMAIL = "PLUGIN_CONTACT_EMAIL"
+ENV_PLUGIN_LEGAL_URL = "PLUGIN_LEGAL_URL"
+
+DOCS_DIR = os.getenv(ENV_DOCS_DIR, os.path.join(os.path.dirname(__file__), "docs"))
+PLUGIN_MANIFEST_PATH = os.path.join(DOCS_DIR, "ai-plugin.json")
+OPENAPI_SPEC_PATH = os.path.join(DOCS_DIR, "openapi.yaml")
+
+DEFAULT_LOGO_URL = "https://via.placeholder.com/128.png?text=Health+Assistant"
+DEFAULT_CONTACT_EMAIL = "rbarrimond+health-assistant@users.noreply.github.com"
+DEFAULT_LEGAL_URL = "https://github.com/rbarrimond/health_assistant/blob/main/README.md"
+
 # Initialize and warm up table storage on host start (idempotent table creation).
 # pylint: disable=invalid-name  # These are mutable singletons, not constants
 _storage_singleton = None
@@ -48,6 +64,30 @@ except (ValueError, AzureError, OSError) as _e:
     logger.warning("Table storage init deferred: %s", _e)
 
 
+def _public_base_url(req: func.HttpRequest) -> str:
+    """Return the externally reachable base URL, overridable via env."""
+    override = os.getenv(ENV_PUBLIC_BASE_URL)
+    if override:
+        return override.rstrip("/")
+
+    parsed = urlparse(req.url)
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _read_text_file(path: str) -> str:
+    """Read a text file with utf-8 encoding."""
+    with open(path, "r", encoding="utf-8") as file_handle:
+        return file_handle.read()
+
+
+def _response_missing_file(name: str) -> func.HttpResponse:
+    return func.HttpResponse(
+        json.dumps({"error": f"{name} not found"}),
+        status_code=500,
+        mimetype=JSON_CONTENT_TYPE,
+    )
+
+
 @app.route(route="health", methods=["GET"])
 def health_check(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable=unused-argument
     """Health check endpoint."""
@@ -55,6 +95,58 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable
         json.dumps({"status": "healthy"}),
         status_code=200,
         mimetype=JSON_CONTENT_TYPE
+    )
+
+
+@app.route(route=".well-known/ai-plugin.json", methods=["GET"])
+def serve_ai_plugin_manifest(req: func.HttpRequest) -> func.HttpResponse:
+    """Serve ChatGPT Actions plugin manifest with dynamic OpenAPI URL."""
+    try:
+        manifest = json.loads(_read_text_file(PLUGIN_MANIFEST_PATH))
+    except FileNotFoundError:
+        return _response_missing_file("ai-plugin.json")
+    except json.JSONDecodeError as exc:  # pragma: no cover - defensive
+        logger.error("ai-plugin.json invalid: %s", exc)
+        return func.HttpResponse(
+            json.dumps({"error": "ai-plugin.json invalid"}),
+            status_code=500,
+            mimetype=JSON_CONTENT_TYPE,
+        )
+
+    base_url = _public_base_url(req)
+    
+    # Populate dynamic metadata from environment or defaults
+    manifest.setdefault("api", {})["url"] = f"{base_url}/openapi.yaml"
+    manifest["logo_url"] = os.getenv(ENV_PLUGIN_LOGO_URL, manifest.get("logo_url", DEFAULT_LOGO_URL))
+    manifest["contact_email"] = os.getenv(ENV_PLUGIN_CONTACT_EMAIL, manifest.get("contact_email", DEFAULT_CONTACT_EMAIL))
+    manifest["legal_info_url"] = os.getenv(ENV_PLUGIN_LEGAL_URL, manifest.get("legal_info_url", DEFAULT_LEGAL_URL))
+
+    return func.HttpResponse(
+        json.dumps(manifest),
+        status_code=200,
+        mimetype=JSON_CONTENT_TYPE,
+    )
+
+
+@app.route(route="openapi.yaml", methods=["GET"])
+def serve_openapi_spec(req: func.HttpRequest) -> func.HttpResponse:
+    """Serve OpenAPI specification with dynamic server URL."""
+    try:
+        spec_body = _read_text_file(OPENAPI_SPEC_PATH)
+    except FileNotFoundError:
+        return _response_missing_file("openapi.yaml")
+
+    # Replace placeholder server URL with actual public base URL
+    base_url = _public_base_url(req)
+    spec_body = spec_body.replace(
+        "https://health-assistant.azurewebsites.net",
+        base_url
+    )
+
+    return func.HttpResponse(
+        spec_body,
+        status_code=200,
+        mimetype="application/x-yaml",
     )
 
 
