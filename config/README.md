@@ -1,5 +1,7 @@
 # Configuration Files
 
+This directory contains configuration templates for both local development and Power Automate integration.
+
 ## physiometrics.json
 
 The `physiometrics.json` file contains current athlete-specific configuration for heart rate and power metrics. This represents your *current physiological truth* and is snapshotted into each workout record during ingestion.
@@ -23,6 +25,43 @@ See `physiometrics.json.example` for a complete example.
 
 - **ftp_watts**: Functional Threshold Power in watts
 - **zones**: Zone definitions with percentage boundaries (relative to FTP)
+
+## power_automate_flow.json
+
+The `power_automate_flow.json` file is an importable Power Automate cloud flow definition for OneDrive FIT file monitoring and ingestion.
+
+### Flow Definition
+
+See `power_automate_flow.json.example` for the complete flow definition.
+
+### Flow Components
+
+- **Trigger**: OneDrive "file created (properties only)" on `/Apps/HealthFit` folder
+- **Actions**:
+  1. Get file content from OneDrive
+  2. Convert file content to base64
+  3. POST to Azure Function `process_fit` endpoint with metadata and file payload
+
+### Setup
+
+1. Copy the example file:
+
+   ```bash
+   cp config/power_automate_flow.json.example config/power_automate_flow.json
+   ```
+
+2. Edit `config/power_automate_flow.json` and replace placeholders:
+   - `<FUNCTION_APP>` → Your Azure Function App name
+   - `<FUNCTION_KEY>` → Your function key (from Azure portal)
+   - `<ONEDRIVE_CONNECTION_ID>` → Your OneDrive connection ID
+   - `"athlete_id": "rob"` → Your athlete identifier
+
+3. Import to Power Automate:
+   - Create a zip file containing the JSON
+   - Go to Power Automate → Solutions → Import
+   - Upload and rebind the OneDrive connection
+
+See [POWER_AUTOMATE_SETUP.md](../POWER_AUTOMATE_SETUP.md) for detailed instructions.
 
 ## Configuration Precedence
 
@@ -50,7 +89,9 @@ The Config system loads values in this order of precedence:
    - Resting HR: `60 bpm`
    - FTP: `250 watts`
 
-## Setup
+## Local Development Setup
+
+### Physiometrics Configuration
 
 1. Copy `physiometrics.json.example` to `physiometrics.json`:
 
@@ -61,3 +102,17 @@ The Config system loads values in this order of precedence:
 2. Edit `config/physiometrics.json` with your athlete metrics
 
 3. The Config class will automatically load it at runtime
+
+### Power Automate Flow (Optional)
+
+If deploying the OneDrive integration:
+
+1. Copy `power_automate_flow.json.example` to `power_automate_flow.json`:
+
+   ```bash
+   cp config/power_automate_flow.json.example config/power_automate_flow.json
+   ```
+
+2. Edit with your Azure Function details and athlete ID
+
+3. Import to Power Automate (see [POWER_AUTOMATE_SETUP.md](../POWER_AUTOMATE_SETUP.md))

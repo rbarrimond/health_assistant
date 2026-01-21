@@ -11,9 +11,41 @@ This guide explains how to set up a Power Automate flow to monitor OneDrive and 
 - Azure Function deployed with HTTP trigger endpoint
 - Azure Function key for authentication
 
-## Power Automate Flow Setup
+## Setup Options
 
-### Trigger: OneDrive File Monitor
+### Option 1: Import Pre-built Flow (Recommended)
+
+Use the example flow definition at [config/power_automate_flow.json.example](config/power_automate_flow.json.example).
+
+**Steps:**
+
+1. Copy the example file:
+
+   ```bash
+   cp config/power_automate_flow.json.example config/power_automate_flow.json
+   ```
+
+2. Edit `config/power_automate_flow.json` and replace placeholders:
+   - `<FUNCTION_APP>` → Your Azure Function App name
+   - `<FUNCTION_KEY>` → Your function key (from Azure portal)
+   - `<ONEDRIVE_CONNECTION_ID>` → Your OneDrive connection ID
+   - `"athlete_id": "rob"` → Your athlete identifier
+
+3. Import to Power Automate:
+   - Create a zip file containing `power_automate_flow.json`
+   - Go to Power Automate → **Solutions** → **Import**
+   - Upload the zip file
+   - Rebind the OneDrive connection during import
+
+4. Test the flow:
+   - Upload a FIT file to `/Apps/HealthFit/`
+   - Verify the flow runs and check Azure Table Storage
+
+### Option 2: Manual Flow Setup
+
+Create the flow step-by-step in Power Automate UI:
+
+#### Trigger: OneDrive File Monitor
 
 1. Create new cloud flow → Automated cloud flow
 2. Trigger: "When a file is created (properties only)"
@@ -100,7 +132,28 @@ If a file is re-uploaded with same `itemId`, it will be skipped to prevent dupli
 - Monitor **IngestionState** table for failed ingestions
 - Set up alert on function errors
 
+## Architecture Notes
+
+### Why Power Automate (Not Microsoft Graph)?
+
+For **personal OneDrive accounts**, Microsoft Graph webhooks are not supported. Power Automate provides:
+
+- ✅ Real-time OneDrive triggers (no polling required)
+- ✅ Works with personal OneDrive
+- ✅ Built-in error handling and retry logic
+- ✅ No subscription renewal management
+
+For **work/school OneDrive** or SharePoint, Graph webhooks are an alternative, but require:
+
+- Publicly accessible webhook endpoint
+- Subscription renewal every ~3 days
+- Additional subscription management logic
+
+**Current architecture**: Power Automate for ingestion + Power BI for monitoring/analytics is optimal for personal OneDrive.
+
 ## OneDrive Graph Integration (Alternative)
+
+**Note**: This approach requires a **work/school OneDrive** account, as Graph webhooks are not supported on personal OneDrive.
 
 Instead of Power Automate, you can use a timer-triggered function with Microsoft Graph:
 
