@@ -103,6 +103,8 @@ paths:
                     cycling_vo2max_ml_kg_min: 52.3
                   effective_date: 2026-01-19
                   source: chatgpt
+      security:
+        - FunctionKey: []
       responses:
         '200':
           description: Update accepted
@@ -120,6 +122,8 @@ paths:
       operationId: withingsAuthorize
       parameters:
         - $ref: '#/components/parameters/AthleteId'
+      security:
+        - FunctionKey: []
       responses:
         '200':
           description: Authorization URL to open in browser
@@ -225,6 +229,8 @@ paths:
     post:
       summary: Reload physiometrics configuration from disk
       operationId: reloadConfig
+      security:
+        - FunctionKey: []
       responses:
         '200':
           description: Configuration reloaded
@@ -250,6 +256,8 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ConfigUpdateRequest'
+      security:
+        - FunctionKey: []
       responses:
         '200':
           description: Configuration saved
@@ -292,6 +300,8 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ProcessFitRequest'
+      security:
+        - FunctionKey: []
       responses:
         '200':
           description: Workout ingested or skipped as duplicate
@@ -796,3 +806,9 @@ components:
       type: object
       description: Aerobic efficiency and decoupling trends.
       additionalProperties: true
+  securitySchemes:
+    FunctionKey:
+      type: http
+      scheme: bearer
+      bearerFormat: function-key
+      description: Azure Functions API key passed as Bearer token

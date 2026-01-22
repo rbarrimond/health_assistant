@@ -247,7 +247,7 @@ def get_physiometrics_history(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-@app.route(route="api/physiometrics/update", methods=["POST"])
+@app.route(route="api/physiometrics/update", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
 def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
     """
     Update physiometric values (single metric or bulk partial update).
@@ -353,7 +353,7 @@ def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
 # Withings OAuth & Webhook Endpoints
 # =============================================================================
 
-@app.route(route="api/withings/authorize", methods=["GET"])
+@app.route(route="api/withings/authorize", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
 def withings_authorize(req: func.HttpRequest) -> func.HttpResponse:
     """
     Get Withings OAuth authorization URL.
@@ -579,7 +579,7 @@ def get_workout_recalculated(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
             mimetype=JSON_CONTENT_TYPE
         )
-@app.route(route="config/reload", methods=["POST"])
+@app.route(route="config/reload", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
 def reload_config(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable=unused-argument
     """Reload physiometrics configuration from disk.
 
@@ -650,7 +650,7 @@ def reload_config(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disabl
         )
 
 
-@app.route(route="config/update", methods=["POST"])
+@app.route(route="config/update", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
 def update_config(req: func.HttpRequest) -> func.HttpResponse:
     """Update physiometrics configuration via HTTP POST.
 
@@ -909,7 +909,7 @@ def _record_failed_ingestion(athlete_id: str, payload: Dict, error: str):
 
 
 @app.function_name("ProcessFitFiles")
-@app.route(route="process_fit", methods=["POST"])
+@app.route(route="process_fit", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
 def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
     """HTTP-triggered function to process FIT files from OneDrive.
 

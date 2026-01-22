@@ -5,11 +5,12 @@
   "description_for_human": "Deterministic workout and physiometric assistant for ChatGPT Actions.",
   "description_for_model": "Access deterministic workout and physiometric metrics. Retrieve current snapshots, historical trends, and post explicit metric updates with source attribution. No LLM-derived metrics.",
   "auth": {
-    "type": "none"
+    "type": "user_http",
+    "authorization_type": "bearer"
   },
   "api": {
     "type": "openapi",
-    "url": "http://localhost:7071/openapi.yaml",
-    "is_user_authenticated": false
+    "url": "https://health.azure.barrimond.net/openapi.yaml",
+    "is_user_authenticated": true
   }
 }
