@@ -12,7 +12,8 @@ Azure Function for parsing HealthFit FIT files from OneDrive and storing metrics
 | **🚀 Deploying?** | [DEPLOYMENT.md](./DEPLOYMENT.md) (30 min) |
 | **📊 Setting up dashboards?** | [MONITORING.md](./MONITORING.md) → Power BI section |
 | **🔌 Building integrations?** | [SEMANTIC_LAYER_API.md](./SEMANTIC_LAYER_API.md) |
-| **📐 Understanding the data model?** | [WORKOUT_SCHEMA.md](./WORKOUT_SCHEMA.md) |
+| **� Configuring backends?** | [BACKENDS.md](./BACKENDS.md) → Withings, Garmin |
+| **�📐 Understanding the data model?** | [WORKOUT_SCHEMA.md](./WORKOUT_SCHEMA.md) |
 | **🎯 Design philosophy?** | [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./WORKOUT_INTELLIGENCE_AGENT_VISION.md) |
 | **⚙️ Power Automate setup?** | [POWER_AUTOMATE_SETUP.md](./POWER_AUTOMATE_SETUP.md) |
 
