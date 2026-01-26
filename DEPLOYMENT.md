@@ -334,24 +334,58 @@ az functionapp log tail \
 
 ## CI/CD with GitHub Actions
 
-The repository includes `.github/workflows/deploy.yml` for automated deployment.
+The repository includes `.github/workflows/deploy.yml` for automated deployment using Azure OIDC authentication.
 
 ### Setup GitHub Actions Deployment
 
-1. Get your Function App's publish profile:
+**Prerequisites**: Function App must be deployed via Terraform (see `azure-infra` repository).
+
+1. Get the Function App name from Terraform output:
 
 ```bash
-az functionapp deployment list-publishing-profiles \
-  --name $FUNCTION_APP \
-  --resource-group $RESOURCE_GROUP \
-  --xml > publish-profile.xml
+cd ../azure-infra
+terraform output health_assistant_function_app_name
+```
+
+1. Update the workflow file:
+
+   - Edit `.github/workflows/deploy.yml`
+   - Replace `AZURE_FUNCTIONAPP_NAME` with the actual function app name
+
+2. Create Azure Service Principal with federated credentials:
+
+```bash
+# Set variables
+SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+RESOURCE_GROUP="health-assistant-rg"  # Use your actual resource group
+GITHUB_REPO="rbarrimond/health_assistant"
+
+# Create service principal
+az ad sp create-for-rbac \
+  --name "github-actions-health-assistant" \
+  --role "Website Contributor" \
+  --scopes "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP"
+
+# Note the appId (client ID) from output
+CLIENT_ID="<appId from output>"
+
+# Configure federated credential for OIDC
+az ad app federated-credential create \
+  --id $CLIENT_ID \
+  --parameters "{
+    \"name\": \"github-health-assistant-main\",
+    \"issuer\": \"https://token.actions.githubusercontent.com\",
+    \"subject\": \"repo:$GITHUB_REPO:ref:refs/heads/main\",
+    \"audiences\": [\"api://AzureADTokenExchange\"]
+  }"
 ```
 
 1. Add GitHub secrets:
 
    - Go to your repository → Settings → Secrets and variables → Actions
-   - Add `AZURE_FUNCTIONAPP_PUBLISH_PROFILE`: paste contents of `publish-profile.xml`
-   - Add `FUNCTION_APP_NAME`: your function app name (e.g., `fitprocessor-12345`)
+   - Add `AZURE_CLIENT_ID`: Application (client) ID from step 3
+   - Add `AZURE_TENANT_ID`: Your Azure AD tenant ID
+   - Add `AZURE_SUBSCRIPTION_ID`: Your Azure subscription ID
 
 2. Push to main branch to trigger deployment
 
@@ -360,7 +394,15 @@ az functionapp deployment list-publishing-profiles \
 The workflow:
 
 - Triggers on pushes to `main` branch
+- Uses OpenID Connect (OIDC) for passwordless Azure authentication
 - Sets up Python 3.13 environment
-- Installs dependencies from `requirements.txt`
-- Deploys to Azure Functions using publish profile
+- Runs tests before deployment
+- Deploys to Azure Functions using managed identity
 - Supports manual workflow dispatch for testing
+
+### Benefits of OIDC vs Publish Profile
+
+- ✅ **No stored secrets**: Short-lived tokens auto-generated per workflow run
+- ✅ **Aligns with Terraform**: Works seamlessly with infrastructure-as-code
+- ✅ **Better security**: Follows Azure identity best practices
+- ✅ **Granular permissions**: Service principal can be scoped precisely
