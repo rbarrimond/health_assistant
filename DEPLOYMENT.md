@@ -9,7 +9,7 @@ Complete instructions for deploying the Health Assistant FIT file processor to A
 ## Prerequisites
 
 - Azure subscription with active credits
-- Azure Functions (Python 3.12 runtime)
+- Azure Functions (Python 3.13 runtime)
 - Azure Storage Account (Table Storage + Blob optional)
 - Azure CLI installed locally
 - Function Core Tools installed
@@ -40,12 +40,12 @@ az storage account create \
 ### Create Function App
 
 ```bash
-# Create Function App (Python 3.12)
+# Create Function App (Python 3.13)
 az functionapp create \
   --resource-group $RESOURCE_GROUP \
   --consumption-plan-location $LOCATION \
   --runtime python \
-  --runtime-version 3.12 \
+  --runtime-version 3.13 \
   --functions-version 4 \
   --name $FUNCTION_APP \
   --storage-account $STORAGE_ACCOUNT \
