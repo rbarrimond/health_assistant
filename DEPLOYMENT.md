@@ -97,7 +97,25 @@ az functionapp config appsettings set \
 
 ## Step 3: Deploy Function Code
 
-### Using Azure Functions Core Tools (Local)
+### Option A: Using VS Code (Recommended for Development)
+
+1. Install the [Azure Functions extension](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-azurefunctions) for VS Code
+
+2. Sign in to Azure:
+   - Click the Azure icon in the sidebar
+   - Click "Sign in to Azure"
+
+3. Deploy to Azure:
+   - Click the Azure icon in the sidebar
+   - Expand your subscription and Function Apps
+   - Right-click your Function App → "Deploy to Function App"
+   - Select the workspace folder containing `function_app.py`
+   - Confirm the deployment
+
+4. View logs:
+   - Right-click your Function App → "Start Streaming Logs"
+
+### Option B: Using Azure Functions Core Tools (Local Terminal)
 
 ```bash
 # Login to Azure
@@ -112,7 +130,7 @@ az functionapp deployment source show \
   --resource-group $RESOURCE_GROUP
 ```
 
-### Using GitHub Actions (CI/CD)
+### Option C: Using GitHub Actions (CI/CD)
 
 See `.github/workflows/deploy.yml` for automated deployment on push to main.
 
@@ -316,28 +334,11 @@ az functionapp log tail \
 
 ## CI/CD with GitHub Actions
 
-Create `.github/workflows/deploy.yml`:
+The repository includes `.github/workflows/deploy.yml` for automated deployment.
 
-```yaml
-name: Deploy to Azure Functions
+### Setup GitHub Actions Deployment
 
-on:
-  push:
-    branches: [main]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: azure/functions-action@v1
-        with:
-          app-name: ${{ secrets.FUNCTION_APP_NAME }}
-          package: '.'
-          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
-```
-
-Get publish profile:
+1. Get your Function App's publish profile:
 
 ```bash
 az functionapp deployment list-publishing-profiles \
@@ -346,4 +347,20 @@ az functionapp deployment list-publishing-profiles \
   --xml > publish-profile.xml
 ```
 
-Then add as GitHub secret: `AZURE_FUNCTIONAPP_PUBLISH_PROFILE`
+1. Add GitHub secrets:
+
+   - Go to your repository → Settings → Secrets and variables → Actions
+   - Add `AZURE_FUNCTIONAPP_PUBLISH_PROFILE`: paste contents of `publish-profile.xml`
+   - Add `FUNCTION_APP_NAME`: your function app name (e.g., `fitprocessor-12345`)
+
+2. Push to main branch to trigger deployment
+
+### How It Works
+
+The workflow:
+
+- Triggers on pushes to `main` branch
+- Sets up Python 3.13 environment
+- Installs dependencies from `requirements.txt`
+- Deploys to Azure Functions using publish profile
+- Supports manual workflow dispatch for testing
