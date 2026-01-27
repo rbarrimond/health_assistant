@@ -12,7 +12,7 @@
     },
     {
       "key": "base_url_azure",
-      "value": "https://{{azure_function_name}}.azurewebsites.net",
+      "value": "https://health.azure.barrimond.net",
       "type": "string"
     },
     {
