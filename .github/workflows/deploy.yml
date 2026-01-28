@@ -19,11 +19,34 @@ jobs:
       - name: 'Checkout code'
         uses: actions/checkout@v4
 
+      # Python setup is needed here ONLY for running tests in CI
+      # Azure will do its own Python setup during deployment via Oryx build system
       - name: 'Setup Python ${{ env.PYTHON_VERSION }}'
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      # Install runtime dependencies from requirements.txt
+      # This is what Azure will also install during deployment
+      - name: 'Install dependencies'
+        run: pip install -r requirements.txt
+
+      # Install dev dependencies (pytest, pytest-cov, etc.) from pyproject.toml [project.optional-dependencies.dev]
+      # These are NOT deployed to Azure - only used for testing in CI
+      - name: 'Install dev dependencies'
+        run: pip install -e ".[dev]"
+
+      # Run tests as a sanity check before deploying
+      # If tests fail, deployment won't proceed
+      - name: 'Run tests'
+        run: python -m pytest tests/ -v
+
+      # Deploy to Azure Functions
+      # Key settings explained:
+      # - respect-funcignore: true -> Excludes files listed in .funcignore (tests, cache, etc.) from deployment
+      # - scm-do-build-during-deployment: true -> Azure runs build on the server side
+      # - enable-oryx-build: true -> Uses Oryx to auto-detect Python and install from requirements.txt
+      # Together, these mean Azure handles all Python setup during deployment, not us
       - name: 'Deploy to Azure Functions'
         uses: Azure/functions-action@v1
         with:

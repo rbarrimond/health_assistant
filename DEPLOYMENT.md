@@ -334,75 +334,99 @@ az functionapp log tail \
 
 ## CI/CD with GitHub Actions
 
-The repository includes `.github/workflows/deploy.yml` for automated deployment using Azure OIDC authentication.
+The repository includes `.github/workflows/deploy.yml` for automated deployment.
+
+### How the Workflow Works
+
+**Key Concept**: The workflow is split into two phases - testing locally in CI, and building/deploying remotely on Azure.
+
+#### Phase 1: Testing in GitHub Actions (CI Environment)
+
+- **Python Setup**: Required here to run tests in the CI environment
+- **Install Runtime Dependencies**: From `requirements.txt` (what the app needs to run)
+- **Install Dev Dependencies**: From `pyproject.toml[dev]` (pytest, coverage tools, etc.)
+- **Run Tests**: Executes `pytest` - if tests fail, deployment is blocked
+
+#### Phase 2: Deployment to Azure (Azure Environment)
+
+- **respect-funcignore**: Excludes unnecessary files (tests, cache, `.venv`, etc.) from upload
+- **scm-do-build-during-deployment**: Azure runs its own build process on the server
+- **enable-oryx-build**: Azure's Oryx auto-detects Python and installs from `requirements.txt`
+
+**Important**: Azure does NOT use our CI environment's Python setup. It builds fresh on the server using Oryx. The Python setup in the workflow is ONLY for running tests before deployment.
 
 ### Setup GitHub Actions Deployment
 
-**Prerequisites**: Function App must be deployed via Terraform (see `azure-infra` repository).
+**Current Method**: Using Publish Profile (simple but less secure)
 
-1. Get the Function App name from Terraform output:
+#### Required Secret
 
-```bash
-cd ../azure-infra
-terraform output health_assistant_function_app_name
-```
+Add this secret to your GitHub repository (Settings → Secrets and variables → Actions):
 
-1. Update the workflow file:
+- `AZURE_FUNCTIONAPP_PUBLISH_PROFILE`: Download from Azure Portal
+  1. Navigate to your Function App
+  2. Click "Get publish profile" in the Overview
+  3. Copy the entire XML content
+  4. Paste as GitHub secret
 
-   - Edit `.github/workflows/deploy.yml`
-   - Replace `AZURE_FUNCTIONAPP_NAME` with the actual function app name
+#### Function App Name
 
-2. Create Azure Service Principal with federated credentials:
+The workflow targets: `func-healthassistant-prod-59o7`
 
-```bash
-# Set variables
-SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-RESOURCE_GROUP="health-assistant-rg"  # Use your actual resource group
-GITHUB_REPO="rbarrimond/health_assistant"
-
-# Create service principal
-az ad sp create-for-rbac \
-  --name "github-actions-health-assistant" \
-  --role "Website Contributor" \
-  --scopes "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP"
-
-# Note the appId (client ID) from output
-CLIENT_ID="<appId from output>"
-
-# Configure federated credential for OIDC
-az ad app federated-credential create \
-  --id $CLIENT_ID \
-  --parameters "{
-    \"name\": \"github-health-assistant-main\",
-    \"issuer\": \"https://token.actions.githubusercontent.com\",
-    \"subject\": \"repo:$GITHUB_REPO:ref:refs/heads/main\",
-    \"audiences\": [\"api://AzureADTokenExchange\"]
-  }"
-```
-
-1. Add GitHub secrets:
-
-   - Go to your repository → Settings → Secrets and variables → Actions
-   - Add `AZURE_CLIENT_ID`: Application (client) ID from step 3
-   - Add `AZURE_TENANT_ID`: Your Azure AD tenant ID
-   - Add `AZURE_SUBSCRIPTION_ID`: Your Azure subscription ID
-
-2. Push to main branch to trigger deployment
+If you deploy a new Function App via Terraform, update `AZURE_FUNCTIONAPP_NAME` in `.github/workflows/deploy.yml`.
 
 ### How It Works
 
 The workflow:
 
-- Triggers on pushes to `main` branch
-- Uses OpenID Connect (OIDC) for passwordless Azure authentication
-- Sets up Python 3.13 environment
-- Runs tests before deployment
-- Deploys to Azure Functions using managed identity
-- Supports manual workflow dispatch for testing
+1. **Triggers**: Automatically on push to `main`, or manually via workflow dispatch
+2. **Testing Phase**: Sets up Python, installs dependencies, runs pytest
+3. **Deployment Phase**: If tests pass, deploys to Azure Functions
+4. **Azure Build**: Azure receives the code and runs Oryx build (detects Python, installs requirements)
 
-### Benefits of OIDC vs Publish Profile
+### Troubleshooting Deployment
 
-- ✅ **No stored secrets**: Short-lived tokens auto-generated per workflow run
-- ✅ **Aligns with Terraform**: Works seamlessly with infrastructure-as-code
-- ✅ **Better security**: Follows Azure identity best practices
-- ✅ **Granular permissions**: Service principal can be scoped precisely
+#### Tests Fail in CI
+
+- Check test logs in GitHub Actions → Actions tab → Failed workflow
+- Run tests locally: `pytest tests/ -v`
+- Ensure all dev dependencies are listed in `pyproject.toml[dev]`
+
+#### Deployment Succeeds but Function Doesn't Work
+
+- **Check Azure Logs**: `az functionapp log tail --name func-healthassistant-prod-59o7 --resource-group <RG_NAME>`
+- **Common Issue**: Missing environment variables in Azure
+  - Verify settings: `az functionapp config appsettings list --name <APP_NAME> --resource-group <RG_NAME>`
+- **Common Issue**: Wrong Python version on Azure
+  - Should be 3.13 - check runtime: `az functionapp show --name <APP_NAME> --resource-group <RG_NAME> --query "siteConfig.linuxFxVersion"`
+
+#### Deployment Fails During Upload
+
+- **Check Publish Profile**: Ensure the secret `AZURE_FUNCTIONAPP_PUBLISH_PROFILE` is valid
+  - Profiles expire if Function App is recreated
+  - Re-download from Azure Portal if needed
+- **Check Function App Exists**: Verify the Function App is running in Azure
+
+#### Files Are Missing After Deployment
+
+- **Check `.funcignore`**: May be excluding needed files
+- **Check Oryx Build Logs**: In Azure Portal → Function App → Deployment Center → Logs
+- Azure only deploys what's in git (staged changes) - ensure files are committed
+
+### Alternative: OIDC Authentication (More Secure)
+
+If you want to migrate from publish profiles to OIDC (recommended for production):
+
+1. Create Azure Service Principal with federated credentials
+2. Replace `publish-profile` with `azure/login@v1` action in workflow
+3. Benefits: No stored secrets, better security, aligns with Terraform/IaC approach
+
+For now, the publish profile method works and is simpler for personal projects.
+
+### Benefits of Current Setup
+
+- ✅ **Automated Testing**: Every push runs tests before deployment
+- ✅ **Gated Deployment**: Tests must pass to deploy
+- ✅ **Azure Handles Build**: Oryx ensures dependencies match runtime
+- ✅ **Clean Deployments**: `.funcignore` keeps deployment package lean
+- ✅ **Manual Override**: Can trigger deployment via workflow dispatch
