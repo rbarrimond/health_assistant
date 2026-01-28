@@ -22,6 +22,7 @@ build/
 *.swo
 *~
 .vscode/
+
 *.code-workspace
 
 # Azure Functions
@@ -43,3 +44,5 @@ htmlcov/
 
 # Python version manager
 .python-version
+
+.python_packages
