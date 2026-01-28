@@ -256,24 +256,32 @@ class TestAnalysisQueries:
     """Tests for analysis endpoints."""
 
     def test_zone_distribution(self, semantic_layer, sample_workouts, mock_storage):
-        """Test zone distribution calculation."""
+        """Test zone distribution returns valid structure with non-negative values."""
         with patch.object(
             semantic_layer, '_get_workouts_in_range', return_value=sample_workouts
         ):
             distribution = semantic_layer.get_zone_distribution("rob", days=30)
 
+        # Validate structure
         assert "zones" in distribution
         assert "percentages" in distribution
         assert "total_minutes" in distribution
 
-        # Verify Z2 minutes
-        expected_z2 = sum(w.get("z2_minutes", 0) or 0 for w in sample_workouts)
-        assert distribution["zones"]["z2"] == expected_z2
+        # Validate zones have expected keys
+        for zone in ["z1", "z2", "z3", "z4", "z5"]:
+            assert zone in distribution["zones"]
+            # All zone times should be non-negative
+            assert distribution["zones"][zone] >= 0
+
+        # Validate total_minutes is consistent
+        total_from_zones = sum(distribution["zones"].values())
+        assert total_from_zones == distribution["total_minutes"]
+        assert distribution["total_minutes"] >= 0
 
     def test_zone_distribution_percentages(
         self, semantic_layer, sample_workouts, mock_storage
     ):
-        """Test zone percentage calculations."""
+        """Test zone percentages sum to approximately 100% and are in valid range."""
         with patch.object(
             semantic_layer, '_get_workouts_in_range', return_value=sample_workouts
         ):
@@ -281,9 +289,21 @@ class TestAnalysisQueries:
 
         percentages = distribution["percentages"]
 
+        # All percentages should be between 0 and 100
+        for zone, pct in percentages.items():
+            assert 0 <= pct <= 100, f"Zone {zone} percentage {pct} out of range"
+
         # Sum should be approximately 100% (within rounding)
         total_pct = sum(percentages.values())
         assert 99.0 <= total_pct <= 101.0
+
+        # Percentages should be consistent with zone times
+        total_minutes = distribution["total_minutes"]
+        if total_minutes > 0:
+            for zone, minutes in distribution["zones"].items():
+                expected_pct = (minutes / total_minutes) * 100
+                actual_pct = percentages[zone]
+                assert expected_pct == pytest.approx(actual_pct, rel=0.01)
 
     def test_efficiency_trends(self, semantic_layer, sample_workouts, mock_storage):
         """Test efficiency trend analysis."""

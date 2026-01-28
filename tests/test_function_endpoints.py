@@ -19,23 +19,33 @@ class TestHealthCheckEndpoint:
         """Verify health check returns 200 OK."""
         from function_app import health_check
 
-        req = MagicMock(spec=func.HttpRequest)
-        response = health_check(req)
+        with patch("function_app._get_storage_instance") as mock_storage_fn:
+            mock_storage = MagicMock()
+            mock_storage.service_client.list_tables.return_value = []
+            mock_storage_fn.return_value = mock_storage
 
-        assert response.status_code == 200
-        body = json.loads(response.get_body())
-        assert body["status"] == "healthy"
+            req = MagicMock(spec=func.HttpRequest)
+            response = health_check(req)
+
+            assert response.status_code == 200
+            body = json.loads(response.get_body())
+            assert body["status"] == "healthy"
 
     def test_health_check_returns_json(self) -> None:
         """Verify health check returns JSON."""
         from function_app import health_check
 
-        req = MagicMock(spec=func.HttpRequest)
-        response = health_check(req)
+        with patch("function_app._get_storage_instance") as mock_storage_fn:
+            mock_storage = MagicMock()
+            mock_storage.service_client.list_tables.return_value = []
+            mock_storage_fn.return_value = mock_storage
 
-        assert response.mimetype == "application/json"
-        body = json.loads(response.get_body())
-        assert isinstance(body, dict)
+            req = MagicMock(spec=func.HttpRequest)
+            response = health_check(req)
+
+            assert response.mimetype == "application/json"
+            body = json.loads(response.get_body())
+            assert isinstance(body, dict)
 
 
 class TestReloadConfigEndpoint:
