@@ -50,7 +50,7 @@ jobs:
 
       - name: 'Deploy to Azure Functions'
         run: |
-          func azure functionapp publish ${{ env.AZURE_FUNCTIONAPP_NAME }} --build remote --python
+          func azure functionapp publish ${{ env.AZURE_FUNCTIONAPP_NAME }} --python
 
       - name: 'Deployment summary'
         run: |
