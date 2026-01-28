@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 env:
-  PYTHON_VERSION: '3.10'
+  PYTHON_VERSION: '3.11'
   AZURE_FUNCTIONAPP_NAME: 'func-healthassistant-prod-59o7'
 
 permissions:
@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: 'Install dependencies'
+      - name: 'Install test dependencies'
         run: |
           python -m pip install --upgrade pip
           pip install -e '.[dev]'
@@ -38,9 +38,9 @@ jobs:
 
       - name: 'Build deployment package'
         run: |
-          python -m pip install --upgrade pip
+          mkdir -p .python_packages/lib/site-packages
           pip install -r requirements.txt -t .python_packages/lib/site-packages
-          zip -r functionapp.zip . -x "*.git*" "*.pytest_cache*" "tests/*" "**/__pycache__/*" "*.venv*" ".venv/*" "*.mypy_cache*" "*.ruff_cache*"
+          zip -r functionapp.zip . -x "*.git*" "*.pytest_cache*" "tests/*" "**/__pycache__/*" ".venv/*" ".venv_test/*" "*.mypy_cache*" "*.ruff_cache*" "htmlcov/*" ".azure/*" ".coverage"
 
       - name: 'Upload deployment artifact'
         uses: actions/upload-artifact@v4
