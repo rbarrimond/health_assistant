@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 env:
-  PYTHON_VERSION: '3.13'
+  PYTHON_VERSION: '3.10'
   AZURE_FUNCTIONAPP_NAME: 'func-healthassistant-prod-59o7'
 
 permissions:
@@ -35,7 +35,18 @@ jobs:
       - name: 'Run tests'
         run: |
           pytest tests/ --cov=FitParser --cov-report=term-missing
-        continue-on-error: false
+
+      - name: 'Build deployment package'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -t .python_packages/lib/site-packages
+          zip -r functionapp.zip . -x "*.git*" "*.pytest_cache*" "tests/*" "**/__pycache__/*" "*.venv*" ".venv/*" "*.mypy_cache*" "*.ruff_cache*"
+
+      - name: 'Upload deployment artifact'
+        uses: actions/upload-artifact@v4
+        with:
+          name: functionapp
+          path: functionapp.zip
 
       - name: 'Azure Login'
         uses: azure/login@v2
@@ -48,7 +59,7 @@ jobs:
         uses: Azure/functions-action@v1
         with:
           app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
-          package: '.'
+          package: 'functionapp.zip'
           scm-do-build-during-deployment: true
           enable-oryx-build: true
 
