@@ -27,26 +27,15 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: 'Install test dependencies'
+      - name: 'Install production dependencies'
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[dev]'
+          pip install -r requirements.txt
 
       - name: 'Run tests'
         run: |
+          pip install -e '.[dev]'
           pytest tests/ --cov=FitParser --cov-report=term-missing
-
-      - name: 'Build deployment package'
-        run: |
-          mkdir -p .python_packages/lib/site-packages
-          pip install -r requirements.txt -t .python_packages/lib/site-packages
-          zip -r functionapp.zip . -x "*.git*" "*.pytest_cache*" "tests/*" "**/__pycache__/*" ".venv/*" ".venv_test/*" "*.mypy_cache*" "*.ruff_cache*" "htmlcov/*" ".azure/*" ".coverage"
-
-      - name: 'Upload deployment artifact'
-        uses: actions/upload-artifact@v4
-        with:
-          name: functionapp
-          path: functionapp.zip
 
       - name: 'Azure Login'
         uses: azure/login@v2
@@ -59,7 +48,8 @@ jobs:
         uses: Azure/functions-action@v1
         with:
           app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
-          package: 'functionapp.zip'
+          package: '.'
+          respect-funcignore: true
 
       - name: 'Deployment summary'
         run: |
