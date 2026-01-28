@@ -87,12 +87,36 @@ def _response_missing_file(name: str) -> func.HttpResponse:
     )
 
 
-@app.route(route="health", methods=["GET"])
+@app.route(route="health", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 def health_check(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable=unused-argument
-    """Health check endpoint."""
+    """
+    Health check endpoint with dependency verification.
+
+    Returns 200 OK if all critical dependencies are operational.
+    Returns 503 Service Unavailable if any dependency check fails.
+    """
+    checks = {
+        "status": "healthy",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    status_code = 200
+
+    # Check table storage connectivity (non-blocking)
+    try:
+        storage = _get_storage_instance()
+        # Lightweight operation to verify connectivity
+        # List tables to confirm service client is operational
+        list(storage.service_client.list_tables(results_per_page=1))
+        checks["storage"] = "ok"
+    except Exception:  # pylint: disable=broad-except
+        # Storage unavailable but don't expose details
+        checks["storage"] = "degraded"
+        checks["status"] = "degraded"
+        status_code = 503
+
     return func.HttpResponse(
-        json.dumps({"status": "healthy"}),
-        status_code=200,
+        json.dumps(checks),
+        status_code=status_code,
         mimetype=JSON_CONTENT_TYPE
     )
 
@@ -113,12 +137,20 @@ def serve_ai_plugin_manifest(req: func.HttpRequest) -> func.HttpResponse:
         )
 
     base_url = _public_base_url(req)
-    
+
     # Populate dynamic metadata from environment or defaults
     manifest.setdefault("api", {})["url"] = f"{base_url}/openapi.yaml"
-    manifest["logo_url"] = os.getenv(ENV_PLUGIN_LOGO_URL, manifest.get("logo_url", DEFAULT_LOGO_URL))
-    manifest["contact_email"] = os.getenv(ENV_PLUGIN_CONTACT_EMAIL, manifest.get("contact_email", DEFAULT_CONTACT_EMAIL))
-    manifest["legal_info_url"] = os.getenv(ENV_PLUGIN_LEGAL_URL, manifest.get("legal_info_url", DEFAULT_LEGAL_URL))
+    manifest["logo_url"] = os.getenv(
+        ENV_PLUGIN_LOGO_URL, manifest.get("logo_url", DEFAULT_LOGO_URL)
+    )
+    manifest["contact_email"] = os.getenv(
+        ENV_PLUGIN_CONTACT_EMAIL,
+        manifest.get("contact_email", DEFAULT_CONTACT_EMAIL)
+    )
+    manifest["legal_info_url"] = os.getenv(
+        ENV_PLUGIN_LEGAL_URL,
+        manifest.get("legal_info_url", DEFAULT_LEGAL_URL)
+    )
 
     return func.HttpResponse(
         json.dumps(manifest),

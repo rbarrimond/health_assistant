@@ -13,11 +13,17 @@ servers:
 paths:
   /health:
     get:
-      summary: Health check
+      summary: Health check with dependency status
       operationId: healthCheck
       responses:
         '200':
           description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '503':
+          description: Service is degraded
           content:
             application/json:
               schema:
@@ -28,6 +34,8 @@ paths:
       operationId: getCurrentPhysiometrics
       parameters:
         - $ref: '#/components/parameters/AthleteId'
+      security:
+        - FunctionKey: []
       responses:
         '200':
           description: Current snapshot of metrics
@@ -64,6 +72,8 @@ paths:
             type: array
             items:
               type: string
+      security:
+        - FunctionKey: []
       responses:
         '200':
           description: Time-series data for requested metrics
@@ -139,6 +149,8 @@ paths:
     get:
       summary: Handle Withings OAuth callback
       operationId: withingsCallback
+      security:
+        - FunctionKey: []
       parameters:
         - name: code
           in: query
@@ -173,6 +185,8 @@ paths:
     post:
       summary: Receive Withings webhook notifications
       operationId: withingsWebhook
+      security:
+        - FunctionKey: []
       requestBody:
         required: true
         content:
@@ -196,6 +210,8 @@ paths:
     get:
       summary: Get recalculated workout zones (read-only)
       operationId: getWorkoutRecalculated
+      security:
+        - FunctionKey: []
       parameters:
         - name: workout_id
           in: path
@@ -273,6 +289,8 @@ paths:
     get:
       summary: Get physiometrics configuration change history
       operationId: configHistory
+      security:
+        - FunctionKey: []
       parameters:
         - name: limit
           in: query
@@ -317,6 +335,8 @@ paths:
     get:
       summary: Get planning context for training decisions
       operationId: planningContext
+      security:
+        - FunctionKey: []
       parameters:
         - $ref: '#/components/parameters/AthleteId'
         - name: days
@@ -341,6 +361,8 @@ paths:
     get:
       summary: Query workouts with filters
       operationId: listWorkouts
+      security:
+        - FunctionKey: []
       parameters:
         - $ref: '#/components/parameters/AthleteId'
         - name: since
@@ -382,6 +404,8 @@ paths:
     get:
       summary: Get detailed workout data
       operationId: getWorkout
+      security:
+        - FunctionKey: []
       parameters:
         - name: workout_id
           in: path
@@ -410,6 +434,8 @@ paths:
     get:
       summary: Get weekly rollup data
       operationId: weeklyRollups
+      security:
+        - FunctionKey: []
       parameters:
         - $ref: '#/components/parameters/AthleteId'
         - name: weeks
@@ -434,6 +460,8 @@ paths:
     get:
       summary: Get time-in-zone distribution
       operationId: zoneDistribution
+      security:
+        - FunctionKey: []
       parameters:
         - $ref: '#/components/parameters/AthleteId'
         - name: days
@@ -458,6 +486,8 @@ paths:
     get:
       summary: Get aerobic efficiency and decoupling trends
       operationId: efficiencyTrends
+      security:
+        - FunctionKey: []
       parameters:
         - $ref: '#/components/parameters/AthleteId'
         - name: days
@@ -506,7 +536,19 @@ components:
       properties:
         status:
           type: string
-          example: healthy
+          enum: [healthy, degraded]
+          description: Overall health status
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO8601 timestamp of the health check
+        storage:
+          type: string
+          enum: [ok, degraded]
+          description: Table storage connectivity status
+      required:
+        - status
+        - timestamp
     ErrorResponse:
       type: object
       properties:
