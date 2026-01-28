@@ -201,10 +201,13 @@
         {
           "name": "GET /health",
           "request": {
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
             "url": "{{base_url}}/api/health",
-            "description": "Health check endpoint"
+            "description": "Health check endpoint (anonymous). Returns 200 with storage status and timestamp if healthy, 503 if degraded."
           },
           "response": []
         },

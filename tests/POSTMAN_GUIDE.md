@@ -14,6 +14,20 @@
 - Ensure your Azure Function is running locally (default: `http://localhost:7071`)
 - Run the function using: `func host start`
 
+### Health Check
+
+The `/health` endpoint is **anonymous** (no authentication required) and returns:
+
+```json
+{
+  "status": "healthy",
+  "timestamp": "2026-01-28T10:30:00.000000+00:00",
+  "storage": "ok"
+}
+```
+
+Returns HTTP 503 with `"status": "degraded"` if storage connectivity fails.
+
 ### Azure Deployment
 
 - Set the Postman variable `azure_function_name` to your deployed function app name
