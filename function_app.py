@@ -20,7 +20,6 @@ from FitParser.withings_client import WithingsClient
 from FitParser.backup_exporter import BackupExporter
 
 
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
