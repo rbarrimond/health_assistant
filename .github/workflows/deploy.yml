@@ -57,9 +57,10 @@ jobs:
 
       - name: 'Deploy to Azure Functions'
         run: |
+          RESOURCE_GROUP=$(az functionapp show --name ${{ env.AZURE_FUNCTIONAPP_NAME }} --query resourceGroup -o tsv)
           az functionapp deployment source config-zip \
+            --resource-group $RESOURCE_GROUP \
             --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
-            --resource-group $(az functionapp show --name ${{ env.AZURE_FUNCTIONAPP_NAME }} --query resourceGroup -o tsv) \
             --src functionapp.zip
 
       - name: 'Deployment summary'
