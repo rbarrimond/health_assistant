@@ -1,48 +1,49 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
+*.egg
+.python_packages/
+.python-version
 
-# Virtual environments
+# Virtual Environments
 .venv/
 venv/
 env/
 ENV/
+
+# Environment Variables
 .env
 
-# Package build artifacts
-*.egg-info/
+# Package Management
 dist/
 build/
-*.egg
 
-# IDE
+# IDE & Editor
 .idea/
+.vscode/
+*.code-workspace
 *.swp
 *.swo
 *~
-.vscode/
 
-*.code-workspace
-
-# Azure Functions
+# Azure
 local.settings.json
-.Azure/
 .azure/
+.Azure/
 
-# OS
-.DS_Store
-Thumbs.db
+# Local Development
+.azurite/
 
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
 
-# Azurite
-.azurite/
+# Operating System
+.DS_Store
+Thumbs.db
 
-# Python version manager
-.python-version
-
-.python_packages
+# Project-Specific
+power_automate_flow.json
