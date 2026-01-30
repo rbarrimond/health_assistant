@@ -3,10 +3,35 @@
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
-from unittest.mock import MagicMock, Mock
+from unittest.mock import MagicMock, Mock, patch
 
 import json
 import pytest
+
+
+class _SimpleMocker:
+    """Minimal pytest-mock compatible helper for patch()."""
+
+    def __init__(self) -> None:
+        self._patches = []
+
+    def patch(self, *args, **kwargs):
+        patcher = patch(*args, **kwargs)
+        mocked = patcher.start()
+        self._patches.append(patcher)
+        return mocked
+
+    def stopall(self) -> None:
+        while self._patches:
+            self._patches.pop().stop()
+
+
+@pytest.fixture
+def mocker():
+    """Provide a minimal mocker fixture when pytest-mock isn't available."""
+    simple_mocker = _SimpleMocker()
+    yield simple_mocker
+    simple_mocker.stopall()
 
 
 @pytest.fixture
