@@ -1,6 +1,7 @@
 # Configuration Files
 
 This directory contains configuration templates for local development and (legacy) Power Automate integration.
+Only example/template files are committed; generated or user-specific configs stay local.
 
 ## physiometrics.json
 
@@ -9,6 +10,7 @@ The `physiometrics.json` file contains current athlete-specific configuration fo
 ### Example Structure
 
 See `physiometrics.json.example` for a complete example.
+Create your local file from the example and do not commit it.
 
 ### Heart Rate Configuration
 
@@ -33,6 +35,7 @@ The `power_automate_flow.json` file is an importable Power Automate cloud flow d
 ### Flow Definition
 
 See `power_automate_flow.json.example` for the complete flow definition.
+Create the JSON and any import zip locally when needed; do not commit them.
 
 ### Flow Components
 
@@ -57,7 +60,7 @@ See `power_automate_flow.json.example` for the complete flow definition.
    - `"athlete_id": "rob"` → Your athlete identifier
 
 3. Import to Power Automate:
-   - Create a zip file containing the JSON
+   - Create a zip file containing the JSON (locally, do not commit)
    - Go to Power Automate → Solutions → Import
    - Upload and rebind the OneDrive connection
 
