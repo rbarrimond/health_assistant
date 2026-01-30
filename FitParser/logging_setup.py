@@ -8,7 +8,7 @@ def setup_logging():
     # Get the default function logger
     logger = logging.getLogger("azure.functions")
     logger.setLevel(logging.INFO)
-    
+
     # Add console handler with format
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
@@ -16,8 +16,8 @@ def setup_logging():
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     console.setFormatter(formatter)
-    
+
     if not logger.handlers:
         logger.addHandler(console)
-    
+
     return logger
