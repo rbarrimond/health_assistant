@@ -395,7 +395,7 @@ Basic smoke tests for core functionality
 - Function app module is importable
 - File hash computation works
 - Payload structure validation
-- Parse OneDrive payload happy path
+- Parse ingestion payload happy path
 
 ### Table Storage Tests (test_table_storage_physiometrics.py)
 

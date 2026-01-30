@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict
 from urllib.parse import urlparse
 
@@ -17,6 +17,7 @@ from FitParser.fit_parser import FitParser, compute_file_hash
 from FitParser.table_storage import WorkoutTableStorage
 from FitParser.semantic_layer import SemanticLayer
 from FitParser.withings_client import WithingsClient
+from FitParser.icloud_client import ICloudWebDAVClient, ICloudWebDAVError
 from FitParser.backup_exporter import BackupExporter
 
 
@@ -905,24 +906,92 @@ def _build_source_info(payload: Dict, file_sha256: str, file_size: int) -> Dict:
     }
 
 
-def _build_success_response(workout_id: str, athlete_id: str, metrics: Dict) -> func.HttpResponse:
-    """Build success response for ingested workout."""
-    return func.HttpResponse(
-        json.dumps({
-            "status": "success",
-            "workout_id": workout_id,
-            "athlete_id": athlete_id,
-            "sport": metrics.get("sport"),
-            "duration_sec": metrics.get("duration_sec"),
-            "metrics": {
-                "distance_m": metrics.get("distance_m"),
-                "avg_power_watts": metrics.get("pwr_avg_watts"),
-                "avg_hr_bpm": metrics.get("hr_avg_bpm"),
-            }
-        }),
-        status_code=200,
-        mimetype=JSON_CONTENT_TYPE
-    )
+def _build_success_body(workout_id: str, athlete_id: str, metrics: Dict) -> Dict:
+    """Build success response body for ingested workout."""
+    return {
+        "status": "success",
+        "workout_id": workout_id,
+        "athlete_id": athlete_id,
+        "sport": metrics.get("sport"),
+        "duration_sec": metrics.get("duration_sec"),
+        "metrics": {
+            "distance_m": metrics.get("distance_m"),
+            "avg_power_watts": metrics.get("pwr_avg_watts"),
+            "avg_hr_bpm": metrics.get("hr_avg_bpm"),
+        }
+    }
+
+
+def _validate_ingest_payload(payload: Dict) -> Dict:
+    """Validate ingestion payload and return it back."""
+    required_fields = ["athlete_id", "source_file_name", "file_content_b64"]
+    missing = [f for f in required_fields if f not in payload]
+    if missing:
+        raise ValueError(f"Missing required fields: {missing}")
+    return payload
+
+
+def _ingest_fit_payload(payload: Dict) -> tuple[Dict, int]:
+    """Ingest a FIT payload and return (response_body, status_code)."""
+    # pylint: disable=too-many-locals
+    payload = _validate_ingest_payload(payload)
+    logger.info("Processing file: %s", payload.get("source_file_name"))
+
+    athlete_id = payload["athlete_id"]
+
+    # Decode and write to temp file
+    try:
+        file_content = _decode_fit_file_content(payload["file_content_b64"])
+    except ValueError as e:
+        return {"error": str(e)}, 400
+
+    with tempfile.NamedTemporaryFile(suffix=".fit", delete=False) as tmp:
+        tmp.write(file_content)
+        tmp_path = tmp.name
+
+    try:
+        # Check for duplicate
+        file_sha256 = compute_file_hash(tmp_path)
+        logger.info("File SHA256: %s", file_sha256)
+
+        storage = _get_storage_instance()
+        file_key = payload.get("source_item_id") or file_sha256
+        existing = storage.get_ingestion_state(athlete_id, file_key)
+
+        if existing and existing.get("status") == "ingested":
+            logger.info("File already ingested: %s", file_key)
+            return {
+                "status": "skipped",
+                "reason": "File already processed",
+                "workout_id": existing.get("workout_id")
+            }, 200
+
+        # Parse and store
+        metrics = FitParser(tmp_path).parse()
+        logger.info("Parsed metrics: %s", list(metrics.keys()))
+
+        source_info = _build_source_info(payload, file_sha256, len(file_content))
+        workout_id = storage.store_workout(athlete_id, metrics, source_info)
+
+        storage.record_ingestion_state(
+            athlete_id,
+            {**source_info, "first_seen_at_utc": metrics.get("start_time_utc")},
+            status="ingested",
+            workout_id=workout_id
+        )
+
+        logger.info("Successfully ingested workout %s", workout_id)
+        return _build_success_body(workout_id, athlete_id, metrics), 200
+
+    except (ValueError, OSError, IOError) as e:
+        logger.error("Error parsing or storing FIT file: %s", e, exc_info=True)
+        _record_failed_ingestion(athlete_id, payload, str(e))
+        return {"error": f"Failed to process FIT file: {str(e)}"}, 500
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 def _record_failed_ingestion(athlete_id: str, payload: Dict, error: str):
@@ -951,80 +1020,16 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
     4. Store workout data in Azure Tables
     5. Record ingestion state for idempotency
     """
-    # pylint: disable=too-many-locals
     logger.info("FIT file ingestion function triggered")
 
     try:
         payload = parse_onedrive_payload(req)
-        logger.info("Processing file: %s", payload.get("source_file_name"))
-
-        athlete_id = payload["athlete_id"]
-
-        # Decode and write to temp file
-        try:
-            file_content = _decode_fit_file_content(payload["file_content_b64"])
-        except ValueError as e:
-            return func.HttpResponse(
-                json.dumps({"error": str(e)}),
-                status_code=400,
-                mimetype=JSON_CONTENT_TYPE
-            )
-
-        with tempfile.NamedTemporaryFile(suffix=".fit", delete=False) as tmp:
-            tmp.write(file_content)
-            tmp_path = tmp.name
-
-        try:
-            # Check for duplicate
-            file_sha256 = compute_file_hash(tmp_path)
-            logger.info("File SHA256: %s", file_sha256)
-
-            storage = _get_storage_instance()
-            file_key = payload.get("source_item_id") or file_sha256
-            existing = storage.get_ingestion_state(athlete_id, file_key)
-
-            if existing and existing.get("status") == "ingested":
-                logger.info("File already ingested: %s", file_key)
-                return func.HttpResponse(
-                    json.dumps({
-                        "status": "skipped",
-                        "reason": "File already processed",
-                        "workout_id": existing.get("workout_id")
-                    }),
-                    status_code=200,
-                    mimetype=JSON_CONTENT_TYPE
-                )
-
-            # Parse and store
-            metrics = FitParser(tmp_path).parse()
-            logger.info("Parsed metrics: %s", list(metrics.keys()))
-
-            source_info = _build_source_info(payload, file_sha256, len(file_content))
-            workout_id = storage.store_workout(athlete_id, metrics, source_info)
-
-            storage.record_ingestion_state(
-                athlete_id,
-                {**source_info, "first_seen_at_utc": metrics.get("start_time_utc")},
-                status="ingested",
-                workout_id=workout_id
-            )
-
-            logger.info("Successfully ingested workout %s", workout_id)
-            return _build_success_response(workout_id, athlete_id, metrics)
-
-        except (ValueError, OSError, IOError) as e:
-            logger.error("Error parsing or storing FIT file: %s", e, exc_info=True)
-            _record_failed_ingestion(athlete_id, payload, str(e))
-            return func.HttpResponse(
-                json.dumps({"error": f"Failed to process FIT file: {str(e)}"}),
-                status_code=500,
-                mimetype=JSON_CONTENT_TYPE
-            )
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+        body, status_code = _ingest_fit_payload(payload)
+        return func.HttpResponse(
+            json.dumps(body),
+            status_code=status_code,
+            mimetype=JSON_CONTENT_TYPE
+        )
 
     except ValueError as e:
         logger.error(ERR_VALIDATION, e)
@@ -1040,6 +1045,170 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
             mimetype=JSON_CONTENT_TYPE
         )
+
+
+# =============================================================================
+# iCloud Drive Sync (Timer + HTTP)
+# =============================================================================
+
+ICLOUD_WEBDAV_URL = "ICLOUD_WEBDAV_URL"
+ICLOUD_USERNAME = "ICLOUD_USERNAME"
+ICLOUD_APP_PASSWORD = "ICLOUD_APP_PASSWORD"
+ICLOUD_FOLDER_PATH = "ICLOUD_FOLDER_PATH"
+ICLOUD_SYNC_LOOKBACK_DAYS = "ICLOUD_SYNC_LOOKBACK_DAYS"
+
+
+def _get_icloud_client() -> ICloudWebDAVClient:
+    """Build iCloud WebDAV client from environment."""
+    base_url = os.getenv(ICLOUD_WEBDAV_URL)
+    username = os.getenv(ICLOUD_USERNAME)
+    password = os.getenv(ICLOUD_APP_PASSWORD)
+    if not base_url or not username or not password:
+        raise ValueError(
+            "Missing iCloud credentials. Set ICLOUD_WEBDAV_URL, ICLOUD_USERNAME, and ICLOUD_APP_PASSWORD."
+        )
+    return ICloudWebDAVClient(base_url=base_url, username=username, password=password)
+
+
+def _icloud_default_lookback_days() -> int:
+    """Default lookback in days for iCloud sync."""
+    try:
+        return max(1, int(os.getenv(ICLOUD_SYNC_LOOKBACK_DAYS, "30")))
+    except ValueError:
+        return 30
+
+
+def _build_icloud_payload(
+    athlete_id: str,
+    file_name: str,
+    file_path: str,
+    file_content: bytes,
+    source_item_id: str,
+) -> Dict:
+    """Build ingestion payload for iCloud file content."""
+    return {
+        "athlete_id": athlete_id,
+        "source_item_id": source_item_id,
+        "source_file_name": file_name,
+        "source_file_path": file_path,
+        "source_system": "HealthFit",
+        "file_size_bytes": len(file_content),
+        "file_content_b64": base64.b64encode(file_content).decode("utf-8"),
+    }
+
+
+def _maybe_decode_gzip(file_name: str, content: bytes) -> tuple[str, bytes]:
+    """Decode .gz files if needed and return updated name/content."""
+    if file_name.lower().endswith(".gz"):
+        try:
+            import gzip
+            return file_name[:-3], gzip.decompress(content)
+        except (OSError, EOFError) as exc:
+            raise ValueError(f"Failed to decompress {file_name}: {exc}") from exc
+    return file_name, content
+
+
+def _sync_icloud_folder(lookback_days: int) -> Dict:
+    """Sync iCloud Drive folder and ingest FIT files."""
+    folder_path = os.getenv(ICLOUD_FOLDER_PATH, "/HealthFit")
+    athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
+    client = _get_icloud_client()
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+    files = client.list_files(folder_path=folder_path, modified_since=cutoff, extensions={".fit", ".fit.gz"})
+
+    results = {
+        "status": "success",
+        "lookback_days": lookback_days,
+        "folder_path": folder_path,
+        "found": len(files),
+        "ingested": 0,
+        "skipped": 0,
+        "failed": 0,
+        "errors": [],
+        "items": [],
+    }
+
+    for item in files:
+        try:
+            raw_content = client.download_file(item["path"])
+            file_name, content = _maybe_decode_gzip(item["name"], raw_content)
+            payload = _build_icloud_payload(
+                athlete_id=athlete_id,
+                file_name=file_name,
+                file_path=item["path"],
+                file_content=content,
+                source_item_id=f"icloud:{item['path']}",
+            )
+            body, status_code = _ingest_fit_payload(payload)
+            if status_code == 200 and body.get("status") == "success":
+                results["ingested"] += 1
+            elif status_code == 200 and body.get("status") == "skipped":
+                results["skipped"] += 1
+            else:
+                results["failed"] += 1
+            results["items"].append({
+                "name": item["name"],
+                "path": item["path"],
+                "status": body.get("status", "error"),
+                "message": body.get("error"),
+                "workout_id": body.get("workout_id"),
+            })
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            results["failed"] += 1
+            results["errors"].append(str(exc))
+            results["items"].append({
+                "name": item.get("name"),
+                "path": item.get("path"),
+                "status": "error",
+                "message": str(exc),
+            })
+
+    return results
+
+
+@app.route(route="api/icloud/sync", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+def icloud_sync_http(req: func.HttpRequest) -> func.HttpResponse:
+    """HTTP-triggered iCloud Drive sync."""
+    try:
+        req_body = req.get_json() if req.method == "POST" else {}
+    except ValueError:
+        req_body = {}
+
+    lookback_days = req_body.get("days") if isinstance(req_body, dict) else None
+    try:
+        lookback_days = int(lookback_days) if lookback_days is not None else _icloud_default_lookback_days()
+    except ValueError:
+        lookback_days = _icloud_default_lookback_days()
+
+    try:
+        result = _sync_icloud_folder(lookback_days)
+        return func.HttpResponse(
+            json.dumps(result),
+            status_code=200,
+            mimetype=JSON_CONTENT_TYPE
+        )
+    except (ValueError, ICloudWebDAVError) as exc:
+        logger.error("iCloud sync failed: %s", exc)
+        return func.HttpResponse(
+            json.dumps({"status": "error", "error": str(exc)}),
+            status_code=500,
+            mimetype=JSON_CONTENT_TYPE
+        )
+
+
+@app.timer_trigger(arg_name="timer", schedule="0 0 * * * *")  # hourly
+def icloud_sync_timer(timer: func.TimerRequest) -> None:
+    """Timer-triggered iCloud Drive sync."""
+    if timer.past_due:
+        logger.warning("iCloud sync timer is past due")
+
+    lookback_days = _icloud_default_lookback_days()
+    try:
+        result = _sync_icloud_folder(lookback_days)
+        logger.info("iCloud sync result: %s", result)
+    except (ValueError, ICloudWebDAVError) as exc:
+        logger.error("iCloud sync failed: %s", exc, exc_info=True)
 
 
 # =============================================================================

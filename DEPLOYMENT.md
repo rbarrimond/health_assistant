@@ -13,7 +13,7 @@ Complete instructions for deploying the Health Assistant FIT file processor to A
 - Azure Storage Account (Table Storage + Blob optional)
 - Azure CLI installed locally
 - Function Core Tools installed
-- Power Automate subscription (for OneDrive monitoring)
+- iCloud app-specific password (for WebDAV sync)
 
 ## Step 1: Prepare Azure Resources
 
@@ -92,7 +92,11 @@ az functionapp config appsettings set \
     "DEFAULT_ATHLETE_ID=rob" \
     "DEFAULT_FTP=250" \
     "DEFAULT_MAX_HR=190" \
-    "ONEDRIVE_FOLDER_PATH=/Apps/HealthFit"
+    "ICLOUD_WEBDAV_URL=https://<your-icloud-webdav-host>" \
+    "ICLOUD_USERNAME=<your-apple-id>" \
+    "ICLOUD_APP_PASSWORD=<app-specific-password>" \
+    "ICLOUD_FOLDER_PATH=/HealthFit" \
+    "ICLOUD_SYNC_LOOKBACK_DAYS=30"
 ```
 
 ## Step 3: Deploy Function Code
@@ -153,15 +157,15 @@ FUNCTION_KEY=$(az functionapp keys list \
 echo "Function URL: $FUNCTION_URL?code=$FUNCTION_KEY"
 ```
 
-## Step 5: Configure Power Automate Flow
+## Step 5: Configure iCloud Sync
 
 See [POWER_AUTOMATE_SETUP.md](./POWER_AUTOMATE_SETUP.md) for detailed instructions.
 
 ### Quick Setup
 
-1. Create automated flow → "When a file is created"
-2. Trigger on OneDrive folder: `/Apps/HealthFit/`
-3. Add HTTP action to call Function URL with payload
+1. Configure iCloud WebDAV environment variables in the Function App
+2. Ensure the Timer trigger is enabled (hourly sync)
+3. Optional: trigger a manual sync via HTTP (see below)
 
 ## Step 6: Monitor and Test
 
@@ -187,12 +191,12 @@ az functionapp app-insights-enable \
 ### Manual Test
 
 ```bash
-# Upload test FIT file to OneDrive /Apps/HealthFit/
-# Or manually call the function:
+# Upload test FIT file to iCloud Drive /HealthFit/
+# Or manually trigger a sync:
 
-curl -X POST "https://$FUNCTION_APP.azurewebsites.net/api/process_fit?code=$FUNCTION_KEY" \
+curl -X POST "https://$FUNCTION_APP.azurewebsites.net/api/icloud/sync?code=$FUNCTION_KEY" \
   -H "Content-Type: application/json" \
-  -d @tests/data/test_payload_example.json
+  -d '{"days": 30}'
 ```
 
 ### Verify Data in Table Storage
@@ -215,9 +219,9 @@ az storage table entity query \
 
 ### Function Not Triggering
 
-- Verify Power Automate flow is enabled
+- Verify the Timer trigger is enabled
 - Check Application Insights logs for errors
-- Ensure OneDrive folder path is correct (`/Apps/HealthFit/`)
+- Ensure iCloud folder path is correct (`/HealthFit`)
 
 ### "File already processed" on new files
 

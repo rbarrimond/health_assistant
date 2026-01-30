@@ -61,7 +61,7 @@ Dashboards are optional. **Conversation is mandatory.**
 
 #### 1) Ingestion (Python, deterministic)
 
-- Watches OneDrive `/Apps/HealthFit/*.fit`
+- Watches iCloud Drive `/HealthFit/*.fit` (via WebDAV sync)
 - Parses FIT files
 - Computes:
   - summaries

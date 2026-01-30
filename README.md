@@ -1,6 +1,6 @@
 # Health Assistant - FIT File Processor
 
-Azure Function for parsing HealthFit FIT files from OneDrive and storing metrics in Azure Table Storage according to a comprehensive training analytics schema.
+Azure Function for parsing HealthFit FIT files from iCloud Drive and storing metrics in Azure Table Storage according to a comprehensive training analytics schema.
 
 **Status**: ✅ Development Complete - Ready for Azure Deployment
 
@@ -15,16 +15,14 @@ Azure Function for parsing HealthFit FIT files from OneDrive and storing metrics
 | **� Configuring backends?** | [BACKENDS.md](./BACKENDS.md) → Withings, Garmin |
 | **�📐 Understanding the data model?** | [WORKOUT_SCHEMA.md](./WORKOUT_SCHEMA.md) |
 | **🎯 Design philosophy?** | [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./WORKOUT_INTELLIGENCE_AGENT_VISION.md) |
-| **⚙️ Power Automate setup?** | [POWER_AUTOMATE_SETUP.md](./POWER_AUTOMATE_SETUP.md) |
+| **⚙️ iCloud sync setup?** | [POWER_AUTOMATE_SETUP.md](./POWER_AUTOMATE_SETUP.md) |
 
 ## Architecture
 
 ```text
-OneDrive (/Apps/HealthFit)
+Apple iCloud Drive (/HealthFit)
     ↓
-Power Automate Flow (file monitor)
-    ↓
-Azure Function (HTTP trigger)
+Azure Function (Timer + HTTP sync)
     ↓
 FIT Parser (fitparse library)
     ↓
@@ -45,7 +43,7 @@ Read Interfaces
 
 ### Data Flow
 
-- **Trigger**: HTTP endpoint called by Power Automate monitoring OneDrive
+- **Trigger**: Timer + HTTP sync against iCloud Drive (WebDAV)
 - **Input**: Base64-encoded FIT file + metadata in JSON payload
 - **Processing**: FIT parsing → metric extraction → zone computation
 - **Output**: Azure Tables (Workouts, WeeklyRollups, IngestionState)
@@ -66,7 +64,13 @@ Optional:
 - HR_ZONE_BASIS: Heart rate zone calculation method - 'HRmax', 'LTHR' (Lactate Threshold), or 'HRR' (Heart Rate Reserve/Karvonen) (default: 'HRmax')
 - HR_ZONE_REFERENCE_BPM: Reference HR for zone calculation (0 = auto-detect from workout) (default: 0)
 - HR_RESTING_BPM: Resting heart rate for HRR method (default: 60bpm)
-- ONEDRIVE_FOLDER_PATH: OneDrive path being monitored (default: '/Apps/HealthFit')
+- ICLOUD_WEBDAV_URL: iCloud WebDAV base URL
+- ICLOUD_USERNAME: Apple ID for WebDAV access
+- ICLOUD_APP_PASSWORD: App-specific password
+- ICLOUD_FOLDER_PATH: iCloud folder path (default: '/HealthFit')
+- ICLOUD_SYNC_LOOKBACK_DAYS: Default lookback window (days, default: 30)
+
+See `POWER_AUTOMATE_SETUP.md` for how to discover your iCloud WebDAV URL.
 
 ## Project Structure
 
@@ -80,6 +84,7 @@ health_assistant/
 │   ├── config.py              # Configuration management
 │   ├── semantic_layer.py      # Read API implementation
 │   ├── withings_client.py     # Withings integration
+│   ├── icloud_client.py       # iCloud WebDAV client
 │   └── logging_setup.py       # Logging utilities
 ├── function_app.py            # Azure Functions HTTP endpoints
 ├── pyproject.toml             # Dependencies
@@ -93,7 +98,7 @@ health_assistant/
 │   └── data/                  # Real FIT workout files
 ├── DEPLOYMENT.md              # Azure deployment
 ├── MONITORING.md              # Power BI + Application Insights
-├── POWER_AUTOMATE_SETUP.md    # OneDrive integration
+├── POWER_AUTOMATE_SETUP.md    # iCloud sync guide (legacy OneDrive notes)
 ├── SEMANTIC_LAYER_API.md      # API reference (14 endpoints)
 ├── WORKOUT_SCHEMA.md          # Complete data schema
 └── WORKOUT_INTELLIGENCE_AGENT_VISION.md  # Design principles
@@ -181,13 +186,10 @@ Deploy to Azure:
 func azure functionapp publish <FUNCTION_APP_NAME>
 ```
 
-## Integration with Power Automate
+## Integration with iCloud Drive
 
-Create a Power Automate flow that:
+Use the built-in iCloud sync functions:
 
-1. Monitors /Apps/HealthFit folder in OneDrive
-2. For each new .fit file:
-   - Read file content
-   - Convert to base64
-   - Extract metadata (itemId, name, path, size)
-   - POST to /api/process_fit endpoint with function key auth
+1. Set iCloud WebDAV environment variables
+2. Use the hourly timer trigger for automatic sync
+3. Optionally trigger manually via `POST /api/icloud/sync` with `{ "days": 30 }`

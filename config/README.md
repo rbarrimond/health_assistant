@@ -1,6 +1,6 @@
 # Configuration Files
 
-This directory contains configuration templates for both local development and Power Automate integration.
+This directory contains configuration templates for local development and (legacy) Power Automate integration.
 
 ## physiometrics.json
 
@@ -26,9 +26,9 @@ See `physiometrics.json.example` for a complete example.
 - **ftp_watts**: Functional Threshold Power in watts
 - **zones**: Zone definitions with percentage boundaries (relative to FTP)
 
-## power_automate_flow.json
+## power_automate_flow.json (Legacy)
 
-The `power_automate_flow.json` file is an importable Power Automate cloud flow definition for OneDrive FIT file monitoring and ingestion.
+The `power_automate_flow.json` file is an importable Power Automate cloud flow definition for legacy OneDrive FIT file monitoring and ingestion.
 
 ### Flow Definition
 
@@ -61,7 +61,7 @@ See `power_automate_flow.json.example` for the complete flow definition.
    - Go to Power Automate → Solutions → Import
    - Upload and rebind the OneDrive connection
 
-See [POWER_AUTOMATE_SETUP.md](../POWER_AUTOMATE_SETUP.md) for detailed instructions.
+See [POWER_AUTOMATE_SETUP.md](../POWER_AUTOMATE_SETUP.md) for current iCloud sync instructions and legacy notes.
 
 ## Configuration Precedence
 
@@ -103,9 +103,9 @@ The Config system loads values in this order of precedence:
 
 3. The Config class will automatically load it at runtime
 
-### Power Automate Flow (Optional)
+### Power Automate Flow (Optional, Legacy)
 
-If deploying the OneDrive integration:
+If maintaining the legacy OneDrive integration:
 
 1. Copy `power_automate_flow.json.example` to `power_automate_flow.json`:
 

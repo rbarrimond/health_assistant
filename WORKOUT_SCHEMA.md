@@ -9,7 +9,7 @@ This schema is designed to support:
 
 It assumes:
 
-- **OneDrive** holds the raw `.fit` files (`/Apps/HealthFit/*.fit`)
+- **iCloud Drive** holds the raw `.fit` files (`/HealthFit/*.fit`)
 - **Python ingestion** parses FIT and writes **deterministic metrics**
 - **Azure Table Storage** stores the metric entities
 
@@ -45,11 +45,11 @@ Why:
 |workout_id|string|✅|Stable unique id (see **workout_id generation**)|
 |athlete_id|string|✅|Short stable identifier for the athlete (e.g., `rob`)|
 |source_system|string|✅|`HealthFit` (or `Garmin`, `Strava`, etc. if expanded later)|
-|source_file_name|string|✅|File name from OneDrive (e.g., `2026-01-07-...fit`)|
-|source_file_path|string|✅|OneDrive path (e.g., `/Apps/HealthFit/...`)|
-|source_drive_id|string|⛔️|OneDrive `driveId` (recommended if using Graph)|
-|source_item_id|string|⛔️|OneDrive `itemId` (recommended if using Graph)|
-|source_etag|string|⛔️|OneDrive ETag/version marker|
+|source_file_name|string|✅|File name from source (e.g., `2026-01-07-...fit`)|
+|source_file_path|string|✅|Source path (e.g., `/HealthFit/...`)|
+|source_drive_id|string|⛔️|Source drive ID (if available)|
+|source_item_id|string|⛔️|Source item ID (if available)|
+|source_etag|string|⛔️|Source ETag/version marker (if available)|
 |file_size_bytes|int|⛔️|Size of FIT file|
 |file_sha256|string|⛔️|Optional integrity hash for idempotency + validation|
 
@@ -57,7 +57,7 @@ Why:
 
 Preferred order:
 
-1. `source_item_id` (if using Graph): `sha1(source_item_id)`
+1. `source_item_id` (if available): `sha1(source_item_id)`
 2. `sha1(file_sha256)`
 3. `sha1(source_file_path + source_file_name + start_time_utc)`
 

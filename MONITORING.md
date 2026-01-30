@@ -1,18 +1,18 @@
-# Monitoring Strategy: Power BI vs. Microsoft Graph
+# Monitoring Strategy: Power BI + iCloud Sync
 
 ## Executive Summary
 
-Recommendation: Power BI for data analytics + Azure Monitor for Function App health
+Recommendation: Power BI for data analytics + Azure Monitor for Function App health. File sync is handled by iCloud WebDAV in Azure Functions.
 
-| Aspect | Power BI | Microsoft Graph | Winner |
+| Aspect | Power BI | iCloud File Sync (WebDAV) | Winner |
 | --- | --- | --- | --- |
-| Setup Complexity | 15 minutes | 2-3 hours | Power BI ✅ |
-| Ongoing Maintenance | Minimal | High | Power BI ✅ |
-| Cost | $10-15/user/month | Included (dev overhead) | Power BI ✅ |
-| Visualization Quality | Excellent time-series, heatmaps | N/A (monitoring only) | Power BI ✅ |
-| Domain Fit | Perfect (training analytics) | Sub-optimal (file monitoring) | Power BI ✅ |
-| Integration | Direct Table Storage | OneDrive file monitoring | Power BI ✅ |
-| Learning Curve | Power BI UI (easy) | C#/Python SDK (moderate) | Power BI ✅ |
+| Setup Complexity | 15 minutes | Low (WebDAV creds + timer) | Power BI ✅ |
+| Ongoing Maintenance | Minimal | Low | Power BI ✅ |
+| Cost | $10-15/user/month | Included (Functions + storage) | Power BI ✅ |
+| Visualization Quality | Excellent time-series, heatmaps | N/A (sync only) | Power BI ✅ |
+| Domain Fit | Perfect (training analytics) | File ingestion only | Power BI ✅ |
+| Integration | Direct Table Storage | iCloud Drive folder sync | Power BI ✅ |
+| Learning Curve | Power BI UI (easy) | WebDAV basics | Power BI ✅ |
 
 ## Why Power BI
 
@@ -20,7 +20,7 @@ Recommendation: Power BI for data analytics + Azure Monitor for Function App hea
 
 - **Goal**: Monitor and analyze training data in Azure Table Storage
 - **Power BI**: Direct connectors to Table Storage, real-time dashboards, built-in time-series visualizations
-- **Graph**: Designed for OneDrive file monitoring, not data analytics
+- **iCloud WebDAV**: Used for file ingestion only, not analytics
 
 ### 2. Simplicity & Speed
 
@@ -31,18 +31,17 @@ Power BI approach:
 - Build dashboard (5 min)
 = 15 minutes total
 
-Microsoft Graph approach:
-- Set up app registration (10 min)
-- Develop Python/C# client (45 min)
-- Handle auth tokens (20 min)
-- Deploy new function (15 min)
-= 1-2 hours + ongoing maintenance
+iCloud sync approach:
+- Set WebDAV credentials (5 min)
+- Configure folder path + lookback (2 min)
+- Enable timer trigger (0 min)
+= ~10 minutes
 ```
 
 ### 3. **Cost Efficiency**
 
 - **Power BI**: $10-15/user/month (only athletes using it)
-- **Microsoft Graph**: No direct cost, but development and maintenance overhead
+- **iCloud WebDAV**: No direct cost, but requires app-specific password
 - **Azure Monitor**: ~$5-10/month for diagnostics (handles Function App health)
 
 ### 4. **Perfect for This Domain**
@@ -55,18 +54,18 @@ Training data is inherently time-series and multi-dimensional:
 - Intensity vs. recovery
 - Power/heart-rate trends
 
-Power BI excels at these visualizations. Graph is for file synchronization.
+Power BI excels at these visualizations. iCloud WebDAV is for file synchronization.
 
 ### 5. **Alignment with Architecture**
 
 This project separates concerns:
 
-- **Ingestion**: OneDrive → Power Automate → Azure Functions
+- **Ingestion**: iCloud Drive → Azure Functions (Timer + HTTP)
 - **Storage**: Azure Table Storage
 - **Analytics**: Power BI (this is the read layer)
 - **Integration**: ChatGPT via Semantic Layer API
 
-Power BI fits naturally as the analytics layer. Graph would duplicate Power Automate's file-monitoring role.
+Power BI fits naturally as the analytics layer. The iCloud sync already handles file ingestion.
 
 ---
 
@@ -203,13 +202,13 @@ az functionapp log tail \
 
 ---
 
-## Why NOT Microsoft Graph Monitoring
+## Legacy: Why NOT Microsoft Graph for OneDrive
 
-### Problems with Graph-based OneDrive Monitoring
+### Problems with Graph-based OneDrive Monitoring (legacy)
 
-1. **Redundant with Power Automate**
-   - You already monitor OneDrive with Power Automate
-   - Graph would duplicate this work
+1. **Redundant with iCloud sync**
+   - The current ingestion uses iCloud WebDAV sync in Azure Functions
+   - Graph would duplicate ingestion logic
    - Adds maintenance without benefit
 
 2. **Higher Complexity**
@@ -236,8 +235,8 @@ az functionapp log tail \
    - Not suitable for non-engineers
 
 5. **No Value Add**
-   - Power Automate already handles "new file detected"
-   - Graph would only add "process at interval" (worse UX)
+   - iCloud sync already handles file polling
+   - Graph would only add another ingestion path
    - No analytics capability
 
 ---
@@ -245,11 +244,11 @@ az functionapp log tail \
 ## Architecture After Implementation
 
 ```text
-OneDrive (/Apps/HealthFit/)
+iCloud Drive (/HealthFit)
     ↓
-Power Automate Flow
+Azure Function (Timer + HTTP sync)
     ↓
-Azure Function (process_fit endpoint)
+Azure Function (process_fit ingestion)
     ↓
 Azure Table Storage
     ├── Workouts
@@ -267,7 +266,7 @@ ChatGPT UI                    Power BI Dashboard
 
 **Key Separation:**
 
-- **Ingestion**: Power Automate + Azure Functions
+- **Ingestion**: iCloud WebDAV sync + Azure Functions
 - **Storage**: Azure Table Storage
 - **Querying**: Semantic Layer API (real-time for ChatGPT)
 - **Analytics**: Power BI (dashboards, trends, alerts)
@@ -292,7 +291,7 @@ ChatGPT UI                    Power BI Dashboard
 
 1. **This sprint**: Implement Power BI dashboard (4-8 hours including learning)
 2. **Optional**: Set up Application Insights for Function App errors
-3. **Remove**: Graph monitoring reference from DEPLOYMENT.md
+3. **Optional**: Add alerting for iCloud sync failures
 4. **Document**: Share Power BI Quick Start with team
 
 ---
@@ -416,8 +415,8 @@ A: Click **Share** button (top right) → Enter coach email → They get dashboa
 A:
 
 1. Check **Data Quality** tab for errors
-2. Verify file uploaded to OneDrive folder
-3. Check Power Automate flow is enabled
+2. Verify file uploaded to iCloud Drive `/HealthFit`
+3. Check iCloud sync timer is enabled (or run manual sync)
 4. Contact support if persists
 
 **Q: Can I filter by date range?**

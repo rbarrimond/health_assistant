@@ -76,10 +76,10 @@ The collection includes three real FIT files from the `data/` folder with actual
 
 **Optional Fields:**
 
-- `source_item_id` - OneDrive item ID
-- `source_file_path` - File path in OneDrive
-- `source_drive_id` - OneDrive drive ID
-- `source_etag` - OneDrive ETag for versioning
+- `source_item_id` - Source item ID (if available)
+- `source_file_path` - Source file path (e.g., `/HealthFit/...`)
+- `source_drive_id` - Source drive ID (if available)
+- `source_etag` - Source ETag for versioning (if available)
 - `file_size_bytes` - Original file size
 
 **Expected Success Response (200):**

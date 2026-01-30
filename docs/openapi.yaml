@@ -310,7 +310,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /process_fit:
     post:
-      summary: Ingest a FIT file payload from OneDrive
+      summary: Ingest a FIT file payload from iCloud or other sources
       operationId: processFit
       requestBody:
         required: true
@@ -329,6 +329,66 @@ paths:
                 $ref: '#/components/schemas/ProcessFitResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/icloud/sync:
+    post:
+      summary: Sync HealthFit FIT files from iCloud Drive
+      operationId: icloudSync
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                days:
+                  type: integer
+                  description: Lookback window in days (default 30)
+                  default: 30
+      security:
+        - FunctionKey: []
+      responses:
+        '200':
+          description: Sync result summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  lookback_days:
+                    type: integer
+                  folder_path:
+                    type: string
+                  found:
+                    type: integer
+                  ingested:
+                    type: integer
+                  skipped:
+                    type: integer
+                  failed:
+                    type: integer
+                  errors:
+                    type: array
+                    items:
+                      type: string
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        path:
+                          type: string
+                        status:
+                          type: string
+                        message:
+                          type: string
+                        workout_id:
+                          type: string
         '500':
           $ref: '#/components/responses/InternalError'
   /api/planning/context:
