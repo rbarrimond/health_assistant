@@ -6,7 +6,7 @@ import logging
 import os
 import secrets
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Dict
 from urllib.parse import urlparse
 
@@ -1081,7 +1081,8 @@ def _get_onedrive_sync_service() -> OneDrivePersonalSyncService:
 @app.route(route="onedrive/authorize", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
 def onedrive_authorize(req: func.HttpRequest) -> func.HttpResponse:
     """Generate OneDrive OAuth authorization URL."""
-    athlete_id = req.params.get("athlete_id") or os.getenv("DEFAULT_ATHLETE_ID", "rob")
+    athlete_id = req.params.get("athlete_id") or os.getenv(
+        "DEFAULT_ATHLETE_ID", "rob")
     state = f"{athlete_id}:{secrets.token_urlsafe(16)}"
     service = _get_onedrive_sync_service()
     authorization_url = service.build_authorize_url(state=state)
@@ -1101,7 +1102,8 @@ def onedrive_callback(req: func.HttpRequest) -> func.HttpResponse:
     """OAuth callback endpoint for OneDrive authorization."""
     code = req.params.get("code")
     state = req.params.get("state", "")
-    athlete_id = state.split(":", 1)[0] if state else os.getenv("DEFAULT_ATHLETE_ID", "rob")
+    athlete_id = state.split(":", 1)[0] if state else os.getenv(
+        "DEFAULT_ATHLETE_ID", "rob")
 
     if not code:
         return func.HttpResponse(
@@ -1139,18 +1141,22 @@ def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     except ValueError:
         req_body = {}
 
-    athlete_id = req_body.get("athlete_id") if isinstance(req_body, dict) else None
+    athlete_id = req_body.get("athlete_id") if isinstance(
+        req_body, dict) else None
     athlete_id = athlete_id or os.getenv("DEFAULT_ATHLETE_ID", "rob")
 
-    lookback_days = req_body.get("days") if isinstance(req_body, dict) else None
+    lookback_days = req_body.get(
+        "days") if isinstance(req_body, dict) else None
     service = _get_onedrive_sync_service()
     try:
-        lookback_days = int(lookback_days) if lookback_days is not None else service.config.lookback_days
+        lookback_days = int(
+            lookback_days) if lookback_days is not None else service.config.lookback_days
     except ValueError:
         lookback_days = service.config.lookback_days
 
     try:
-        result = service.sync(athlete_id=athlete_id, lookback_days=lookback_days)
+        result = service.sync(athlete_id=athlete_id,
+                              lookback_days=lookback_days)
         return func.HttpResponse(
             json.dumps(result),
             status_code=200,
@@ -1174,7 +1180,8 @@ def onedrive_sync_timer(timer: func.TimerRequest) -> None:
     athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
     try:
         service = _get_onedrive_sync_service()
-        result = service.sync(athlete_id=athlete_id, lookback_days=service.config.lookback_days)
+        result = service.sync(athlete_id=athlete_id,
+                              lookback_days=service.config.lookback_days)
         logger.info("OneDrive sync result: %s", result)
     except (ValueError, OneDriveGraphError) as exc:
         logger.error("OneDrive sync failed: %s", exc, exc_info=True)
