@@ -6,15 +6,15 @@ This document describes the external data source integrations for the Health Ass
 
 The Health Assistant supports multiple backend integrations to automatically collect training and physiological data:
 
-| Backend                  | Status         | Data Types                   | Protocol               |
-| ------------------------ | -------------- | ---------------------------- | ---------------------- |
-| **HealthFit (OneDrive)** | ✅ Production  | FIT workout files            | OAuth (delegated) + Timer/HTTP |
-| **Withings**             | ✅ Production  | Body composition, weight     | OAuth 2.0 + Webhooks   |
-| **Garmin**               | 🔜 Planned     | Workout files, physiometrics | OAuth (via garth)      |
+| Backend                  | Status     | Data Types                   | Protocol                       |
+| ------------------------ | ---------- | ---------------------------- | ------------------------------ |
+| **HealthFit (OneDrive)** | Production | FIT workout files            | OAuth (delegated) + Timer/HTTP |
+| **Withings**             | Production | Body composition, weight     | OAuth 2.0 + Webhooks           |
+| **Garmin**               | Planned    | Workout files, physiometrics | OAuth (via garth)              |
 
 ## HealthFit (OneDrive) Integration
 
-### Overview
+### OneDrive Overview
 
 The OneDrive backend ingests HealthFit FIT exports stored in OneDrive Personal using delegated OAuth. It is a passive backend (no Power Automate): the function app pulls files on a timer or via an HTTP trigger.
 
@@ -36,7 +36,7 @@ FIT Parser → Metrics → Azure Table Storage
 - HealthFit exports stored in `/Apps/HealthFit` (or your chosen folder)
 - Azure Function deployed with the OneDrive endpoints
 
-### Setup & Configuration
+### OneDrive Setup & Configuration
 
 #### 1. Create Microsoft App Registration
 
@@ -47,7 +47,7 @@ FIT Parser → Metrics → Azure Table Storage
 
 Record the **Client ID** and **Client Secret**.
 
-#### 2. Configure Environment Variables
+#### 2. Configure OneDrive Environment Variables
 
 Set these in your Function App configuration:
 
@@ -85,7 +85,7 @@ Automatic sync (Timer):
 - Runs hourly
 - Uses `ONEDRIVE_SYNC_LOOKBACK_DAYS` by default
 
-### API Endpoints
+### OneDrive API Endpoints
 
 #### GET /api/onedrive/authorize
 
@@ -103,22 +103,22 @@ Runs a one-time sync of recent files. Accepts JSON body:
 {"days": 30, "athlete_id": "rob"}
 ```
 
-### Implementation Files
+### OneDrive Implementation Files
 
-| File | Purpose |
-| --- | --- |
+| File                                               | Purpose                           |
+| -------------------------------------------------- | --------------------------------- |
 | [onedrive_client.py](FitParser/onedrive_client.py) | Microsoft Graph OAuth + API calls |
-| [onedrive_sync.py](FitParser/onedrive_sync.py) | OAuth + sync service |
-| [function_app.py](function_app.py) | HTTP endpoints + timer trigger |
-| [table_storage.py](FitParser/table_storage.py) | Token storage + ingestion state |
+| [onedrive_sync.py](FitParser/onedrive_sync.py)     | OAuth + sync service              |
+| [function_app.py](function_app.py)                 | HTTP endpoints + timer trigger    |
+| [table_storage.py](FitParser/table_storage.py)     | Token storage + ingestion state   |
 
-### Troubleshooting
+### OneDrive Troubleshooting
 
-| Issue | Likely Cause | Fix |
-| --- | --- | --- |
-| Authorization failed | Invalid client ID/secret/redirect URI | Verify app registration values |
-| No tokens stored | Callback not completed | Complete authorize → callback flow |
-| No files found | Wrong folder path | Verify `ONEDRIVE_FOLDER_PATH` and file location |
+| Issue                | Likely Cause                          | Fix                                             |
+| -------------------- | ------------------------------------- | ----------------------------------------------- |
+| Authorization failed | Invalid client ID/secret/redirect URI | Verify app registration values                  |
+| No tokens stored     | Callback not completed                | Complete authorize → callback flow              |
+| No files found       | Wrong folder path                     | Verify `ONEDRIVE_FOLDER_PATH` and file location |
 
 ## Withings Integration
 
@@ -160,7 +160,7 @@ The integration captures the following body composition metrics:
 - **Visceral Fat Index** - `TYPE_VISCERAL_FAT` (123)
 - **Metabolic Age** (years) - `TYPE_METABOLIC_AGE` (155)
 
-### Setup & Configuration
+### Withings Setup & Configuration
 
 #### 1. Create Withings Developer Application
 
@@ -169,7 +169,7 @@ The integration captures the following body composition metrics:
 3. Set the redirect URI to: `https://<your-function-app>.azurewebsites.net/api/withings/callback`
 4. Note your **Client ID** and **Client Secret**
 
-#### 2. Configure Environment Variables
+#### 2. Configure Withings Environment Variables
 
 Add the following to your Azure Function App Configuration:
 
@@ -201,7 +201,7 @@ Each athlete must authorize access to their Withings data:
    - Webhook subscription automatically created
    - Access tokens auto-refresh when expired
 
-### API Endpoints
+### Withings API Endpoints
 
 #### GET /api/withings/authorize
 
@@ -291,14 +291,14 @@ Measurements are stored in the `Physiometrics` table with the following schema:
 - **Multi-source support**: `data_source` field distinguishes between backends
 - **Time series queries**: Easily retrieve trends over date ranges
 
-### Implementation Files
+### Withings Implementation Files
 
-| File | Purpose |
-| --- | --- |
-| [withings_client.py](FitParser/withings_client.py) | OAuth client, API methods, measurement parsing |
-| [withings_webhook_processor.py](FitParser/withings_webhook_processor.py) | Async webhook processing logic |
-| [function_app.py](function_app.py) | HTTP endpoints (authorize, callback, webhook) |
-| [table_storage.py](FitParser/table_storage.py) | Token and measurement storage |
+| File                                                                     | Purpose                                        |
+| ------------------------------------------------------------------------ | ---------------------------------------------- |
+| [withings_client.py](FitParser/withings_client.py)                       | OAuth client, API methods, measurement parsing |
+| [withings_webhook_processor.py](FitParser/withings_webhook_processor.py) | Async webhook processing logic                 |
+| [function_app.py](function_app.py)                                       | HTTP endpoints (authorize, callback, webhook)  |
+| [table_storage.py](FitParser/table_storage.py)                           | Token and measurement storage                  |
 
 ### OAuth Token Management
 
@@ -367,13 +367,13 @@ tokens = storage.get_withings_tokens(athlete_id="rob")
 
 **Common Issues:**
 
-| Error | Cause | Solution |
-| --- | --- | --- |
-| `Withings credentials not configured` | Missing env vars | Set `WITHINGS_CLIENT_ID`, `WITHINGS_CLIENT_SECRET`, `WITHINGS_REDIRECT_URI` |
-| `Invalid state parameter` | State token mismatch | Verify state token format: `{token}:{athlete_id}` |
-| `Token exchange failed` | Invalid auth code | Regenerate authorization URL |
-| `No Withings tokens found` | User not authorized | Complete OAuth flow first |
-| `Status 343` | Already subscribed | Normal - webhook already active |
+| Error                                 | Cause                | Solution                                                                    |
+| ------------------------------------- | -------------------- | --------------------------------------------------------------------------- |
+| `Withings credentials not configured` | Missing env vars     | Set `WITHINGS_CLIENT_ID`, `WITHINGS_CLIENT_SECRET`, `WITHINGS_REDIRECT_URI` |
+| `Invalid state parameter`             | State token mismatch | Verify state token format: `{token}:{athlete_id}`                           |
+| `Token exchange failed`               | Invalid auth code    | Regenerate authorization URL                                                |
+| `No Withings tokens found`            | User not authorized  | Complete OAuth flow first                                                   |
+| `Status 343`                          | Already subscribed   | Normal - webhook already active                                             |
 
 **Retry Logic:**
 
@@ -404,19 +404,19 @@ tokens = storage.get_withings_tokens(athlete_id="rob")
 ```kusto
 // Recent Withings authorizations
 traces
-| where message contains "Withings"
-| where message contains "authorization"
-| order by timestamp desc
+  | where message contains "Withings"
+  | where message contains "authorization"
+  | order by timestamp desc
 
 // Webhook processing failures
 exceptions
-| where outerMessage contains "withings"
-| order by timestamp desc
+  | where outerMessage contains "withings"
+  | order by timestamp desc
 
 // Measurement storage events
 traces
-| where message contains "Stored Withings measurement"
-| order by timestamp desc
+  | where message contains "Stored Withings measurement"
+  | order by timestamp desc
 ```
 
 **Key Metrics:**
@@ -509,7 +509,7 @@ GARMIN_REDIRECT_URI=https://<function-app>.azurewebsites.net/api/garmin/callback
 
 ### Resources
 
-- **garth GitHub:** <https://github.com/matin/garth>
+- **garth GitHub:** [https://github.com/matin/garth](https://github.com/matin/garth)
 - **Garmin Connect API:** Unofficial (requires reverse engineering)
 - **Documentation:** Limited - relies on garth library abstractions
 
