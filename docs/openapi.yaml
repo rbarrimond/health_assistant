@@ -11,7 +11,7 @@ servers:
   - url: http://localhost:7071
     description: Local Azure Functions runtime
 paths:
-  /health:
+  /api/health:
     get:
       summary: Health check with dependency status
       operationId: healthCheck
@@ -241,7 +241,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalError'
-  /config/reload:
+  /api/config/reload:
     post:
       summary: Reload physiometrics configuration from disk
       operationId: reloadConfig
@@ -262,7 +262,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '500':
           $ref: '#/components/responses/InternalError'
-  /config/update:
+  /api/config/update:
     post:
       summary: Update physiometrics configuration
       operationId: updateConfig
@@ -285,7 +285,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalError'
-  /config/history:
+  /api/config/history:
     get:
       summary: Get physiometrics configuration change history
       operationId: configHistory
@@ -308,7 +308,7 @@ paths:
                 $ref: '#/components/schemas/ConfigHistoryResponse'
         '500':
           $ref: '#/components/responses/InternalError'
-  /process_fit:
+  /api/process_fit:
     post:
       summary: Ingest a FIT file payload from iCloud or other sources
       operationId: processFit

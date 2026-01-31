@@ -187,7 +187,7 @@ def serve_openapi_spec(req: func.HttpRequest) -> func.HttpResponse:
 # Physiometrics Endpoints
 # =============================================================================
 
-@app.route(route="api/physiometrics/current", methods=["GET"])
+@app.route(route="physiometrics/current", methods=["GET"])
 def get_current_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
     """
     Get current physiometric values for an athlete.
@@ -227,7 +227,7 @@ def get_current_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-@app.route(route="api/physiometrics/history", methods=["GET"])
+@app.route(route="physiometrics/history", methods=["GET"])
 def get_physiometrics_history(req: func.HttpRequest) -> func.HttpResponse:
     """
     Get time-series physiometrics data.
@@ -282,7 +282,7 @@ def get_physiometrics_history(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-@app.route(route="api/physiometrics/update", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+@app.route(route="physiometrics/update", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
 def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
     """
     Update physiometric values (single metric or bulk partial update).
@@ -395,7 +395,7 @@ def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
 # Withings OAuth & Webhook Endpoints
 # =============================================================================
 
-@app.route(route="api/withings/authorize", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
+@app.route(route="withings/authorize", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
 def withings_authorize(req: func.HttpRequest) -> func.HttpResponse:
     """
     Get Withings OAuth authorization URL.
@@ -439,7 +439,7 @@ def withings_authorize(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-@app.route(route="api/withings/callback", methods=["GET"])
+@app.route(route="withings/callback", methods=["GET"])
 def withings_callback(req: func.HttpRequest) -> func.HttpResponse:
     """
     Handle Withings OAuth callback.
@@ -519,7 +519,7 @@ def withings_callback(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-@app.route(route="api/withings/webhook", methods=["POST"])
+@app.route(route="withings/webhook", methods=["POST"])
 def withings_webhook(req: func.HttpRequest) -> func.HttpResponse:
     """
     Receive Withings webhook notifications.
@@ -568,7 +568,7 @@ def withings_webhook(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse("OK", status_code=200)
 
 
-@app.route(route="api/workouts/{workout_id}/recalculated", methods=["GET"])
+@app.route(route="workouts/{workout_id}/recalculated", methods=["GET"])
 def get_workout_recalculated(req: func.HttpRequest) -> func.HttpResponse:
     """
     Get workout with retroactively recalculated zones (read-only view).
@@ -1184,7 +1184,7 @@ def _sync_icloud_folder(lookback_days: int) -> Dict:
     return results
 
 
-@app.route(route="api/icloud/sync", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+@app.route(route="icloud/sync", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
 def icloud_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     """HTTP-triggered iCloud Drive sync."""
     try:
@@ -1235,7 +1235,7 @@ def icloud_sync_timer(timer: func.TimerRequest) -> None:
 # =============================================================================
 
 
-@app.route(route="api/planning/context", methods=["GET"])
+@app.route(route="planning/context", methods=["GET"])
 def planning_context(req: func.HttpRequest) -> func.HttpResponse:
     """
     Get planning context for training decisions.
@@ -1296,7 +1296,7 @@ def planning_context(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-@app.route(route="api/workouts", methods=["GET"])
+@app.route(route="workouts", methods=["GET"])
 def list_workouts(req: func.HttpRequest) -> func.HttpResponse:
     """
     Query workouts with filters.
@@ -1366,7 +1366,7 @@ def list_workouts(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-@app.route(route="api/workouts/{workout_id}", methods=["GET"])
+@app.route(route="workouts/{workout_id}", methods=["GET"])
 def get_workout(req: func.HttpRequest) -> func.HttpResponse:
     """
     Get detailed workout data including time series.
@@ -1439,7 +1439,7 @@ def get_workout(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-@app.route(route="api/rollups/weekly", methods=["GET"])
+@app.route(route="rollups/weekly", methods=["GET"])
 def weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
     """
     Get weekly rollup data.
@@ -1502,7 +1502,7 @@ def weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-@app.route(route="api/analysis/zones", methods=["GET"])
+@app.route(route="analysis/zones", methods=["GET"])
 def zone_distribution(req: func.HttpRequest) -> func.HttpResponse:
     """
     Get time-in-zone distribution for planning.
@@ -1560,7 +1560,7 @@ def zone_distribution(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-@app.route(route="api/analysis/efficiency", methods=["GET"])
+@app.route(route="analysis/efficiency", methods=["GET"])
 def efficiency_trends(req: func.HttpRequest) -> func.HttpResponse:
     """
     Get aerobic efficiency and decoupling trends.
