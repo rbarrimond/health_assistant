@@ -42,7 +42,8 @@ ENV_PLUGIN_LOGO_URL = "PLUGIN_LOGO_URL"
 ENV_PLUGIN_CONTACT_EMAIL = "PLUGIN_CONTACT_EMAIL"
 ENV_PLUGIN_LEGAL_URL = "PLUGIN_LEGAL_URL"
 
-DOCS_DIR = os.getenv(ENV_DOCS_DIR, os.path.join(os.path.dirname(__file__), "docs"))
+DOCS_DIR = os.getenv(ENV_DOCS_DIR, os.path.join(
+    os.path.dirname(__file__), "docs"))
 PLUGIN_MANIFEST_PATH = os.path.join(DOCS_DIR, "ai-plugin.json")
 OPENAPI_SPEC_PATH = os.path.join(DOCS_DIR, "openapi.yaml")
 
@@ -217,7 +218,8 @@ def get_current_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
             mimetype=JSON_CONTENT_TYPE
         )
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.error("Error getting current physiometrics: %s", e, exc_info=True)
+        logger.error("Error getting current physiometrics: %s",
+                     e, exc_info=True)
         return func.HttpResponse(
             json.dumps({"error": "Failed to retrieve physiometrics"}),
             status_code=500,
@@ -271,7 +273,8 @@ def get_physiometrics_history(req: func.HttpRequest) -> func.HttpResponse:
             mimetype=JSON_CONTENT_TYPE
         )
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.error("Error getting physiometrics history: %s", e, exc_info=True)
+        logger.error("Error getting physiometrics history: %s",
+                     e, exc_info=True)
         return func.HttpResponse(
             json.dumps({"error": "Failed to retrieve physiometrics history"}),
             status_code=500,
@@ -329,13 +332,26 @@ def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
             mimetype=JSON_CONTENT_TYPE
         )
 
+    # Validate payload shape before initializing downstream dependencies.
+    has_single_metric = "metric" in req_body and "value" in req_body
+    has_bulk_metrics = "metrics" in req_body
+
+    if not (has_single_metric or has_bulk_metrics):
+        return func.HttpResponse(
+            json.dumps(
+                {"error": "Either 'metric'+'value' or 'metrics' dict required"}),
+            status_code=400,
+            mimetype=JSON_CONTENT_TYPE
+        )
+
     try:
         layer = SemanticLayer()
         effective_date = req_body.get("effective_date")
         source = req_body.get("source", "chatgpt")
+        result: Dict = {"status": "error"}
 
         # Check if single metric update or bulk
-        if "metric" in req_body and "value" in req_body:
+        if has_single_metric:
             # Single metric update
             result = layer.update_physiometric_value(
                 athlete_id=athlete_id,
@@ -344,7 +360,7 @@ def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
                 effective_date=effective_date,
                 source=source
             )
-        elif "metrics" in req_body:
+        elif has_bulk_metrics:
             # Bulk update (update each metric individually)
             results = []
             for metric, value in req_body["metrics"].items():
@@ -360,12 +376,6 @@ def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
                 "status": "success",
                 "updates": results
             }
-        else:
-            return func.HttpResponse(
-                json.dumps({"error": "Either 'metric'+'value' or 'metrics' dict required"}),
-                status_code=400,
-                mimetype=JSON_CONTENT_TYPE
-            )
 
         return func.HttpResponse(
             json.dumps(result),
@@ -420,7 +430,8 @@ def withings_authorize(req: func.HttpRequest) -> func.HttpResponse:
             mimetype=JSON_CONTENT_TYPE
         )
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.error("Error generating Withings auth URL: %s", e, exc_info=True)
+        logger.error("Error generating Withings auth URL: %s",
+                     e, exc_info=True)
         return func.HttpResponse(
             json.dumps({"error": "Failed to generate authorization URL"}),
             status_code=500,
@@ -469,7 +480,7 @@ def withings_callback(req: func.HttpRequest) -> func.HttpResponse:
 
         # Subscribe to webhook notifications
         callback_url = os.getenv("WITHINGS_WEBHOOK_URL",
-                                f"{req.url.split('/api/')[0]}/api/withings/webhook")
+                                 f"{req.url.split('/api/')[0]}/api/withings/webhook")
         client.subscribe_to_notifications(
             access_token=token_data["access_token"],
             callback_url=callback_url
@@ -611,6 +622,8 @@ def get_workout_recalculated(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
             mimetype=JSON_CONTENT_TYPE
         )
+
+
 @app.route(route="config/reload", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
 def reload_config(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable=unused-argument
     """Reload physiometrics configuration from disk.
@@ -628,7 +641,7 @@ def reload_config(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disabl
 
         if config_data is None:
             logger.warning("Physiometrics file not found at %s",
-                          Config.physiometrics_file())
+                           Config.physiometrics_file())
             return func.HttpResponse(
                 json.dumps({
                     "error": "Physiometrics file not found",
@@ -970,12 +983,14 @@ def _ingest_fit_payload(payload: Dict) -> tuple[Dict, int]:
         metrics = FitParser(tmp_path).parse()
         logger.info("Parsed metrics: %s", list(metrics.keys()))
 
-        source_info = _build_source_info(payload, file_sha256, len(file_content))
+        source_info = _build_source_info(
+            payload, file_sha256, len(file_content))
         workout_id = storage.store_workout(athlete_id, metrics, source_info)
 
         storage.record_ingestion_state(
             athlete_id,
-            {**source_info, "first_seen_at_utc": metrics.get("start_time_utc")},
+            {**source_info,
+                "first_seen_at_utc": metrics.get("start_time_utc")},
             status="ingested",
             workout_id=workout_id
         )
@@ -1104,7 +1119,8 @@ def _maybe_decode_gzip(file_name: str, content: bytes) -> tuple[str, bytes]:
             import gzip
             return file_name[:-3], gzip.decompress(content)
         except (OSError, EOFError) as exc:
-            raise ValueError(f"Failed to decompress {file_name}: {exc}") from exc
+            raise ValueError(
+                f"Failed to decompress {file_name}: {exc}") from exc
     return file_name, content
 
 
@@ -1115,7 +1131,8 @@ def _sync_icloud_folder(lookback_days: int) -> Dict:
     client = _get_icloud_client()
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
-    files = client.list_files(folder_path=folder_path, modified_since=cutoff, extensions={".fit", ".fit.gz"})
+    files = client.list_files(
+        folder_path=folder_path, modified_since=cutoff, extensions={".fit", ".fit.gz"})
 
     results = {
         "status": "success",
@@ -1175,9 +1192,11 @@ def icloud_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     except ValueError:
         req_body = {}
 
-    lookback_days = req_body.get("days") if isinstance(req_body, dict) else None
+    lookback_days = req_body.get(
+        "days") if isinstance(req_body, dict) else None
     try:
-        lookback_days = int(lookback_days) if lookback_days is not None else _icloud_default_lookback_days()
+        lookback_days = int(
+            lookback_days) if lookback_days is not None else _icloud_default_lookback_days()
     except ValueError:
         lookback_days = _icloud_default_lookback_days()
 
@@ -1606,7 +1625,7 @@ def efficiency_trends(req: func.HttpRequest) -> func.HttpResponse:
 @app.timer_trigger(arg_name="timer", schedule="0 2 * * *")  # 2 AM UTC daily
 def backup_export_timer(timer: func.TimerRequest) -> None:
     """Daily timer-triggered backup export to read-only blob storage.
-    
+
     Schedule: 0 2 * * * = 2 AM UTC every day
     Output: JSON blobs in backups/ container, organized by date
     Lifecycle: Move to cool tier after 30 days, delete after 90 days
@@ -1615,7 +1634,8 @@ def backup_export_timer(timer: func.TimerRequest) -> None:
         logger.warning("Backup export timer is past due")
 
     try:
-        logger.info("Starting daily backup export at %s", datetime.now(timezone.utc).isoformat())
+        logger.info("Starting daily backup export at %s",
+                    datetime.now(timezone.utc).isoformat())
 
         # Ensure storage is initialized
         if _storage_singleton is None:
@@ -1632,4 +1652,5 @@ def backup_export_timer(timer: func.TimerRequest) -> None:
             logger.error("Backup export failed: %s", result.get("error"))
 
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.error("Timer trigger backup export failed: %s", e, exc_info=True)
+        logger.error("Timer trigger backup export failed: %s",
+                     e, exc_info=True)
