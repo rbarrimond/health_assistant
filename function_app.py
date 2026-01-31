@@ -1,9 +1,10 @@
-"""Azure Functions app - Process FIT files from OneDrive."""
+"""Azure Functions app - Process FIT files from external sources."""
 
 import base64
 import json
 import logging
 import os
+import secrets
 import tempfile
 from datetime import datetime, timedelta, timezone
 from typing import Dict
@@ -16,8 +17,9 @@ from FitParser.config import Config
 from FitParser.fit_parser import FitParser, compute_file_hash
 from FitParser.table_storage import WorkoutTableStorage
 from FitParser.semantic_layer import SemanticLayer
+from FitParser.onedrive_client import OneDriveGraphError
+from FitParser.onedrive_sync import OneDrivePersonalSyncService, OneDriveSyncConfig
 from FitParser.withings_client import WithingsClient
-from FitParser.icloud_client import ICloudWebDAVClient, ICloudWebDAVError
 from FitParser.backup_exporter import BackupExporter
 
 
@@ -851,9 +853,9 @@ def config_history(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-def parse_onedrive_payload(req: func.HttpRequest) -> Dict:
+def parse_ingest_payload(req: func.HttpRequest) -> Dict:
     """
-    Parse OneDrive change notification or direct file payload.
+    Parse ingestion payload from an external file source.
 
     Expected format:
     {
@@ -1026,10 +1028,10 @@ def _record_failed_ingestion(athlete_id: str, payload: Dict, error: str):
 @app.function_name("ProcessFitFiles")
 @app.route(route="process_fit", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
 def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
-    """HTTP-triggered function to process FIT files from OneDrive.
+    """HTTP-triggered function to process FIT files from external sources.
 
     Process flow:
-    1. Parse incoming OneDrive file payload
+    1. Parse incoming file payload
     2. Save file temporarily
     3. Parse FIT file for metrics
     4. Store workout data in Azure Tables
@@ -1038,7 +1040,7 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
     logger.info("FIT file ingestion function triggered")
 
     try:
-        payload = parse_onedrive_payload(req)
+        payload = parse_ingest_payload(req)
         body, status_code = _ingest_fit_payload(payload)
         return func.HttpResponse(
             json.dumps(body),
@@ -1063,152 +1065,99 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
 
 
 # =============================================================================
-# iCloud Drive Sync (Timer + HTTP)
+# OneDrive Personal Sync (Timer + HTTP)
 # =============================================================================
 
-ICLOUD_WEBDAV_URL = "ICLOUD_WEBDAV_URL"
-ICLOUD_USERNAME = "ICLOUD_USERNAME"
-ICLOUD_APP_PASSWORD = "ICLOUD_APP_PASSWORD"
-ICLOUD_FOLDER_PATH = "ICLOUD_FOLDER_PATH"
-ICLOUD_SYNC_LOOKBACK_DAYS = "ICLOUD_SYNC_LOOKBACK_DAYS"
+def _get_onedrive_sync_service() -> OneDrivePersonalSyncService:
+    config = OneDriveSyncConfig.from_env()
+    storage = _get_storage_instance()
+    return OneDrivePersonalSyncService(
+        config=config,
+        storage=storage,
+        ingest_payload_fn=_ingest_fit_payload,
+    )
 
 
-def _get_icloud_client() -> ICloudWebDAVClient:
-    """Build iCloud WebDAV client from environment."""
-    base_url = os.getenv(ICLOUD_WEBDAV_URL)
-    username = os.getenv(ICLOUD_USERNAME)
-    password = os.getenv(ICLOUD_APP_PASSWORD)
-    if not base_url or not username or not password:
-        raise ValueError(
-            "Missing iCloud credentials. Set ICLOUD_WEBDAV_URL, ICLOUD_USERNAME, and ICLOUD_APP_PASSWORD."
+@app.route(route="onedrive/authorize", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
+def onedrive_authorize(req: func.HttpRequest) -> func.HttpResponse:
+    """Generate OneDrive OAuth authorization URL."""
+    athlete_id = req.params.get("athlete_id") or os.getenv("DEFAULT_ATHLETE_ID", "rob")
+    state = f"{athlete_id}:{secrets.token_urlsafe(16)}"
+    service = _get_onedrive_sync_service()
+    authorization_url = service.build_authorize_url(state=state)
+    return func.HttpResponse(
+        json.dumps({
+            "authorization_url": authorization_url,
+            "athlete_id": athlete_id,
+            "state": state,
+        }),
+        status_code=200,
+        mimetype=JSON_CONTENT_TYPE,
+    )
+
+
+@app.route(route="onedrive/callback", methods=["GET"])
+def onedrive_callback(req: func.HttpRequest) -> func.HttpResponse:
+    """OAuth callback endpoint for OneDrive authorization."""
+    code = req.params.get("code")
+    state = req.params.get("state", "")
+    athlete_id = state.split(":", 1)[0] if state else os.getenv("DEFAULT_ATHLETE_ID", "rob")
+
+    if not code:
+        return func.HttpResponse(
+            "Missing authorization code.",
+            status_code=400,
+            mimetype="text/plain",
         )
-    return ICloudWebDAVClient(base_url=base_url, username=username, password=password)
 
-
-def _icloud_default_lookback_days() -> int:
-    """Default lookback in days for iCloud sync."""
     try:
-        return max(1, int(os.getenv(ICLOUD_SYNC_LOOKBACK_DAYS, "30")))
-    except ValueError:
-        return 30
+        service = _get_onedrive_sync_service()
+        service.complete_authorization(athlete_id=athlete_id, code=code)
+        html = f"""
+        <html>
+          <body>
+            <h2>OneDrive Connected</h2>
+            <p>Authorization complete for athlete {athlete_id}.</p>
+          </body>
+        </html>
+        """
+        return func.HttpResponse(html, status_code=200, mimetype="text/html")
+    except (ValueError, OneDriveGraphError) as exc:
+        logger.error("OneDrive auth failed: %s", exc)
+        return func.HttpResponse(
+            json.dumps({"error": str(exc)}),
+            status_code=500,
+            mimetype=JSON_CONTENT_TYPE,
+        )
 
 
-def _build_icloud_payload(
-    athlete_id: str,
-    file_name: str,
-    file_path: str,
-    file_content: bytes,
-    source_item_id: str,
-) -> Dict:
-    """Build ingestion payload for iCloud file content."""
-    return {
-        "athlete_id": athlete_id,
-        "source_item_id": source_item_id,
-        "source_file_name": file_name,
-        "source_file_path": file_path,
-        "source_system": "HealthFit",
-        "file_size_bytes": len(file_content),
-        "file_content_b64": base64.b64encode(file_content).decode("utf-8"),
-    }
-
-
-def _maybe_decode_gzip(file_name: str, content: bytes) -> tuple[str, bytes]:
-    """Decode .gz files if needed and return updated name/content."""
-    if file_name.lower().endswith(".gz"):
-        try:
-            import gzip
-            return file_name[:-3], gzip.decompress(content)
-        except (OSError, EOFError) as exc:
-            raise ValueError(
-                f"Failed to decompress {file_name}: {exc}") from exc
-    return file_name, content
-
-
-def _sync_icloud_folder(lookback_days: int) -> Dict:
-    """Sync iCloud Drive folder and ingest FIT files."""
-    folder_path = os.getenv(ICLOUD_FOLDER_PATH, "/HealthFit")
-    athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
-    client = _get_icloud_client()
-
-    cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
-    files = client.list_files(
-        folder_path=folder_path, modified_since=cutoff, extensions={".fit", ".fit.gz"})
-
-    results = {
-        "status": "success",
-        "lookback_days": lookback_days,
-        "folder_path": folder_path,
-        "found": len(files),
-        "ingested": 0,
-        "skipped": 0,
-        "failed": 0,
-        "errors": [],
-        "items": [],
-    }
-
-    for item in files:
-        try:
-            raw_content = client.download_file(item["path"])
-            file_name, content = _maybe_decode_gzip(item["name"], raw_content)
-            payload = _build_icloud_payload(
-                athlete_id=athlete_id,
-                file_name=file_name,
-                file_path=item["path"],
-                file_content=content,
-                source_item_id=f"icloud:{item['path']}",
-            )
-            body, status_code = _ingest_fit_payload(payload)
-            if status_code == 200 and body.get("status") == "success":
-                results["ingested"] += 1
-            elif status_code == 200 and body.get("status") == "skipped":
-                results["skipped"] += 1
-            else:
-                results["failed"] += 1
-            results["items"].append({
-                "name": item["name"],
-                "path": item["path"],
-                "status": body.get("status", "error"),
-                "message": body.get("error"),
-                "workout_id": body.get("workout_id"),
-            })
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            results["failed"] += 1
-            results["errors"].append(str(exc))
-            results["items"].append({
-                "name": item.get("name"),
-                "path": item.get("path"),
-                "status": "error",
-                "message": str(exc),
-            })
-
-    return results
-
-
-@app.route(route="icloud/sync", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
-def icloud_sync_http(req: func.HttpRequest) -> func.HttpResponse:
-    """HTTP-triggered iCloud Drive sync."""
+@app.route(route="onedrive/sync", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
+    """HTTP-triggered OneDrive sync."""
     try:
         req_body = req.get_json() if req.method == "POST" else {}
     except ValueError:
         req_body = {}
 
-    lookback_days = req_body.get(
-        "days") if isinstance(req_body, dict) else None
+    athlete_id = req_body.get("athlete_id") if isinstance(req_body, dict) else None
+    athlete_id = athlete_id or os.getenv("DEFAULT_ATHLETE_ID", "rob")
+
+    lookback_days = req_body.get("days") if isinstance(req_body, dict) else None
+    service = _get_onedrive_sync_service()
     try:
-        lookback_days = int(
-            lookback_days) if lookback_days is not None else _icloud_default_lookback_days()
+        lookback_days = int(lookback_days) if lookback_days is not None else service.config.lookback_days
     except ValueError:
-        lookback_days = _icloud_default_lookback_days()
+        lookback_days = service.config.lookback_days
 
     try:
-        result = _sync_icloud_folder(lookback_days)
+        result = service.sync(athlete_id=athlete_id, lookback_days=lookback_days)
         return func.HttpResponse(
             json.dumps(result),
             status_code=200,
             mimetype=JSON_CONTENT_TYPE
         )
-    except (ValueError, ICloudWebDAVError) as exc:
-        logger.error("iCloud sync failed: %s", exc)
+    except (ValueError, OneDriveGraphError) as exc:
+        logger.error("OneDrive sync failed: %s", exc)
         return func.HttpResponse(
             json.dumps({"status": "error", "error": str(exc)}),
             status_code=500,
@@ -1217,17 +1166,18 @@ def icloud_sync_http(req: func.HttpRequest) -> func.HttpResponse:
 
 
 @app.timer_trigger(arg_name="timer", schedule="0 0 * * * *")  # hourly
-def icloud_sync_timer(timer: func.TimerRequest) -> None:
-    """Timer-triggered iCloud Drive sync."""
+def onedrive_sync_timer(timer: func.TimerRequest) -> None:
+    """Timer-triggered OneDrive sync."""
     if timer.past_due:
-        logger.warning("iCloud sync timer is past due")
+        logger.warning("OneDrive sync timer is past due")
 
-    lookback_days = _icloud_default_lookback_days()
+    athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
     try:
-        result = _sync_icloud_folder(lookback_days)
-        logger.info("iCloud sync result: %s", result)
-    except (ValueError, ICloudWebDAVError) as exc:
-        logger.error("iCloud sync failed: %s", exc, exc_info=True)
+        service = _get_onedrive_sync_service()
+        result = service.sync(athlete_id=athlete_id, lookback_days=service.config.lookback_days)
+        logger.info("OneDrive sync result: %s", result)
+    except (ValueError, OneDriveGraphError) as exc:
+        logger.error("OneDrive sync failed: %s", exc, exc_info=True)
 
 
 # =============================================================================

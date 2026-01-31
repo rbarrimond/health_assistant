@@ -660,6 +660,97 @@ class WorkoutTableStorage:
         )
 
     # -------------------------------------------------------------------------
+    # OneDrive OAuth Token Management
+    # -------------------------------------------------------------------------
+
+    def store_onedrive_tokens(self, athlete_id: str,
+                              access_token: str,
+                              refresh_token: str,
+                              expires_in: int,
+                              scope: str,
+                              drive_id: str | None = None) -> None:
+        """
+        Store OneDrive OAuth tokens for an athlete.
+
+        Args:
+            athlete_id: Athlete identifier
+            access_token: OAuth access token
+            refresh_token: OAuth refresh token
+            expires_in: Token lifetime in seconds
+            scope: OAuth scope granted
+            drive_id: Optional OneDrive drive id
+        """
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+        entity = {
+            "PartitionKey": athlete_id,
+            "RowKey": "onedrive",
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "expires_at_utc": expires_at.isoformat().replace(UTC_SUFFIX, "Z"),
+            "scope": scope,
+            "drive_id": drive_id or "",
+            "updated_at_utc": datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z"),
+        }
+
+        try:
+            table_client = self._get_table_client("OneDriveTokens")
+            table_client.upsert_entity(entity)
+            logger.info("Stored OneDrive tokens for %s", athlete_id)
+        except HttpResponseError as e:
+            logger.error("Error storing OneDrive tokens: %s", e)
+            raise
+
+    def get_onedrive_tokens(self, athlete_id: str) -> Optional[Dict]:
+        """
+        Get OneDrive OAuth tokens for an athlete.
+
+        Args:
+            athlete_id: Athlete identifier
+
+        Returns:
+            Dict with token data, or None if not found
+        """
+        try:
+            table_client = self._get_table_client("OneDriveTokens")
+            query = f"PartitionKey eq '{athlete_id}' and RowKey eq 'onedrive'"
+            entities = list(table_client.query_entities(query, top=1))
+            if not entities:
+                return None
+            return dict(entities[0])
+        except HttpResponseError as e:
+            logger.warning("Error retrieving OneDrive tokens for %s: %s", athlete_id, e)
+            return None
+
+    def refresh_onedrive_token(self, athlete_id: str,
+                               new_access_token: str,
+                               new_refresh_token: str,
+                               expires_in: int,
+                               scope: str | None = None,
+                               drive_id: str | None = None) -> None:
+        """
+        Update OneDrive tokens after refresh.
+
+        Args:
+            athlete_id: Athlete identifier
+            new_access_token: New access token
+            new_refresh_token: New refresh token
+            expires_in: Token lifetime in seconds
+            scope: OAuth scope granted (optional)
+            drive_id: Optional drive id
+        """
+        existing = self.get_onedrive_tokens(athlete_id)
+        scope = scope or (existing.get("scope") if existing else "Files.ReadWrite offline_access")
+        drive_id = drive_id or (existing.get("drive_id") if existing else None)
+        self.store_onedrive_tokens(
+            athlete_id=athlete_id,
+            access_token=new_access_token,
+            refresh_token=new_refresh_token,
+            expires_in=expires_in,
+            scope=scope,
+            drive_id=drive_id,
+        )
+
+    # -------------------------------------------------------------------------
     # Webhook Deduplication
     # -------------------------------------------------------------------------
 
