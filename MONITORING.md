@@ -1,17 +1,17 @@
-# Monitoring Strategy: Power BI + iCloud Sync
+# Monitoring Strategy: Power BI + OneDrive Sync
 
 ## Executive Summary
 
-Recommendation: Power BI for data analytics + Azure Monitor for Function App health. File sync is handled by iCloud WebDAV in Azure Functions.
+Recommendation: Power BI for data analytics + Azure Monitor for Function App health. File sync is handled by OneDrive (Microsoft Graph) in Azure Functions.
 
-| Aspect | Power BI | iCloud File Sync (WebDAV) | Winner |
+| Aspect | Power BI | OneDrive File Sync (WebDAV) | Winner |
 | --- | --- | --- | --- |
 | Setup Complexity | 15 minutes | Low (WebDAV creds + timer) | Power BI ✅ |
 | Ongoing Maintenance | Minimal | Low | Power BI ✅ |
 | Cost | $10-15/user/month | Included (Functions + storage) | Power BI ✅ |
 | Visualization Quality | Excellent time-series, heatmaps | N/A (sync only) | Power BI ✅ |
 | Domain Fit | Perfect (training analytics) | File ingestion only | Power BI ✅ |
-| Integration | Direct Table Storage | iCloud Drive folder sync | Power BI ✅ |
+| Integration | Direct Table Storage | OneDrive Personal folder sync | Power BI ✅ |
 | Learning Curve | Power BI UI (easy) | WebDAV basics | Power BI ✅ |
 
 ## Why Power BI
@@ -20,7 +20,7 @@ Recommendation: Power BI for data analytics + Azure Monitor for Function App hea
 
 - **Goal**: Monitor and analyze training data in Azure Table Storage
 - **Power BI**: Direct connectors to Table Storage, real-time dashboards, built-in time-series visualizations
-- **iCloud WebDAV**: Used for file ingestion only, not analytics
+- **OneDrive (Microsoft Graph)**: Used for file ingestion only, not analytics
 
 ### 2. Simplicity & Speed
 
@@ -31,7 +31,7 @@ Power BI approach:
 - Build dashboard (5 min)
 = 15 minutes total
 
-iCloud sync approach:
+OneDrive sync approach:
 - Set WebDAV credentials (5 min)
 - Configure folder path + lookback (2 min)
 - Enable timer trigger (0 min)
@@ -41,7 +41,7 @@ iCloud sync approach:
 ### 3. **Cost Efficiency**
 
 - **Power BI**: $10-15/user/month (only athletes using it)
-- **iCloud WebDAV**: No direct cost, but requires app-specific password
+- **OneDrive (Microsoft Graph)**: No direct cost, but requires OAuth refresh token
 - **Azure Monitor**: ~$5-10/month for diagnostics (handles Function App health)
 
 ### 4. **Perfect for This Domain**
@@ -54,18 +54,18 @@ Training data is inherently time-series and multi-dimensional:
 - Intensity vs. recovery
 - Power/heart-rate trends
 
-Power BI excels at these visualizations. iCloud WebDAV is for file synchronization.
+Power BI excels at these visualizations. OneDrive (Microsoft Graph) is for file synchronization.
 
 ### 5. **Alignment with Architecture**
 
 This project separates concerns:
 
-- **Ingestion**: iCloud Drive → Azure Functions (Timer + HTTP)
+- **Ingestion**: OneDrive Personal → Azure Functions (Timer + HTTP)
 - **Storage**: Azure Table Storage
 - **Analytics**: Power BI (this is the read layer)
 - **Integration**: ChatGPT via Semantic Layer API
 
-Power BI fits naturally as the analytics layer. The iCloud sync already handles file ingestion.
+Power BI fits naturally as the analytics layer. The OneDrive sync already handles file ingestion.
 
 ---
 
@@ -202,49 +202,36 @@ az functionapp log tail \
 
 ---
 
-## Legacy: Why NOT Microsoft Graph for OneDrive
+## Why Graph Polling Is Acceptable (Personal OneDrive)
 
-### Problems with Graph-based OneDrive Monitoring (legacy)
+Personal OneDrive does not support app-only access and webhook reliability is limited, so **delegated OAuth + polling** is the pragmatic choice. It is less efficient, but it is the only dependable option for Personal accounts.
 
-1. **Redundant with iCloud sync**
-   - The current ingestion uses iCloud WebDAV sync in Azure Functions
-   - Graph would duplicate ingestion logic
-   - Adds maintenance without benefit
+Trade-offs we accept:
 
-2. **Higher Complexity**
+1. **Polling overhead**
+   - Timer runs hourly
+   - Lookback window keeps it bounded (default 30 days)
 
-   ```python
-   # Graph approach requires:
-   - OAuth token management
-   - Polling logic (no webhooks for file changes)
-   - Error retry logic
-   - Dependency on msgraph-sdk
-   - New timer function to create/deploy
-   - Testing/debugging cycle
-   ```
+2. **OAuth complexity**
+   - Requires refresh token storage
+   - Token refresh logic needed for long-running sync
 
-3. **Wrong Level of Abstraction**
-   - Designed for: File synchronization, OneDrive administration
-   - Needed for: Training data analytics and visualization
-   - Mismatch creates unnecessary coupling
+3. **Operational cost**
+   - Slightly higher compute + logging
+   - Still minimal at single-user scale
 
-4. **Operational Overhead**
-   - Requires deployment of new function
-   - Adds to monthly cost (compute)
-   - Extra logging/debugging surface
-   - Not suitable for non-engineers
+Mitigations:
 
-5. **No Value Add**
-   - iCloud sync already handles file polling
-   - Graph would only add another ingestion path
-   - No analytics capability
+- Limit extensions to `.fit` and `.fit.gz`
+- Use lookback cutoff to avoid re-scanning history
+- Maintain idempotency via ingestion state table
 
 ---
 
 ## Architecture After Implementation
 
 ```text
-iCloud Drive (/HealthFit)
+OneDrive Personal (/Apps/HealthFit)
     ↓
 Azure Function (Timer + HTTP sync)
     ↓
@@ -266,7 +253,7 @@ ChatGPT UI                    Power BI Dashboard
 
 **Key Separation:**
 
-- **Ingestion**: iCloud WebDAV sync + Azure Functions
+- **Ingestion**: OneDrive (Microsoft Graph) sync + Azure Functions
 - **Storage**: Azure Table Storage
 - **Querying**: Semantic Layer API (real-time for ChatGPT)
 - **Analytics**: Power BI (dashboards, trends, alerts)
@@ -291,7 +278,7 @@ ChatGPT UI                    Power BI Dashboard
 
 1. **This sprint**: Implement Power BI dashboard (4-8 hours including learning)
 2. **Optional**: Set up Application Insights for Function App errors
-3. **Optional**: Add alerting for iCloud sync failures
+3. **Optional**: Add alerting for OneDrive sync failures
 4. **Document**: Share Power BI Quick Start with team
 
 ---
@@ -415,8 +402,8 @@ A: Click **Share** button (top right) → Enter coach email → They get dashboa
 A:
 
 1. Check **Data Quality** tab for errors
-2. Verify file uploaded to iCloud Drive `/HealthFit`
-3. Check iCloud sync timer is enabled (or run manual sync)
+2. Verify file uploaded to OneDrive Personal `/Apps/HealthFit`
+3. Check OneDrive sync timer is enabled (or run manual sync)
 4. Contact support if persists
 
 **Q: Can I filter by date range?**

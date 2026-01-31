@@ -1,6 +1,6 @@
 # Health Assistant - FIT File Processor
 
-Azure Function for parsing HealthFit FIT files from iCloud Drive and storing metrics in Azure Table Storage according to a comprehensive training analytics schema.
+Azure Function for parsing HealthFit FIT files from OneDrive Personal (delegated OAuth) and storing metrics in Azure Table Storage according to a comprehensive training analytics schema.
 
 **Status**: ✅ Development Complete - Ready for Azure Deployment
 
@@ -15,14 +15,14 @@ Azure Function for parsing HealthFit FIT files from iCloud Drive and storing met
 | **� Configuring backends?** | [BACKENDS.md](./BACKENDS.md) → Withings, Garmin |
 | **�📐 Understanding the data model?** | [WORKOUT_SCHEMA.md](./WORKOUT_SCHEMA.md) |
 | **🎯 Design philosophy?** | [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./WORKOUT_INTELLIGENCE_AGENT_VISION.md) |
-| **⚙️ iCloud sync setup?** | [POWER_AUTOMATE_SETUP.md](./POWER_AUTOMATE_SETUP.md) |
+| **⚙️ OneDrive setup?** | [POWER_AUTOMATE_SETUP.md](./POWER_AUTOMATE_SETUP.md) |
 
 ## Architecture
 
 ```text
-Apple iCloud Drive (/HealthFit)
+OneDrive Personal (/Apps/HealthFit)
     ↓
-Azure Function (Timer + HTTP sync)
+Azure Function (Timer + HTTP sync via Microsoft Graph)
     ↓
 FIT Parser (fitparse library)
     ↓
@@ -43,7 +43,7 @@ Read Interfaces
 
 ### Data Flow
 
-- **Trigger**: Timer + HTTP sync against iCloud Drive (WebDAV)
+- **Trigger**: Timer + HTTP sync against OneDrive (Microsoft Graph delegated)
 - **Input**: Base64-encoded FIT file + metadata in JSON payload
 - **Processing**: FIT parsing → metric extraction → zone computation
 - **Output**: Azure Tables (Workouts, WeeklyRollups, IngestionState)
@@ -64,13 +64,14 @@ Optional:
 - HR_ZONE_BASIS: Heart rate zone calculation method - 'HRmax', 'LTHR' (Lactate Threshold), or 'HRR' (Heart Rate Reserve/Karvonen) (default: 'HRmax')
 - HR_ZONE_REFERENCE_BPM: Reference HR for zone calculation (0 = auto-detect from workout) (default: 0)
 - HR_RESTING_BPM: Resting heart rate for HRR method (default: 60bpm)
-- ICLOUD_WEBDAV_URL: iCloud WebDAV base URL
-- ICLOUD_USERNAME: Apple ID for WebDAV access
-- ICLOUD_APP_PASSWORD: App-specific password
-- ICLOUD_FOLDER_PATH: iCloud folder path (default: '/HealthFit')
-- ICLOUD_SYNC_LOOKBACK_DAYS: Default lookback window (days, default: 30)
+- ONEDRIVE_CLIENT_ID: Azure app registration client ID (consumer accounts)
+- ONEDRIVE_CLIENT_SECRET: Azure app registration client secret
+- ONEDRIVE_REDIRECT_URI: OAuth redirect URI (points to `/api/onedrive/callback`)
+- ONEDRIVE_SCOPES: Space-delimited scopes (default: `Files.ReadWrite offline_access`)
+- ONEDRIVE_FOLDER_PATH: OneDrive folder path (default: '/Apps/HealthFit')
+- ONEDRIVE_SYNC_LOOKBACK_DAYS: Default lookback window (days, default: 30)
 
-See `POWER_AUTOMATE_SETUP.md` for how to discover your iCloud WebDAV URL.
+See `POWER_AUTOMATE_SETUP.md` for the OneDrive Personal OAuth + sync setup.
 
 ## Project Structure
 
@@ -84,7 +85,8 @@ health_assistant/
 │   ├── config.py              # Configuration management
 │   ├── semantic_layer.py      # Read API implementation
 │   ├── withings_client.py     # Withings integration
-│   ├── icloud_client.py       # iCloud WebDAV client
+│   ├── onedrive_client.py     # OneDrive Graph client
+│   ├── onedrive_sync.py       # OneDrive OAuth + sync service
 │   └── logging_setup.py       # Logging utilities
 ├── function_app.py            # Azure Functions HTTP endpoints
 ├── pyproject.toml             # Dependencies
@@ -98,7 +100,7 @@ health_assistant/
 │   └── data/                  # Real FIT workout files
 ├── DEPLOYMENT.md              # Azure deployment
 ├── MONITORING.md              # Power BI + Application Insights
-├── POWER_AUTOMATE_SETUP.md    # iCloud sync guide (legacy OneDrive notes)
+├── POWER_AUTOMATE_SETUP.md    # OneDrive Personal OAuth + sync setup
 ├── SEMANTIC_LAYER_API.md      # API reference (14 endpoints)
 ├── WORKOUT_SCHEMA.md          # Complete data schema
 └── WORKOUT_INTELLIGENCE_AGENT_VISION.md  # Design principles
@@ -186,10 +188,10 @@ Deploy to Azure:
 func azure functionapp publish <FUNCTION_APP_NAME>
 ```
 
-## Integration with iCloud Drive
+## Integration with OneDrive (Personal)
 
-Use the built-in iCloud sync functions:
+Use the OAuth flow to connect OneDrive, then run the timer/HTTP sync:
 
-1. Set iCloud WebDAV environment variables
-2. Use the hourly timer trigger for automatic sync
-3. Optionally trigger manually via `POST /api/icloud/sync` with `{ "days": 30 }`
+1. Authorize: `GET /api/onedrive/authorize?athlete_id=rob`
+2. Complete the browser sign-in to store tokens
+3. Run sync via timer or `POST /api/onedrive/sync`

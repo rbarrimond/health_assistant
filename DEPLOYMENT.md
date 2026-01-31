@@ -13,7 +13,7 @@ Complete instructions for deploying the Health Assistant FIT file processor to A
 - Azure Storage Account (Table Storage + Blob optional)
 - Azure CLI installed locally
 - Function Core Tools installed
-- iCloud app-specific password (for WebDAV sync)
+- OneDrive Personal account (for delegated OAuth sync)
 
 ## Step 1: Prepare Azure Resources
 
@@ -92,11 +92,12 @@ az functionapp config appsettings set \
     "DEFAULT_ATHLETE_ID=rob" \
     "DEFAULT_FTP=250" \
     "DEFAULT_MAX_HR=190" \
-    "ICLOUD_WEBDAV_URL=https://<your-icloud-webdav-host>" \
-    "ICLOUD_USERNAME=<your-apple-id>" \
-    "ICLOUD_APP_PASSWORD=<app-specific-password>" \
-    "ICLOUD_FOLDER_PATH=/HealthFit" \
-    "ICLOUD_SYNC_LOOKBACK_DAYS=30"
+    "ONEDRIVE_CLIENT_ID=<your-app-client-id>" \
+    "ONEDRIVE_CLIENT_SECRET=<your-app-client-secret>" \
+    "ONEDRIVE_REDIRECT_URI=https://$FUNCTION_APP.azurewebsites.net/api/onedrive/callback" \
+    "ONEDRIVE_SCOPES=Files.ReadWrite offline_access" \
+    "ONEDRIVE_FOLDER_PATH=/Apps/HealthFit" \
+    "ONEDRIVE_SYNC_LOOKBACK_DAYS=30"
 ```
 
 ## Step 3: Deploy Function Code
@@ -157,15 +158,16 @@ FUNCTION_KEY=$(az functionapp keys list \
 echo "Function URL: $FUNCTION_URL?code=$FUNCTION_KEY"
 ```
 
-## Step 5: Configure iCloud Sync
+## Step 5: Configure OneDrive (Personal) Sync
 
-See [POWER_AUTOMATE_SETUP.md](./POWER_AUTOMATE_SETUP.md) for detailed instructions.
+See [POWER_AUTOMATE_SETUP.md](./POWER_AUTOMATE_SETUP.md) for detailed OAuth setup.
 
 ### Quick Setup
 
-1. Configure iCloud WebDAV environment variables in the Function App
-2. Ensure the Timer trigger is enabled (hourly sync)
-3. Optional: trigger a manual sync via HTTP (see below)
+1. Register the OneDrive app and set redirect URI
+2. Set ONEDRIVE_* app settings above
+3. Authorize: `GET /api/onedrive/authorize?athlete_id=rob`
+4. Run `POST /api/onedrive/sync` or wait for the hourly timer
 
 ## Step 6: Monitor and Test
 
@@ -191,12 +193,9 @@ az functionapp app-insights-enable \
 ### Manual Test
 
 ```bash
-# Upload test FIT file to iCloud Drive /HealthFit/
-# Or manually trigger a sync:
-
-curl -X POST "https://$FUNCTION_APP.azurewebsites.net/api/icloud/sync?code=$FUNCTION_KEY" \
+curl -X POST "https://$FUNCTION_APP.azurewebsites.net/api/onedrive/sync?code=$FUNCTION_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"days": 30}'
+  -d '{"days": 30, "athlete_id": "rob"}'
 ```
 
 ### Verify Data in Table Storage
@@ -219,9 +218,9 @@ az storage table entity query \
 
 ### Function Not Triggering
 
-- Verify the Timer trigger is enabled
+- Verify OneDrive OAuth is completed (tokens stored)
 - Check Application Insights logs for errors
-- Ensure iCloud folder path is correct (`/HealthFit`)
+- Ensure the OneDrive trigger folder path is correct (`/Apps/HealthFit`)
 
 ### "File already processed" on new files
 

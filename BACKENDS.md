@@ -8,7 +8,7 @@ The Health Assistant supports multiple backend integrations to automatically col
 
 | Backend                  | Status         | Data Types                   | Protocol               |
 | ------------------------ | -------------- | ---------------------------- | ---------------------- |
-| **HealthFit (iCloud)**   | ✅ Production  | FIT workout files            | WebDAV (Timer + HTTP)  |
+| **HealthFit (OneDrive)** | ✅ Production  | FIT workout files            | OAuth (delegated) + Timer/HTTP |
 | **Withings**             | ✅ Production  | Body composition, weight     | OAuth 2.0 + Webhooks   |
 | **Garmin**               | 🔜 Planned     | Workout files, physiometrics | OAuth (via garth)      |
 

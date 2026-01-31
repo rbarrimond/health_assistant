@@ -1,79 +1,75 @@
-# iCloud Drive Sync Guide
+# OneDrive Personal OAuth + Sync Guide
 
 > **Source of Truth**: See [WORKOUT_SCHEMA.md](./WORKOUT_SCHEMA.md) for the complete data model and required fields. This document describes the ingestion procedure.
 
-This guide explains how to sync HealthFit exports from **iCloud Drive** into the Health Assistant Azure Function.
+This guide explains how to sync HealthFit exports from **OneDrive Personal** into the Health Assistant Azure Function using **delegated OAuth** (no Power Automate).
 
 ## Prerequisites
 
-- iCloud Drive enabled
-- Apple ID with an **app-specific password**
-- HealthFit exports stored in `/HealthFit` (or your chosen iCloud folder)
-- Azure Function deployed with HTTP + Timer triggers
+- OneDrive Personal account
+- HealthFit exports stored in `/Apps/HealthFit` (or your chosen OneDrive folder)
+- Azure Function deployed with the OneDrive endpoints
 
 ## Overview
 
-The system syncs iCloud Drive via **WebDAV** on a schedule (hourly) and can be triggered manually.
-
 ```text
-iCloud Drive (/HealthFit)
+OneDrive Personal (/Apps/HealthFit)
     ↓
-Azure Functions (Timer + HTTP sync)
+OAuth 2.0 (delegated)
+    ↓
+Azure Function (Timer + HTTP sync via Microsoft Graph)
     ↓
 FIT Parser → Metrics → Azure Table Storage
 ```
 
-## Required Environment Variables
+## Required App Registration
 
-Set these in your Function App configuration (or `local.settings.json` for local dev):
+Create a Microsoft app registration that supports **consumer accounts**:
 
-- `ICLOUD_WEBDAV_URL`: iCloud WebDAV base URL (e.g., `https://pXX-webdav.icloud.com`)
-- `ICLOUD_USERNAME`: Apple ID (email)
-- `ICLOUD_APP_PASSWORD`: app-specific password
-- `ICLOUD_FOLDER_PATH`: Folder path in iCloud Drive (default: `/HealthFit`)
-- `ICLOUD_SYNC_LOOKBACK_DAYS`: Default lookback window (default: `30`)
+1. Go to Azure Portal → App registrations → New registration
+2. Supported account types: **Accounts in any organizational directory and personal Microsoft accounts**
+3. Redirect URI (web): `https://<FUNCTION_APP>.azurewebsites.net/api/onedrive/callback`
+4. Create a **client secret**
 
-## How to Find Your iCloud WebDAV URL
+Record the **Client ID** and **Client Secret**.
 
-Apple assigns a WebDAV host like `https://pXX-webdav.icloud.com`. To discover yours:
+## Required Function App Settings
 
-1. Sign in to iCloud in a browser.
-2. Open iCloud Drive.
-3. Use a network inspector (browser dev tools) and look for a request to a `webdav.icloud.com` host.
-4. Use that host value as `ICLOUD_WEBDAV_URL`.
+Set these in your Function App configuration:
 
-If you already use a WebDAV client, it will often reveal the server URL after login.
+- `ONEDRIVE_CLIENT_ID`
+- `ONEDRIVE_CLIENT_SECRET`
+- `ONEDRIVE_REDIRECT_URI` (same as the redirect URI above)
+- `ONEDRIVE_SCOPES` (default: `Files.ReadWrite offline_access`)
+- `ONEDRIVE_FOLDER_PATH` (default: `/Apps/HealthFit`)
+- `ONEDRIVE_SYNC_LOOKBACK_DAYS` (default: `30`)
 
-## Manual Sync (HTTP)
+## Step 1: Authorize OneDrive
 
-Trigger a sync for the last 30 days:
+Generate an authorization URL:
 
 ```bash
-curl -X POST "https://<FUNCTION_APP>.azurewebsites.net/api/icloud/sync?code=<FUNCTION_KEY>" \
-  -H "Content-Type: application/json" \
-  -d '{"days": 30}'
+curl "https://<FUNCTION_APP>.azurewebsites.net/api/onedrive/authorize?athlete_id=rob&code=<FUNCTION_KEY>"
 ```
 
-The response includes counts for `ingested`, `skipped`, and `failed` items.
+Open the `authorization_url` in a browser and sign in. On success, the callback stores refresh tokens.
 
-## Automatic Sync (Timer)
+## Step 2: Run Sync
 
-The timer trigger runs hourly and uses `ICLOUD_SYNC_LOOKBACK_DAYS` to determine how far back to scan.
+### Manual Sync (HTTP)
 
-## File Types
+```bash
+curl -X POST "https://<FUNCTION_APP>.azurewebsites.net/api/onedrive/sync?code=<FUNCTION_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{"days": 30, "athlete_id": "rob"}'
+```
 
-Currently ingested:
-- `.fit`
-- `.fit.gz` (automatically decompressed)
+### Automatic Sync (Timer)
 
-Other formats (`.gpx`, `.csv`, `.tcx`) are ignored for now.
+The timer runs hourly and uses `ONEDRIVE_SYNC_LOOKBACK_DAYS`.
 
 ## Troubleshooting
 
-- **Authentication failed**: confirm `ICLOUD_USERNAME` and app-specific password.
-- **No files found**: check `ICLOUD_FOLDER_PATH` and verify files exist in iCloud Drive.
-- **Sync errors**: check Function App logs in Application Insights.
-
-## Legacy OneDrive/Power Automate (Deprecated)
-
-Older deployments used OneDrive + Power Automate. If you still need that flow, keep the old payload format but use the current ingestion endpoint.
+- **Authorization failed**: verify client ID/secret and redirect URI.
+- **No tokens stored**: complete the authorize/callback step.
+- **No files found**: check `ONEDRIVE_FOLDER_PATH` and verify files exist.

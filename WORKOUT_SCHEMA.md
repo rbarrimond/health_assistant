@@ -9,7 +9,7 @@ This schema is designed to support:
 
 It assumes:
 
-- **iCloud Drive** holds the raw `.fit` files (`/HealthFit/*.fit`)
+- **OneDrive Personal** holds the raw `.fit` files (`/Apps/Apps/HealthFit/*.fit`)
 - **Python ingestion** parses FIT and writes **deterministic metrics**
 - **Azure Table Storage** stores the metric entities
 
@@ -46,7 +46,7 @@ Why:
 |athlete_id|string|✅|Short stable identifier for the athlete (e.g., `rob`)|
 |source_system|string|✅|`HealthFit` (or `Garmin`, `Strava`, etc. if expanded later)|
 |source_file_name|string|✅|File name from source (e.g., `2026-01-07-...fit`)|
-|source_file_path|string|✅|Source path (e.g., `/HealthFit/...`)|
+|source_file_path|string|✅|Source path (e.g., `/Apps/HealthFit/...`)|
 |source_drive_id|string|⛔️|Source drive ID (if available)|
 |source_item_id|string|⛔️|Source item ID (if available)|
 |source_etag|string|⛔️|Source ETag/version marker (if available)|
