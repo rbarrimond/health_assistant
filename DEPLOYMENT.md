@@ -65,7 +65,7 @@ STORAGE_KEY=$(az storage account keys list \
   --query '[0].value' -o tsv)
 
 # Create tables
-for TABLE in Workouts WeeklyRollups IngestionState; do
+for TABLE in Workouts WeeklyRollups IngestionState Physiometrics OneDriveTokens WithingsTokens; do
   az storage table create \
     --account-name $STORAGE_ACCOUNT \
     --account-key $STORAGE_KEY \
@@ -160,7 +160,7 @@ echo "Function URL: $FUNCTION_URL?code=$FUNCTION_KEY"
 
 ## Step 5: Configure OneDrive (Personal) Sync
 
-See [POWER_AUTOMATE_SETUP.md](./POWER_AUTOMATE_SETUP.md) for detailed OAuth setup.
+See [BACKENDS.md](./BACKENDS.md#healthfit-onedrive-integration) for detailed OAuth setup.
 
 ### Quick Setup
 

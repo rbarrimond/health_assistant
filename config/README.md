@@ -1,6 +1,6 @@
 # Configuration Files
 
-This directory contains configuration templates for local development and legacy Power Automate integration.
+This directory contains configuration templates for local development.
 Only example/template files are committed; generated or user-specific configs stay local.
 
 ## physiometrics.json
@@ -27,46 +27,6 @@ Create your local file from the example and do not commit it.
 
 - **ftp_watts**: Functional Threshold Power in watts
 - **zones**: Zone definitions with percentage boundaries (relative to FTP)
-
-## onedrive_power_automate_legacy.json (Legacy)
-
-The `onedrive_power_automate_legacy.json` file is an importable Power Automate cloud flow definition for legacy OneDrive FIT file monitoring and ingestion. Power Automate does not work with OneDrive Personal in this setup.
-
-### Flow Definition
-
-See `onedrive_power_automate_legacy.json.example` for the complete flow definition.
-Create the JSON and any import zip locally when needed; do not commit them.
-
-### Flow Components
-
-- **Trigger**: OneDrive "file created (properties only)" on `/Apps/HealthFit` folder
-- **Actions**:
-  1. Get file content from OneDrive
-  2. Convert file content to base64
-  3. POST to Azure Function `process_fit` endpoint with metadata and file payload
-
-If you use **OneDrive Personal**, swap the connector to the OneDrive (personal) actions when importing.
-
-### Setup
-
-1. Copy the example file:
-
-   ```bash
-   cp config/onedrive_power_automate_legacy.json.example config/onedrive_power_automate_legacy.json
-   ```
-
-2. Edit `config/onedrive_power_automate_legacy.json` and replace placeholders:
-   - `<FUNCTION_APP>` → Your Azure Function App name
-   - `<FUNCTION_KEY>` → Your function key (from Azure portal)
-   - `<ONEDRIVE_CONNECTION_ID>` → Your OneDrive connection ID
-   - `"athlete_id": "rob"` → Your athlete identifier
-
-3. Import to Power Automate:
-   - Create a zip file containing the JSON (locally, do not commit)
-   - Go to Power Automate → Solutions → Import
-   - Upload and rebind the OneDrive connection
-
-See [POWER_AUTOMATE_SETUP.md](../POWER_AUTOMATE_SETUP.md) for current OneDrive OAuth sync instructions.
 
 ## Configuration Precedence
 
@@ -108,16 +68,4 @@ The Config system loads values in this order of precedence:
 
 3. The Config class will automatically load it at runtime
 
-### Power Automate Flow (Legacy)
-
-If you still use the legacy flow definition:
-
-1. Copy `onedrive_power_automate_legacy.json.example` to `onedrive_power_automate_legacy.json`:
-
-   ```bash
-   cp config/onedrive_power_automate_legacy.json.example config/onedrive_power_automate_legacy.json
-   ```
-
-2. Edit with your Azure Function details and athlete ID
-
-3. Import to Power Automate (see [POWER_AUTOMATE_SETUP.md](../POWER_AUTOMATE_SETUP.md))
+See [BACKENDS.md](../BACKENDS.md#healthfit-onedrive-integration) for OneDrive OAuth sync instructions.

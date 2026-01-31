@@ -12,6 +12,114 @@ The Health Assistant supports multiple backend integrations to automatically col
 | **Withings**             | ✅ Production  | Body composition, weight     | OAuth 2.0 + Webhooks   |
 | **Garmin**               | 🔜 Planned     | Workout files, physiometrics | OAuth (via garth)      |
 
+## HealthFit (OneDrive) Integration
+
+### Overview
+
+The OneDrive backend ingests HealthFit FIT exports stored in OneDrive Personal using delegated OAuth. It is a passive backend (no Power Automate): the function app pulls files on a timer or via an HTTP trigger.
+
+**Data Flow:**
+
+```text
+OneDrive Personal (/Apps/HealthFit)
+    ↓
+OAuth 2.0 (delegated)
+    ↓
+Azure Function (Timer + HTTP sync via Microsoft Graph)
+    ↓
+FIT Parser → Metrics → Azure Table Storage
+```
+
+### Prerequisites
+
+- OneDrive Personal account
+- HealthFit exports stored in `/Apps/HealthFit` (or your chosen folder)
+- Azure Function deployed with the OneDrive endpoints
+
+### Setup & Configuration
+
+#### 1. Create Microsoft App Registration
+
+1. Azure Portal → App registrations → New registration
+2. Supported account types: **Accounts in any organizational directory and personal Microsoft accounts**
+3. Redirect URI (web): `https://<FUNCTION_APP>.azurewebsites.net/api/onedrive/callback`
+4. Create a **client secret**
+
+Record the **Client ID** and **Client Secret**.
+
+#### 2. Configure Environment Variables
+
+Set these in your Function App configuration:
+
+```bash
+ONEDRIVE_CLIENT_ID=your_client_id_here
+ONEDRIVE_CLIENT_SECRET=your_client_secret_here
+ONEDRIVE_REDIRECT_URI=https://<FUNCTION_APP>.azurewebsites.net/api/onedrive/callback
+ONEDRIVE_SCOPES="Files.ReadWrite offline_access"
+ONEDRIVE_FOLDER_PATH=/Apps/HealthFit
+ONEDRIVE_SYNC_LOOKBACK_DAYS=30
+```
+
+#### 3. Authorize OneDrive
+
+Generate an authorization URL:
+
+```bash
+curl "https://<FUNCTION_APP>.azurewebsites.net/api/onedrive/authorize?athlete_id=rob&code=<FUNCTION_KEY>"
+```
+
+Open the returned `authorization_url` in a browser and sign in. On success, the callback stores refresh tokens in `OneDriveTokens`.
+
+#### 4. Run Sync
+
+Manual sync (HTTP):
+
+```bash
+curl -X POST "https://<FUNCTION_APP>.azurewebsites.net/api/onedrive/sync?code=<FUNCTION_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{"days": 30, "athlete_id": "rob"}'
+```
+
+Automatic sync (Timer):
+
+- Runs hourly
+- Uses `ONEDRIVE_SYNC_LOOKBACK_DAYS` by default
+
+### API Endpoints
+
+#### GET /api/onedrive/authorize
+
+Generates an OAuth authorization URL for a specific athlete.
+
+#### GET /api/onedrive/callback
+
+OAuth callback endpoint that exchanges the auth code and stores tokens.
+
+#### POST /api/onedrive/sync
+
+Runs a one-time sync of recent files. Accepts JSON body:
+
+```json
+{"days": 30, "athlete_id": "rob"}
+```
+
+### Implementation Files
+
+| File | Purpose |
+| --- | --- |
+| [onedrive_client.py](FitParser/onedrive_client.py) | Microsoft Graph OAuth + API calls |
+| [onedrive_sync.py](FitParser/onedrive_sync.py) | OAuth + sync service |
+| [function_app.py](function_app.py) | HTTP endpoints + timer trigger |
+| [table_storage.py](FitParser/table_storage.py) | Token storage + ingestion state |
+
+### Troubleshooting
+
+| Issue | Likely Cause | Fix |
+| --- | --- | --- |
+| Authorization failed | Invalid client ID/secret/redirect URI | Verify app registration values |
+| No tokens stored | Callback not completed | Complete authorize → callback flow |
+| No files found | Wrong folder path | Verify `ONEDRIVE_FOLDER_PATH` and file location |
+
 ## Withings Integration
 
 ### Withings Overview

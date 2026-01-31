@@ -8,30 +8,32 @@ Azure Function for parsing HealthFit FIT files from OneDrive Personal (delegated
 
 | Role | Start Here |
 | --- | --- |
-| **⚡ First time?** | [Architecture Overview](#architecture) below |
-| **🚀 Deploying?** | [DEPLOYMENT.md](./DEPLOYMENT.md) (30 min) |
-| **📊 Setting up dashboards?** | [MONITORING.md](./MONITORING.md) → Power BI section |
-| **🔌 Building integrations?** | [SEMANTIC_LAYER_API.md](./SEMANTIC_LAYER_API.md) |
-| **� Configuring backends?** | [BACKENDS.md](./BACKENDS.md) → Withings, Garmin |
-| **�📐 Understanding the data model?** | [WORKOUT_SCHEMA.md](./WORKOUT_SCHEMA.md) |
-| **🎯 Design philosophy?** | [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./WORKOUT_INTELLIGENCE_AGENT_VISION.md) |
-| **⚙️ OneDrive setup?** | [POWER_AUTOMATE_SETUP.md](./POWER_AUTOMATE_SETUP.md) |
+| **First time?** | [Architecture Overview](#architecture) below |
+| **Deploying?** | [DEPLOYMENT.md](./DEPLOYMENT.md) (30 min) |
+| **Setting up dashboards?** | [MONITORING.md](./MONITORING.md) → Power BI section |
+| **Building integrations?** | [SEMANTIC_LAYER_API.md](./SEMANTIC_LAYER_API.md) |
+| **Configuring backends?** | [BACKENDS.md](./BACKENDS.md) → OneDrive, Withings, Garmin |
+| **Understanding the data model?** | [WORKOUT_SCHEMA.md](./WORKOUT_SCHEMA.md) |
+| **Design philosophy?** | [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./WORKOUT_INTELLIGENCE_AGENT_VISION.md) |
 
 ## Architecture
 
 ```text
-OneDrive Personal (/Apps/HealthFit)
+Backends
+├── OneDrive Personal (/Apps/HealthFit)
+└── Withings
     ↓
-Azure Function (Timer + HTTP sync via Microsoft Graph)
+Azure Function (Timer + HTTP sync via Microsoft Graph, webhook ingestion)
     ↓
-FIT Parser (fitparse library)
+FIT Parser (fitparse library) + Physiometrics ingest
     ↓
 Zone Computation & Metrics
     ↓
 Azure Table Storage
     ├── Workouts (100+ fields per session)
     ├── WeeklyRollups (aggregated data)
-    └── IngestionState (idempotency tracking)
+    ├── IngestionState (idempotency tracking)
+    └── Physiometrics (body metrics)
     ↓
 Semantic Layer API (14 endpoints for ChatGPT)
     ↓
@@ -43,8 +45,8 @@ Read Interfaces
 
 ### Data Flow
 
-- **Trigger**: Timer + HTTP sync against OneDrive (Microsoft Graph delegated)
-- **Input**: Base64-encoded FIT file + metadata in JSON payload
+- **Trigger**: Timer + HTTP sync against OneDrive; webhook ingestion for Withings
+- **Input**: Base64-encoded FIT file + metadata in JSON payload; physiometrics payloads from Withings
 - **Processing**: FIT parsing → metric extraction → zone computation
 - **Output**: Azure Tables (Workouts, WeeklyRollups, IngestionState)
 - **Read Layer**: Semantic API endpoints for planning, workout queries, analysis
@@ -71,7 +73,7 @@ Optional:
 - ONEDRIVE_FOLDER_PATH: OneDrive folder path (default: '/Apps/HealthFit')
 - ONEDRIVE_SYNC_LOOKBACK_DAYS: Default lookback window (days, default: 30)
 
-See `POWER_AUTOMATE_SETUP.md` for the OneDrive Personal OAuth + sync setup.
+See `BACKENDS.md` for OneDrive Personal OAuth + sync setup.
 
 ## Project Structure
 
@@ -100,7 +102,7 @@ health_assistant/
 │   └── data/                  # Real FIT workout files
 ├── DEPLOYMENT.md              # Azure deployment
 ├── MONITORING.md              # Power BI + Application Insights
-├── POWER_AUTOMATE_SETUP.md    # OneDrive Personal OAuth + sync setup
+├── BACKENDS.md                # Backend integrations (OneDrive, Withings, Garmin)
 ├── SEMANTIC_LAYER_API.md      # API reference (14 endpoints)
 ├── WORKOUT_SCHEMA.md          # Complete data schema
 └── WORKOUT_INTELLIGENCE_AGENT_VISION.md  # Design principles
@@ -190,7 +192,7 @@ func azure functionapp publish <FUNCTION_APP_NAME>
 
 ## Integration with OneDrive (Personal)
 
-Use the OAuth flow to connect OneDrive, then run the timer/HTTP sync:
+Use the OAuth flow to connect OneDrive, then run the timer/HTTP sync. Full setup details live in `BACKENDS.md`:
 
 1. Authorize: `GET /api/onedrive/authorize?athlete_id=rob`
 2. Complete the browser sign-in to store tokens
