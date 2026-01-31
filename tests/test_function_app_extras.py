@@ -1,5 +1,8 @@
 """Additional coverage for function_app helpers and endpoints."""
 
+# pyright: reportPrivateUsage=false, reportPrivateImportUsage=false
+# pylint: disable=line-too-long,protected-access,missing-function-docstring,missing-class-docstring
+
 import base64
 import json
 from unittest.mock import MagicMock, patch
@@ -10,7 +13,7 @@ import azure.functions as func
 import function_app
 
 
-class TestPublicBaseUrl:
+class TestPublicBaseUrlHelper:
     def test_public_base_url_env_override(self, monkeypatch):
         monkeypatch.setenv(function_app.ENV_PUBLIC_BASE_URL, "https://example.com/base/")
         req = MagicMock(spec=func.HttpRequest)
@@ -24,7 +27,7 @@ class TestPublicBaseUrl:
         assert function_app._public_base_url(req) == "https://api.example.com"
 
 
-class TestDocsEndpoints:
+class TestDocsAssetEndpoints:
     def test_serve_ai_plugin_manifest_populates_urls(self, monkeypatch):
         manifest = {
             "schema_version": "v1",
@@ -64,7 +67,7 @@ class TestDocsEndpoints:
         assert "health-assistant.azurewebsites.net" not in body
 
 
-class TestPhysiometricsEndpoints:
+class TestPhysiometricsEndpointHandlers:
     def test_get_current_physiometrics_requires_athlete(self):
         req = MagicMock(spec=func.HttpRequest)
         req.params = {}
@@ -152,7 +155,7 @@ class TestPhysiometricsEndpoints:
         assert response.status_code == 400
 
 
-class TestWithingsEndpoints:
+class TestWithingsEndpointHandlers:
     def test_withings_authorize_requires_athlete(self):
         req = MagicMock(spec=func.HttpRequest)
         req.params = {}
@@ -242,7 +245,7 @@ class TestWithingsEndpoints:
         assert response.status_code == 200
 
 
-class TestIngestionHelpers:
+class TestIngestionHelpersAndFlow:
     def test_decode_fit_file_content_invalid_base64(self):
         with pytest.raises(ValueError):
             function_app._decode_fit_file_content("not-base64")
@@ -298,7 +301,7 @@ class TestIngestionHelpers:
         mock_storage.record_ingestion_state.assert_called_once()
 
 
-class TestICloudHelpers:
+class TestICloudHelpersAndEndpoints:
     def test_icloud_default_lookback_invalid(self, monkeypatch):
         monkeypatch.setenv(function_app.ICLOUD_SYNC_LOOKBACK_DAYS, "invalid")
         assert function_app._icloud_default_lookback_days() == 30
