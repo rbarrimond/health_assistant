@@ -68,7 +68,7 @@ Generate an authorization URL:
 curl "https://<FUNCTION_APP>.azurewebsites.net/api/onedrive/authorize?athlete_id=rob&code=<FUNCTION_KEY>"
 ```
 
-Open the returned `authorization_url` in a browser and sign in. On success, the callback stores refresh tokens in `OneDriveTokens`.
+Open the returned `authorization_url` in a browser and sign in. The user grants delegated scopes during this consent step (no pre-grant required in Terraform). On success, the callback stores refresh tokens in `OneDriveTokens`.
 
 #### 4. Run Sync
 
