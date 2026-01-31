@@ -310,7 +310,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/process_fit:
     post:
-      summary: Ingest a FIT file payload from iCloud or other sources
+      summary: Ingest a FIT file payload from OneDrive or other sources
       operationId: processFit
       requestBody:
         required: true
@@ -331,10 +331,51 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/icloud/sync:
+  /api/onedrive/authorize:
+    get:
+      summary: Generate OneDrive OAuth authorization URL
+      operationId: onedriveAuthorize
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+      security:
+        - FunctionKey: []
+      responses:
+        '200':
+          description: Authorization URL payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authorization_url:
+                    type: string
+                  athlete_id:
+                    type: string
+                  state:
+                    type: string
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/onedrive/callback:
+    get:
+      summary: OneDrive OAuth callback
+      operationId: onedriveCallback
+      responses:
+        '200':
+          description: Authorization success
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/onedrive/sync:
     post:
-      summary: Sync HealthFit FIT files from iCloud Drive
-      operationId: icloudSync
+      summary: Sync OneDrive folder and ingest FIT files
+      operationId: onedriveSync
+      security:
+        - FunctionKey: []
       requestBody:
         required: false
         content:
@@ -342,53 +383,17 @@ paths:
             schema:
               type: object
               properties:
+                athlete_id:
+                  type: string
                 days:
                   type: integer
-                  description: Lookback window in days (default 30)
-                  default: 30
-      security:
-        - FunctionKey: []
       responses:
         '200':
-          description: Sync result summary
+          description: Sync results
           content:
             application/json:
               schema:
                 type: object
-                properties:
-                  status:
-                    type: string
-                  lookback_days:
-                    type: integer
-                  folder_path:
-                    type: string
-                  found:
-                    type: integer
-                  ingested:
-                    type: integer
-                  skipped:
-                    type: integer
-                  failed:
-                    type: integer
-                  errors:
-                    type: array
-                    items:
-                      type: string
-                  items:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        name:
-                          type: string
-                        path:
-                          type: string
-                        status:
-                          type: string
-                        message:
-                          type: string
-                        workout_id:
-                          type: string
         '500':
           $ref: '#/components/responses/InternalError'
   /api/planning/context:

@@ -11,6 +11,13 @@ import pytest
 import azure.functions as func
 
 import function_app
+from FitParser.onedrive_sync import (
+    ONEDRIVE_CLIENT_ID,
+    ONEDRIVE_CLIENT_SECRET,
+    ONEDRIVE_REDIRECT_URI,
+    ONEDRIVE_SYNC_LOOKBACK_DAYS,
+    OneDriveSyncConfig,
+)
 
 
 class TestPublicBaseUrlHelper:
@@ -301,23 +308,71 @@ class TestIngestionHelpersAndFlow:
         mock_storage.record_ingestion_state.assert_called_once()
 
 
-class TestICloudHelpersAndEndpoints:
-    def test_icloud_default_lookback_invalid(self, monkeypatch):
-        monkeypatch.setenv(function_app.ICLOUD_SYNC_LOOKBACK_DAYS, "invalid")
-        assert function_app._icloud_default_lookback_days() == 30
+class TestOneDriveHelpersAndEndpoints:
+    def test_onedrive_default_lookback_invalid(self, monkeypatch):
+        monkeypatch.setenv(ONEDRIVE_CLIENT_ID, "client-id")
+        monkeypatch.setenv(ONEDRIVE_CLIENT_SECRET, "client-secret")
+        monkeypatch.setenv(ONEDRIVE_REDIRECT_URI, "https://example.com/callback")
+        monkeypatch.setenv(ONEDRIVE_SYNC_LOOKBACK_DAYS, "invalid")
+        assert OneDriveSyncConfig.from_env().lookback_days == 30
 
-    def test_icloud_default_lookback_minimum(self, monkeypatch):
-        monkeypatch.setenv(function_app.ICLOUD_SYNC_LOOKBACK_DAYS, "0")
-        assert function_app._icloud_default_lookback_days() == 1
+    def test_onedrive_default_lookback_minimum(self, monkeypatch):
+        monkeypatch.setenv(ONEDRIVE_CLIENT_ID, "client-id")
+        monkeypatch.setenv(ONEDRIVE_CLIENT_SECRET, "client-secret")
+        monkeypatch.setenv(ONEDRIVE_REDIRECT_URI, "https://example.com/callback")
+        monkeypatch.setenv(ONEDRIVE_SYNC_LOOKBACK_DAYS, "0")
+        assert OneDriveSyncConfig.from_env().lookback_days == 1
 
-    def test_icloud_sync_http_calls_sync(self):
+    def test_onedrive_sync_http_calls_sync(self):
         req = MagicMock(spec=func.HttpRequest)
         req.method = "POST"
-        req.get_json.return_value = {"days": 7}
+        req.get_json.return_value = {"days": 7, "athlete_id": "rob"}
 
-        with patch("function_app._sync_icloud_folder", return_value={"status": "success"}):
-            response = function_app.icloud_sync_http(req)
+        mock_service = MagicMock()
+        mock_service.config.lookback_days = 30
+        mock_service.sync.return_value = {"status": "success"}
+
+        with patch("function_app._get_onedrive_sync_service", return_value=mock_service):
+            response = function_app.onedrive_sync_http(req)
 
         assert response.status_code == 200
         body = json.loads(response.get_body())
         assert body["status"] == "success"
+        mock_service.sync.assert_called_once_with(athlete_id="rob", lookback_days=7)
+
+    def test_onedrive_authorize_returns_url(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.params = {"athlete_id": "rob"}
+
+        mock_service = MagicMock()
+        mock_service.build_authorize_url.return_value = "https://login.example.com/auth"
+
+        with patch("function_app._get_onedrive_sync_service", return_value=mock_service):
+            response = function_app.onedrive_authorize(req)
+
+        assert response.status_code == 200
+        body = json.loads(response.get_body())
+        assert body["authorization_url"] == "https://login.example.com/auth"
+        assert body["athlete_id"] == "rob"
+
+    def test_onedrive_callback_missing_code(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.params = {"state": "rob:token"}
+
+        response = function_app.onedrive_callback(req)
+
+        assert response.status_code == 400
+
+    def test_onedrive_callback_success(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.params = {"code": "auth-code", "state": "rob:token"}
+
+        mock_service = MagicMock()
+
+        with patch("function_app._get_onedrive_sync_service", return_value=mock_service):
+            response = function_app.onedrive_callback(req)
+
+        assert response.status_code == 200
+        mock_service.complete_authorization.assert_called_once_with(
+            athlete_id="rob", code="auth-code"
+        )

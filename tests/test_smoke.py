@@ -11,7 +11,7 @@ from typing import Any, cast
 import pytest
 
 from FitParser.fit_parser import compute_file_hash
-from function_app import parse_onedrive_payload
+from function_app import parse_ingest_payload
 
 
 def test_fit_parser_imports() -> None:
@@ -30,7 +30,7 @@ def test_function_app_importable() -> None:
     """function_app should import when azure.functions is available."""
     pytest.importorskip("azure.functions")
     mod = importlib.import_module("function_app")
-    assert hasattr(mod, "parse_onedrive_payload")
+    assert hasattr(mod, "parse_ingest_payload")
 
 
 def test_compute_file_hash(tmp_path: Path) -> None:
@@ -59,8 +59,8 @@ def test_payload_structure() -> None:
     assert required_fields.issubset(example_payload.keys())
 
 
-def test_parse_onedrive_payload_happy_path() -> None:
-    """parse_onedrive_payload should accept a minimal valid request."""
+def test_parse_ingest_payload_happy_path() -> None:
+    """parse_ingest_payload should accept a minimal valid request."""
     pytest.importorskip("azure.functions")
 
     body = {
@@ -75,7 +75,7 @@ def test_parse_onedrive_payload_happy_path() -> None:
             """Return the request body payload for parsing."""
             return body
 
-    parsed = parse_onedrive_payload(cast(Any, DummyReq()))
+    parsed = parse_ingest_payload(cast(Any, DummyReq()))
     assert parsed["athlete_id"] == "rob"
     assert parsed["source_file_name"] == "file.fit"
     assert isinstance(parsed["file_content_b64"], str)
