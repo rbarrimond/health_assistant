@@ -267,7 +267,7 @@ def _maybe_decode_gzip(file_name: str, content: bytes) -> tuple[str, bytes]:
 
 def _parse_workout_date(file_name: str) -> date | None:
     """Extract a YYYY-MM-DD date from the filename, if present."""
-    match = re.search(r"(\\d{4})-(\\d{2})-(\\d{2})", file_name)
+    match = re.search(r"(\d{4})-(\d{2})-(\d{2})", file_name)
     if not match:
         return None
     try:
@@ -302,6 +302,7 @@ def _is_within_lookback(item: Dict, cutoff_date: date, cutoff_dt: datetime) -> b
         )
         return keep
 
+    logger.debug("OneDrive lookback (filename): no date found in %s", name)
     modified_dt = _parse_modified_datetime(item)
     if modified_dt is not None:
         keep = modified_dt >= cutoff_dt
