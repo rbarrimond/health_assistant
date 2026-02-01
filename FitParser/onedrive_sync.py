@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import base64
+import logging
 import os
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+import re
 from typing import Callable, Dict
 
 from .onedrive_client import OneDriveGraphClient
 from .table_storage import WorkoutTableStorage
 
+
+logger = logging.getLogger(__name__)
 
 ONEDRIVE_CLIENT_ID = "ONEDRIVE_CLIENT_ID"
 ONEDRIVE_CLIENT_SECRET = "ONEDRIVE_CLIENT_SECRET"
@@ -101,11 +105,24 @@ class OneDrivePersonalSyncService:
     def sync(self, *, athlete_id: str, lookback_days: int) -> Dict:
         access_token = self._get_access_token(athlete_id)
         cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+        cutoff_date = cutoff.date()
         files = self._client.list_files(
             access_token=access_token,
             folder_path=self._config.folder_path,
-            modified_since=cutoff,
+            modified_since=None,
             extensions={".fit", ".fit.gz"},
+        )
+        pre_filter_count = len(files)
+        files = [
+            item for item in files
+            if _is_within_lookback(item, cutoff_date, cutoff)
+        ]
+        logger.info(
+            "OneDrive filename/date filter: %s/%s within lookback_days=%s (cutoff=%s)",
+            len(files),
+            pre_filter_count,
+            lookback_days,
+            cutoff_date.isoformat(),
         )
 
         results = {
@@ -234,3 +251,53 @@ def _maybe_decode_gzip(file_name: str, content: bytes) -> tuple[str, bytes]:
             raise ValueError(
                 f"Failed to decompress {file_name}: {exc}") from exc
     return file_name, content
+
+
+def _parse_workout_date(file_name: str) -> date | None:
+    match = re.search(r"(\\d{4})-(\\d{2})-(\\d{2})", file_name)
+    if not match:
+        return None
+    try:
+        return date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+    except ValueError:
+        return None
+
+
+def _parse_modified_datetime(item: Dict) -> datetime | None:
+    raw = item.get("lastModifiedDateTime")
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def _is_within_lookback(item: Dict, cutoff_date: date, cutoff_dt: datetime) -> bool:
+    name = item.get("name", "")
+    workout_date = _parse_workout_date(name)
+    if workout_date is not None:
+        keep = workout_date >= cutoff_date
+        logger.debug(
+            "OneDrive lookback (filename): %s date=%s cutoff=%s keep=%s",
+            name,
+            workout_date.isoformat(),
+            cutoff_date.isoformat(),
+            keep,
+        )
+        return keep
+
+    modified_dt = _parse_modified_datetime(item)
+    if modified_dt is not None:
+        keep = modified_dt >= cutoff_dt
+        logger.debug(
+            "OneDrive lookback (modified): %s modified=%s cutoff=%s keep=%s",
+            name,
+            modified_dt.isoformat(),
+            cutoff_dt.isoformat(),
+            keep,
+        )
+        return keep
+
+    logger.debug("OneDrive lookback (fallback): %s keep=True", name)
+    return True

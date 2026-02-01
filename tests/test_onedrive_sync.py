@@ -1,10 +1,14 @@
 """Unit tests for OneDrive sync service."""
 
+# pylint: disable=missing-function-docstring,missing-class-docstring,unused-argument,protected-access,line-too-long
+
 import base64
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
+
+from FitParser import onedrive_sync
 
 from FitParser.onedrive_sync import OneDrivePersonalSyncService, OneDriveSyncConfig
 
@@ -84,6 +88,90 @@ def test_sync_uses_ingest_payload(monkeypatch):
     assert len(payload_calls) == 1
     assert payload_calls[0]["source_file_name"] == "test.fit"
     assert base64.b64decode(payload_calls[0]["file_content_b64"]) == b"fit-bytes"
+
+
+def test_sync_filters_by_filename_date(monkeypatch):
+    storage = MagicMock()
+    future = datetime(2026, 2, 1, tzinfo=timezone.utc) + timedelta(hours=2)
+    tokens = {
+        "access_token": "access",
+        "refresh_token": "refresh",
+        "expires_at_utc": future.isoformat().replace("+00:00", "Z"),
+        "drive_id": "drive-id",
+    }
+    storage.get_onedrive_tokens.return_value = tokens
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 2, 1, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(onedrive_sync, "datetime", FixedDateTime)
+
+    service = OneDrivePersonalSyncService(_config(), storage, ingest_payload_fn=lambda _: ({"status": "success"}, 200))
+
+    service._client.list_files = MagicMock(return_value=[{
+        "id": "recent",
+        "name": "2026-01-15-ride.fit",
+        "size": 10,
+        "eTag": "etag",
+        "parentReference": {"path": "/drive/root:/Apps/HealthFit", "driveId": "drive-id"},
+        "lastModifiedDateTime": "2026-01-31T12:00:00Z",
+    }, {
+        "id": "old",
+        "name": "2025-12-01-run.fit",
+        "size": 10,
+        "eTag": "etag",
+        "parentReference": {"path": "/drive/root:/Apps/HealthFit", "driveId": "drive-id"},
+        "lastModifiedDateTime": "2026-01-31T12:00:00Z",
+    }])  # type: ignore[attr-defined]
+    service._client.download_file = MagicMock(return_value=b"fit-bytes")  # type: ignore[attr-defined]
+
+    result = service.sync(athlete_id="rob", lookback_days=30)
+
+    assert result["found"] == 1
+    assert result["ingested"] == 1
+    service._client.list_files.assert_called_once()
+    _, kwargs = service._client.list_files.call_args
+    assert kwargs["modified_since"] is None
+    service._client.download_file.assert_called_once_with(access_token="access", item_id="recent")
+
+
+def test_sync_falls_back_to_modified_date(monkeypatch):
+    storage = MagicMock()
+    future = datetime(2026, 2, 1, tzinfo=timezone.utc) + timedelta(hours=2)
+    tokens = {
+        "access_token": "access",
+        "refresh_token": "refresh",
+        "expires_at_utc": future.isoformat().replace("+00:00", "Z"),
+        "drive_id": "drive-id",
+    }
+    storage.get_onedrive_tokens.return_value = tokens
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 2, 1, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(onedrive_sync, "datetime", FixedDateTime)
+
+    service = OneDrivePersonalSyncService(_config(), storage, ingest_payload_fn=lambda _: ({"status": "success"}, 200))
+
+    service._client.list_files = MagicMock(return_value=[{
+        "id": "unknown",
+        "name": "workout.fit",
+        "size": 10,
+        "eTag": "etag",
+        "parentReference": {"path": "/drive/root:/Apps/HealthFit", "driveId": "drive-id"},
+        "lastModifiedDateTime": "2025-12-01T12:00:00Z",
+    }])  # type: ignore[attr-defined]
+    service._client.download_file = MagicMock(return_value=b"fit-bytes")  # type: ignore[attr-defined]
+
+    result = service.sync(athlete_id="rob", lookback_days=30)
+
+    assert result["found"] == 0
+    assert result["ingested"] == 0
+    service._client.download_file.assert_not_called()
 
 
 def test_sync_skips_when_no_tokens():

@@ -87,6 +87,8 @@ Automatic sync (Timer):
 - Runs hourly
 - Uses `ONEDRIVE_SYNC_LOOKBACK_DAYS` by default
 
+Lookback filtering uses the workout date parsed from the filename (YYYY-MM-DD) when available. If no date is found, it falls back to OneDrive `lastModifiedDateTime`.
+
 ### OneDrive API Endpoints
 
 #### GET /api/onedrive/authorize
