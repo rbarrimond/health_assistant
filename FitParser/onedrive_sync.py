@@ -26,6 +26,7 @@ ONEDRIVE_SYNC_LOOKBACK_DAYS = "ONEDRIVE_SYNC_LOOKBACK_DAYS"
 
 @dataclass(frozen=True)
 class OneDriveSyncConfig:
+    """Configuration for OneDrive Personal sync (OAuth + folder + lookback)."""
     client_id: str
     client_secret: str
     redirect_uri: str
@@ -35,6 +36,7 @@ class OneDriveSyncConfig:
 
     @classmethod
     def from_env(cls) -> "OneDriveSyncConfig":
+        """Build OneDrive sync config from environment variables."""
         client_id = os.getenv(ONEDRIVE_CLIENT_ID)
         client_secret = os.getenv(ONEDRIVE_CLIENT_SECRET)
         redirect_uri = os.getenv(ONEDRIVE_REDIRECT_URI)
@@ -87,9 +89,11 @@ class OneDrivePersonalSyncService:
         return self._config
 
     def build_authorize_url(self, *, state: str) -> str:
+        """Build the OAuth authorization URL for OneDrive."""
         return self._client.build_authorize_url(state=state)
 
     def complete_authorization(self, *, athlete_id: str, code: str) -> Dict:
+        """Exchange OAuth code, store tokens, and return token payload."""
         token_data = self._client.exchange_code(code)
         drive_id = self._client.get_drive_id(token_data["access_token"])
         self._storage.store_onedrive_tokens(
@@ -103,6 +107,7 @@ class OneDrivePersonalSyncService:
         return token_data
 
     def sync(self, *, athlete_id: str, lookback_days: int) -> Dict:
+        """Sync OneDrive folder and ingest qualifying FIT files."""
         access_token = self._get_access_token(athlete_id)
         cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
         cutoff_date = cutoff.date()
@@ -184,12 +189,14 @@ class OneDrivePersonalSyncService:
         return results
 
     def _get_tokens(self, athlete_id: str) -> Dict:
+        """Load stored OneDrive tokens for the athlete."""
         tokens = self._storage.get_onedrive_tokens(athlete_id)
         if not tokens:
             raise ValueError("No OneDrive tokens stored. Authorize first.")
         return tokens
 
     def _refresh_tokens(self, athlete_id: str, refresh_token: str) -> Dict:
+        """Refresh access token and persist updated token values."""
         token_data = self._client.refresh_access_token(refresh_token)
         self._storage.refresh_onedrive_token(
             athlete_id=athlete_id,
@@ -201,6 +208,7 @@ class OneDrivePersonalSyncService:
         return token_data
 
     def _get_access_token(self, athlete_id: str) -> str:
+        """Return a valid access token, refreshing if near expiry."""
         tokens = self._get_tokens(athlete_id)
         expires_at = tokens.get("expires_at_utc")
         if expires_at:
@@ -226,6 +234,7 @@ def _build_source_payload(
     file_size_bytes: int | None,
     source_etag: str | None,
 ) -> Dict:
+    """Build the ingestion payload from a OneDrive file."""
     payload = {
         "athlete_id": athlete_id,
         "source_item_id": source_item_id,
@@ -243,6 +252,7 @@ def _build_source_payload(
 
 
 def _maybe_decode_gzip(file_name: str, content: bytes) -> tuple[str, bytes]:
+    """Decode gzip content when the filename ends with .gz."""
     if file_name.lower().endswith(".gz"):
         try:
             import gzip
@@ -254,6 +264,7 @@ def _maybe_decode_gzip(file_name: str, content: bytes) -> tuple[str, bytes]:
 
 
 def _parse_workout_date(file_name: str) -> date | None:
+    """Extract a YYYY-MM-DD date from the filename, if present."""
     match = re.search(r"(\\d{4})-(\\d{2})-(\\d{2})", file_name)
     if not match:
         return None
@@ -264,6 +275,7 @@ def _parse_workout_date(file_name: str) -> date | None:
 
 
 def _parse_modified_datetime(item: Dict) -> datetime | None:
+    """Parse OneDrive lastModifiedDateTime into a timezone-aware datetime."""
     raw = item.get("lastModifiedDateTime")
     if not raw:
         return None
@@ -274,6 +286,7 @@ def _parse_modified_datetime(item: Dict) -> datetime | None:
 
 
 def _is_within_lookback(item: Dict, cutoff_date: date, cutoff_dt: datetime) -> bool:
+    """Determine whether a OneDrive item is within the lookback window."""
     name = item.get("name", "")
     workout_date = _parse_workout_date(name)
     if workout_date is not None:
