@@ -71,6 +71,7 @@ class WorkoutTableStorage:
             "IngestionState",
             "Physiometrics",
             "WithingsTokens",
+            "OneDriveTokens",
             "WebhookDeduplication",
         ]
         for table_name in table_names:
