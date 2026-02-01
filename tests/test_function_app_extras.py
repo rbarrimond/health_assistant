@@ -326,7 +326,8 @@ class TestOneDriveHelpersAndEndpoints:
     def test_onedrive_sync_http_calls_sync(self):
         req = MagicMock(spec=func.HttpRequest)
         req.method = "POST"
-        req.get_json.return_value = {"days": 7, "athlete_id": "rob"}
+        req.get_json.return_value = {"days": 7, "athlete_id": "rob", "async": False}
+        req.params = {}
 
         mock_service = MagicMock()
         mock_service.config.lookback_days = 30
@@ -339,6 +340,43 @@ class TestOneDriveHelpersAndEndpoints:
         body = json.loads(response.get_body())
         assert body["status"] == "success"
         mock_service.sync.assert_called_once_with(athlete_id="rob", lookback_days=7)
+
+    def test_onedrive_sync_http_defaults_async(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {"days": 7, "athlete_id": "rob"}
+        req.params = {}
+
+        mock_service = MagicMock()
+        mock_service.config.lookback_days = 30
+
+        with patch("function_app._get_onedrive_sync_service", return_value=mock_service):
+            with patch("function_app.threading.Thread") as mock_thread:
+                response = function_app.onedrive_sync_http(req)
+
+        assert response.status_code == 202
+        body = json.loads(response.get_body())
+        assert body["status"] == "queued"
+        assert body["athlete_id"] == "rob"
+        assert body["lookback_days"] == 7
+        mock_thread.assert_called_once()
+        mock_thread.return_value.start.assert_called_once()
+
+    def test_onedrive_sync_http_async_query_param(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {"days": 7, "athlete_id": "rob"}
+        req.params = {"async": "true"}
+
+        mock_service = MagicMock()
+        mock_service.config.lookback_days = 30
+
+        with patch("function_app._get_onedrive_sync_service", return_value=mock_service):
+            with patch("function_app.threading.Thread") as mock_thread:
+                response = function_app.onedrive_sync_http(req)
+
+        assert response.status_code == 202
+        mock_thread.return_value.start.assert_called_once()
 
     def test_onedrive_authorize_returns_url(self):
         req = MagicMock(spec=func.HttpRequest)
