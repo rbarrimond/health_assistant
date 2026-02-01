@@ -249,6 +249,26 @@
             "description": "Reload config from physiometrics.json"
           },
           "response": []
+        },
+        {
+          "name": "GET /.well-known/ai-plugin.json",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/.well-known/ai-plugin.json",
+            "description": "Plugin manifest (local)."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /openapi.yaml",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/openapi.yaml",
+            "description": "OpenAPI spec (local)."
+          },
+          "response": []
         }
       ],
       "description": "Configuration management endpoints"
@@ -367,6 +387,16 @@
             "header": [],
             "url": "{{base_url}}/api/onedrive/authorize?athlete_id={{athlete_id}}&code={{function_key}}",
             "description": "Generate OneDrive authorization URL (function key required). Open the returned authorization_url in a browser to consent."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /onedrive/callback",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/onedrive/callback?code=sample-code&state=test-state",
+            "description": "Simulated OneDrive callback page to verify wiring."
           },
           "response": []
         },
