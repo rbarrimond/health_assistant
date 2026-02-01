@@ -1097,7 +1097,7 @@ def onedrive_authorize(req: func.HttpRequest) -> func.HttpResponse:
     )
 
 
-@app.route(route="onedrive/callback", methods=["GET"])
+@app.route(route="onedrive/callback", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 def onedrive_callback(req: func.HttpRequest) -> func.HttpResponse:
     """OAuth callback endpoint for OneDrive authorization."""
     code = req.params.get("code")
