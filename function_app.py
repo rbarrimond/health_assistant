@@ -441,7 +441,7 @@ def withings_authorize(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-@app.route(route="withings/callback", methods=["GET"])
+@app.route(route="withings/callback", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 def withings_callback(req: func.HttpRequest) -> func.HttpResponse:
     """
     Handle Withings OAuth callback.
