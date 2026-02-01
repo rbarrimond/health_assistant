@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import secrets
+import threading
 import tempfile
 from datetime import datetime, timezone
 from typing import Dict
@@ -1141,6 +1142,13 @@ def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     except ValueError:
         req_body = {}
 
+    async_flag = req.params.get("async")
+    async_flag = async_flag or (req_body.get("async") if isinstance(req_body, dict) else None)
+    if async_flag is None:
+        async_flag = True
+    else:
+        async_flag = str(async_flag).lower() in {"1", "true", "yes", "y"}
+
     athlete_id = req_body.get("athlete_id") if isinstance(
         req_body, dict) else None
     athlete_id = athlete_id or os.getenv("DEFAULT_ATHLETE_ID", "rob")
@@ -1153,6 +1161,29 @@ def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
             lookback_days) if lookback_days is not None else service.config.lookback_days
     except ValueError:
         lookback_days = service.config.lookback_days
+
+    if async_flag:
+        def _run_sync() -> None:
+            try:
+                result = service.sync(
+                    athlete_id=athlete_id, lookback_days=lookback_days)
+                logger.info("OneDrive async sync result: %s", result)
+            except (ValueError, OneDriveGraphError) as exc:
+                logger.error("OneDrive async sync failed: %s", exc, exc_info=True)
+
+        threading.Thread(target=_run_sync, daemon=True).start()
+        return func.HttpResponse(
+            json.dumps({
+                "status": "queued",
+                "athlete_id": athlete_id,
+                "lookback_days": lookback_days,
+                "folder_path": service.config.folder_path,
+                "mode": "async",
+                "queued_at_utc": datetime.now(timezone.utc).isoformat()
+            }),
+            status_code=202,
+            mimetype=JSON_CONTENT_TYPE
+        )
 
     try:
         result = service.sync(athlete_id=athlete_id,

@@ -77,8 +77,10 @@ Manual sync (HTTP):
 ```bash
 curl -X POST "https://<FUNCTION_APP>.azurewebsites.net/api/onedrive/sync?code=<FUNCTION_KEY>" \
   -H "Content-Type: application/json" \
-  -d '{"days": 30, "athlete_id": "rob"}'
+  -d '{"days": 30, "athlete_id": "rob", "async": true}'
 ```
+
+By default the endpoint runs asynchronously and returns a 202 digest. Set `async=false` to block and wait for results.
 
 Automatic sync (Timer):
 

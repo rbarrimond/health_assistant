@@ -376,6 +376,13 @@ paths:
       operationId: onedriveSync
       security:
         - FunctionKey: []
+      parameters:
+        - name: async
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: When true (default), run sync asynchronously and return 202.
       requestBody:
         required: false
         content:
@@ -387,7 +394,28 @@ paths:
                   type: string
                 days:
                   type: integer
+                async:
+                  type: boolean
       responses:
+        '202':
+          description: Sync queued (async)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  athlete_id:
+                    type: string
+                  lookback_days:
+                    type: integer
+                  folder_path:
+                    type: string
+                  mode:
+                    type: string
+                  queued_at_utc:
+                    type: string
         '200':
           description: Sync results
           content:

@@ -196,4 +196,4 @@ Use the OAuth flow to connect OneDrive, then run the timer/HTTP sync. Full setup
 
 1. Authorize: `GET /api/onedrive/authorize?athlete_id=rob`
 2. Complete the browser sign-in to store tokens
-3. Run sync via timer or `POST /api/onedrive/sync`
+3. Run sync via timer or `POST /api/onedrive/sync` (defaults to async; set `async=false` to block)

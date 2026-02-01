@@ -167,7 +167,7 @@ See [BACKENDS.md](./BACKENDS.md#healthfit-onedrive-integration) for detailed OAu
 1. Register the OneDrive app and set redirect URI
 2. Set ONEDRIVE_* app settings above
 3. Authorize: `GET /api/onedrive/authorize?athlete_id=rob`
-4. Run `POST /api/onedrive/sync` or wait for the hourly timer
+4. Run `POST /api/onedrive/sync` (defaults to async; set `async=false` to block) or wait for the hourly timer
 
 ## Step 6: Monitor and Test
 
@@ -195,7 +195,7 @@ az functionapp app-insights-enable \
 ```bash
 curl -X POST "https://$FUNCTION_APP.azurewebsites.net/api/onedrive/sync?code=$FUNCTION_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"days": 30, "athlete_id": "rob"}'
+  -d '{"days": 30, "athlete_id": "rob", "async": true}'
 ```
 
 ### Verify Data in Table Storage
