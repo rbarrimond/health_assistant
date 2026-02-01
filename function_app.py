@@ -1145,7 +1145,7 @@ def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     async_flag = req.params.get("async")
     async_flag = async_flag or (req_body.get("async") if isinstance(req_body, dict) else None)
     if async_flag is None:
-        async_flag = True
+        async_flag = False
     else:
         async_flag = str(async_flag).lower() in {"1", "true", "yes", "y"}
 
