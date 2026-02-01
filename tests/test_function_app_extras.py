@@ -349,6 +349,7 @@ class TestOneDriveHelpersAndEndpoints:
 
         mock_service = MagicMock()
         mock_service.config.lookback_days = 30
+        mock_service.config.folder_path = "/Apps/HealthFit"
 
         with patch("function_app._get_onedrive_sync_service", return_value=mock_service):
             with patch("function_app.threading.Thread") as mock_thread:
@@ -370,6 +371,7 @@ class TestOneDriveHelpersAndEndpoints:
 
         mock_service = MagicMock()
         mock_service.config.lookback_days = 30
+        mock_service.config.folder_path = "/Apps/HealthFit"
 
         with patch("function_app._get_onedrive_sync_service", return_value=mock_service):
             with patch("function_app.threading.Thread") as mock_thread:
