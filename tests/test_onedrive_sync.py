@@ -3,7 +3,7 @@
 # pylint: disable=missing-function-docstring,missing-class-docstring,unused-argument,protected-access,line-too-long
 
 import base64
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -88,6 +88,12 @@ def test_sync_uses_ingest_payload(monkeypatch):
     assert len(payload_calls) == 1
     assert payload_calls[0]["source_file_name"] == "test.fit"
     assert base64.b64decode(payload_calls[0]["file_content_b64"]) == b"fit-bytes"
+
+
+def test_parse_workout_date_from_filename():
+    assert onedrive_sync._parse_workout_date("2026-01-15-ride.fit") == date(2026, 1, 15)
+    assert onedrive_sync._parse_workout_date("no-date.fit") is None
+    assert onedrive_sync._parse_workout_date("2026-13-40-ride.fit") is None
 
 
 def test_sync_filters_by_filename_date(monkeypatch):
