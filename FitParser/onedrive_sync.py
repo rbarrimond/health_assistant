@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import gzip
 import logging
 import os
 from dataclasses import dataclass
@@ -74,6 +75,7 @@ class OneDrivePersonalSyncService:
         storage: WorkoutTableStorage,
         ingest_payload_fn: Callable[[Dict], tuple[Dict, int]],
     ) -> None:
+        """Initialize the OneDrive sync service with configuration and storage."""
         self._config = config
         self._storage = storage
         self._ingest_payload = ingest_payload_fn
@@ -86,6 +88,7 @@ class OneDrivePersonalSyncService:
 
     @property
     def config(self) -> OneDriveSyncConfig:
+        """Return the OneDrive sync configuration."""
         return self._config
 
     def build_authorize_url(self, *, state: str) -> str:
@@ -255,7 +258,6 @@ def _maybe_decode_gzip(file_name: str, content: bytes) -> tuple[str, bytes]:
     """Decode gzip content when the filename ends with .gz."""
     if file_name.lower().endswith(".gz"):
         try:
-            import gzip
             return file_name[:-3], gzip.decompress(content)
         except (OSError, EOFError) as exc:
             raise ValueError(
