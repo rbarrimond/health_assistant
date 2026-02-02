@@ -116,7 +116,7 @@ def _get_onedrive_service() -> OneDrivePersonalSyncService:
         _onedrive_service_singleton = OneDrivePersonalSyncService(
             config=config,
             storage=storage,
-            ingest_payload_fn=lambda _: None  # Placeholder
+            ingest_payload_fn=lambda _: ({}, 200)  # Return (response, status) tuple
         )
     return _onedrive_service_singleton
 
@@ -189,7 +189,7 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
         handler = FitUploadHandler(_get_storage())
         metrics, status = handler.handle(file_path, athlete_id)
 
-        if status == 201:
+        if status == 201 and metrics:
             return _json_response(metrics.model_dump(), status)
         else:
             error_msg = {
@@ -296,7 +296,9 @@ def onedrive_sync_timer(timer: func.TimerRequest) -> None:
     try:
         athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
         service = _get_onedrive_service()
-
+               
+        # Use handler with sync mode (async=False) to prevent thread leaks
+        # Timer triggers must complete synchronously and return cleanly
         sync_req = OneDriveSyncRequest({"athlete_id": athlete_id}, {})
         handler = OneDriveSyncHandler(service)
         response, status = handler.handle(sync_req)
@@ -308,6 +310,9 @@ def onedrive_sync_timer(timer: func.TimerRequest) -> None:
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("OneDrive timer failed: %s", exc, exc_info=True)
+    finally:
+        # Ensure function returns cleanly
+        logger.debug("OneDrive timer trigger completed")
 
 
 # ============================================================================
@@ -439,9 +444,11 @@ def serve_ai_plugin_manifest(req: func.HttpRequest) -> func.HttpResponse:
         base_url = _public_base_url(req)
 
         env_overrides = {
-            "logo_url": os.getenv(ENV_PLUGIN_LOGO_URL),
-            "contact_email": os.getenv(ENV_PLUGIN_CONTACT_EMAIL),
-            "legal_info_url": os.getenv(ENV_PLUGIN_LEGAL_URL)
+            k: v for k, v in {
+                "logo_url": os.getenv(ENV_PLUGIN_LOGO_URL),
+                "contact_email": os.getenv(ENV_PLUGIN_CONTACT_EMAIL),
+                "legal_info_url": os.getenv(ENV_PLUGIN_LEGAL_URL)
+            }.items() if v is not None
         }
 
         handler = HealthHandler(_get_storage(), API_DOCS_DIR)
@@ -498,7 +505,7 @@ def serve_logo(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable=u
 def get_current_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
     """Get current physiometric values for an athlete."""
     try:
-        athlete_id = req.params.get("athlete_id")
+        athlete_id = req.params.get("athlete_id", "rob")
 
         handler = PhysiometricsHandler(_get_semantic_layer())
         result, status = handler.get_current(athlete_id)
@@ -514,7 +521,7 @@ def get_current_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
 def get_physiometrics_history(req: func.HttpRequest) -> func.HttpResponse:
     """Get time-series physiometrics data."""
     try:
-        athlete_id = req.params.get("athlete_id")
+        athlete_id = req.params.get("athlete_id", "rob")
         days = int(req.params.get("days", "90"))
 
         metrics_param = req.params.get("metrics")
@@ -582,7 +589,7 @@ def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
 def withings_authorize(req: func.HttpRequest) -> func.HttpResponse:
     """Get Withings OAuth authorization URL."""
     try:
-        athlete_id = req.params.get("athlete_id")
+        athlete_id = req.params.get("athlete_id", "rob")
 
         handler = WithingsHandler(_get_withings_client(), _get_storage())
         result, status = handler.get_authorization_url(athlete_id)
@@ -598,8 +605,8 @@ def withings_authorize(req: func.HttpRequest) -> func.HttpResponse:
 def withings_callback(req: func.HttpRequest) -> func.HttpResponse:
     """Handle Withings OAuth callback."""
     try:
-        code = req.params.get("code")
-        state = req.params.get("state")
+        code = req.params.get("code", "")
+        state = req.params.get("state", "")
         webhook_base_url = os.getenv("WITHINGS_WEBHOOK_URL",
                                       f"{req.url.split('/api/')[0]}/api/withings/webhook")
 
@@ -622,10 +629,10 @@ def withings_callback(req: func.HttpRequest) -> func.HttpResponse:
 def withings_webhook(req: func.HttpRequest) -> func.HttpResponse:
     """Receive Withings webhook notifications."""
     try:
-        userid = req.form.get("userid")
-        appli = req.form.get("appli")
-        startdate = req.form.get("startdate")
-        enddate = req.form.get("enddate")
+        userid = req.form.get("userid", "")
+        appli = req.form.get("appli", "")
+        startdate = req.form.get("startdate", "")
+        enddate = req.form.get("enddate", "")
 
         handler = WithingsHandler(_get_withings_client(), _get_storage())
         result, status = handler.process_webhook(userid, appli, startdate, enddate)
