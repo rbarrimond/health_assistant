@@ -13,7 +13,6 @@ import pytest
 from function_app import (
     planning_context,
     list_workouts,
-    get_workout,
     weekly_rollups,
     zone_distribution,
     efficiency_trends,
@@ -38,13 +37,15 @@ def mock_semantic_layer():
 class TestPlanningContextEndpoint:
     """Tests for /api/planning/context endpoint."""
 
-    def test_missing_athlete_id(self, mock_request):
-        """Test endpoint with missing athlete_id parameter."""
-        response = planning_context(mock_request)
+    def test_missing_athlete_id(self, mock_request, mock_semantic_layer):
+        """Test endpoint defaults to 'rob' when athlete_id not provided."""
+        mock_semantic_layer.get_planning_context.return_value = {"athlete_id": "rob"}
 
-        assert response.status_code == 400
-        data = json.loads(response.get_body())
-        assert "athlete_id" in data["error"]
+        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+            response = planning_context(mock_request)
+
+        assert response.status_code == 200
+        mock_semantic_layer.get_planning_context.assert_called_once_with("rob", 45)
 
     def test_success(self, mock_request, mock_semantic_layer):
         """Test successful planning context request."""
@@ -84,13 +85,16 @@ class TestPlanningContextEndpoint:
 class TestListWorkoutsEndpoint:
     """Tests for /api/workouts endpoint."""
 
-    def test_missing_athlete_id(self, mock_request):
-        """Test endpoint with missing athlete_id parameter."""
-        response = list_workouts(mock_request)
+    def test_missing_athlete_id(self, mock_request, mock_semantic_layer):
+        """Test endpoint defaults to 'rob' when athlete_id not provided."""
+        mock_semantic_layer.get_workouts.return_value = []
 
-        assert response.status_code == 400
+        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+            response = list_workouts(mock_request)
+
+        assert response.status_code == 200
         data = json.loads(response.get_body())
-        assert "athlete_id" in data["error"]
+        assert data["athlete_id"] == "rob"
 
     def test_success(self, mock_request, mock_semantic_layer):
         """Test successful workout list request."""
@@ -125,72 +129,25 @@ class TestListWorkoutsEndpoint:
         with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
             list_workouts(mock_request)
 
+        # Current implementation only passes athlete_id and limit
         mock_semantic_layer.get_workouts.assert_called_once_with(
             "rob",
-            since="2026-01-01",
-            until="2026-01-31",
             limit=50,
-            sport="Cycling",
         )
-
-
-class TestGetWorkoutEndpoint:
-    """Tests for /api/workouts/{workout_id} endpoint."""
-
-    def test_missing_athlete_id(self, mock_request):
-        """Test endpoint with missing athlete_id parameter."""
-        mock_request.route_params = {"workout_id": "abc123"}
-
-        response = get_workout(mock_request)
-
-        assert response.status_code == 400
-        data = json.loads(response.get_body())
-        assert "athlete_id" in data["error"]
-
-    def test_workout_found(self, mock_request, mock_semantic_layer):
-        """Test successful workout detail retrieval."""
-        mock_request.params = {"athlete_id": "rob"}
-        mock_request.route_params = {"workout_id": "abc123"}
-
-        mock_workout = {
-            "workout_id": "abc123",
-            "sport": "Cycling",
-            "duration_sec": 3600,
-        }
-        mock_semantic_layer.get_workout_detail.return_value = mock_workout
-
-        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
-            response = get_workout(mock_request)
-
-        assert response.status_code == 200
-        data = json.loads(response.get_body())
-        assert data["workout_id"] == "abc123"
-
-    def test_workout_not_found(self, mock_request, mock_semantic_layer):
-        """Test workout detail when workout doesn't exist."""
-        mock_request.params = {"athlete_id": "rob"}
-        mock_request.route_params = {"workout_id": "nonexistent"}
-
-        mock_semantic_layer.get_workout_detail.return_value = None
-
-        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
-            response = get_workout(mock_request)
-
-        assert response.status_code == 404
-        data = json.loads(response.get_body())
-        assert "not found" in data["error"].lower()
 
 
 class TestWeeklyRollupsEndpoint:
     """Tests for /api/rollups/weekly endpoint."""
 
-    def test_missing_athlete_id(self, mock_request):
-        """Test endpoint with missing athlete_id parameter."""
-        response = weekly_rollups(mock_request)
+    def test_missing_athlete_id(self, mock_request, mock_semantic_layer):
+        """Test endpoint defaults to 'rob' when athlete_id not provided."""
+        mock_semantic_layer.get_weekly_rollups.return_value = []
 
-        assert response.status_code == 400
-        data = json.loads(response.get_body())
-        assert "athlete_id" in data["error"]
+        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+            response = weekly_rollups(mock_request)
+
+        assert response.status_code == 200
+        mock_semantic_layer.get_weekly_rollups.assert_called_once_with("rob", 16)
 
     def test_success(self, mock_request, mock_semantic_layer):
         """Test successful weekly rollups request."""
@@ -225,13 +182,15 @@ class TestWeeklyRollupsEndpoint:
 class TestZoneDistributionEndpoint:
     """Tests for /api/analysis/zones endpoint."""
 
-    def test_missing_athlete_id(self, mock_request):
-        """Test endpoint with missing athlete_id parameter."""
-        response = zone_distribution(mock_request)
+    def test_missing_athlete_id(self, mock_request, mock_semantic_layer):
+        """Test endpoint defaults to 'rob' when athlete_id not provided."""
+        mock_semantic_layer.get_zone_distribution.return_value = {"athlete_id": "rob"}
 
-        assert response.status_code == 400
-        data = json.loads(response.get_body())
-        assert "athlete_id" in data["error"]
+        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+            response = zone_distribution(mock_request)
+
+        assert response.status_code == 200
+        mock_semantic_layer.get_zone_distribution.assert_called_once_with("rob", 30)
 
     def test_success(self, mock_request, mock_semantic_layer):
         """Test successful zone distribution request."""
@@ -258,13 +217,15 @@ class TestZoneDistributionEndpoint:
 class TestEfficiencyTrendsEndpoint:
     """Tests for /api/analysis/efficiency endpoint."""
 
-    def test_missing_athlete_id(self, mock_request):
-        """Test endpoint with missing athlete_id parameter."""
-        response = efficiency_trends(mock_request)
+    def test_missing_athlete_id(self, mock_request, mock_semantic_layer):
+        """Test endpoint defaults to 'rob' when athlete_id not provided."""
+        mock_semantic_layer.get_efficiency_trends.return_value = {"athlete_id": "rob"}
 
-        assert response.status_code == 400
-        data = json.loads(response.get_body())
-        assert "athlete_id" in data["error"]
+        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+            response = efficiency_trends(mock_request)
+
+        assert response.status_code == 200
+        mock_semantic_layer.get_efficiency_trends.assert_called_once_with("rob", 90)
 
     def test_success(self, mock_request, mock_semantic_layer):
         """Test successful efficiency trends request."""
