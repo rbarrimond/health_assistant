@@ -1,5 +1,7 @@
 """Domain models for parsed FIT workout data using pydantic."""
 
+# pylint: disable=line-too-long
+
 from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -62,3 +64,116 @@ class Workout(BaseModel):
     session: WorkoutSession
     device: DeviceInfo = Field(default_factory=DeviceInfo)
     records: List[RecordSample] = Field(default_factory=list)
+
+
+# ============================================================================
+# METRICS MODELS - For parsed FIT file output
+# ============================================================================
+
+
+class SessionMetricsModel(BaseModel):
+    """Session-level metrics (duration, distance, sport type)."""
+
+    sport: Optional[str] = Field(None, description="Sport type (e.g., 'cycling', 'running')")
+    sub_sport: Optional[str] = Field(None, description="Sub-sport variant")
+    workout_name: Optional[str] = Field(None, description="User-defined workout name")
+    device_name: Optional[str] = Field(None, description="Device manufacturer")
+    is_indoor: Optional[bool] = Field(None, description="Indoor vs outdoor")
+    start_time_utc: Optional[str] = Field(None, description="ISO 8601 UTC start time")
+    end_time_utc: Optional[str] = Field(None, description="ISO 8601 UTC end time")
+    timezone: str = Field(default="UTC", description="Timezone of workout")
+    duration_sec: Optional[float] = Field(None, ge=0, description="Total elapsed time seconds")
+    moving_time_sec: Optional[float] = Field(None, ge=0, description="Active movement seconds")
+
+
+class SampleMetricsModel(BaseModel):
+    """Sample-based metrics (HR, power, cadence aggregates)."""
+
+    # Heart rate
+    hr_avg_bpm: Optional[float] = Field(None, ge=0, le=300, description="Average HR")
+    hr_max_bpm: Optional[float] = Field(None, ge=0, le=300, description="Maximum HR")
+    hr_samples_count: int = Field(
+        default=0, ge=0, description="Valid HR samples"
+    )
+    hr_missing_pct: Optional[float] = Field(
+        None, ge=0, le=100, description="Percent missing HR data"
+    )
+
+    # Power
+    pwr_avg_watts: Optional[float] = Field(None, ge=0, description="Average power")
+    pwr_max_watts: Optional[float] = Field(None, ge=0, description="Maximum power")
+    pwr_normalized_watts: Optional[float] = Field(None, ge=0, description="Normalized power (NP)")
+    pwr_variability_index: Optional[float] = Field(None, ge=1.0, description="VI = NP / avg (≥1.0)")
+    pwr_samples_count: int = Field(default=0, ge=0, description="Valid power samples")
+    pwr_missing_pct: Optional[float] = Field(None, ge=0, le=100, description="Percent missing power data")
+
+    # Cadence
+    cad_avg_rpm: Optional[float] = Field(None, ge=0, description="Average cadence")
+    cad_max_rpm: Optional[float] = Field(None, ge=0, description="Maximum cadence")
+    cad_samples_count: int = Field(default=0, ge=0, description="Valid cadence samples")
+
+
+class DistanceMetricsModel(BaseModel):
+    """Distance and elevation metrics."""
+
+    has_gps: bool = Field(default=False, description="Contains GPS coordinates")
+    distance_m: Optional[float] = Field(None, ge=0, description="Total distance meters")
+    elevation_gain_m: Optional[float] = Field(None, ge=0, description="Total climbing meters")
+    elevation_loss_m: Optional[float] = Field(None, ge=0, description="Total descending meters")
+    avg_speed_ms: Optional[float] = Field(None, ge=0, description="Average speed m/s")
+    max_speed_ms: Optional[float] = Field(None, ge=0, description="Maximum speed m/s")
+    calories: Optional[float] = Field(None, ge=0, description="Total calories burned")
+
+
+class HRZonesModel(BaseModel):
+    """Heart rate zone metrics."""
+
+    hr_zone_basis: str = Field(description="Zone calculation method (max|lthr|hrr)")
+    hr_zone_reference_bpm: float = Field(gt=0, description="Reference BPM for zone calc")
+    hr_z1_sec: float = Field(default=0, ge=0)
+    hr_z1_min: float = Field(default=0, ge=0)
+    hr_z2_sec: float = Field(default=0, ge=0)
+    hr_z2_min: float = Field(default=0, ge=0)
+    hr_z3_sec: float = Field(default=0, ge=0)
+    hr_z3_min: float = Field(default=0, ge=0)
+    hr_z4_sec: float = Field(default=0, ge=0)
+    hr_z4_min: float = Field(default=0, ge=0)
+    hr_z5_sec: float = Field(default=0, ge=0)
+    hr_z5_min: float = Field(default=0, ge=0)
+    hr_zone_total_sec: float = Field(default=0, ge=0)
+
+
+class PowerZonesModel(BaseModel):
+    """Power zone metrics (Coggan 7-zone)."""
+
+    pwr_zone_model: str = Field(default="coggan_7")
+    ftp_watts: float = Field(gt=0, description="Functional threshold power")
+    pwr_z1_sec: float = Field(default=0, ge=0)
+    pwr_z1_min: float = Field(default=0, ge=0)
+    pwr_z2_sec: float = Field(default=0, ge=0)
+    pwr_z2_min: float = Field(default=0, ge=0)
+    pwr_z3_sec: float = Field(default=0, ge=0)
+    pwr_z3_min: float = Field(default=0, ge=0)
+    pwr_z4_sec: float = Field(default=0, ge=0)
+    pwr_z4_min: float = Field(default=0, ge=0)
+    pwr_z5_sec: float = Field(default=0, ge=0)
+    pwr_z5_min: float = Field(default=0, ge=0)
+    pwr_z6_sec: float = Field(default=0, ge=0)
+    pwr_z6_min: float = Field(default=0, ge=0)
+    pwr_z7_sec: float = Field(default=0, ge=0)
+    pwr_z7_min: float = Field(default=0, ge=0)
+    low_aerobic_min: float = Field(default=0, ge=0)
+    intensity_min: float = Field(default=0, ge=0)
+
+
+class WorkoutMetricsModel(BaseModel):
+    """Complete workout metrics output."""
+
+    physiometrics_snapshot_timestamp: str = Field(description="ISO 8601 UTC timestamp")
+    session: SessionMetricsModel
+    samples: SampleMetricsModel
+    distance: DistanceMetricsModel
+    zones_hr: Optional[HRZonesModel] = None
+    zones_power: Optional[PowerZonesModel] = None
+    aerobic_efficiency_mphb: Optional[float] = Field(None, ge=0)
+    hr_resting_bpm: Optional[float] = Field(None, ge=0, le=300)
