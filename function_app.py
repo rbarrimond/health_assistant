@@ -146,8 +146,8 @@ def serve_ai_plugin_manifest(req: func.HttpRequest) -> func.HttpResponse:
     # Populate dynamic metadata from environment or defaults
     manifest.setdefault("api", {})["url"] = f"{base_url}/openapi.yaml"
     manifest["logo_url"] = os.getenv(
-        ENV_PLUGIN_LOGO_URL, manifest.get("logo_url", DEFAULT_LOGO_URL)
-    )
+        ENV_PLUGIN_LOGO_URL, f"{base_url}/logo.svg"
+    ) or manifest.get("logo_url", DEFAULT_LOGO_URL)
     manifest["contact_email"] = os.getenv(
         ENV_PLUGIN_CONTACT_EMAIL,
         manifest.get("contact_email", DEFAULT_CONTACT_EMAIL)
@@ -183,6 +183,22 @@ def serve_openapi_spec(req: func.HttpRequest) -> func.HttpResponse:
         spec_body,
         status_code=200,
         mimetype="application/x-yaml",
+    )
+
+
+@app.route(route="logo.svg", methods=["GET"])
+def serve_logo(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable=unused-argument
+    """Serve the Health Assistant logo."""
+    logo_path = os.path.join(API_DOCS_DIR, "logo.svg")
+    try:
+        logo_body = _read_text_file(logo_path)
+    except FileNotFoundError:
+        return _response_missing_file("logo.svg")
+
+    return func.HttpResponse(
+        logo_body,
+        status_code=200,
+        mimetype="image/svg+xml",
     )
 
 

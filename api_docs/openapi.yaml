@@ -126,6 +126,17 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/logo.svg:
+    get:
+      summary: Retrieve the Health Assistant logo
+      operationId: getLogo
+      responses:
+        '200':
+          description: SVG logo asset
+          content:
+            image/svg+xml:
+              schema:
+                type: string
   /api/withings/authorize:
     get:
       summary: Get Withings authorization URL
@@ -149,8 +160,6 @@ paths:
     get:
       summary: Handle Withings OAuth callback
       operationId: withingsCallback
-      security:
-        - FunctionKey: []
       parameters:
         - name: code
           in: query
@@ -336,7 +345,7 @@ paths:
       summary: Generate OneDrive OAuth authorization URL
       operationId: onedriveAuthorize
       parameters:
-        - $ref: '#/components/parameters/AthleteId'
+        - $ref: '#/components/parameters/AthleteIdOptional'
       security:
         - FunctionKey: []
       responses:
@@ -367,7 +376,11 @@ paths:
               schema:
                 type: string
         '400':
-          $ref: '#/components/responses/BadRequest'
+          description: Missing authorization code
+          content:
+            text/plain:
+              schema:
+                type: string
         '500':
           $ref: '#/components/responses/InternalError'
   /api/onedrive/sync:
@@ -382,7 +395,7 @@ paths:
           required: false
           schema:
             type: boolean
-          description: When true (default), run sync asynchronously and return 202.
+          description: When true, run sync asynchronously and return 202.
       requestBody:
         required: false
         content:
@@ -608,6 +621,13 @@ components:
       in: query
       required: true
       description: Athlete identifier
+      schema:
+        type: string
+    AthleteIdOptional:
+      name: athlete_id
+      in: query
+      required: false
+      description: Athlete identifier (optional; falls back to DEFAULT_ATHLETE_ID)
       schema:
         type: string
   responses:

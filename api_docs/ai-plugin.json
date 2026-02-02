@@ -4,6 +4,9 @@
   "name_for_model": "health_assistant_metrics",
   "description_for_human": "Deterministic workout and physiometric assistant for ChatGPT Actions.",
   "description_for_model": "Access deterministic workout and physiometric metrics. Retrieve current snapshots, historical trends, and post explicit metric updates with source attribution. No LLM-derived metrics.",
+  "logo_url": "https://health-assistant.azurewebsites.net/logo.svg",
+  "contact_email": "rbarrimond+health-assistant@users.noreply.github.com",
+  "legal_info_url": "https://github.com/rbarrimond/health_assistant/blob/main/README.md",
   "auth": {
     "type": "user_http",
     "authorization_type": "bearer"

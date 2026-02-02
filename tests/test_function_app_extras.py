@@ -77,6 +77,17 @@ class TestDocsAssetEndpoints:
         assert "https://api.example.com" in body
         assert "health-assistant.azurewebsites.net" not in body
 
+    def test_serve_logo_returns_svg(self):
+        req = MagicMock(spec=func.HttpRequest)
+        svg_body = "<svg><rect width=\"10\" height=\"10\"/></svg>"
+
+        with patch("function_app._read_text_file", return_value=svg_body):
+            response = function_app.serve_logo(req)
+
+        assert response.status_code == 200
+        body = response.get_body().decode("utf-8")
+        assert "<svg" in body
+
 
 class TestPhysiometricsEndpointHandlers:
     def test_get_current_physiometrics_requires_athlete(self):
