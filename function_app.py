@@ -296,7 +296,7 @@ def onedrive_sync_timer(timer: func.TimerRequest) -> None:
     try:
         athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
         service = _get_onedrive_service()
-               
+
         # Use handler with sync mode (async=False) to prevent thread leaks
         # Timer triggers must complete synchronously and return cleanly
         sync_req = OneDriveSyncRequest({"athlete_id": athlete_id}, {})
