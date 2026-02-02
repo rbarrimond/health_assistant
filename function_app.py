@@ -39,16 +39,16 @@ ERR_INVALID_JSON = "Invalid JSON payload"
 app = func.FunctionApp()
 
 # Environment variable names and defaults for plugin metadata
-ENV_DOCS_DIR = "DOCS_DIR"
+ENV_API_DOCS_DIR = "API_DOCS_DIR"
 ENV_PUBLIC_BASE_URL = "PUBLIC_BASE_URL"
 ENV_PLUGIN_LOGO_URL = "PLUGIN_LOGO_URL"
 ENV_PLUGIN_CONTACT_EMAIL = "PLUGIN_CONTACT_EMAIL"
 ENV_PLUGIN_LEGAL_URL = "PLUGIN_LEGAL_URL"
 
-DOCS_DIR = os.getenv(ENV_DOCS_DIR, os.path.join(
-    os.path.dirname(__file__), "docs"))
-PLUGIN_MANIFEST_PATH = os.path.join(DOCS_DIR, "ai-plugin.json")
-OPENAPI_SPEC_PATH = os.path.join(DOCS_DIR, "openapi.yaml")
+API_DOCS_DIR = os.getenv(ENV_API_DOCS_DIR, os.path.join(
+    os.path.dirname(__file__), "api_docs"))
+PLUGIN_MANIFEST_PATH = os.path.join(API_DOCS_DIR, "ai-plugin.json")
+OPENAPI_SPEC_PATH = os.path.join(API_DOCS_DIR, "openapi.yaml")
 
 DEFAULT_LOGO_URL = "https://via.placeholder.com/128.png?text=Health+Assistant"
 DEFAULT_CONTACT_EMAIL = "rbarrimond+health-assistant@users.noreply.github.com"

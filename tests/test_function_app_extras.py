@@ -5,6 +5,7 @@
 
 import base64
 import json
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -35,6 +36,9 @@ class TestPublicBaseUrlHelper:
 
 
 class TestDocsAssetEndpoints:
+    def test_api_docs_dir_default_name(self):
+        assert os.path.basename(function_app.API_DOCS_DIR) == "api_docs"
+
     def test_serve_ai_plugin_manifest_populates_urls(self, monkeypatch):
         manifest = {
             "schema_version": "v1",
