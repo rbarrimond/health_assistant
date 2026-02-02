@@ -1150,60 +1150,64 @@ def onedrive_callback(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-@app.route(route="onedrive/sync", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
-def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
-    """HTTP-triggered OneDrive sync."""
-    try:
-        req_body = req.get_json() if req.method == "POST" else {}
-    except ValueError:
-        req_body = {}
-
+def _parse_async_flag(req: func.HttpRequest, req_body: dict) -> bool:
+    """Parse async flag from request parameters or body."""
     async_flag = req.params.get("async")
     async_flag = async_flag or (req_body.get("async") if isinstance(req_body, dict) else None)
     if async_flag is None:
-        async_flag = False
-    else:
-        async_flag = str(async_flag).lower() in {"1", "true", "yes", "y"}
+        return False
+    return str(async_flag).lower() in {"1", "true", "yes", "y"}
 
-    athlete_id = req_body.get("athlete_id") if isinstance(
-        req_body, dict) else None
-    athlete_id = athlete_id or os.getenv("DEFAULT_ATHLETE_ID", "rob")
 
-    lookback_days = req_body.get(
-        "days") if isinstance(req_body, dict) else None
-    service = _get_onedrive_sync_service()
+def _parse_athlete_id(req_body: dict) -> str:
+    """Parse athlete ID from request body or environment."""
+    athlete_id = req_body.get("athlete_id") if isinstance(req_body, dict) else None
+    return athlete_id or os.getenv("DEFAULT_ATHLETE_ID", "rob")
+
+
+def _parse_lookback_days(req_body: dict, service) -> int:
+    """Parse lookback days from request body or service config."""
+    lookback_days = req_body.get("days") if isinstance(req_body, dict) else None
     try:
-        lookback_days = int(
-            lookback_days) if lookback_days is not None else service.config.lookback_days
+        return int(lookback_days) if lookback_days is not None else service.config.lookback_days
     except ValueError:
-        lookback_days = service.config.lookback_days
+        return service.config.lookback_days
 
-    if async_flag:
-        def _run_sync() -> None:
-            try:
-                result = service.sync(
-                    athlete_id=athlete_id, lookback_days=lookback_days)
-                logger.info("OneDrive async sync result: %s", result)
-            except (ValueError, OneDriveGraphError) as exc:
-                logger.error("OneDrive async sync failed: %s", exc, exc_info=True)
 
-        threading.Thread(target=_run_sync, daemon=True).start()
-        return func.HttpResponse(
-            json.dumps({
-                "status": "queued",
-                "athlete_id": athlete_id,
-                "lookback_days": lookback_days,
-                "folder_path": service.config.folder_path,
-                "mode": "async",
-                "queued_at_utc": datetime.now(timezone.utc).isoformat()
-            }),
-            status_code=202,
-            mimetype=JSON_CONTENT_TYPE
-        )
-
+def _run_async_sync(athlete_id: str, lookback_days: int, service) -> None:
+    """Run async sync in background thread."""
     try:
-        result = service.sync(athlete_id=athlete_id,
-                              lookback_days=lookback_days)
+        result = service.sync(athlete_id=athlete_id, lookback_days=lookback_days)
+        logger.info("OneDrive async sync result: %s", result)
+    except (ValueError, OneDriveGraphError) as exc:
+        logger.error("OneDrive async sync failed: %s", exc, exc_info=True)
+
+
+def _create_async_response(athlete_id: str, lookback_days: int, service) -> func.HttpResponse:
+    """Create async response and start background sync."""
+    threading.Thread(
+        target=_run_async_sync,
+        args=(athlete_id, lookback_days, service),
+        daemon=True
+    ).start()
+    return func.HttpResponse(
+        json.dumps({
+            "status": "queued",
+            "athlete_id": athlete_id,
+            "lookback_days": lookback_days,
+            "folder_path": service.config.folder_path,
+            "mode": "async",
+            "queued_at_utc": datetime.now(timezone.utc).isoformat()
+        }),
+        status_code=202,
+        mimetype=JSON_CONTENT_TYPE
+    )
+
+
+def _create_sync_response(athlete_id: str, lookback_days: int, service) -> func.HttpResponse:
+    """Create sync response with actual results."""
+    try:
+        result = service.sync(athlete_id=athlete_id, lookback_days=lookback_days)
         return func.HttpResponse(
             json.dumps(result),
             status_code=200,
@@ -1216,6 +1220,25 @@ def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
             mimetype=JSON_CONTENT_TYPE
         )
+
+
+@app.route(route="onedrive/sync", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
+    """HTTP-triggered OneDrive sync."""
+    try:
+        req_body = req.get_json() if req.method == "POST" else {}
+    except ValueError:
+        req_body = {}
+
+    async_flag = _parse_async_flag(req, req_body)
+    athlete_id = _parse_athlete_id(req_body)
+    service = _get_onedrive_sync_service()
+    lookback_days = _parse_lookback_days(req_body, service)
+
+    if async_flag:
+        return _create_async_response(athlete_id, lookback_days, service)
+
+    return _create_sync_response(athlete_id, lookback_days, service)
 
 
 @app.timer_trigger(arg_name="timer", schedule="0 0 * * * *")  # hourly
