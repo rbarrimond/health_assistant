@@ -648,7 +648,11 @@ class WorkoutTableStorage:
         """
         # Get existing tokens to preserve scope
         existing = self.get_withings_tokens(athlete_id)
-        scope = existing.get("scope") if existing else "user.metrics,user.info"
+        scope = (
+            str(existing.get("scope"))
+            if existing and existing.get("scope")
+            else "user.metrics,user.info"
+        )
 
         # Store updated tokens
         self.store_withings_tokens(
@@ -740,8 +744,16 @@ class WorkoutTableStorage:
             drive_id: Optional drive id
         """
         existing = self.get_onedrive_tokens(athlete_id)
-        scope = scope or (existing.get("scope") if existing else "Files.ReadWrite offline_access")
-        drive_id = drive_id or (existing.get("drive_id") if existing else None)
+        scope = scope or (
+            str(existing.get("scope"))
+            if existing and existing.get("scope")
+            else "Files.ReadWrite offline_access"
+        )
+        drive_id = drive_id or (
+            existing.get("drive_id")
+            if existing and existing.get("drive_id")
+            else None
+        )
         self.store_onedrive_tokens(
             athlete_id=athlete_id,
             access_token=new_access_token,

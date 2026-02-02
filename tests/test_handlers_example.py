@@ -211,7 +211,7 @@ def test_fit_upload_handler_processes_valid_file():
     # In real test, you'd create a temp FIT file
 
     # For this test, we'll just verify the handler structure exists
-    assert handler is not None
+    assert handler
     assert hasattr(handler, 'handle')
 
 

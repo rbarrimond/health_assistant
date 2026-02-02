@@ -10,8 +10,9 @@ in FitParser.handlers. All endpoints are thin wrappers that:
 import json
 import logging
 import os
+import time
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
 import azure.functions as func
@@ -47,6 +48,7 @@ app = func.FunctionApp()
 
 JSON_CONTENT_TYPE = "application/json"
 HTML_CONTENT_TYPE = "text/html"
+TEXT_PLAIN_CONTENT_TYPE = "text/plain"
 INTERNAL_SERVER_ERROR = "Internal server error"
 
 # Error messages
@@ -77,9 +79,9 @@ OPENAPI_SPEC_PATH = os.path.join(API_DOCS_DIR, "openapi.yaml")
 # Dependency Singletons
 # ============================================================================
 
-_storage_singleton: WorkoutTableStorage = None
-_semantic_layer_singleton: SemanticLayer = None
-_onedrive_service_singleton: OneDrivePersonalSyncService = None
+_storage_singleton: Optional[WorkoutTableStorage] = None
+_semantic_layer_singleton: Optional[SemanticLayer] = None
+_onedrive_service_singleton: Optional[OneDrivePersonalSyncService] = None
 
 try:
     _storage_singleton = WorkoutTableStorage()
@@ -143,6 +145,18 @@ def _public_base_url(req: func.HttpRequest) -> str:
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
+def _build_onedrive_state(athlete_id: str) -> str:
+    """Build a lightweight OAuth state payload."""
+    return f"{athlete_id}|{int(time.time())}"
+
+
+def _get_athlete_id_from_state(state: str | None) -> str | None:
+    """Extract athlete_id from the OAuth state value."""
+    if not state:
+        return None
+    return state.split("|", 1)[0] or None
+
+
 def _read_text_file(path: str) -> str:
     """Read a text file with utf-8 encoding."""
     with open(path, "r", encoding="utf-8") as file_handle:
@@ -193,6 +207,65 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
 # ============================================================================
 # OneDrive Sync Endpoints
 # ============================================================================
+
+@app.route(route="onedrive/authorize", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
+def onedrive_authorize(req: func.HttpRequest) -> func.HttpResponse:
+    """Generate OneDrive OAuth authorization URL."""
+    try:
+        athlete_id = req.params.get("athlete_id", "rob")
+        state = req.params.get("state") or _build_onedrive_state(athlete_id)
+        service = _get_onedrive_service()
+
+        return _json_response(
+            {
+                "authorization_url": service.build_authorize_url(state=state),
+                "athlete_id": athlete_id,
+                "state": state,
+            },
+            200,
+        )
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error("OneDrive authorize endpoint failed: %s", exc, exc_info=True)
+        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+
+
+@app.route(route="onedrive/callback", methods=["GET"])
+def onedrive_callback(req: func.HttpRequest) -> func.HttpResponse:
+    """Handle OneDrive OAuth callback and persist tokens."""
+    code = req.params.get("code")
+    state = req.params.get("state")
+
+    if not code:
+        return func.HttpResponse(
+            "Missing authorization code",
+            status_code=400,
+            mimetype=TEXT_PLAIN_CONTENT_TYPE,
+        )
+
+    athlete_id = (
+        req.params.get("athlete_id")
+        or _get_athlete_id_from_state(state)
+        or "rob"
+    )
+
+    try:
+        service = _get_onedrive_service()
+        service.complete_authorization(athlete_id=athlete_id, code=code)
+
+        success_html = (
+            "<html><body><h1>Success!</h1>"
+            f"<p>OneDrive connected for athlete {athlete_id}.</p>"
+            "<p>You can close this window and return to the app.</p>"
+            "</body></html>"
+        )
+        return func.HttpResponse(
+            success_html,
+            status_code=200,
+            mimetype=HTML_CONTENT_TYPE,
+        )
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error("OneDrive callback failed: %s", exc, exc_info=True)
+        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 @app.route(route="onedrive/sync", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
 def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
@@ -395,7 +468,7 @@ def serve_openapi_spec(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("OpenAPI spec endpoint failed: %s", exc, exc_info=True)
         return func.HttpResponse(
-            INTERNAL_SERVER_ERROR, status_code=500, mimetype="text/plain"
+            INTERNAL_SERVER_ERROR, status_code=500, mimetype=TEXT_PLAIN_CONTENT_TYPE
         )
 
 
@@ -410,7 +483,11 @@ def serve_logo(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable=u
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Logo endpoint failed: %s", exc, exc_info=True)
-        return func.HttpResponse("Error loading logo", status_code=500, mimetype="text/plain")
+        return func.HttpResponse(
+            "Error loading logo",
+            status_code=500,
+            mimetype=TEXT_PLAIN_CONTENT_TYPE,
+        )
 
 
 # ============================================================================
