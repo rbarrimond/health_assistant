@@ -3,6 +3,7 @@
 ## Date: January 20, 2026
 
 ## Overview
+
 Successfully refactored the monolithic `function_app.py` (1,684 lines → 814 lines) into a clean, maintainable architecture using the handler pattern and Pydantic models.
 
 ## Changes Made
@@ -10,6 +11,7 @@ Successfully refactored the monolithic `function_app.py` (1,684 lines → 814 li
 ### 1. Created Handler Classes (FitParser/handlers/)
 
 #### FitUploadHandler (`FitParser/handlers/fit_upload_handler.py`)
+
 - **Purpose**: Handle FIT file upload → parse → store workflow
 - **Key Method**: `handle(file_path, athlete_id)` → Returns `(WorkoutMetricsModel, status_code)`
 - **Features**:
@@ -19,6 +21,7 @@ Successfully refactored the monolithic `function_app.py` (1,684 lines → 814 li
   - Pydantic model output
 
 #### OneDriveSyncHandler (`FitParser/handlers/onedrive_sync_handler.py`)
+
 - **Purpose**: Orchestrate OneDrive sync operations
 - **Classes**:
   - `OneDriveSyncRequest`: Encapsulates request parsing with properties
@@ -32,6 +35,7 @@ Successfully refactored the monolithic `function_app.py` (1,684 lines → 814 li
 - **Dependencies**: OneDrivePersonalSyncService, threading
 
 #### QueryHandler (`FitParser/handlers/query_handler.py`)
+
 - **Purpose**: Semantic layer query orchestration
 - **Methods**:
   - `query_athlete_workouts(athlete_id, limit)` - Get recent workouts
@@ -57,6 +61,7 @@ WorkoutMetricsModel
 ```
 
 **Key Features**:
+
 - Field validation (e.g., `ge=0`, `le=300` for HR)
 - Optional fields with defaults
 - JSON serialization via `model_dump()` and `model_dump_json()`
@@ -68,7 +73,8 @@ WorkoutMetricsModel
 **After**: 814 lines of clean HTTP adapter layer
 
 **New Structure**:
-```
+
+``` text
 Imports & Configuration (lines 1-80)
 ├── Dependencies (FitParser, handlers, storage, etc.)
 ├── Constants (JSON_CONTENT_TYPE, error messages)
@@ -106,17 +112,20 @@ Timer Triggers:
 ### 4. Key Architectural Improvements
 
 #### Separation of Concerns
+
 - **Before**: HTTP parsing, business logic, and persistence all in one function
-- **After**: 
+- **After**:
   - HTTP layer: `function_app.py` (thin wrappers)
   - Business logic: Handlers (pure Python)
   - Data validation: Pydantic models
 
 #### Testability
+
 - **Before**: Handlers tightly coupled to Azure Functions framework
 - **After**: Handlers are plain Python classes that can be unit tested without mocking `func.HttpRequest`
 
 Example:
+
 ```python
 # Old (not testable without mocking func.HttpRequest)
 def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
@@ -139,10 +148,12 @@ def onedrive_sync_http(req: func.HttpRequest):
 ```
 
 #### Type Safety
+
 - **Before**: Dictionaries with manual validation
 - **After**: Pydantic models with automatic validation
 
 Example:
+
 ```python
 # Old
 metrics = fit_parser.parse()  # Returns dict
@@ -154,6 +165,7 @@ avg_hr = metrics.samples.hr_avg_bpm  # Type-safe, validated (0 ≤ hr ≤ 300)
 ```
 
 #### Dependency Injection
+
 - **Before**: Each endpoint instantiated services directly
 - **After**: Singletons with lazy initialization
   - Better performance (reuse connections)
@@ -169,6 +181,7 @@ avg_hr = metrics.samples.hr_avg_bpm  # Type-safe, validated (0 ≤ hr ≤ 300)
 ### 6. Error Handling Pattern
 
 Consistent error handling across all handlers:
+
 ```python
 try:
     handler = QueryHandler(_get_semantic_layer())
@@ -182,21 +195,25 @@ except Exception as exc:
 ## Files Modified
 
 ### Created
+
 - `FitParser/handlers/__init__.py` (package initialization)
 - `FitParser/handlers/fit_upload_handler.py` (50 lines)
 - `FitParser/handlers/onedrive_sync_handler.py` (80 lines)
 - `FitParser/handlers/query_handler.py` (120 lines)
 
 ### Modified
+
 - `FitParser/models.py` (added 7 Pydantic models, ~150 lines)
 - `function_app.py` (1,684 → 814 lines, -870 lines)
 
 ### Backup
+
 - `function_app.py.backup` (original 1,684 lines preserved)
 
 ## Backwards Compatibility
 
 ✅ **All existing endpoints preserved**:
+
 - FIT upload: `/process_fit`
 - OneDrive sync: `/onedrive/sync`
 - Planning: `/planning/context`
@@ -214,17 +231,20 @@ except Exception as exc:
 ## Next Steps (Future Refactoring)
 
 ### Priority 1: Create Remaining Handlers
+
 - [ ] `PhysiometricsHandler` - Extract from lines 426-523
 - [ ] `WithingsHandler` - Extract from lines 530-624
 - [ ] `ConfigHandler` - Extract from lines 631-774
 - [ ] `HealthHandler` - Extract from lines 336-416
 
 ### Priority 2: Testing
+
 - [ ] Unit tests for all handlers
 - [ ] Integration tests with Azure Functions framework
 - [ ] Validate Pydantic model serialization
 
 ### Priority 3: Documentation
+
 - [ ] API documentation updates
 - [ ] Handler usage examples
 - [ ] Pydantic model reference
@@ -232,12 +252,14 @@ except Exception as exc:
 ## Validation
 
 ### Syntax Check
+
 ```bash
 python3 -m py_compile function_app.py
 ✓ Syntax OK
 ```
 
 ### Line Count
+
 ```bash
 # Before: 1,684 lines
 # After:  814 lines
@@ -245,7 +267,9 @@ python3 -m py_compile function_app.py
 ```
 
 ### SonarQube Complexity
+
 The original trigger for this refactor:
+
 - **Before**: `onedrive_sync_http()` cognitive complexity = 16 (exceeded limit of 15)
 - **After**: `onedrive_sync_http()` cognitive complexity ≈ 3 (HTTP adapter only)
 - **Business Logic**: Moved to `OneDriveSyncHandler.handle()` (complexity ≈ 6)
@@ -261,7 +285,7 @@ The original trigger for this refactor:
 
 ## Architecture Diagram
 
-```
+``` text
 ┌─────────────────────────────────────────────────────────┐
 │                   function_app.py                       │
 │            (HTTP Adapter Layer - 814 lines)             │
