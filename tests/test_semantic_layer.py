@@ -36,11 +36,12 @@ def sample_workouts():
             "sport": "Cycling",
             "start_time_utc": base_date.isoformat(),
             "duration_sec": 3600,
-            "z2_minutes": 50,
-            "z4_minutes": 5,
-            "z5_minutes": 3,
-            "pwr_hr_decoupling_pct": 2.5,
-            "pwr_avg_efficiency": 1.2,
+            "hr_z2_min": 50,
+            "hr_z4_sec": 300,
+            "hr_z5_sec": 180,
+            "intensity_min": 8,
+            "decoupling_pct": 2.5,
+            "ef_overall": 1.2,
         },
         {
             "workout_id": "workout-002",
@@ -48,9 +49,10 @@ def sample_workouts():
             "sport": "Running",
             "start_time_utc": (base_date - timedelta(days=2)).isoformat(),
             "duration_sec": 2700,
-            "z2_minutes": 45,
-            "z4_minutes": 0,
-            "z5_minutes": 0,
+            "hr_z2_min": 45,
+            "hr_z4_sec": 0,
+            "hr_z5_sec": 0,
+            "intensity_min": 0,
         },
         {
             "workout_id": "workout-003",
@@ -58,7 +60,7 @@ def sample_workouts():
             "sport": "Cycling",
             "start_time_utc": (base_date - timedelta(days=5)).isoformat(),
             "duration_sec": 300,  # Very short - 5 minutes
-            "z2_minutes": 5,
+            "hr_z2_min": 5,
         },
     ]
 
@@ -106,7 +108,7 @@ class TestPlanningContext:
         """Test detection of last long aerobic workout."""
         # Modify workout-002 to have > 60 minutes of Z2
         workouts = sample_workouts.copy()
-        workouts[1]["z2_minutes"] = 75
+        workouts[1]["hr_z2_min"] = 75
 
         with patch.object(
             semantic_layer, '_get_workouts_in_range', return_value=workouts
@@ -130,15 +132,12 @@ class TestPlanningContext:
             ):
                 context = semantic_layer.get_planning_context("rob", days=30)
 
-        # Sum all Z2 minutes
-        expected_z2 = sum(w.get("z2_minutes", 0) or 0 for w in sample_workouts)
+        # Sum all HR Z2 minutes
+        expected_z2 = sum(w.get("hr_z2_min", 0) or 0 for w in sample_workouts)
         assert context["summary"]["cumulative_z2_minutes"] == expected_z2
 
-        # Sum all Z4 + Z5 minutes
-        expected_intensity = sum(
-            (w.get("z4_minutes", 0) or 0) + (w.get("z5_minutes", 0) or 0)
-            for w in sample_workouts
-        )
+        # Sum all intensity minutes
+        expected_intensity = sum(w.get("intensity_min", 0) or 0 for w in sample_workouts)
         assert context["summary"]["cumulative_intensity_minutes"] == expected_intensity
 
     def test_planning_context_detects_flags(
@@ -385,7 +384,7 @@ class TestHelperMethods:
             {
                 "workout_id": "long-1",
                 "start_time_utc": "2026-01-15T10:00:00Z",
-                "z2_minutes": 90,
+                "hr_z2_min": 90,
             }
         ]
 
@@ -394,9 +393,9 @@ class TestHelperMethods:
 
     def test_sum_zone_time(self, semantic_layer, sample_workouts):
         """Test zone time summation."""
-        total_z2 = semantic_layer._sum_zone_time(sample_workouts, "z2_minutes")
+        total_z2 = semantic_layer._sum_zone_time(sample_workouts, "hr_z2_min")
 
-        expected = sum(w.get("z2_minutes", 0) or 0 for w in sample_workouts)
+        expected = sum(w.get("hr_z2_min", 0) or 0 for w in sample_workouts)
         assert total_z2 == expected
 
     def test_sum_high_intensity(self, semantic_layer, sample_workouts):
@@ -423,7 +422,7 @@ class TestHelperMethods:
             {
                 "workout_id": "w1",
                 "duration_sec": 3600,
-                "pwr_hr_decoupling_pct": 6.5,
+                "decoupling_pct": 6.5,
             }
         ]
 

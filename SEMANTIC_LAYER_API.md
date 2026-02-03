@@ -114,8 +114,8 @@ GET /api/planning/context?athlete_id=rob&days=45
       "sport": "Cycling",
       "start_time_utc": "2026-01-15T10:00:00Z",
       "duration_sec": 3600,
-      "z2_minutes": 50,
-      "z4_minutes": 5,
+      "hr_z2_min": 50,
+      "intensity_min": 5,
       "pwr_avg_watts": 220
     }
   ],
@@ -547,8 +547,13 @@ Retrieve full workout data including time series records.
   "duration_sec": 3600,
   "hr_avg_bpm": 145,
   "pwr_avg_watts": 220,
-  "z2_minutes": 50,
-  "pwr_hr_decoupling_pct": 2.5,
+  "hr_z2_min": 50,
+  "pwr_z2_min": 45,
+  "intensity_min": 8,
+  "decoupling_pct": 2.5,
+  "ef_overall": 1.52,
+  "intensity_factor": 0.85,
+  "tss": 65,
   "records": [
     {
       "heart_rate": 145,
@@ -593,8 +598,9 @@ Get aggregated weekly training data.
       "RowKey": "2026-03",
       "total_duration_sec": 14400,
       "total_distance_m": 180000,
-      "z2_minutes": 200,
-      "intensity_minutes": 45
+      "total_hr_z2_min": 200,
+      "total_pwr_z2_min": 180,
+      "total_intensity_min": 45
     }
   ]
 }
@@ -685,7 +691,8 @@ Track aerobic efficiency and power-HR decoupling over time.
       "date": "2026-01-15T10:00:00Z",
       "sport": "Cycling",
       "decoupling_pct": 2.5,
-      "avg_efficiency": 1.52
+      "ef_overall": 1.52,
+      "hr_drift_bpm": 3.2
     }
   ],
   "summary": {

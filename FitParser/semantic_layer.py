@@ -65,7 +65,7 @@ class SemanticLayer:
         # Analyze patterns
         last_hard_day = self._find_last_hard_day(workouts)
         last_long_day = self._find_last_long_day(workouts)
-        z2_minutes = self._sum_zone_time(workouts, "z2_minutes")
+        z2_minutes = self._sum_zone_time(workouts, "hr_z2_min")
         intensity_minutes = self._sum_high_intensity(workouts)
         flags = self._detect_notable_flags(workouts)
 
@@ -227,20 +227,23 @@ class SemanticLayer:
             athlete_id, start_date, end_date, summary_only=True
         )
 
-        # Aggregate zone minutes
+        # Aggregate zone minutes (use HR zones as primary, fallback to power)
         zones = {
-            "z1": 0,
-            "z2": 0,
-            "z3": 0,
-            "z4": 0,
-            "z5": 0,
+            "z1": 0.0,
+            "z2": 0.0,
+            "z3": 0.0,
+            "z4": 0.0,
+            "z5": 0.0,
         }
 
         for workout in workouts:
-            for zone in zones:
-                zone_key = f"{zone}_minutes"
-                if zone_key in workout:
-                    zones[zone] += workout[zone_key] or 0
+            for i, zone in enumerate(["z1", "z2", "z3", "z4", "z5"], 1):
+                # Try HR zone first, then power zone
+                hr_sec = workout.get(f"hr_z{i}_sec", 0) or 0
+                pwr_sec = workout.get(f"pwr_z{i}_sec", 0) or 0
+                # Use whichever has data, prefer HR
+                zone_sec = hr_sec if hr_sec > 0 else pwr_sec
+                zones[zone] += zone_sec / 60  # Convert to minutes
 
         total_minutes = sum(zones.values())
 
@@ -284,12 +287,13 @@ class SemanticLayer:
         # Filter for workouts with efficiency data
         efficiency_data = []
         for workout in workouts:
-            if workout.get("pwr_hr_decoupling_pct") is not None:
+            if workout.get("decoupling_pct") is not None:
                 efficiency_data.append({
                     "date": workout.get("start_time_utc"),
                     "sport": workout.get("sport"),
-                    "decoupling_pct": workout.get("pwr_hr_decoupling_pct"),
-                    "avg_efficiency": workout.get("pwr_avg_efficiency"),
+                    "decoupling_pct": workout.get("decoupling_pct"),
+                    "ef_overall": workout.get("ef_overall"),
+                    "hr_drift_bpm": workout.get("hr_drift_bpm"),
                 })
 
         return {
@@ -439,11 +443,14 @@ class SemanticLayer:
             workout.update({
                 "hr_avg_bpm": entity.get("hr_avg_bpm"),
                 "hr_max_bpm": entity.get("hr_max_bpm"),
-                "z1_minutes": entity.get("z1_minutes"),
-                "z2_minutes": entity.get("z2_minutes"),
-                "z3_minutes": entity.get("z3_minutes"),
-                "z4_minutes": entity.get("z4_minutes"),
-                "z5_minutes": entity.get("z5_minutes"),
+                "hr_z1_sec": entity.get("hr_z1_sec"),
+                "hr_z2_sec": entity.get("hr_z2_sec"),
+                "hr_z3_sec": entity.get("hr_z3_sec"),
+                "hr_z4_sec": entity.get("hr_z4_sec"),
+                "hr_z5_sec": entity.get("hr_z5_sec"),
+                "hr_z2_min": entity.get("hr_z2_min"),
+                "hr_zone_basis": entity.get("hr_zone_basis"),
+                "hr_zone_reference_bpm": entity.get("hr_zone_reference_bpm"),
             })
 
         # Power summary
@@ -452,10 +459,25 @@ class SemanticLayer:
                 "pwr_avg_watts": entity.get("pwr_avg_watts"),
                 "pwr_max_watts": entity.get("pwr_max_watts"),
                 "pwr_normalized_watts": entity.get("pwr_normalized_watts"),
-                "pwr_intensity_factor": entity.get("pwr_intensity_factor"),
                 "pwr_variability_index": entity.get("pwr_variability_index"),
-                "pwr_hr_decoupling_pct": entity.get("pwr_hr_decoupling_pct"),
-                "pwr_avg_efficiency": entity.get("pwr_avg_efficiency"),
+                "pwr_z1_sec": entity.get("pwr_z1_sec"),
+                "pwr_z2_sec": entity.get("pwr_z2_sec"),
+                "pwr_z3_sec": entity.get("pwr_z3_sec"),
+                "pwr_z4_sec": entity.get("pwr_z4_sec"),
+                "pwr_z5_sec": entity.get("pwr_z5_sec"),
+                "pwr_z6_sec": entity.get("pwr_z6_sec"),
+                "pwr_z7_sec": entity.get("pwr_z7_sec"),
+                "pwr_z2_min": entity.get("pwr_z2_min"),
+                "intensity_min": entity.get("intensity_min"),
+                "low_aerobic_min": entity.get("low_aerobic_min"),
+                "ftp_watts": entity.get("ftp_watts"),
+                "intensity_factor": entity.get("intensity_factor"),
+                "tss": entity.get("tss"),
+                "decoupling_pct": entity.get("decoupling_pct"),
+                "hr_drift_bpm": entity.get("hr_drift_bpm"),
+                "ef_first_half": entity.get("ef_first_half"),
+                "ef_second_half": entity.get("ef_second_half"),
+                "ef_overall": entity.get("ef_overall"),
             })
 
         # Source metadata
@@ -526,13 +548,17 @@ class SemanticLayer:
         """
         Find date of last high-intensity workout.
 
-        High intensity = Z4+ minutes > 5 or normalized power > threshold
+        High intensity = intensity_min > 5 or Z4+ seconds > 300
         """
         for workout in workouts:
-            z4 = workout.get("z4_minutes", 0) or 0
-            z5 = workout.get("z5_minutes", 0) or 0
+            intensity = workout.get("intensity_min", 0) or 0
+            if intensity > 5:
+                return workout.get("start_time_utc")
 
-            if (z4 + z5) > 5:  # More than 5 minutes of hard work
+            # Fallback: check HR zones
+            hr_z4_sec = workout.get("hr_z4_sec", 0) or 0
+            hr_z5_sec = workout.get("hr_z5_sec", 0) or 0
+            if (hr_z4_sec + hr_z5_sec) / 60 > 5:
                 return workout.get("start_time_utc")
 
         return None
@@ -544,7 +570,10 @@ class SemanticLayer:
         Long = Z2 minutes > 60
         """
         for workout in workouts:
-            z2 = workout.get("z2_minutes", 0) or 0
+            # Check HR Z2 or power Z2
+            hr_z2 = workout.get("hr_z2_min", 0) or 0
+            pwr_z2 = workout.get("pwr_z2_min", 0) or 0
+            z2 = max(hr_z2, pwr_z2)
 
             if z2 > 60:
                 return workout.get("start_time_utc")
@@ -561,13 +590,19 @@ class SemanticLayer:
             total += minutes
         return total
 
-    def _sum_high_intensity(self, workouts: List[Dict]) -> int:
-        """Sum Z4 + Z5 minutes across workouts."""
-        total = 0
+    def _sum_high_intensity(self, workouts: List[Dict]) -> float:
+        """Sum high intensity minutes (Z4+) across workouts."""
+        total = 0.0
         for workout in workouts:
-            z4 = workout.get("z4_minutes", 0) or 0
-            z5 = workout.get("z5_minutes", 0) or 0
-            total += z4 + z5
+            # Use intensity_min if available (power zones Z4-Z7)
+            intensity = workout.get("intensity_min", 0) or 0
+            if intensity > 0:
+                total += intensity
+            else:
+                # Fallback: calculate from HR zones (Z4 + Z5)
+                hr_z4_sec = workout.get("hr_z4_sec", 0) or 0
+                hr_z5_sec = workout.get("hr_z5_sec", 0) or 0
+                total += (hr_z4_sec + hr_z5_sec) / 60
         return total
 
     def _detect_notable_flags(self, workouts: List[Dict]) -> List[str]:
@@ -586,7 +621,7 @@ class SemanticLayer:
         # Check for excessive decoupling
         high_decoupling = [
             w for w in workouts
-            if w.get("pwr_hr_decoupling_pct", 0) and w["pwr_hr_decoupling_pct"] > 5.0
+            if w.get("decoupling_pct", 0) and w["decoupling_pct"] > 5.0
         ]
         if high_decoupling:
             flags.append(
