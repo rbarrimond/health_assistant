@@ -359,6 +359,26 @@ def list_workouts(req: func.HttpRequest) -> func.HttpResponse:
         return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
+@app.route(route="workouts/{workout_id}", methods=["GET"])
+def get_workout_detail(req: func.HttpRequest) -> func.HttpResponse:
+    """Get detailed workout data including time series."""
+    try:
+        athlete_id = req.params.get("athlete_id", "rob")
+        workout_id = req.route_params.get("workout_id")
+
+        if not workout_id:
+            return _json_response({"error": "workout_id required in route"}, 400)
+
+        handler = QueryHandler(_get_semantic_layer())
+        workout, status = handler.query_workout_detail(athlete_id, workout_id)
+
+        return _json_response(workout, status)
+
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error("Workout detail endpoint failed: %s", exc, exc_info=True)
+        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+
+
 @app.route(route="analysis/zones", methods=["GET"])
 def zone_distribution(req: func.HttpRequest) -> func.HttpResponse:
     """Get time-in-zone distribution for planning."""

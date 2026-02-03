@@ -2,6 +2,8 @@
 
 The Semantic Access Layer is the **Read API** that sits between the raw metrics database and the ChatGPT UI. It exposes meaningful, human-centric questions about training data rather than raw table access.
 
+> **Phase 1 Note:** This system is currently deployed for single-athlete use. Most endpoints default `athlete_id` to `"rob"` when not provided. The multi-athlete architecture is implemented but enforcement is deferred to Phase 2.
+
 ---
 
 ## Quick Reference
@@ -20,7 +22,9 @@ GET /api/planning/context?athlete_id=rob&days=45
 
 **Returns:** Recent workouts, weekly rollups, last hard day, Z2 volume, intensity minutes, data flags
 
-### 📋 All 14 Endpoints
+### 📋 Core Semantic Layer Endpoints (14)
+
+**ChatGPT-Facing Endpoints:**
 
 | Endpoint | Purpose | Example |
 | -------- | ------- | ------- |
@@ -39,9 +43,21 @@ GET /api/planning/context?athlete_id=rob&days=45
 | `/api/config/history` | Config audit trail | `?limit=10` |
 | `/api/withings/webhook` | Withings OAuth callback | POST (Withings) |
 
+**Internal/Admin Endpoints:**
+
+These support ingestion and infrastructure but are not part of the ChatGPT-facing semantic layer:
+
+- `/api/process_fit` - FIT file ingestion (admin)
+- `/api/onedrive/authorize` - OneDrive OAuth flow (admin)
+- `/api/onedrive/callback` - OneDrive OAuth redirect (internal)
+- `/api/onedrive/sync` - Manual sync trigger (admin)
+- `/api/.well-known/ai-plugin.json` - ChatGPT plugin manifest
+- `/api/openapi.yaml` - API specification
+- `/api/logo.svg` - Plugin logo
+
 ### 🛡️ Built-in Protections
 
-- ✓ All queries require `athlete_id`
+- ✓ `athlete_id` parameter (Phase 1: defaults to "rob")
 - ✓ Workout queries: max 200
 - ✓ Days lookback: max 365
 - ✓ Weeks: max 52

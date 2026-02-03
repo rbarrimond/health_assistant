@@ -13,6 +13,7 @@ import pytest
 from function_app import (
     planning_context,
     list_workouts,
+    get_workout_detail,
     weekly_rollups,
     zone_distribution,
     efficiency_trends,
@@ -134,6 +135,63 @@ class TestListWorkoutsEndpoint:
             "rob",
             limit=50,
         )
+
+
+class TestGetWorkoutEndpoint:
+    """Tests for /api/workouts/{workout_id} endpoint."""
+
+    def test_missing_athlete_id(self, mock_request, mock_semantic_layer):
+        """Test endpoint defaults to 'rob' when athlete_id not provided."""
+        mock_request.route_params = {"workout_id": "abc123"}
+
+        mock_workout = {
+            "workout_id": "abc123",
+            "sport": "Cycling",
+            "duration_sec": 3600,
+        }
+        mock_semantic_layer.get_workout_detail.return_value = mock_workout
+
+        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+            response = get_workout_detail(mock_request)
+
+        assert response.status_code == 200
+        data = json.loads(response.get_body())
+        assert data["workout_id"] == "abc123"
+        mock_semantic_layer.get_workout_detail.assert_called_once_with("rob", "abc123")
+
+    def test_workout_found(self, mock_request, mock_semantic_layer):
+        """Test successful workout detail retrieval."""
+        mock_request.params = {"athlete_id": "alice"}
+        mock_request.route_params = {"workout_id": "xyz789"}
+
+        mock_workout = {
+            "workout_id": "xyz789",
+            "sport": "Running",
+            "duration_sec": 2400,
+        }
+        mock_semantic_layer.get_workout_detail.return_value = mock_workout
+
+        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+            response = get_workout_detail(mock_request)
+
+        assert response.status_code == 200
+        data = json.loads(response.get_body())
+        assert data["workout_id"] == "xyz789"
+        mock_semantic_layer.get_workout_detail.assert_called_once_with("alice", "xyz789")
+
+    def test_workout_not_found(self, mock_request, mock_semantic_layer):
+        """Test workout detail when workout doesn't exist."""
+        mock_request.params = {"athlete_id": "rob"}
+        mock_request.route_params = {"workout_id": "nonexistent"}
+
+        mock_semantic_layer.get_workout_detail.return_value = None
+
+        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+            response = get_workout_detail(mock_request)
+
+        assert response.status_code == 404
+        data = json.loads(response.get_body())
+        assert "not found" in data["error"].lower()
 
 
 class TestWeeklyRollupsEndpoint:

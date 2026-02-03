@@ -35,6 +35,29 @@ class QueryHandler:
             logger.error("Query failed: %s", exc, exc_info=True)
             return [], 500
 
+    def query_workout_detail(self, athlete_id: str, workout_id: str) -> Tuple[Dict[str, Any], int]:
+        """
+        Get detailed workout data including time series.
+
+        Args:
+            athlete_id: Athlete identifier
+            workout_id: Unique workout identifier
+
+        Returns:
+            (workout detail dict, HTTP status code)
+        """
+        try:
+            workout = self.semantic_layer.get_workout_detail(athlete_id, workout_id)
+            if workout is None:
+                return {"error": "Workout not found"}, 404
+            return workout, 200
+        except ValueError as exc:
+            logger.warning("Workout detail validation failed: %s", exc)
+            return {"error": str(exc)}, 400
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.error("Workout detail query failed: %s", exc, exc_info=True)
+            return {"error": "Internal server error"}, 500
+
     def query_planning_context(self, athlete_id: str, days: int = 45) -> Tuple[Dict[str, Any], int]:
         """
         Get planning context for training decisions.
