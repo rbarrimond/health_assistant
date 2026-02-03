@@ -6,6 +6,7 @@ These are intentionally shallow: do modules import and do core call paths work?
 import base64
 from pathlib import Path
 from typing import Any, cast
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -92,3 +93,107 @@ def test_parse_ingest_payload_invalid_json() -> None:
 
     with pytest.raises(ValueError, match="Invalid payload"):
         parse_ingest_payload(cast(Any, DummyReq()))
+
+
+# ============================================================================
+# Dependency Layer Instantiation Tests (Fast Fail)
+# ============================================================================
+
+
+def test_storage_instantiation() -> None:
+    """WorkoutTableStorage should instantiate without errors.
+    
+    Catches connection string issues, import problems, or initialization errors
+    early in the CI/CD pipeline.
+    """
+    from FitParser.table_storage import WorkoutTableStorage
+    
+    # Mock the table creation to avoid needing a real connection string
+    with patch.object(WorkoutTableStorage, "_ensure_tables_exist"):
+        storage = WorkoutTableStorage(
+            connection_string=(
+                "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake;"
+                "EndpointSuffix=core.windows.net"
+            )
+        )
+        assert storage is not None
+
+
+def test_semantic_layer_instantiation() -> None:
+    """SemanticLayer should instantiate with WorkoutTableStorage.
+    
+    Verifies the dependency chain: SemanticLayer → WorkoutTableStorage.
+    Catches initialization or dependency injection issues early.
+    """
+    from FitParser.table_storage import WorkoutTableStorage
+    from FitParser.semantic_layer import SemanticLayer
+    
+    with patch.object(WorkoutTableStorage, "_ensure_tables_exist"):
+        storage = WorkoutTableStorage(
+            connection_string=(
+                "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake;"
+                "EndpointSuffix=core.windows.net"
+            )
+        )
+        layer = SemanticLayer(storage)
+        assert layer is not None
+        assert layer.storage is storage
+
+
+def test_fit_upload_handler_instantiation() -> None:
+    """FitUploadHandler should instantiate with storage.
+    
+    Verifies that FitUploadHandler's dependencies are available and
+    initialization doesn't fail.
+    """
+    from FitParser.handlers import FitUploadHandler
+    from FitParser.table_storage import WorkoutTableStorage
+    
+    with patch.object(WorkoutTableStorage, "_ensure_tables_exist"):
+        storage = WorkoutTableStorage(
+            connection_string=(
+                "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake;"
+                "EndpointSuffix=core.windows.net"
+            )
+        )
+        handler = FitUploadHandler(storage)
+        assert handler is not None
+        assert handler.storage is storage
+
+
+def test_onedrive_sync_handler_instantiation() -> None:
+    """OneDriveSyncHandler should instantiate with OneDrive service.
+    
+    Verifies dependency: OneDriveSyncHandler → OneDrivePersonalSyncService.
+    """
+    from FitParser.handlers import OneDriveSyncHandler
+    from FitParser.onedrive_sync import OneDrivePersonalSyncService
+    
+    # Create a mock service without requiring OAuth credentials
+    service = MagicMock(spec=OneDrivePersonalSyncService)
+    handler = OneDriveSyncHandler(service)
+    assert handler is not None
+
+
+def test_config_handler_instantiation() -> None:
+    """ConfigHandler should instantiate successfully."""
+    from FitParser.handlers import ConfigHandler
+    
+    handler = ConfigHandler()
+    assert handler is not None
+
+
+def test_health_handler_instantiation() -> None:
+    """HealthHandler should instantiate successfully."""
+    from FitParser.handlers import HealthHandler
+    from FitParser.table_storage import WorkoutTableStorage
+    
+    with patch.object(WorkoutTableStorage, "_ensure_tables_exist"):
+        storage = WorkoutTableStorage(
+            connection_string=(
+                "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake;"
+                "EndpointSuffix=core.windows.net"
+            )
+        )
+        handler = HealthHandler(storage, "test_api_docs_dir")
+        assert handler is not None
