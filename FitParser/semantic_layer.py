@@ -462,12 +462,27 @@ class SemanticLayer:
             else:
                 workout_name = f"{sport.title()} Workout"
 
+        # Sub-sport (use sport as fallback if not set)
+        sub_sport = entity.get("sub_sport")
+        if not sub_sport:
+            sub_sport = sport
+
+        # Calories (estimate from duration if missing)
+        calories = entity.get("calories_kcal")
+        if calories is None:
+            # Very rough estimate: 10 kcal per minute for cycling, 15 for running
+            duration_min = (entity.get("duration_sec") or 0) / 60
+            if "run" in sport.lower():
+                calories = int(duration_min * 15)
+            else:
+                calories = int(duration_min * 10)
+
         # Core summary fields
         workout = {
             "workout_id": entity.get("workout_id"),
             "athlete_id": entity.get("athlete_id"),
             "sport": sport,
-            "sub_sport": entity.get("sub_sport"),
+            "sub_sport": sub_sport,
             "workout_name": workout_name,
             "is_indoor": is_indoor,
             "start_time_utc": entity.get("start_time_utc"),
@@ -476,7 +491,7 @@ class SemanticLayer:
             "moving_time_sec": entity.get("moving_time_sec"),
             "distance_m": entity.get("distance_m"),
             "elevation_gain_m": entity.get("elevation_gain_m"),
-            "calories_kcal": entity.get("calories_kcal"),
+            "calories_kcal": calories,
         }
 
         # Heart rate summary
