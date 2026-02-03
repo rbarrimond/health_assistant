@@ -421,14 +421,55 @@ class SemanticLayer:
         Returns:
             Cleaned workout dict
         """
+        # Infer sport from sub_sport or source if missing
+        sport = entity.get("sport")
+        if not sport:
+            sub_sport = entity.get("sub_sport")
+            if sub_sport:
+                # Map common sub_sports to parent sport
+                if "cycling" in sub_sport.lower() or "bike" in sub_sport.lower():
+                    sport = "cycling"
+                elif "run" in sub_sport.lower():
+                    sport = "running"
+                elif "swim" in sub_sport.lower():
+                    sport = "swimming"
+                else:
+                    sport = "unknown"
+            else:
+                sport = "unknown"
+
+        # Infer is_indoor from elevation gain if missing
+        is_indoor = entity.get("is_indoor")
+        if is_indoor is None:
+            elevation = entity.get("elevation_gain_m", 0) or 0
+            distance = entity.get("distance_m", 0) or 0
+            # If distance > 0 and elevation is 0 or very low, likely indoor
+            if distance > 100 and elevation < 5:
+                is_indoor = True
+            else:
+                is_indoor = False
+
+        # Generate workout name if missing
+        workout_name = entity.get("workout_name")
+        if not workout_name:
+            start_time = entity.get("start_time_utc")
+            if start_time:
+                try:
+                    dt = datetime.fromisoformat(str(start_time).replace("Z", ""))
+                    workout_name = f"{sport.title()} - {dt.strftime('%b %d, %Y')}"
+                except (ValueError, AttributeError):
+                    workout_name = f"{sport.title()} Workout"
+            else:
+                workout_name = f"{sport.title()} Workout"
+
         # Core summary fields
         workout = {
             "workout_id": entity.get("workout_id"),
             "athlete_id": entity.get("athlete_id"),
-            "sport": entity.get("sport"),
+            "sport": sport,
             "sub_sport": entity.get("sub_sport"),
-            "workout_name": entity.get("workout_name"),
-            "is_indoor": entity.get("is_indoor"),
+            "workout_name": workout_name,
+            "is_indoor": is_indoor,
             "start_time_utc": entity.get("start_time_utc"),
             "end_time_utc": entity.get("end_time_utc"),
             "duration_sec": entity.get("duration_sec"),
