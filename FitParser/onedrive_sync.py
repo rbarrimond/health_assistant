@@ -176,7 +176,7 @@ class OneDrivePersonalSyncService:
                     "name": item["name"],
                     "id": item["id"],
                     "status": body.get("status", "error"),
-                    "message": body.get("error"),
+                    "message": body.get("message") or body.get("error"),
                     "workout_id": body.get("workout_id"),
                 })
             except Exception as exc:  # pylint: disable=broad-exception-caught

@@ -7,12 +7,14 @@ in FitParser.handlers. All endpoints are thin wrappers that:
 3. Return JSON response
 """
 
+import base64
 import json
 import logging
 import os
+import tempfile
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 from urllib.parse import urlparse
 
 import azure.functions as func
@@ -23,6 +25,7 @@ from FitParser.onedrive_sync import (
     OneDrivePersonalSyncService,
     OneDriveSyncConfig,
 )
+from FitParser.fit_parser import FitParser, compute_file_hash
 from FitParser.semantic_layer import SemanticLayer
 from FitParser.table_storage import WorkoutTableStorage
 from FitParser.withings_client import WithingsClient
@@ -79,36 +82,40 @@ OPENAPI_SPEC_PATH = os.path.join(API_DOCS_DIR, "openapi.yaml")
 # Utility Functions
 # ============================================================================
 
+
 def parse_ingest_payload(req: func.HttpRequest) -> Dict[str, Any]:
     """Parse FIT file ingestion payload from HTTP request.
-    
+
     Extracts and validates required fields from the JSON request body.
-    
+
     Args:
         req: Azure HttpRequest object
-        
+
     Returns:
         Parsed payload dictionary with required fields
-        
+
     Raises:
         ValueError: If required fields are missing
     """
     try:
         payload = req.get_json()
-        
+
         # Validate required fields
-        required_fields = ["athlete_id", "source_file_name", "file_content_b64"]
+        required_fields = ["athlete_id",
+                           "source_file_name", "file_content_b64"]
         for field in required_fields:
             if field not in payload:
                 raise ValueError(f"Missing required field: {field}")
-        
+
         return payload
     except (ValueError, TypeError) as e:
-        raise ValueError(f"Invalid payload: {str(e)}") from e
+        msg = f"Invalid payload: {str(e)}"
+        raise ValueError(msg) from e
 
 # ============================================================================
 # Dependency Singletons
 # ============================================================================
+
 
 _storage_singleton: Optional[WorkoutTableStorage] = None
 _semantic_layer_singleton: Optional[SemanticLayer] = None
@@ -138,6 +145,92 @@ def _get_semantic_layer() -> SemanticLayer:
     return _semantic_layer_singleton
 
 
+def _ingest_fit_payload(payload: Dict[str, Any]) -> tuple[Dict[str, Any], int]:
+    """
+    Ingest a FIT file payload from OneDrive sync.
+
+    Args:
+        payload: Dict with athlete_id, source_file_name, file_content_b64, etc.
+
+    Returns:
+        (response_dict, HTTP status_code)
+    """
+    athlete_id = payload.get("athlete_id", "rob")
+    storage = _get_storage()
+    source_info = None
+    try:
+        file_content_b64 = payload.get("file_content_b64")
+
+        if not file_content_b64:
+            return {"status": "error", "error": "No file content"}, 400
+
+        # Decode base64 content
+        file_content = base64.b64decode(file_content_b64)
+
+        # Write temp file for processing
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".fit") as tmp:
+            tmp.write(file_content)
+            tmp_path = tmp.name
+
+        try:
+            source_info = {
+                "source_system": payload.get("source_system", "HealthFit"),
+                "source_file_name": payload.get("source_file_name"),
+                "source_file_path": payload.get("source_file_path"),
+                "source_item_id": payload.get("source_item_id"),
+                "source_drive_id": payload.get("source_drive_id"),
+                "source_etag": payload.get("source_etag"),
+                "file_size_bytes": payload.get("file_size_bytes"),
+                "file_sha256": payload.get("file_sha256")
+                or compute_file_hash(tmp_path),
+            }
+
+            # Parse and store with source info from payload
+            parser = FitParser(tmp_path)
+            metrics = parser.parse()
+
+            workout_id = storage.store_workout(
+                athlete_id, metrics, source_info
+            )
+            storage.record_ingestion_state(
+                athlete_id,
+                source_info,
+                status="ingested",
+                workout_id=workout_id,
+            )
+
+            return {
+                "status": "success",
+                "workout_id": workout_id,
+            }, 200
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    except (ValueError, TypeError) as exc:
+        logger.warning("FIT payload ingestion validation failed: %s", exc)
+        if source_info:
+            storage.record_ingestion_state(
+                athlete_id,
+                source_info,
+                status="failed",
+                error=str(exc),
+            )
+        return {"status": "error", "error": str(exc)}, 400
+    except OSError as exc:
+        logger.error("FIT payload file operation failed: %s", exc)
+        if source_info:
+            storage.record_ingestion_state(
+                athlete_id,
+                source_info,
+                status="failed",
+                error="File operation failed",
+            )
+        return {"status": "error", "error": "File operation failed"}, 500
+
+
 def _get_onedrive_service() -> OneDrivePersonalSyncService:
     """Get OneDrive service singleton or create instance."""
     global _onedrive_service_singleton  # pylint: disable=global-statement
@@ -147,7 +240,7 @@ def _get_onedrive_service() -> OneDrivePersonalSyncService:
         _onedrive_service_singleton = OneDrivePersonalSyncService(
             config=config,
             storage=storage,
-            ingest_payload_fn=lambda _: ({}, 200)  # Return (response, status) tuple
+            ingest_payload_fn=_ingest_fit_payload
         )
     return _onedrive_service_singleton
 
@@ -221,7 +314,10 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
         metrics, status = handler.handle(file_path, athlete_id)
 
         if status == 201 and metrics:
-            return _json_response(metrics.model_dump(), status)
+            payload = metrics
+            if hasattr(metrics, "model_dump"):
+                payload = metrics.model_dump()  # type: ignore[attr-defined]
+            return _json_response(cast(Dict[str, Any], payload), status)
         else:
             error_msg = {
                 404: "File not found",
@@ -256,7 +352,8 @@ def onedrive_authorize(req: func.HttpRequest) -> func.HttpResponse:
             200,
         )
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("OneDrive authorize endpoint failed: %s", exc, exc_info=True)
+        logger.error("OneDrive authorize endpoint failed: %s",
+                     exc, exc_info=True)
         return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
@@ -297,6 +394,7 @@ def onedrive_callback(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("OneDrive callback failed: %s", exc, exc_info=True)
         return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+
 
 @app.route(route="onedrive/sync", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
 def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
@@ -410,7 +508,11 @@ def get_workout_detail(req: func.HttpRequest) -> func.HttpResponse:
         return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
-@app.route(route="workouts/{workout_id}/recalculated", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
+@app.route(
+    route="workouts/{workout_id}/recalculated",
+    methods=["GET"],
+    auth_level=func.AuthLevel.FUNCTION
+)
 def get_workout_recalculated(req: func.HttpRequest) -> func.HttpResponse:
     """Recalculate workout zones with override FTP/LTHR (placeholder endpoint)."""
     try:
@@ -431,7 +533,8 @@ def get_workout_recalculated(req: func.HttpRequest) -> func.HttpResponse:
         return _json_response(response, 501)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Recalculated workout endpoint failed: %s", exc, exc_info=True)
+        logger.error("Recalculated workout endpoint failed: %s",
+                     exc, exc_info=True)
         return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
@@ -589,7 +692,8 @@ def get_current_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
         return _json_response(result, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Physiometrics current endpoint failed: %s", exc, exc_info=True)
+        logger.error("Physiometrics current endpoint failed: %s",
+                     exc, exc_info=True)
         return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
@@ -609,7 +713,8 @@ def get_physiometrics_history(req: func.HttpRequest) -> func.HttpResponse:
         return _json_response(result, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Physiometrics history endpoint failed: %s", exc, exc_info=True)
+        logger.error("Physiometrics history endpoint failed: %s",
+                     exc, exc_info=True)
         return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
@@ -653,7 +758,8 @@ def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
         return _json_response(result, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Physiometrics update endpoint failed: %s", exc, exc_info=True)
+        logger.error("Physiometrics update endpoint failed: %s",
+                     exc, exc_info=True)
         return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
@@ -673,7 +779,8 @@ def withings_authorize(req: func.HttpRequest) -> func.HttpResponse:
         return _json_response(result, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Withings authorize endpoint failed: %s", exc, exc_info=True)
+        logger.error("Withings authorize endpoint failed: %s",
+                     exc, exc_info=True)
         return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
@@ -684,15 +791,17 @@ def withings_callback(req: func.HttpRequest) -> func.HttpResponse:
         code = req.params.get("code", "")
         state = req.params.get("state", "")
         webhook_base_url = os.getenv("WITHINGS_WEBHOOK_URL",
-                                      f"{req.url.split('/api/')[0]}/api/withings/webhook")
+                                     f"{req.url.split('/api/')[0]}/api/withings/webhook")
 
         handler = WithingsHandler(_get_withings_client(), _get_storage())
-        html, status, content_type = handler.handle_oauth_callback(code, state, webhook_base_url)
+        html, status, content_type = handler.handle_oauth_callback(
+            code, state, webhook_base_url)
 
         return func.HttpResponse(html, status_code=status, mimetype=content_type)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Withings callback endpoint failed: %s", exc, exc_info=True)
+        logger.error("Withings callback endpoint failed: %s",
+                     exc, exc_info=True)
         error_html = (
             "<html><body><h1>Error</h1>"
             "<p>Failed to connect Withings account</p>"
@@ -711,12 +820,14 @@ def withings_webhook(req: func.HttpRequest) -> func.HttpResponse:
         enddate = req.form.get("enddate", "")
 
         handler = WithingsHandler(_get_withings_client(), _get_storage())
-        result, status = handler.process_webhook(userid, appli, startdate, enddate)
+        result, status = handler.process_webhook(
+            userid, appli, startdate, enddate)
 
         return func.HttpResponse(result, status_code=status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Withings webhook endpoint failed: %s", exc, exc_info=True)
+        logger.error("Withings webhook endpoint failed: %s",
+                     exc, exc_info=True)
         return func.HttpResponse("OK", status_code=200)
 
 
@@ -786,7 +897,8 @@ def backup_export_timer(timer: func.TimerRequest) -> None:
         logger.warning("Backup export timer is past due")
 
     try:
-        logger.info("Starting daily backup export at %s", datetime.now(timezone.utc).isoformat())
+        logger.info("Starting daily backup export at %s",
+                    datetime.now(timezone.utc).isoformat())
 
         storage = _get_storage()
         if storage is None:

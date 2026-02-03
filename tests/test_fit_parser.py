@@ -178,6 +178,60 @@ class TestFitParserSportExtraction:
 
         assert sub_sport == "road"
 
+    def test_get_sport_handles_string_values(self, sample_fit_file: Path) -> None:
+        """Verify _get_sport handles both enum and string values from fitparse."""
+        parser = FitParser(str(sample_fit_file))
+
+        # Mock fit file where sport is a string (as fitparse actually returns)
+        fit_file = MagicMock()
+        file_id_msg = MagicMock()
+        file_id_msg.get = MagicMock(
+            side_effect=lambda key: MagicMock(value="cycling") if key == "type" else None
+        )
+        session_msg = MagicMock()
+        session_msg.get = MagicMock(return_value=None)
+
+        def get_messages(msg_type):
+            if msg_type == "file_id":
+                return [file_id_msg]
+            elif msg_type == "session":
+                return [session_msg]
+            return []
+
+        fit_file.get_messages = MagicMock(side_effect=get_messages)
+        parser.fit = fit_file
+        parser._cache_messages()
+
+        sport = parser._get_sport()
+
+        assert sport == "cycling"
+
+    def test_get_sub_sport_handles_string_values(self, sample_fit_file: Path) -> None:
+        """Verify _get_sub_sport handles both enum and string values."""
+        parser = FitParser(str(sample_fit_file))
+
+        # Mock fit file where sub_sport is a string (as fitparse actually returns)
+        fit_file = MagicMock()
+        session_msg = MagicMock()
+        session_msg.get = MagicMock(
+            side_effect=lambda key: MagicMock(value="indoor_cycling")
+            if key == "sub_sport"
+            else None
+        )
+
+        def get_messages(msg_type):
+            if msg_type == "session":
+                return [session_msg]
+            return []
+
+        fit_file.get_messages = MagicMock(side_effect=get_messages)
+        parser.fit = fit_file
+        parser._cache_messages()
+
+        sub_sport = parser._get_sub_sport()
+
+        assert sub_sport == "indoor_cycling"
+
 
 class TestFitParserTimeExtraction:
     """Tests for time-related field extraction."""
@@ -526,22 +580,22 @@ class TestAdapterIntegration:
             return getter
 
         file_id_msg = MagicMock()
-        sport_enum = MagicMock()
-        sport_enum.name = "cycling"
         manufacturer_enum = MagicMock()
         manufacturer_enum.name = "garmin"
         file_id_msg.get = MagicMock(
             side_effect=create_field_getter({
-                "type": MagicMock(value=sport_enum),
                 "manufacturer": MagicMock(value=manufacturer_enum),
             })
         )
 
         session_msg = MagicMock()
+        sport_enum = MagicMock()
+        sport_enum.name = "cycling"
         sub_sport_enum = MagicMock()
         sub_sport_enum.name = "road"
         session_msg.get = MagicMock(
             side_effect=create_field_getter({
+                "sport": MagicMock(value=sport_enum),
                 "sub_sport": MagicMock(value=sub_sport_enum),
                 "session_name": MagicMock(value="Morning Ride"),
                 "indoor": MagicMock(value=True),

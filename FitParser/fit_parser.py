@@ -191,16 +191,20 @@ class FitParser:
         """Get sport type from file messages."""
         file_msg = self.file_id_msg
         sport = self._get_field_from_msg(file_msg, "type")
-        if sport and hasattr(sport, "name"):
-            return str(cast(Any, sport).name).lower()
+        if sport:
+            if hasattr(sport, "name"):
+                return str(cast(Any, sport).name).lower()
+            return str(sport).lower()
         return None
 
     def _get_sub_sport(self) -> Optional[str]:
         """Get sub-sport type."""
         session = self.session_msg
         sub_sport = self._get_field_from_msg(session, "sub_sport")
-        if sub_sport and hasattr(sub_sport, "name"):
-            return str(cast(Any, sub_sport).name).lower()
+        if sub_sport:
+            if hasattr(sub_sport, "name"):
+                return str(cast(Any, sub_sport).name).lower()
+            return str(sub_sport).lower()
         return None
 
     def _get_workout_name(self) -> Optional[str]:
@@ -548,7 +552,14 @@ class FitParser:
         self.metrics["hr_zone_total_sec"] = total_sec
         self.metrics["hr_z2_min"] = round(
             self.metrics.get("hr_z2_sec", 0) / 60, 1)
-        self.metrics["hr_zone_model"] = "garmin_5"
+
+        # Map zone basis to researcher/author name
+        basis_to_model = {
+            "LTHR": "coggan",
+            "HRmax": "karvonen",
+            "HRR": "karvonen",
+        }
+        self.metrics["hr_zone_model"] = basis_to_model.get(zone_basis, "unknown")
         self.metrics["hr_zone_basis"] = zone_basis
         self.metrics["hr_zone_reference_bpm"] = float(ref_bpm)
 

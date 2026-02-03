@@ -824,3 +824,124 @@ class WorkoutTableStorage:
         except HttpResponseError as e:
             logger.error("Error marking webhook as processed: %s", e)
             # Don't raise - this shouldn't block webhook processing
+
+    def upsert_metrics(self, athlete_id: str, metrics_model) -> str:
+        """
+        Store parsed workout metrics from WorkoutMetricsModel or dict.
+
+        Args:
+            athlete_id: Athlete identifier (e.g., 'rob')
+            metrics_model: WorkoutMetricsModel or dict with parsed metrics
+
+        Returns:
+            workout_id of stored entity
+        """
+        # If parser returns a raw dict, store directly.
+        if isinstance(metrics_model, dict):
+            metrics = metrics_model
+        else:
+            # Extract flat metrics dict from nested model structure
+            metrics = self._flatten_workout_metrics(metrics_model)
+
+        # Source info defaults
+        source_info = {"source_system": "HealthFit"}
+
+        # Call store_workout with the flat metrics dict
+        return self.store_workout(athlete_id, metrics, source_info)
+
+    def _flatten_workout_metrics(self, metrics_model) -> Dict:
+        """
+        Flatten nested WorkoutMetricsModel into flat dictionary for storage.
+
+        Args:
+            metrics_model: WorkoutMetricsModel with parsed metrics
+
+        Returns:
+            Flat dictionary with all metrics
+        """
+        metrics = {}
+
+        # Session metrics
+        if metrics_model.session:
+            metrics.update({
+                "sport": metrics_model.session.sport,
+                "sub_sport": metrics_model.session.sub_sport,
+                "workout_name": metrics_model.session.workout_name,
+                "device_name": metrics_model.session.device_name,
+                "is_indoor": metrics_model.session.is_indoor,
+                "start_time_utc": metrics_model.session.start_time_utc,
+                "end_time_utc": metrics_model.session.end_time_utc,
+                "timezone": metrics_model.session.timezone,
+                "duration_sec": metrics_model.session.duration_sec,
+                "moving_time_sec": metrics_model.session.moving_time_sec,
+            })
+
+        # Distance and elevation metrics
+        if metrics_model.distance:
+            metrics.update({
+                "has_gps": metrics_model.distance.has_gps,
+                "distance_m": metrics_model.distance.distance_m,
+                "elevation_gain_m": metrics_model.distance.elevation_gain_m,
+                "elevation_loss_m": metrics_model.distance.elevation_loss_m,
+                "avg_speed_mps": metrics_model.distance.avg_speed_ms,
+                "max_speed_mps": metrics_model.distance.max_speed_ms,
+                "calories_kcal": metrics_model.distance.calories,
+            })
+
+        # Sample metrics
+        if metrics_model.samples:
+            metrics.update({
+                "hr_avg_bpm": metrics_model.samples.hr_avg_bpm,
+                "hr_max_bpm": metrics_model.samples.hr_max_bpm,
+                "hr_samples_count": metrics_model.samples.hr_samples_count,
+                "hr_missing_pct": metrics_model.samples.hr_missing_pct,
+                "pwr_avg_watts": metrics_model.samples.pwr_avg_watts,
+                "pwr_max_watts": metrics_model.samples.pwr_max_watts,
+                "pwr_normalized_watts": metrics_model.samples.pwr_normalized_watts,
+                "pwr_variability_index": metrics_model.samples.pwr_variability_index,
+                "pwr_samples_count": metrics_model.samples.pwr_samples_count,
+                "pwr_missing_pct": metrics_model.samples.pwr_missing_pct,
+                "cad_avg_rpm": metrics_model.samples.cad_avg_rpm,
+                "cad_max_rpm": metrics_model.samples.cad_max_rpm,
+                "cad_samples_count": metrics_model.samples.cad_samples_count,
+            })
+
+        # HR zones
+        if metrics_model.zones_hr:
+            metrics.update({
+                "hr_z1_sec": metrics_model.zones_hr.hr_z1_sec,
+                "hr_z2_sec": metrics_model.zones_hr.hr_z2_sec,
+                "hr_z3_sec": metrics_model.zones_hr.hr_z3_sec,
+                "hr_z4_sec": metrics_model.zones_hr.hr_z4_sec,
+                "hr_z5_sec": metrics_model.zones_hr.hr_z5_sec,
+                "hr_z2_min": metrics_model.zones_hr.hr_z2_min,
+                "hr_zone_basis": metrics_model.zones_hr.hr_zone_basis,
+                "hr_zone_reference_bpm": metrics_model.zones_hr.hr_zone_reference_bpm,
+                "hr_zone_total_sec": metrics_model.zones_hr.hr_zone_total_sec,
+            })
+
+        # Power zones
+        if metrics_model.zones_power:
+            metrics.update({
+                "pwr_z1_sec": metrics_model.zones_power.pwr_z1_sec,
+                "pwr_z2_sec": metrics_model.zones_power.pwr_z2_sec,
+                "pwr_z3_sec": metrics_model.zones_power.pwr_z3_sec,
+                "pwr_z4_sec": metrics_model.zones_power.pwr_z4_sec,
+                "pwr_z5_sec": metrics_model.zones_power.pwr_z5_sec,
+                "pwr_z6_sec": metrics_model.zones_power.pwr_z6_sec,
+                "pwr_z7_sec": metrics_model.zones_power.pwr_z7_sec,
+                "pwr_z2_min": metrics_model.zones_power.pwr_z2_min,
+                "low_aerobic_min": metrics_model.zones_power.low_aerobic_min,
+                "intensity_min": metrics_model.zones_power.intensity_min,
+                "ftp_watts": metrics_model.zones_power.ftp_watts,
+                "pwr_zone_model": metrics_model.zones_power.pwr_zone_model,
+            })
+
+        # Aerobic efficiency and HR resting
+        metrics.update({
+            "aerobic_efficiency_mphb": metrics_model.aerobic_efficiency_mphb,
+            "hr_resting_bpm": metrics_model.hr_resting_bpm,
+            "physiometrics_snapshot_timestamp": metrics_model.physiometrics_snapshot_timestamp,
+        })
+
+        return metrics

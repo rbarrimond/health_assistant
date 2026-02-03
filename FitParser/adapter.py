@@ -37,17 +37,23 @@ def _to_iso_z(dt: datetime | None) -> str | None:
     return dt.isoformat() + "Z"
 
 
-def _extract_sport_names(file_id_msg, session_msg):
+def _extract_sport_names(session_msg):
     """Extract sport and sub_sport enum names."""
-    sport = _get_field_value(file_id_msg, "type")
-    sport_name = str(sport.name).lower() if sport and hasattr(sport, "name") else None
+    sport = _get_field_value(session_msg, "sport")
+    if sport:
+        sport_name = str(sport.name).lower() if hasattr(sport, "name") else str(sport).lower()
+    else:
+        sport_name = None
 
     sub_sport = _get_field_value(session_msg, "sub_sport")
-    sub_sport_name = (
-        str(sub_sport.name).lower()
-        if sub_sport and hasattr(sub_sport, "name")
-        else None
-    )
+    if sub_sport:
+        if hasattr(sub_sport, "name"):
+            sub_sport_name = str(sub_sport.name).lower()
+        else:
+            sub_sport_name = str(sub_sport).lower()
+    else:
+        sub_sport_name = None
+
     return sport_name, sub_sport_name
 
 
@@ -86,11 +92,9 @@ def _extract_session_metrics(session_msg):
     return distance_m, elev_gain_m, elev_loss_m, avg_speed_mps, max_speed_mps
 
 
-def _build_session(file_id_msg, session_msg) -> WorkoutSession:
+def _build_session(session_msg) -> WorkoutSession:
     """Build a WorkoutSession from cached messages."""
-    sport_name, sub_sport_name = _extract_sport_names(
-        file_id_msg, session_msg
-    )
+    sport_name, sub_sport_name = _extract_sport_names(session_msg)
     start_iso, end_iso, duration_sec = _extract_session_times(session_msg)
     (distance_m, elev_gain_m, elev_loss_m,
      avg_speed_mps, max_speed_mps) = _extract_session_metrics(session_msg)
@@ -157,7 +161,7 @@ def load_workout_from_fit(file_path: str) -> Workout:
     """Parse a FIT file and map it into Workout entities."""
     fit = fitparse.FitFile(file_path)
     file_id_msg, session_msg = _cache_core_messages(fit)
-    session = _build_session(file_id_msg, session_msg)
+    session = _build_session(session_msg)
     device = _build_device(file_id_msg)
     records = _build_records(fit)
     return Workout(session=session, device=device, records=records)
