@@ -379,6 +379,31 @@ def get_workout_detail(req: func.HttpRequest) -> func.HttpResponse:
         return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
+@app.route(route="workouts/{workout_id}/recalculated", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
+def get_workout_recalculated(req: func.HttpRequest) -> func.HttpResponse:
+    """Recalculate workout zones with override FTP/LTHR (placeholder endpoint)."""
+    try:
+        workout_id = req.route_params.get("workout_id")
+        ftp_watts = req.params.get("ftp_watts")
+        lthr_bpm = req.params.get("lthr_bpm")
+
+        # Placeholder response - endpoint not yet implemented
+        response = {
+            "message": "Not implemented",
+            "workout_id": workout_id,
+            "physiometrics_override": {
+                "ftp_watts": float(ftp_watts) if ftp_watts else None,
+                "lthr_bpm": float(lthr_bpm) if lthr_bpm else None
+            }
+        }
+
+        return _json_response(response, 501)
+
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error("Recalculated workout endpoint failed: %s", exc, exc_info=True)
+        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+
+
 @app.route(route="analysis/zones", methods=["GET"])
 def zone_distribution(req: func.HttpRequest) -> func.HttpResponse:
     """Get time-in-zone distribution for planning."""
