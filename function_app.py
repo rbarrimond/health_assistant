@@ -76,6 +76,37 @@ PLUGIN_MANIFEST_PATH = os.path.join(API_DOCS_DIR, "ai-plugin.json")
 OPENAPI_SPEC_PATH = os.path.join(API_DOCS_DIR, "openapi.yaml")
 
 # ============================================================================
+# Utility Functions
+# ============================================================================
+
+def parse_ingest_payload(req: func.HttpRequest) -> Dict[str, Any]:
+    """Parse FIT file ingestion payload from HTTP request.
+    
+    Extracts and validates required fields from the JSON request body.
+    
+    Args:
+        req: Azure HttpRequest object
+        
+    Returns:
+        Parsed payload dictionary with required fields
+        
+    Raises:
+        ValueError: If required fields are missing
+    """
+    try:
+        payload = req.get_json()
+        
+        # Validate required fields
+        required_fields = ["athlete_id", "source_file_name", "file_content_b64"]
+        for field in required_fields:
+            if field not in payload:
+                raise ValueError(f"Missing required field: {field}")
+        
+        return payload
+    except (ValueError, TypeError) as e:
+        raise ValueError(f"Invalid payload: {str(e)}") from e
+
+# ============================================================================
 # Dependency Singletons
 # ============================================================================
 
