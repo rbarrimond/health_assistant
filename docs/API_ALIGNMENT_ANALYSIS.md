@@ -90,15 +90,15 @@ The implementation correctly follows the three-part system:
 
 ### ✅ Design Principles Adherence
 
-| Principle                  | Status | Evidence                          |
-|----------------------------|--------|-----------------------------------|
-| Determinism first          | ✅     | No LLM in metric calculation      |
-| ChatGPT as UI, not system  | ✅     | API-first design, GPT Actions ready |
-| Ad hoc primary use case    | ✅     | `/planning/context` endpoint exists |
-| Small, bounded payloads    | ✅     | Limits enforced (200/365/52)      |
-| No rules engine            | ✅     | No "if X then Y" logic in code    |
-| Not a coach replacement    | ✅     | Returns data, not recommendations |
-| Summary-first              | ✅     | Time series excluded by default   |
+| Principle                 | Status | Evidence                             |
+|---------------------------|--------|--------------------------------------|
+| Determinism first         | ✅     | No LLM in metric calculation         |
+| ChatGPT as UI, not system | ✅     | API-first design, GPT Actions ready  |
+| Ad hoc primary use case   | ✅     | `/planning/context` endpoint exists  |
+| Small, bounded payloads   | ✅     | Limits enforced (200/365/52)         |
+| No rules engine           | ✅     | No "if X then Y" logic in code       |
+| Not a coach replacement   | ✅     | Returns data, not recommendations    |
+| Summary-first             | ✅     | Time series excluded by default      |
 
 ### ✅ Planning Context Contract
 
@@ -126,14 +126,14 @@ def planning_context(req: func.HttpRequest) -> func.HttpResponse:
 
 **Code reality:** Most endpoints default `athlete_id` to `"rob"`
 
-| Endpoint                | Doc Requirement | Code Default | Impact                   |
-|-------------------------|-----------------|--------------|---------------------------|
-| `/planning/context`     | Required        | `"rob"`      | Low - single user system |
-| `/workouts`             | Required        | `"rob"`      | Low - single user system |
-| `/rollups/weekly`       | Required        | `"rob"`      | Low - single user system |
-| `/analysis/zones`       | Required        | `"rob"`      | Low - single user system |
-| `/analysis/efficiency`  | Required        | `"rob"`      | Low - single user system |
-| `/physiometrics/*` | Required | `"rob"` | Low - single user system |
+| Endpoint              | Doc Requirement | Code Default | Impact                    |
+|-----------------------|-----------------|--------------|---------------------------|
+| `/planning/context`   | Required        | `"rob"`      | Low - single user system  |
+| `/workouts`           | Required        | `"rob"`      | Low - single user system  |
+| `/rollups/weekly`     | Required        | `"rob"`      | Low - single user system  |
+| `/analysis/zones`     | Required        | `"rob"`      | Low - single user system  |
+| `/analysis/efficiency`| Required        | `"rob"`      | Low - single user system  |
+| `/physiometrics/*`    | Required        | `"rob"`      | Low - single user system  |
 
 **Assessment:** This is acceptable for Phase 1 (single athlete), but documentation should note this is currently a single-user system. The multi-athlete design is present but not yet enforced.
 
