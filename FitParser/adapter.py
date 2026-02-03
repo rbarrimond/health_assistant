@@ -106,11 +106,26 @@ def _build_session(session_msg) -> WorkoutSession:
     calories = _get_field_value(session_msg, "total_calories")
     calories_kcal = float(calories) if calories is not None else None
 
+    # Infer is_indoor from sub_sport or explicit flag
+    is_indoor_flag = bool(indoor) if indoor is not None else None
+    if is_indoor_flag is None and sub_sport_name:
+        # Check for known indoor/virtual ride types
+        indoor_keywords = [
+            "indoor",
+            "virtual",
+            "zwift",
+            "trainer",
+            "stationary",
+        ]
+        is_indoor_flag = any(
+            keyword in sub_sport_name.lower() for keyword in indoor_keywords
+        )
+
     return WorkoutSession(
         sport=sport_name,
         sub_sport=sub_sport_name,
         workout_name=str(workout_name) if workout_name is not None else None,
-        is_indoor=bool(indoor) if indoor is not None else None,
+        is_indoor=is_indoor_flag,
         start_time_utc=start_iso,
         end_time_utc=end_iso,
         timezone="UTC",
