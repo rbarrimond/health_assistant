@@ -27,40 +27,40 @@ Documentation now clearly notes Phase 1 single-athlete defaults and distinguishe
 
 ### Documentation (SEMANTIC_LAYER_API.md) vs Implementation
 
-| Endpoint | Documented | Implemented | OpenAPI | Notes |
-|----------|-----------|-------------|---------|-------|
-| `/api/health` | ✅ | ✅ | ✅ | Aligned |
-| `/api/planning/context` | ✅ | ✅ | ✅ | Aligned |
-| `/api/workouts` | ✅ | ✅ | ✅ | Aligned |
-| **`/api/workouts/{workout_id}`** | ✅ | ✅ | ✅ | **Implemented** |
-| `/api/rollups/weekly` | ✅ | ✅ | ✅ | Aligned |
-| `/api/analysis/zones` | ✅ | ✅ | ✅ | Aligned |
-| `/api/analysis/efficiency` | ✅ | ✅ | ✅ | Aligned |
-| `/api/physiometrics/current` | ✅ | ✅ | ✅ | Aligned |
-| `/api/physiometrics/history` | ✅ | ✅ | ✅ | Aligned |
-| `/api/physiometrics/update` | ✅ | ✅ | ✅ | Aligned |
-| `/api/config/reload` | ✅ | ✅ | ✅ | Aligned |
-| `/api/config/update` | ✅ | ✅ | ✅ | Aligned |
-| `/api/config/history` | ✅ | ✅ | ✅ | Aligned |
-| `/api/withings/authorize` | ✅ | ✅ | ✅ | Aligned |
-| `/api/withings/callback` | ✅ | ✅ | ✅ | Aligned |
-| `/api/withings/webhook` | ✅ | ✅ | ✅ | Aligned |
+| Endpoint                         | Documented | Implemented | OpenAPI | Notes              |
+|----------------------------------|------------|-------------|---------|--------------------|
+| `/api/health`                    | ✅         | ✅          | ✅      | Aligned            |
+| `/api/planning/context`          | ✅         | ✅          | ✅      | Aligned            |
+| `/api/workouts`                  | ✅         | ✅          | ✅      | Aligned            |
+| **`/api/workouts/{workout_id}`** | ✅         | ✅          | ✅      | **Implemented**    |
+| `/api/rollups/weekly`            | ✅         | ✅          | ✅      | Aligned            |
+| `/api/analysis/zones`            | ✅         | ✅          | ✅      | Aligned            |
+| `/api/analysis/efficiency`       | ✅         | ✅          | ✅      | Aligned            |
+| `/api/physiometrics/current`     | ✅         | ✅          | ✅      | Aligned            |
+| `/api/physiometrics/history`     | ✅         | ✅          | ✅      | Aligned            |
+| `/api/physiometrics/update`      | ✅         | ✅          | ✅      | Aligned            |
+| `/api/config/reload`             | ✅         | ✅          | ✅      | Aligned            |
+| `/api/config/update`             | ✅         | ✅          | ✅      | Aligned            |
+| `/api/config/history`            | ✅         | ✅          | ✅      | Aligned            |
+| `/api/withings/authorize`        | ✅         | ✅          | ✅      | Aligned            |
+| `/api/withings/callback`         | ✅         | ✅          | ✅      | Aligned            |
+| `/api/withings/webhook`          | ✅         | ✅          | ✅      | Aligned            |
 
 ### Additional Endpoints (Implementation Only)
 
 These endpoints exist in the code but are not part of the documented Semantic Layer API:
 
-| Endpoint | Purpose | Documented | Notes |
-|----------|---------|-----------|-------|
-| `/api/process_fit` | FIT file ingestion | ❌ | Internal/admin endpoint |
-| `/api/onedrive/authorize` | OneDrive OAuth start | ❌ | Internal/admin endpoint |
-| `/api/onedrive/callback` | OneDrive OAuth callback | ❌ | Internal/admin endpoint |
-| `/api/onedrive/sync` | Manual OneDrive sync | ❌ | Internal/admin endpoint |
-| `/api/.well-known/ai-plugin.json` | ChatGPT plugin manifest | ❌ | Infrastructure endpoint |
-| `/api/openapi.yaml` | API specification | ❌ | Infrastructure endpoint |
-| `/api/logo.svg` | Plugin logo | ❌ | Infrastructure endpoint |
-| Timer: `onedrive_sync_timer` | Automated sync | N/A | Background process |
-| Timer: `backup_export_timer` | Daily backup | N/A | Background process |
+| Endpoint                            | Purpose                  | Documented | Notes                       |
+|-------------------------------------|--------------------------|------------| ----------------------------|
+| `/api/process_fit`                  | FIT file ingestion       | ❌         | Internal/admin endpoint     |
+| `/api/onedrive/authorize`           | OneDrive OAuth start     | ❌         | Internal/admin endpoint     |
+| `/api/onedrive/callback`            | OneDrive OAuth callback  | ❌         | Internal/admin endpoint     |
+| `/api/onedrive/sync`                | Manual OneDrive sync     | ❌         | Internal/admin endpoint     |
+| `/api/.well-known/ai-plugin.json`   | ChatGPT plugin manifest  | ❌         | Infrastructure endpoint     |
+| `/api/openapi.yaml`                 | API specification        | ❌         | Infrastructure endpoint     |
+| `/api/logo.svg`                     | Plugin logo              | ❌         | Infrastructure endpoint     |
+| Timer: `onedrive_sync_timer`        | Automated sync           | N/A        | Background process          |
+| Timer: `backup_export_timer`        | Daily backup             | N/A        | Background process          |
 
 ---
 
@@ -90,15 +90,15 @@ The implementation correctly follows the three-part system:
 
 ### ✅ Design Principles Adherence
 
-| Principle | Status | Evidence |
-|-----------|--------|----------|
-| Determinism first | ✅ | No LLM in metric calculation |
-| ChatGPT as UI, not system | ✅ | API-first design, GPT Actions ready |
-| Ad hoc primary use case | ✅ | `/planning/context` endpoint exists |
-| Small, bounded payloads | ✅ | Limits enforced (200/365/52) |
-| No rules engine | ✅ | No "if X then Y" logic in code |
-| Not a coach replacement | ✅ | Returns data, not recommendations |
-| Summary-first | ✅ | Time series excluded by default |
+| Principle                  | Status | Evidence                          |
+|----------------------------|--------|-----------------------------------|
+| Determinism first          | ✅     | No LLM in metric calculation      |
+| ChatGPT as UI, not system  | ✅     | API-first design, GPT Actions ready |
+| Ad hoc primary use case    | ✅     | `/planning/context` endpoint exists |
+| Small, bounded payloads    | ✅     | Limits enforced (200/365/52)      |
+| No rules engine            | ✅     | No "if X then Y" logic in code    |
+| Not a coach replacement    | ✅     | Returns data, not recommendations |
+| Summary-first              | ✅     | Time series excluded by default   |
 
 ### ✅ Planning Context Contract
 
@@ -126,13 +126,13 @@ def planning_context(req: func.HttpRequest) -> func.HttpResponse:
 
 **Code reality:** Most endpoints default `athlete_id` to `"rob"`
 
-| Endpoint | Doc Requirement | Code Default | Impact |
-|----------|----------------|--------------|--------|
-| `/planning/context` | Required | `"rob"` | Low - single user system |
-| `/workouts` | Required | `"rob"` | Low - single user system |
-| `/rollups/weekly` | Required | `"rob"` | Low - single user system |
-| `/analysis/zones` | Required | `"rob"` | Low - single user system |
-| `/analysis/efficiency` | Required | `"rob"` | Low - single user system |
+| Endpoint                | Doc Requirement | Code Default | Impact                   |
+|-------------------------|-----------------|--------------|---------------------------|
+| `/planning/context`     | Required        | `"rob"`      | Low - single user system |
+| `/workouts`             | Required        | `"rob"`      | Low - single user system |
+| `/rollups/weekly`       | Required        | `"rob"`      | Low - single user system |
+| `/analysis/zones`       | Required        | `"rob"`      | Low - single user system |
+| `/analysis/efficiency`  | Required        | `"rob"`      | Low - single user system |
 | `/physiometrics/*` | Required | `"rob"` | Low - single user system |
 
 **Assessment:** This is acceptable for Phase 1 (single athlete), but documentation should note this is currently a single-user system. The multi-athlete design is present but not yet enforced.
@@ -224,11 +224,11 @@ GET /api/workouts/{workout_id}?athlete_id=rob
 
 ### ✅ All constraints properly implemented
 
-| Constraint | Doc | Code | Status |
-|------------|-----|------|--------|
-| Workouts max | 200 | `max(1, min(limit, 200))` | ✅ |
-| Days max | 365 | `max(1, min(days, 365))` | ✅ |
-| Weeks max | 52 | `max(1, min(weeks, 52))` | ✅ |
+| Constraint   | Doc | Code                      | Status |
+|--------------|-----|---------------------------|--------|
+| Workouts max | 200 | `max(1, min(limit, 200))` | ✅     |
+| Days max     | 365 | `max(1, min(days, 365))`  | ✅     |
+| Weeks max    | 52  | `max(1, min(weeks, 52))`  | ✅     |
 
 ---
 
