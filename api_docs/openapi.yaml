@@ -1,4 +1,4 @@
-openapi: 3.0.1
+openapi: 3.1.0
 info:
   title: Health Assistant API
   version: "1.0.0"
@@ -6,10 +6,8 @@ info:
     Deterministic workout and physiometric API consumed by ChatGPT Actions.
     Returns stored metrics only; no model-generated values.
 servers:
-  - url: https://health-assistant.azurewebsites.net
-    description: Deployed Azure Functions host
-  - url: http://localhost:7071
-    description: Local Azure Functions runtime
+  - url: https://health.azure.barrimond.net
+    description: Azure Functions host
 paths:
   /api/health:
     get:
@@ -33,7 +31,12 @@ paths:
       summary: Get current physiometric values
       operationId: getCurrentPhysiometrics
       parameters:
-        - $ref: '#/components/parameters/AthleteId'
+        - name: athlete_id
+          in: query
+          required: true
+          description: Athlete identifier
+          schema:
+            type: string
       security:
         - FunctionKey: []
       responses:
@@ -52,7 +55,12 @@ paths:
       summary: Get physiometric time series
       operationId: getPhysiometricsHistory
       parameters:
-        - $ref: '#/components/parameters/AthleteId'
+        - name: athlete_id
+          in: query
+          required: true
+          description: Athlete identifier
+          schema:
+            type: string
         - name: days
           in: query
           required: false
@@ -142,7 +150,12 @@ paths:
       summary: Get Withings authorization URL
       operationId: withingsAuthorize
       parameters:
-        - $ref: '#/components/parameters/AthleteId'
+        - name: athlete_id
+          in: query
+          required: true
+          description: Athlete identifier
+          schema:
+            type: string
       security:
         - FunctionKey: []
       responses:
@@ -345,7 +358,12 @@ paths:
       summary: Generate OneDrive OAuth authorization URL
       operationId: onedriveAuthorize
       parameters:
-        - $ref: '#/components/parameters/AthleteIdOptional'
+        - name: athlete_id
+          in: query
+          required: false
+          description: Athlete identifier (optional; falls back to DEFAULT_ATHLETE_ID)
+          schema:
+            type: string
       security:
         - FunctionKey: []
       responses:
@@ -389,13 +407,6 @@ paths:
       operationId: onedriveSync
       security:
         - FunctionKey: []
-      parameters:
-        - name: async
-          in: query
-          required: false
-          schema:
-            type: boolean
-          description: When true, run sync asynchronously and return 202.
       requestBody:
         required: false
         content:
@@ -435,6 +446,19 @@ paths:
             application/json:
               schema:
                 type: object
+                properties:
+                  status:
+                    type: string
+                  athlete_id:
+                    type: string
+                  scanned:
+                    type: integer
+                  ingested:
+                    type: integer
+                  skipped:
+                    type: integer
+                  failed:
+                    type: integer
         '500':
           $ref: '#/components/responses/InternalError'
   /api/planning/context:
@@ -444,7 +468,12 @@ paths:
       security:
         - FunctionKey: []
       parameters:
-        - $ref: '#/components/parameters/AthleteId'
+        - name: athlete_id
+          in: query
+          required: true
+          description: Athlete identifier
+          schema:
+            type: string
         - name: days
           in: query
           required: false
@@ -470,7 +499,12 @@ paths:
       security:
         - FunctionKey: []
       parameters:
-        - $ref: '#/components/parameters/AthleteId'
+        - name: athlete_id
+          in: query
+          required: true
+          description: Athlete identifier
+          schema:
+            type: string
         - name: since
           in: query
           required: false
@@ -518,7 +552,12 @@ paths:
           required: true
           schema:
             type: string
-        - $ref: '#/components/parameters/AthleteId'
+        - name: athlete_id
+          in: query
+          required: true
+          description: Athlete identifier
+          schema:
+            type: string
       responses:
         '200':
           description: Workout detail
@@ -543,7 +582,12 @@ paths:
       security:
         - FunctionKey: []
       parameters:
-        - $ref: '#/components/parameters/AthleteId'
+        - name: athlete_id
+          in: query
+          required: true
+          description: Athlete identifier
+          schema:
+            type: string
         - name: weeks
           in: query
           required: false
@@ -569,7 +613,12 @@ paths:
       security:
         - FunctionKey: []
       parameters:
-        - $ref: '#/components/parameters/AthleteId'
+        - name: athlete_id
+          in: query
+          required: true
+          description: Athlete identifier
+          schema:
+            type: string
         - name: days
           in: query
           required: false
@@ -595,7 +644,12 @@ paths:
       security:
         - FunctionKey: []
       parameters:
-        - $ref: '#/components/parameters/AthleteId'
+        - name: athlete_id
+          in: query
+          required: true
+          description: Athlete identifier
+          schema:
+            type: string
         - name: days
           in: query
           required: false
@@ -671,6 +725,15 @@ components:
     PhysiometricSnapshot:
       type: object
       description: Key-value map of the latest physiometric metrics for the athlete.
+      properties:
+        athlete_id:
+          type: string
+        heart_rate:
+          type: object
+        power:
+          type: object
+        weight_kg:
+          type: number
       additionalProperties:
         oneOf:
           - type: number
@@ -886,6 +949,25 @@ components:
     PlanningContext:
       type: object
       description: Aggregated planning context for the athlete.
+      properties:
+        athlete_id:
+          type: string
+        query_window:
+          type: object
+        recent_workouts:
+          type: array
+          items:
+            type: object
+        weekly_rollups:
+          type: array
+          items:
+            type: object
+        summary:
+          type: object
+        notable_flags:
+          type: array
+          items:
+            type: string
       additionalProperties: true
     WorkoutsList:
       type: object
@@ -956,10 +1038,26 @@ components:
     ZoneDistribution:
       type: object
       description: Time-in-zone distribution.
+      properties:
+        athlete_id:
+          type: string
+        days:
+          type: integer
+        zones:
+          type: object
       additionalProperties: true
     EfficiencyTrends:
       type: object
       description: Aerobic efficiency and decoupling trends.
+      properties:
+        athlete_id:
+          type: string
+        days:
+          type: integer
+        trends:
+          type: array
+          items:
+            type: object
       additionalProperties: true
   securitySchemes:
     FunctionKey:
