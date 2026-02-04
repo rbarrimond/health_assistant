@@ -717,7 +717,7 @@ Real FIT workout files are available in [tests/data/](./data/README.md):
 
 ## Related Documentation
 
-- [POSTMAN_GUIDE.md](./POSTMAN_GUIDE.md) - API testing with Postman
+- [postman/README.md](./postman/README.md) - API testing with Postman
 - [data/README.md](./data/README.md) - Test data files and payloads
 - [WORKOUT_SCHEMA.md](../WORKOUT_SCHEMA.md) - Data schema being tested
 - [SEMANTIC_LAYER_API.md](../SEMANTIC_LAYER_API.md) - API endpoints being tested
