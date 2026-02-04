@@ -186,7 +186,8 @@ def _ingest_fit_payload(payload: Dict[str, Any]) -> tuple[Dict[str, Any], int]:
             }
 
             # Parse and store with source info from payload
-            parser = FitParser(tmp_path, source_file_name=source_info.get("source_file_name"))
+            parser = FitParser(
+                tmp_path, source_file_name=source_info.get("source_file_name"))
             metrics = parser.parse()
 
             workout_id = storage.store_workout(
@@ -303,7 +304,7 @@ def _response_missing_file(name: str) -> func.HttpResponse:
 @app.route(route="process_fit", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
 def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
     """Process FIT file upload from base64 content.
-    
+
     Request body:
     {
         "file_content_b64": "base64encodedcontent",
@@ -318,29 +319,29 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
     """
     try:
         body = req.get_json()
-        
+
         athlete_id = body.get("athlete_id", "rob")
         file_content_b64 = body.get("file_content_b64")
-        
+
         if not file_content_b64:
             return _json_response({"error": "file_content_b64 is required"}, 400)
-        
+
         # Decode base64 content
         try:
             file_bytes = base64.b64decode(file_content_b64)
         except Exception as e:  # pylint: disable=broad-exception-caught
             logger.error("Failed to decode base64 content: %s", e)
             return _json_response({"error": "Invalid base64 content"}, 400)
-        
+
         # Write to temp file for processing
         source_file_name = body.get("source_file_name", "unnamed.fit")
         with tempfile.NamedTemporaryFile(suffix=".fit", delete=False) as tmp:
             tmp.write(file_bytes)
             tmp_path = tmp.name
-        
+
         try:
             handler = FitUploadHandler(_get_storage())
-            
+
             # Build complete source metadata from request body
             source_info = {
                 "source_system": body.get("source_system", "FitFile"),
@@ -351,24 +352,24 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
                 "source_etag": body.get("source_etag"),
                 "file_size_bytes": body.get("file_size_bytes"),
             }
-            
+
             metrics, status = handler.handle(
                 tmp_path,
                 athlete_id,
                 source_file_name=source_file_name,
                 source_info=source_info
             )
-            
+
             # Handle success response
             if status == 201 and metrics:
                 payload = metrics
-                if hasattr(metrics, "model_dump"):
+                if not isinstance(metrics, dict) and hasattr(metrics, "model_dump"):
                     payload = metrics.model_dump()  # type: ignore[attr-defined]
-                
+
                 # Add source metadata to response
                 if isinstance(payload, dict):
                     payload["source_info"] = source_info
-                
+
                 return _json_response(cast(Dict[str, Any], payload), status)
         finally:
             # Clean up temp file
@@ -376,7 +377,7 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
                 os.unlink(tmp_path)
             except Exception:  # pylint: disable=broad-exception-caught
                 pass
-        
+
         # Handle error responses
         error_msg = {
             404: "File not found",

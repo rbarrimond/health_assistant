@@ -50,7 +50,7 @@ class FitUploadHandler:
             metrics: Dict = parser.parse()
 
             file_sha256 = compute_file_hash(file_path)
-            
+
             # Use provided source_info or build default
             if source_info:
                 # Merge with computed file hash if not provided
