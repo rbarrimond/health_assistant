@@ -20,10 +20,11 @@ class FitParser:
 
     def __init__(self, file_path: str, source_file_name: Optional[str] = None):
         """Initialize FIT parser with file path and optional source filename.
-        
+
         Args:
             file_path: Path to the FIT file
-            source_file_name: Optional original filename (e.g., from OneDrive) for metadata extraction
+            source_file_name: Optional original filename
+                (e.g., from OneDrive) for metadata extraction
         """
         self.file_path = file_path
         self.source_file_name = source_file_name
@@ -103,37 +104,61 @@ class FitParser:
         """Return session value if present, otherwise call fallback function."""
         return session_value if session_value is not None else fallback_fn()
 
-    def _build_base_metrics(self, session) -> Dict:
-        """Build session-level metrics."""
+    def _build_session_metrics(self, session) -> Dict:
+        """Build session-level time and identification metrics."""
         return {
-            "sport": self._session_or_fallback(session.sport if session else None, self._get_sport),
-            "sub_sport": self._session_or_fallback(session.sub_sport if session else None, self._get_sub_sport),
+            "sport": self._session_or_fallback(
+                session.sport if session else None, self._get_sport
+            ),
+            "sub_sport": self._session_or_fallback(
+                session.sub_sport if session else None, self._get_sub_sport
+            ),
             "apple_workout_type": self._session_or_fallback(
-                session.apple_workout_type if session else None, self._get_apple_workout_type
+                session.apple_workout_type if session else None,
+                self._get_apple_workout_type
             ),
             "workout_name": self._session_or_fallback(
-                session.workout_name if session else None, self._get_workout_name
+                session.workout_name if session else None,
+                self._get_workout_name
             ),
             "device_name": self._get_device_name(),
-            "is_indoor": self._session_or_fallback(session.is_indoor if session else None, self._get_is_indoor),
-            "start_time_utc": self._session_or_fallback(
-                session.start_time_utc if session else None, self._get_start_time
+            "is_indoor": self._session_or_fallback(
+                session.is_indoor if session else None, self._get_is_indoor
             ),
-            "end_time_utc": self._session_or_fallback(session.end_time_utc if session else None, self._get_end_time),
-            "timezone": self._session_or_fallback(session.timezone if session else None, self._get_timezone),
+            "start_time_utc": self._session_or_fallback(
+                session.start_time_utc if session else None,
+                self._get_start_time
+            ),
+            "end_time_utc": self._session_or_fallback(
+                session.end_time_utc if session else None,
+                self._get_end_time
+            ),
+            "timezone": self._session_or_fallback(
+                session.timezone if session else None, self._get_timezone
+            ),
             "duration_sec": self._session_or_fallback(
                 session.duration_sec if session else None, self._get_duration
             ),
             "moving_time_sec": self._session_or_fallback(
-                session.moving_time_sec if session else None, self._get_moving_time
+                session.moving_time_sec if session else None,
+                self._get_moving_time
             ),
+        }
+
+    def _build_distance_metrics(self, session) -> Dict:
+        """Build distance, elevation, and speed metrics."""
+        return {
             "has_gps": self._has_gps_data(),
-            "distance_m": self._session_or_fallback(session.distance_m if session else None, self._get_distance),
+            "distance_m": self._session_or_fallback(
+                session.distance_m if session else None, self._get_distance
+            ),
             "elevation_gain_m": self._session_or_fallback(
-                session.elevation_gain_m if session else None, self._get_elevation_gain
+                session.elevation_gain_m if session else None,
+                self._get_elevation_gain
             ),
             "elevation_loss_m": self._session_or_fallback(
-                session.elevation_loss_m if session else None, self._get_elevation_loss
+                session.elevation_loss_m if session else None,
+                self._get_elevation_loss
             ),
             "avg_speed_mps": self._session_or_fallback(
                 session.avg_speed_mps if session else None, self._get_avg_speed
@@ -145,6 +170,12 @@ class FitParser:
                 session.calories_kcal if session else None, self._get_calories
             ),
         }
+
+    def _build_base_metrics(self, session) -> Dict:
+        """Build combined base metrics from session and distance data."""
+        metrics = self._build_session_metrics(session)
+        metrics.update(self._build_distance_metrics(session))
+        return metrics
 
     def _build_sample_metrics(self) -> Dict:
         """Build sample-based metrics from records."""
@@ -235,7 +266,12 @@ class FitParser:
             workout_name = self.source_file_name
         sport = self._get_sport()
         sub_sport = self._get_sub_sport()
-        return extract_apple_workout_type(workout_name, sport, sub_sport)
+        result = extract_apple_workout_type(workout_name, sport, sub_sport)
+        logger.debug(
+            "Apple workout type: workout_name=%s, sport=%s, sub_sport=%s, result=%s",
+            workout_name, sport, sub_sport, result
+        )
+        return result
 
     def _get_workout_name(self) -> Optional[str]:
         """Get workout/session name if available."""
