@@ -1,5 +1,10 @@
 # Postman Testing Guide for Health Assistant Function App
 
+## Quick Links
+
+- [API Alignment Report](./API_ALIGNMENT.md) - Verification that collection, openapi.yaml, and function_app.py are aligned
+- [postman_collection.json](./postman_collection.json) - Ready-to-use test collection
+
 ## Import Collection
 
 1. Open Postman
