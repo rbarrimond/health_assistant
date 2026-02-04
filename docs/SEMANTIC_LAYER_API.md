@@ -1001,6 +1001,6 @@ curl "http://localhost:7071/api/analysis/zones?athlete_id=rob&days=30"
 
 ## Related Documentation
 
-- [Workout Intelligence Agent Vision](../WORKOUT_INTELLIGENCE_AGENT_VISION.md) - Overall system architecture
-- [Workout Schema](../WORKOUT_SCHEMA.md) - Database schema and metrics
-- [Testing Guide](../tests/TESTING.md) - Test strategy and execution
+- [Workout Intelligence Agent Vision](./WORKOUT_INTELLIGENCE_AGENT_VISION.md) - Overall system architecture
+- [Workout Schema](./WORKOUT_SCHEMA.md) - Database schema and metrics
+- [Testing Guide](../tests/README.md) - Test strategy and execution

@@ -9,12 +9,12 @@ Azure Function for parsing HealthFit FIT files from OneDrive Personal (delegated
 | Role | Start Here |
 | --- | --- |
 | **First time?** | [Architecture Overview](#architecture) below |
-| **Deploying?** | [DEPLOYMENT.md](./DEPLOYMENT.md) (30 min) |
-| **Setting up dashboards?** | [MONITORING.md](./MONITORING.md) → Power BI section |
-| **Building integrations?** | [SEMANTIC_LAYER_API.md](./SEMANTIC_LAYER_API.md) |
-| **Configuring backends?** | [BACKENDS.md](./BACKENDS.md) → OneDrive, Withings, Garmin |
-| **Understanding the data model?** | [WORKOUT_SCHEMA.md](./WORKOUT_SCHEMA.md) |
-| **Design philosophy?** | [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./WORKOUT_INTELLIGENCE_AGENT_VISION.md) |
+| **Deploying?** | [DEPLOYMENT.md](./docs/DEPLOYMENT.md) (30 min) |
+| **Setting up dashboards?** | [MONITORING.md](./docs/MONITORING.md) → Power BI section |
+| **Building integrations?** | [SEMANTIC_LAYER_API.md](./docs/SEMANTIC_LAYER_API.md) |
+| **Configuring backends?** | [BACKENDS.md](./docs/BACKENDS.md) → OneDrive, Withings, Garmin |
+| **Understanding the data model?** | [WORKOUT_SCHEMA.md](./docs/WORKOUT_SCHEMA.md) |
+| **Design philosophy?** | [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./docs/WORKOUT_INTELLIGENCE_AGENT_VISION.md) |
 
 ## Architecture
 
@@ -73,7 +73,7 @@ Optional:
 - ONEDRIVE_FOLDER_PATH: OneDrive folder path (default: '/Apps/HealthFit')
 - ONEDRIVE_SYNC_LOOKBACK_DAYS: Default lookback window (days, default: 30)
 
-See `BACKENDS.md` for OneDrive Personal OAuth + sync setup.
+See [BACKENDS.md](./docs/BACKENDS.md) for OneDrive Personal OAuth + sync setup.
 
 ## Project Structure
 

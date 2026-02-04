@@ -3,9 +3,9 @@
 This guide defines how a custom GPT should use the Health Assistant Semantic Access Layer.
 It is the operational companion to:
 
-- [WORKOUT_INTELLIGENCE_AGENT_VISION.md](../WORKOUT_INTELLIGENCE_AGENT_VISION.md)
-- [SEMANTIC_LAYER_API.md](../SEMANTIC_LAYER_API.md)
-- [WORKOUT_SCHEMA.md](../WORKOUT_SCHEMA.md)
+- [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./WORKOUT_INTELLIGENCE_AGENT_VISION.md)
+- [SEMANTIC_LAYER_API.md](./SEMANTIC_LAYER_API.md)
+- [WORKOUT_SCHEMA.md](./WORKOUT_SCHEMA.md)
 
 ---
 
@@ -90,6 +90,6 @@ Use the `?code=<function_key>` query parameter when required by the function app
 
 ## Knowledge References
 
-- [WORKOUT_INTELLIGENCE_AGENT_VISION.md](../WORKOUT_INTELLIGENCE_AGENT_VISION.md)
-- [SEMANTIC_LAYER_API.md](../SEMANTIC_LAYER_API.md)
-- [WORKOUT_SCHEMA.md](../WORKOUT_SCHEMA.md)
+- [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./WORKOUT_INTELLIGENCE_AGENT_VISION.md)
+- [SEMANTIC_LAYER_API.md](./SEMANTIC_LAYER_API.md)
+- [WORKOUT_SCHEMA.md](./WORKOUT_SCHEMA.md)
