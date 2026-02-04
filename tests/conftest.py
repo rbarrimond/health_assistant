@@ -16,12 +16,14 @@ class _SimpleMocker:
         self._patches = []
 
     def patch(self, *args, **kwargs):
+        """Start and track a patcher for later cleanup."""
         patcher = patch(*args, **kwargs)
         mocked = patcher.start()
         self._patches.append(patcher)
         return mocked
 
     def stopall(self) -> None:
+        """Stop all active patchers created by this helper."""
         while self._patches:
             self._patches.pop().stop()
 
