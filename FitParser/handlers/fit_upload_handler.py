@@ -16,13 +16,21 @@ class FitUploadHandler:
     def __init__(self, storage: WorkoutTableStorage):
         self.storage = storage
 
-    def handle(self, file_path: str, athlete_id: str) -> Tuple[Optional[Dict], int]:
+    def handle(
+        self,
+        file_path: str,
+        athlete_id: str,
+        source_file_name: Optional[str] = None,
+        source_info: Optional[Dict] = None
+    ) -> Tuple[Optional[Dict], int]:
         """
         Process FIT file upload.
 
         Args:
             file_path: Path to FIT file
             athlete_id: Athlete identifier
+            source_file_name: Original filename from source system
+            source_info: Full source metadata dict from request/sync
 
         Returns:
             (WorkoutMetricsModel or None, HTTP status code)
@@ -35,25 +43,36 @@ class FitUploadHandler:
 
             # Parse FIT file
             file_path_obj = Path(file_path)
-            parser = FitParser(file_path, source_file_name=file_path_obj.name)
+            parser = FitParser(
+                file_path,
+                source_file_name=source_file_name or file_path_obj.name
+            )
             metrics: Dict = parser.parse()
 
             file_sha256 = compute_file_hash(file_path)
-            source_info = {
-                "source_system": "Local",
-                "source_file_name": file_path_obj.name,
-                "source_file_path": str(file_path_obj),
-                "file_size_bytes": file_path_obj.stat().st_size,
-                "file_sha256": file_sha256,
-            }
+            
+            # Use provided source_info or build default
+            if source_info:
+                # Merge with computed file hash if not provided
+                if "file_sha256" not in source_info or not source_info["file_sha256"]:
+                    source_info["file_sha256"] = file_sha256
+                final_source_info = source_info
+            else:
+                final_source_info = {
+                    "source_system": "Local",
+                    "source_file_name": file_path_obj.name,
+                    "source_file_path": str(file_path_obj),
+                    "file_size_bytes": file_path_obj.stat().st_size,
+                    "file_sha256": file_sha256,
+                }
 
             # Store workout and record ingestion state
             workout_id = self.storage.store_workout(
-                athlete_id, metrics, source_info
+                athlete_id, metrics, final_source_info
             )
             self.storage.record_ingestion_state(
                 athlete_id,
-                source_info,
+                final_source_info,
                 status="ingested",
                 workout_id=workout_id,
             )

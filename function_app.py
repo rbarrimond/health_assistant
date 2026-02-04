@@ -302,30 +302,92 @@ def _response_missing_file(name: str) -> func.HttpResponse:
 
 @app.route(route="process_fit", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
 def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
-    """Process FIT file upload."""
+    """Process FIT file upload from base64 content.
+    
+    Request body:
+    {
+        "file_content_b64": "base64encodedcontent",
+        "source_file_name": "filename.fit",
+        "athlete_id": "rob" (defaults to "rob"),
+        "source_item_id": "optional-id",
+        "source_file_path": "optional-path",
+        "source_drive_id": "optional-drive-id",
+        "source_etag": "optional-etag",
+        "file_size_bytes": 12345
+    }
+    """
     try:
-        athlete_id = req.params.get("athlete_id", "rob")
-        file_path = req.params.get("file_path")
+        body = req.get_json()
+        
+        athlete_id = body.get("athlete_id", "rob")
+        file_content_b64 = body.get("file_content_b64")
+        
+        if not file_content_b64:
+            return _json_response({"error": "file_content_b64 is required"}, 400)
+        
+        # Decode base64 content
+        try:
+            file_bytes = base64.b64decode(file_content_b64)
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Failed to decode base64 content: %s", e)
+            return _json_response({"error": "Invalid base64 content"}, 400)
+        
+        # Write to temp file for processing
+        source_file_name = body.get("source_file_name", "unnamed.fit")
+        with tempfile.NamedTemporaryFile(suffix=".fit", delete=False) as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+        
+        try:
+            handler = FitUploadHandler(_get_storage())
+            
+            # Build complete source metadata from request body
+            source_info = {
+                "source_system": body.get("source_system", "FitFile"),
+                "source_file_name": source_file_name,
+                "source_file_path": body.get("source_file_path"),
+                "source_item_id": body.get("source_item_id"),
+                "source_drive_id": body.get("source_drive_id"),
+                "source_etag": body.get("source_etag"),
+                "file_size_bytes": body.get("file_size_bytes"),
+            }
+            
+            metrics, status = handler.handle(
+                tmp_path,
+                athlete_id,
+                source_file_name=source_file_name,
+                source_info=source_info
+            )
+            
+            # Handle success response
+            if status == 201 and metrics:
+                payload = metrics
+                if hasattr(metrics, "model_dump"):
+                    payload = metrics.model_dump()  # type: ignore[attr-defined]
+                
+                # Add source metadata to response
+                if isinstance(payload, dict):
+                    payload["source_info"] = source_info
+                
+                return _json_response(cast(Dict[str, Any], payload), status)
+        finally:
+            # Clean up temp file
+            try:
+                os.unlink(tmp_path)
+            except Exception:  # pylint: disable=broad-exception-caught
+                pass
+        
+        # Handle error responses
+        error_msg = {
+            404: "File not found",
+            400: "Invalid FIT file",
+            500: "Upload failed",
+        }.get(status, "Unknown error")
+        return _json_response({"error": error_msg}, status)
 
-        if not file_path:
-            return _json_response({"error": "file_path parameter required"}, 400)
-
-        handler = FitUploadHandler(_get_storage())
-        metrics, status = handler.handle(file_path, athlete_id)
-
-        if status == 201 and metrics:
-            payload = metrics
-            if hasattr(metrics, "model_dump"):
-                payload = metrics.model_dump()  # type: ignore[attr-defined]
-            return _json_response(cast(Dict[str, Any], payload), status)
-        else:
-            error_msg = {
-                404: "File not found",
-                400: "Invalid FIT file",
-                500: "Upload failed",
-            }.get(status, "Unknown error")
-            return _json_response({"error": error_msg}, status)
-
+    except ValueError as exc:  # pylint: disable=broad-exception-caught
+        logger.warning("Upload validation failed: %s", exc)
+        return _json_response({"error": str(exc)}, 400)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Upload endpoint failed: %s", exc, exc_info=True)
         return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
