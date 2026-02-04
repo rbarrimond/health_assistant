@@ -34,10 +34,10 @@ class FitUploadHandler:
                 return None, 404
 
             # Parse FIT file
-            parser = FitParser(file_path)
+            file_path_obj = Path(file_path)
+            parser = FitParser(file_path, source_file_name=file_path_obj.name)
             metrics: Dict = parser.parse()
 
-            file_path_obj = Path(file_path)
             file_sha256 = compute_file_hash(file_path)
             source_info = {
                 "source_system": "Local",

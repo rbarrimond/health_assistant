@@ -186,7 +186,7 @@ def _ingest_fit_payload(payload: Dict[str, Any]) -> tuple[Dict[str, Any], int]:
             }
 
             # Parse and store with source info from payload
-            parser = FitParser(tmp_path)
+            parser = FitParser(tmp_path, source_file_name=source_info.get("source_file_name"))
             metrics = parser.parse()
 
             workout_id = storage.store_workout(

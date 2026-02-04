@@ -18,9 +18,15 @@ logger = logging.getLogger(__name__)
 class FitParser:
     """Parser for FIT format workout files."""
 
-    def __init__(self, file_path: str):
-        """Initialize FIT parser with file path."""
+    def __init__(self, file_path: str, source_file_name: Optional[str] = None):
+        """Initialize FIT parser with file path and optional source filename.
+        
+        Args:
+            file_path: Path to the FIT file
+            source_file_name: Optional original filename (e.g., from OneDrive) for metadata extraction
+        """
         self.file_path = file_path
+        self.source_file_name = source_file_name
         self.fit = None
         self.workout: Optional[Workout] = None
         self.metrics = {}
@@ -216,8 +222,17 @@ class FitParser:
         return None
 
     def _get_apple_workout_type(self) -> Optional[str]:
-        """Get Apple Watch workout type if available."""
+        """Get Apple Watch workout type if available.
+        
+        Priority:
+        1. FIT session_name (most accurate, from device)
+        2. source_file_name (e.g., from OneDrive export)
+        3. Fallback to FIT sport/sub_sport mapping
+        """
         workout_name = self._get_workout_name()
+        # Use source_file_name as fallback for more descriptive names
+        if not workout_name and self.source_file_name:
+            workout_name = self.source_file_name
         sport = self._get_sport()
         sub_sport = self._get_sub_sport()
         return extract_apple_workout_type(workout_name, sport, sub_sport)

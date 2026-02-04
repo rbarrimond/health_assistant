@@ -71,6 +71,7 @@ FIT_TO_APPLE_WORKOUT_TYPE = {
     ("training", "strength_training"): "Traditional Strength Training",
     ("training", "functional_training"): "Functional Strength Training",
     ("training", "core"): "Core Training",
+    ("training", None): "Traditional Strength Training",  # Default for training
     ("cycling", "indoor_cycling"): "Indoor Cycle",
     ("cycling", "stationary_bike"): "Stationary Bike",
     ("cycling", None): "Outdoor Cycle",
@@ -119,7 +120,26 @@ def extract_apple_workout_type(
         # (HealthFit filenames use hyphens, but Apple types use spaces)
         workout_name_normalized = workout_name.replace("-", " ").lower()
         
+        # Special case: "Indoor Cycling" should map to "Indoor Cycle"
+        if "indoor cycling" in workout_name_normalized:
+            return "Indoor Cycle"
+        
+        # Special case: "Outdoor Cycling" should map to "Outdoor Cycle"
+        if "outdoor cycling" in workout_name_normalized:
+            return "Outdoor Cycle"
+        
+        # Special case: "Outdoor Walking" should map to "Outdoor Walk"
+        if "outdoor walking" in workout_name_normalized:
+            return "Outdoor Walk"
+        
+        # Special case: "Indoor Walking" should map to "Indoor Walk"
+        if "indoor walking" in workout_name_normalized:
+            return "Indoor Walk"
+        
         for apple_type in APPLE_WORKOUT_TYPES:
+            # Skip "Other" in pattern matching - only use as explicit last resort
+            if apple_type == "Other":
+                continue
             if apple_type.lower() in workout_name_normalized:
                 return apple_type
 
