@@ -866,6 +866,7 @@ class WorkoutTableStorage:
             metrics.update({
                 "sport": metrics_model.session.sport,
                 "sub_sport": metrics_model.session.sub_sport,
+                "apple_workout_type": metrics_model.session.apple_workout_type,
                 "workout_name": metrics_model.session.workout_name,
                 "device_name": metrics_model.session.device_name,
                 "is_indoor": metrics_model.session.is_indoor,

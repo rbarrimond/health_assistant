@@ -74,8 +74,9 @@ Preferred order:
 |timezone|string|⛔️|Source timezone if available (`America/New_York`)|
 |duration_sec|int|✅|Total elapsed duration (seconds)|
 |moving_time_sec|int|⛔️|Moving time if derivable (cycling often equals duration)|
-|sport|string|✅|`cycling`, `running`, `strength_training`, etc.|
-|sub_sport|string|⛔️|`indoor_cycling`, `gravel`, etc. if available|
+|sport|string|✅|Generic FIT sport (`cycling`, `running`, `strength_training`, etc.)|
+|sub_sport|string|⛔️|Generic FIT sub-sport (`indoor_cycling`, `gravel`, `strength_training`, etc.) if available|
+|apple_workout_type|string|⛔️|Apple Watch workout type (`Functional Strength Training`, `Indoor Cycle`, etc.) if detected|
 |workout_name|string|⛔️|Workout title (HealthFit/Strava/Garmin name)|
 |device_name|string|⛔️|Device model if present|
 |is_indoor|bool|⛔️|Indoor flag if derivable|

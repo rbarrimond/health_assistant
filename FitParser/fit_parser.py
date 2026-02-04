@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, cast
 import fitparse
 import numpy as np
 from .adapter import load_workout_from_fit
+from .apple_workout_types import extract_apple_workout_type
 from .config import Config
 from .models import Workout
 
@@ -92,43 +93,50 @@ class FitParser:
         session = self.workout.session if self.workout else None
         return self._build_base_metrics(session) | self._build_sample_metrics()
 
+    def _session_or_fallback(self, session_value, fallback_fn):
+        """Return session value if present, otherwise call fallback function."""
+        return session_value if session_value is not None else fallback_fn()
+
     def _build_base_metrics(self, session) -> Dict:
         """Build session-level metrics."""
         return {
-            "sport": session.sport if session else self._get_sport(),
-            "sub_sport": session.sub_sport if session else self._get_sub_sport(),
-            "workout_name": (
-                session.workout_name if session else self._get_workout_name()
+            "sport": self._session_or_fallback(session.sport if session else None, self._get_sport),
+            "sub_sport": self._session_or_fallback(session.sub_sport if session else None, self._get_sub_sport),
+            "apple_workout_type": self._session_or_fallback(
+                session.apple_workout_type if session else None, self._get_apple_workout_type
+            ),
+            "workout_name": self._session_or_fallback(
+                session.workout_name if session else None, self._get_workout_name
             ),
             "device_name": self._get_device_name(),
-            "is_indoor": session.is_indoor if session else self._get_is_indoor(),
-            "start_time_utc": (
-                session.start_time_utc if session else self._get_start_time()
+            "is_indoor": self._session_or_fallback(session.is_indoor if session else None, self._get_is_indoor),
+            "start_time_utc": self._session_or_fallback(
+                session.start_time_utc if session else None, self._get_start_time
             ),
-            "end_time_utc": session.end_time_utc if session else self._get_end_time(),
-            "timezone": session.timezone if session else self._get_timezone(),
-            "duration_sec": (
-                session.duration_sec if session else self._get_duration()
+            "end_time_utc": self._session_or_fallback(session.end_time_utc if session else None, self._get_end_time),
+            "timezone": self._session_or_fallback(session.timezone if session else None, self._get_timezone),
+            "duration_sec": self._session_or_fallback(
+                session.duration_sec if session else None, self._get_duration
             ),
-            "moving_time_sec": (
-                session.moving_time_sec if session else self._get_moving_time()
+            "moving_time_sec": self._session_or_fallback(
+                session.moving_time_sec if session else None, self._get_moving_time
             ),
             "has_gps": self._has_gps_data(),
-            "distance_m": session.distance_m if session else self._get_distance(),
-            "elevation_gain_m": (
-                session.elevation_gain_m if session else self._get_elevation_gain()
+            "distance_m": self._session_or_fallback(session.distance_m if session else None, self._get_distance),
+            "elevation_gain_m": self._session_or_fallback(
+                session.elevation_gain_m if session else None, self._get_elevation_gain
             ),
-            "elevation_loss_m": (
-                session.elevation_loss_m if session else self._get_elevation_loss()
+            "elevation_loss_m": self._session_or_fallback(
+                session.elevation_loss_m if session else None, self._get_elevation_loss
             ),
-            "avg_speed_mps": (
-                session.avg_speed_mps if session else self._get_avg_speed()
+            "avg_speed_mps": self._session_or_fallback(
+                session.avg_speed_mps if session else None, self._get_avg_speed
             ),
-            "max_speed_mps": (
-                session.max_speed_mps if session else self._get_max_speed()
+            "max_speed_mps": self._session_or_fallback(
+                session.max_speed_mps if session else None, self._get_max_speed
             ),
-            "calories_kcal": (
-                session.calories_kcal if session else self._get_calories()
+            "calories_kcal": self._session_or_fallback(
+                session.calories_kcal if session else None, self._get_calories
             ),
         }
 
@@ -206,6 +214,13 @@ class FitParser:
                 return str(cast(Any, sub_sport).name).lower()
             return str(sub_sport).lower()
         return None
+
+    def _get_apple_workout_type(self) -> Optional[str]:
+        """Get Apple Watch workout type if available."""
+        workout_name = self._get_workout_name()
+        sport = self._get_sport()
+        sub_sport = self._get_sub_sport()
+        return extract_apple_workout_type(workout_name, sport, sub_sport)
 
     def _get_workout_name(self) -> Optional[str]:
         """Get workout/session name if available."""

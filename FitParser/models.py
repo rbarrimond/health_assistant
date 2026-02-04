@@ -18,6 +18,7 @@ class WorkoutSession(BaseModel):
 
     sport: Optional[str] = None
     sub_sport: Optional[str] = None
+    apple_workout_type: Optional[str] = None
     workout_name: Optional[str] = None
     is_indoor: Optional[bool] = None
 
@@ -76,6 +77,7 @@ class SessionMetricsModel(BaseModel):
 
     sport: Optional[str] = Field(None, description="Sport type (e.g., 'cycling', 'running')")
     sub_sport: Optional[str] = Field(None, description="Sub-sport variant")
+    apple_workout_type: Optional[str] = Field(None, description="Apple Watch workout type (e.g., 'Functional Strength Training')")
     workout_name: Optional[str] = Field(None, description="User-defined workout name")
     device_name: Optional[str] = Field(None, description="Device manufacturer")
     is_indoor: Optional[bool] = Field(None, description="Indoor vs outdoor")
