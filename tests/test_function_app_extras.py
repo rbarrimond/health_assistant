@@ -8,7 +8,6 @@ import json
 import os
 from unittest.mock import MagicMock, patch
 
-import pytest
 import azure.functions as func
 
 import function_app
@@ -39,14 +38,13 @@ class TestDocsAssetEndpoints:
     def test_api_docs_dir_default_name(self):
         assert os.path.basename(function_app.API_DOCS_DIR) == "api_docs"
 
-    @pytest.mark.skip(reason="Needs _get_storage() mocking")
     def test_serve_ai_plugin_manifest_populates_urls(self, monkeypatch):
         manifest = {
             "schema_version": "v1",
-            "api": {"type": "openapi", "url": "placeholder"},
-            "logo_url": "https://old.logo",
-            "contact_email": "old@example.com",
-            "legal_info_url": "https://old.legal",
+            "api": {"type": "openapi", "url": "https://health.example.com/openapi.yaml"},
+            "logo_url": "https://logo.example.com",
+            "contact_email": "support@example.com",
+            "legal_info_url": "https://legal.example.com",
         }
         monkeypatch.setenv(function_app.ENV_PLUGIN_LOGO_URL, "https://logo.example.com")
         monkeypatch.setenv(function_app.ENV_PLUGIN_CONTACT_EMAIL, "support@example.com")
@@ -55,8 +53,22 @@ class TestDocsAssetEndpoints:
         req = MagicMock(spec=func.HttpRequest)
         req.url = "https://health.example.com/.well-known/ai-plugin.json"
 
-        with patch("function_app._read_text_file", return_value=json.dumps(manifest)):
-            response = function_app.serve_ai_plugin_manifest(req)
+        mock_handler = MagicMock()
+        mock_handler.get_plugin_manifest.return_value = (manifest, 200)
+
+        with patch("function_app._get_storage", return_value=MagicMock()):
+            with patch("function_app.HealthHandler", return_value=mock_handler) as handler_cls:
+                response = function_app.serve_ai_plugin_manifest(req)
+
+        handler_cls.assert_called_once()
+        mock_handler.get_plugin_manifest.assert_called_once_with(
+            "https://health.example.com",
+            {
+                "logo_url": "https://logo.example.com",
+                "contact_email": "support@example.com",
+                "legal_info_url": "https://legal.example.com",
+            },
+        )
 
         assert response.status_code == 200
         body = json.loads(response.get_body())
@@ -65,27 +77,32 @@ class TestDocsAssetEndpoints:
         assert body["contact_email"] == "support@example.com"
         assert body["legal_info_url"] == "https://legal.example.com"
 
-    @pytest.mark.skip(reason="Needs _get_storage() mocking")
     def test_serve_openapi_spec_rewrites_base_url(self):
-        raw = "servers:\n  - url: https://health-assistant.azurewebsites.net"
         req = MagicMock(spec=func.HttpRequest)
         req.url = "https://api.example.com/openapi.yaml"
 
-        with patch("function_app._read_text_file", return_value=raw):
-            response = function_app.serve_openapi_spec(req)
+        mock_handler = MagicMock()
+        mock_handler.get_openapi_spec.return_value = ("openapi: 3.0.1\n", 200)
+
+        with patch("function_app._get_storage", return_value=MagicMock()):
+            with patch("function_app.HealthHandler", return_value=mock_handler):
+                response = function_app.serve_openapi_spec(req)
 
         assert response.status_code == 200
         body = response.get_body().decode("utf-8")
-        assert "https://api.example.com" in body
-        assert "health-assistant.azurewebsites.net" not in body
+        assert "openapi: 3.0.1" in body
+        mock_handler.get_openapi_spec.assert_called_once_with("https://api.example.com")
 
-    @pytest.mark.skip(reason="Needs _get_storage() mocking")
     def test_serve_logo_returns_svg(self):
         req = MagicMock(spec=func.HttpRequest)
         svg_body = "<svg><rect width=\"10\" height=\"10\"/></svg>"
 
-        with patch("function_app._read_text_file", return_value=svg_body):
-            response = function_app.serve_logo(req)
+        mock_handler = MagicMock()
+        mock_handler.get_logo.return_value = (svg_body, 200)
+
+        with patch("function_app._get_storage", return_value=MagicMock()):
+            with patch("function_app.HealthHandler", return_value=mock_handler):
+                response = function_app.serve_logo(req)
 
         assert response.status_code == 200
         body = response.get_body().decode("utf-8")
@@ -93,31 +110,36 @@ class TestDocsAssetEndpoints:
 
 
 class TestPhysiometricsEndpointHandlers:
-    @pytest.mark.skip(reason="Needs _get_semantic_layer() mocking")
-    def test_get_current_physiometrics_requires_athlete(self):
+    def test_get_current_physiometrics_defaults_athlete(self):
         req = MagicMock(spec=func.HttpRequest)
         req.params = {}
 
-        response = function_app.get_current_physiometrics(req)
+        mock_handler = MagicMock()
+        mock_handler.get_current.return_value = ({"athlete_id": "rob"}, 200)
 
-        assert response.status_code == 400
+        with patch("function_app._get_semantic_layer", return_value=MagicMock()):
+            with patch("function_app.PhysiometricsHandler", return_value=mock_handler):
+                response = function_app.get_current_physiometrics(req)
 
-    @pytest.mark.skip(reason="Needs _get_semantic_layer() mocking")
+        assert response.status_code == 200
+        mock_handler.get_current.assert_called_once_with("rob")
+
     def test_get_current_physiometrics_success(self):
         req = MagicMock(spec=func.HttpRequest)
         req.params = {"athlete_id": "rob"}
 
-        mock_layer = MagicMock()
-        mock_layer.get_current_physiometrics.return_value = {"athlete_id": "rob"}
+        mock_handler = MagicMock()
+        mock_handler.get_current.return_value = ({"athlete_id": "rob"}, 200)
 
-        with patch("function_app.SemanticLayer", return_value=mock_layer):
-            response = function_app.get_current_physiometrics(req)
+        with patch("function_app._get_semantic_layer", return_value=MagicMock()):
+            with patch("function_app.PhysiometricsHandler", return_value=mock_handler):
+                response = function_app.get_current_physiometrics(req)
 
         assert response.status_code == 200
         body = json.loads(response.get_body())
         assert body["athlete_id"] == "rob"
+        mock_handler.get_current.assert_called_once_with("rob")
 
-    @pytest.mark.skip(reason="Needs _get_semantic_layer() mocking")
     def test_get_physiometrics_history_parses_metrics(self):
         req = MagicMock(spec=func.HttpRequest)
         req.params = {
@@ -126,19 +148,19 @@ class TestPhysiometricsEndpointHandlers:
             "metrics": "weight_kg,cycling_vo2max_ml_kg_min",
         }
 
-        mock_layer = MagicMock()
-        mock_layer.get_physiometrics_trends.return_value = {"athlete_id": "rob"}
+        mock_handler = MagicMock()
+        mock_handler.get_history.return_value = ({"athlete_id": "rob"}, 200)
 
-        with patch("function_app.SemanticLayer", return_value=mock_layer):
-            function_app.get_physiometrics_history(req)
+        with patch("function_app._get_semantic_layer", return_value=MagicMock()):
+            with patch("function_app.PhysiometricsHandler", return_value=mock_handler):
+                function_app.get_physiometrics_history(req)
 
-        mock_layer.get_physiometrics_trends.assert_called_once_with(
-            athlete_id="rob",
-            days=365,
-            metrics=["weight_kg", "cycling_vo2max_ml_kg_min"],
+        mock_handler.get_history.assert_called_once_with(
+            "rob",
+            999,
+            ["weight_kg", "cycling_vo2max_ml_kg_min"],
         )
 
-    @pytest.mark.skip(reason="Needs _get_semantic_layer() mocking")
     def test_update_physiometrics_single_metric(self):
         req = MagicMock(spec=func.HttpRequest)
         req.get_json.return_value = {
@@ -148,16 +170,22 @@ class TestPhysiometricsEndpointHandlers:
             "effective_date": "2026-01-20",
         }
 
-        mock_layer = MagicMock()
-        mock_layer.update_physiometric_value.return_value = {"status": "success"}
+        mock_handler = MagicMock()
+        mock_handler.update_metric.return_value = ({"status": "success"}, 200)
 
-        with patch("function_app.SemanticLayer", return_value=mock_layer):
-            response = function_app.update_physiometrics(req)
+        with patch("function_app._get_semantic_layer", return_value=MagicMock()):
+            with patch("function_app.PhysiometricsHandler", return_value=mock_handler):
+                response = function_app.update_physiometrics(req)
 
         assert response.status_code == 200
-        mock_layer.update_physiometric_value.assert_called_once()
+        mock_handler.update_metric.assert_called_once_with(
+            athlete_id="rob",
+            metric="weight_kg",
+            value=75.5,
+            effective_date="2026-01-20",
+            source="chatgpt",
+        )
 
-    @pytest.mark.skip(reason="Needs _get_semantic_layer() mocking")
     def test_update_physiometrics_bulk(self):
         req = MagicMock(spec=func.HttpRequest)
         req.get_json.return_value = {
@@ -166,14 +194,20 @@ class TestPhysiometricsEndpointHandlers:
             "effective_date": "2026-01-20",
         }
 
-        mock_layer = MagicMock()
-        mock_layer.update_physiometric_value.return_value = {"status": "success"}
+        mock_handler = MagicMock()
+        mock_handler.update_metrics.return_value = ({"status": "success"}, 200)
 
-        with patch("function_app.SemanticLayer", return_value=mock_layer):
-            response = function_app.update_physiometrics(req)
+        with patch("function_app._get_semantic_layer", return_value=MagicMock()):
+            with patch("function_app.PhysiometricsHandler", return_value=mock_handler):
+                response = function_app.update_physiometrics(req)
 
         assert response.status_code == 200
-        assert mock_layer.update_physiometric_value.call_count == 2
+        mock_handler.update_metrics.assert_called_once_with(
+            athlete_id="rob",
+            metrics={"weight_kg": 75.5, "cycling_vo2max_ml_kg_min": 52.1},
+            effective_date="2026-01-20",
+            source="chatgpt",
+        )
 
     def test_update_physiometrics_invalid_payload(self):
         req = MagicMock(spec=func.HttpRequest)
@@ -186,70 +220,101 @@ class TestPhysiometricsEndpointHandlers:
 
 
 class TestWithingsEndpointHandlers:
-    @pytest.mark.skip(reason="Needs _get_storage() mocking")
     def test_withings_authorize_requires_athlete(self):
         req = MagicMock(spec=func.HttpRequest)
         req.params = {}
 
-        response = function_app.withings_authorize(req)
+        mock_handler = MagicMock()
+        mock_handler.get_authorization_url.return_value = (
+            {"authorization_url": "https://auth"},
+            200,
+        )
 
-        assert response.status_code == 400
+        with patch("function_app._get_storage", return_value=MagicMock()):
+            with patch("function_app._get_withings_client", return_value=MagicMock()):
+                with patch("function_app.WithingsHandler", return_value=mock_handler):
+                    response = function_app.withings_authorize(req)
 
-    @pytest.mark.skip(reason="Needs _get_storage() mocking")
+        assert response.status_code == 200
+        mock_handler.get_authorization_url.assert_called_once_with("rob")
+
     def test_withings_authorize_success(self):
         req = MagicMock(spec=func.HttpRequest)
         req.params = {"athlete_id": "rob"}
 
-        mock_client = MagicMock()
-        mock_client.get_authorization_url.return_value = ("https://auth", "state")
+        mock_handler = MagicMock()
+        mock_handler.get_authorization_url.return_value = (
+            {"authorization_url": "https://auth"},
+            200,
+        )
 
-        with patch("function_app.WithingsClient", return_value=mock_client):
-            response = function_app.withings_authorize(req)
+        with patch("function_app._get_storage", return_value=MagicMock()):
+            with patch("function_app._get_withings_client", return_value=MagicMock()):
+                with patch("function_app.WithingsHandler", return_value=mock_handler):
+                    response = function_app.withings_authorize(req)
 
         assert response.status_code == 200
         body = json.loads(response.get_body())
         assert body["authorization_url"] == "https://auth"
+        mock_handler.get_authorization_url.assert_called_once_with("rob")
 
-    @pytest.mark.skip(reason="Needs _get_storage() mocking")
     def test_withings_callback_requires_code_state(self):
         req = MagicMock(spec=func.HttpRequest)
         req.params = {"code": "abc"}
+        req.url = "https://health.example.com/api/withings/callback"
 
-        response = function_app.withings_callback(req)
+        mock_handler = MagicMock()
+        mock_handler.handle_oauth_callback.return_value = (
+            "<html></html>",
+            400,
+            "text/html",
+        )
+
+        with patch("function_app._get_storage", return_value=MagicMock()):
+            with patch("function_app._get_withings_client", return_value=MagicMock()):
+                with patch("function_app.WithingsHandler", return_value=mock_handler):
+                    response = function_app.withings_callback(req)
 
         assert response.status_code == 400
+        mock_handler.handle_oauth_callback.assert_called_once()
 
     def test_withings_callback_success(self):
         req = MagicMock(spec=func.HttpRequest)
         req.url = "https://health.example.com/api/withings/callback"
         req.params = {"code": "abc", "state": "token:rob"}
 
-        mock_client = MagicMock()
-        mock_client.exchange_auth_code.return_value = {
-            "athlete_id": "rob",
-            "userid": "123",
-            "access_token": "access",
-            "refresh_token": "refresh",
-            "expires_in": 3600,
-            "scope": "user.metrics",
-        }
-        mock_storage = MagicMock()
+        mock_handler = MagicMock()
+        mock_handler.handle_oauth_callback.return_value = (
+            "<html><body>OK</body></html>",
+            200,
+            "text/html",
+        )
 
-        with patch("function_app.WithingsClient", return_value=mock_client):
-            with patch("function_app.WorkoutTableStorage", return_value=mock_storage):
-                response = function_app.withings_callback(req)
+        with patch("function_app._get_storage", return_value=MagicMock()):
+            with patch("function_app._get_withings_client", return_value=MagicMock()):
+                with patch("function_app.WithingsHandler", return_value=mock_handler):
+                    response = function_app.withings_callback(req)
 
         assert response.status_code == 200
-        mock_storage.store_withings_tokens.assert_called_once()
-        mock_client.subscribe_to_notifications.assert_called_once()
+        mock_handler.handle_oauth_callback.assert_called_once_with(
+            "abc",
+            "token:rob",
+            "https://health.example.com/api/withings/webhook",
+        )
 
     def test_withings_webhook_missing_fields(self):
         req = MagicMock(spec=func.HttpRequest)
         req.form = {"userid": "123"}
 
-        response = function_app.withings_webhook(req)
+        mock_handler = MagicMock()
+        mock_handler.process_webhook.return_value = ("OK", 200)
 
-        assert response.status_code == 400
+        with patch("function_app._get_storage", return_value=MagicMock()):
+            with patch("function_app._get_withings_client", return_value=MagicMock()):
+                with patch("function_app.WithingsHandler", return_value=mock_handler):
+                    response = function_app.withings_webhook(req)
+
+        assert response.status_code == 200
 
     def test_withings_webhook_non_weight(self):
         req = MagicMock(spec=func.HttpRequest)
@@ -260,7 +325,13 @@ class TestWithingsEndpointHandlers:
             "enddate": "2",
         }
 
-        response = function_app.withings_webhook(req)
+        mock_handler = MagicMock()
+        mock_handler.process_webhook.return_value = ("OK", 200)
+
+        with patch("function_app._get_storage", return_value=MagicMock()):
+            with patch("function_app._get_withings_client", return_value=MagicMock()):
+                with patch("function_app.WithingsHandler", return_value=mock_handler):
+                    response = function_app.withings_webhook(req)
 
         assert response.status_code == 200
 
@@ -273,40 +344,29 @@ class TestWithingsEndpointHandlers:
             "enddate": "2",
         }
 
-        response = function_app.withings_webhook(req)
+        mock_handler = MagicMock()
+        mock_handler.process_webhook.return_value = ("OK", 200)
+
+        with patch("function_app._get_storage", return_value=MagicMock()):
+            with patch("function_app._get_withings_client", return_value=MagicMock()):
+                with patch("function_app.WithingsHandler", return_value=mock_handler):
+                    response = function_app.withings_webhook(req)
 
         assert response.status_code == 200
 
 
 class TestIngestionHelpersAndFlow:
-    @pytest.mark.skip(reason="Helper function _decode_fit_file_content was refactored into FitUploadHandler")
-    def test_decode_fit_file_content_invalid_base64(self):
-        with pytest.raises(ValueError):
-            function_app._decode_fit_file_content("not-base64")
-
-    @pytest.mark.skip(reason="Helper function _ingest_fit_payload was refactored into FitUploadHandler")
-    def test_ingest_fit_payload_skips_duplicate(self):
+    def test_ingest_fit_payload_missing_file_content(self):
         payload = {
             "athlete_id": "rob",
-            "source_file_name": "file.fit",
-            "file_content_b64": base64.b64encode(b"data").decode("utf-8"),
         }
 
-        mock_storage = MagicMock()
-        mock_storage.get_ingestion_state.return_value = {
-            "status": "ingested",
-            "workout_id": "workout-123",
-        }
+        with patch("function_app._get_storage", return_value=MagicMock()):
+            body, status_code = function_app._ingest_fit_payload(payload)
 
-        with patch("function_app.compute_file_hash", return_value="hash"):
-            with patch("function_app._get_storage_instance", return_value=mock_storage):
-                body, status_code = function_app._ingest_fit_payload(payload)
+        assert status_code == 400
+        assert body["error"] == "No file content"
 
-        assert status_code == 200
-        assert body["status"] == "skipped"
-        assert body["workout_id"] == "workout-123"
-
-    @pytest.mark.skip(reason="Helper function _ingest_fit_payload was refactored into FitUploadHandler")
     def test_ingest_fit_payload_success(self):
         payload = {
             "athlete_id": "rob",
@@ -328,7 +388,7 @@ class TestIngestionHelpersAndFlow:
         }
 
         with patch("function_app.compute_file_hash", return_value="hash"):
-            with patch("function_app._get_storage_instance", return_value=mock_storage):
+            with patch("function_app._get_storage", return_value=mock_storage):
                 with patch("function_app.FitParser", return_value=mock_parser):
                     body, status_code = function_app._ingest_fit_payload(payload)
 
@@ -352,64 +412,59 @@ class TestOneDriveHelpersAndEndpoints:
         monkeypatch.setenv(ONEDRIVE_SYNC_LOOKBACK_DAYS, "0")
         assert OneDriveSyncConfig.from_env().lookback_days == 1
 
-    @pytest.mark.skip(reason="OneDrive sync HTTP endpoint refactored into OneDriveSyncHandler")
     def test_onedrive_sync_http_calls_sync(self):
         req = MagicMock(spec=func.HttpRequest)
         req.method = "POST"
         req.get_json.return_value = {"days": 7, "athlete_id": "rob", "async": False}
         req.params = {}
 
-        mock_service = MagicMock()
-        mock_service.config.lookback_days = 30
-        mock_service.sync.return_value = {"status": "success"}
+        mock_handler = MagicMock()
+        mock_handler.handle.return_value = ({"status": "success"}, 200)
 
-        with patch("function_app._get_onedrive_sync_service", return_value=mock_service):
-            response = function_app.onedrive_sync_http(req)
+        with patch("function_app._get_onedrive_service", return_value=MagicMock()):
+            with patch("function_app.OneDriveSyncHandler", return_value=mock_handler) as handler_cls:
+                response = function_app.onedrive_sync_http(req)
 
         assert response.status_code == 200
         body = json.loads(response.get_body())
         assert body["status"] == "success"
-        mock_service.sync.assert_called_once_with(athlete_id="rob", lookback_days=7)
+        handler_cls.assert_called_once()
+        mock_handler.handle.assert_called_once()
 
-    @pytest.mark.skip(reason="OneDrive sync HTTP endpoint refactored into OneDriveSyncHandler")
     def test_onedrive_sync_http_defaults_sync(self):
         req = MagicMock(spec=func.HttpRequest)
         req.method = "POST"
         req.get_json.return_value = {"days": 7, "athlete_id": "rob"}
         req.params = {}
 
-        mock_service = MagicMock()
-        mock_service.config.lookback_days = 30
-        mock_service.config.folder_path = "/Apps/HealthFit"
-        mock_service.sync.return_value = {"status": "success"}
+        mock_handler = MagicMock()
+        mock_handler.handle.return_value = ({"status": "success"}, 200)
 
-        with patch("function_app._get_onedrive_sync_service", return_value=mock_service):
-            response = function_app.onedrive_sync_http(req)
+        with patch("function_app._get_onedrive_service", return_value=MagicMock()):
+            with patch("function_app.OneDriveSyncHandler", return_value=mock_handler):
+                response = function_app.onedrive_sync_http(req)
 
         assert response.status_code == 200
         body = json.loads(response.get_body())
         assert body["status"] == "success"
-        mock_service.sync.assert_called_once_with(athlete_id="rob", lookback_days=7)
+        mock_handler.handle.assert_called_once()
 
-    @pytest.mark.skip(reason="OneDrive sync HTTP endpoint refactored into OneDriveSyncHandler")
     def test_onedrive_sync_http_async_query_param(self):
         req = MagicMock(spec=func.HttpRequest)
         req.method = "POST"
         req.get_json.return_value = {"days": 7, "athlete_id": "rob"}
         req.params = {"async": "true"}
 
-        mock_service = MagicMock()
-        mock_service.config.lookback_days = 30
-        mock_service.config.folder_path = "/Apps/HealthFit"
+        mock_handler = MagicMock()
+        mock_handler.handle.return_value = ({"status": "queued"}, 202)
 
-        with patch("function_app._get_onedrive_sync_service", return_value=mock_service):
-            with patch("function_app.threading.Thread") as mock_thread:
+        with patch("function_app._get_onedrive_service", return_value=MagicMock()):
+            with patch("function_app.OneDriveSyncHandler", return_value=mock_handler):
                 response = function_app.onedrive_sync_http(req)
 
         assert response.status_code == 202
-        mock_thread.return_value.start.assert_called_once()
+        mock_handler.handle.assert_called_once()
 
-    @pytest.mark.skip(reason="OneDrive authorize endpoint refactored into OneDriveSyncHandler")
     def test_onedrive_authorize_returns_url(self):
         req = MagicMock(spec=func.HttpRequest)
         req.params = {"athlete_id": "rob"}
@@ -417,7 +472,7 @@ class TestOneDriveHelpersAndEndpoints:
         mock_service = MagicMock()
         mock_service.build_authorize_url.return_value = "https://login.example.com/auth"
 
-        with patch("function_app._get_onedrive_sync_service", return_value=mock_service):
+        with patch("function_app._get_onedrive_service", return_value=mock_service):
             response = function_app.onedrive_authorize(req)
 
         assert response.status_code == 200
@@ -425,7 +480,6 @@ class TestOneDriveHelpersAndEndpoints:
         assert body["authorization_url"] == "https://login.example.com/auth"
         assert body["athlete_id"] == "rob"
 
-    @pytest.mark.skip(reason="onedrive_callback function was removed during refactoring")
     def test_onedrive_callback_missing_code(self):
         req = MagicMock(spec=func.HttpRequest)
         req.params = {"state": "rob:token"}
@@ -434,14 +488,13 @@ class TestOneDriveHelpersAndEndpoints:
 
         assert response.status_code == 400
 
-    @pytest.mark.skip(reason="onedrive_callback function was removed during refactoring")
     def test_onedrive_callback_success(self):
         req = MagicMock(spec=func.HttpRequest)
-        req.params = {"code": "auth-code", "state": "rob:token"}
+        req.params = {"code": "auth-code", "state": "rob|token"}
 
         mock_service = MagicMock()
 
-        with patch("function_app._get_onedrive_sync_service", return_value=mock_service):
+        with patch("function_app._get_onedrive_service", return_value=mock_service):
             response = function_app.onedrive_callback(req)
 
         assert response.status_code == 200

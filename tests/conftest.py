@@ -1,15 +1,15 @@
 """Pytest configuration and fixtures."""
 
+import json
+import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 from unittest.mock import MagicMock, Mock, patch
 from urllib.parse import parse_qs, urlparse
 
-import json
 import pytest
-import threading
 
 
 class _SimpleMocker:
@@ -187,8 +187,13 @@ def sample_payload() -> Dict[str, Any]:
         return json.load(f)
 
 
-class _AgentMemoryRequestHandler(BaseHTTPRequestHandler):
+class _AgentMemoryRequestHandler(BaseHTTPRequestHandler):  # pylint: disable=invalid-name
+    _ERR_MISSING_ATHLETE_ID = "Missing required parameter: athlete_id"
+    _ERR_NOT_FOUND = "Not found"
+
     def log_message(self, format, *args):  # noqa: A003 - match base signature
+        # pylint: disable=redefined-builtin
+        # Silence request logging during tests.
         return
 
     def _send_json(self, payload: dict, status: int = 200) -> None:
@@ -207,6 +212,8 @@ class _AgentMemoryRequestHandler(BaseHTTPRequestHandler):
         return json.loads(raw.decode("utf-8"))
 
     def do_GET(self):  # noqa: N802 - required by BaseHTTPRequestHandler
+        # pylint: disable=invalid-name
+        """Handle read-only agent memory endpoints."""
         parsed = urlparse(self.path)
         path = parsed.path
         query = parse_qs(parsed.query)
@@ -215,7 +222,7 @@ class _AgentMemoryRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/agent/context":
             if not athlete_id:
                 return self._send_json(
-                    {"error": "Missing required parameter: athlete_id"},
+                    {"error": self._ERR_MISSING_ATHLETE_ID},
                     400,
                 )
             return self._send_json(
@@ -232,7 +239,7 @@ class _AgentMemoryRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/agent/preferences":
             if not athlete_id:
                 return self._send_json(
-                    {"error": "Missing required parameter: athlete_id"},
+                    {"error": self._ERR_MISSING_ATHLETE_ID},
                     400,
                 )
             return self._send_json({"athlete_id": athlete_id, "preferences": {}}, 200)
@@ -240,7 +247,7 @@ class _AgentMemoryRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/agent/observations":
             if not athlete_id:
                 return self._send_json(
-                    {"error": "Missing required parameter: athlete_id"},
+                    {"error": self._ERR_MISSING_ATHLETE_ID},
                     400,
                 )
             return self._send_json(
@@ -248,9 +255,11 @@ class _AgentMemoryRequestHandler(BaseHTTPRequestHandler):
                 200,
             )
 
-        return self._send_json({"error": "Not found"}, 404)
+        return self._send_json({"error": self._ERR_NOT_FOUND}, 404)
 
     def do_POST(self):  # noqa: N802 - required by BaseHTTPRequestHandler
+        # pylint: disable=invalid-name
+        """Handle write agent memory endpoints."""
         parsed = urlparse(self.path)
         path = parsed.path
         payload = self._read_json()
@@ -259,7 +268,7 @@ class _AgentMemoryRequestHandler(BaseHTTPRequestHandler):
             athlete_id = payload.get("athlete_id", "")
             if not athlete_id:
                 return self._send_json(
-                    {"error": "Missing required parameter: athlete_id"},
+                    {"error": self._ERR_MISSING_ATHLETE_ID},
                     400,
                 )
             return self._send_json(
@@ -275,42 +284,45 @@ class _AgentMemoryRequestHandler(BaseHTTPRequestHandler):
             athlete_id = payload.get("athlete_id", "")
             if not athlete_id:
                 return self._send_json({"error": "Missing required parameters"}, 400)
-            observation_id = "test-observation-1"
+            obs_id = "test-observation-1"
             return self._send_json(
                 {
-                    "observation_id": observation_id,
-                    "observation": {"observation_id": observation_id, **payload},
+                    "observation_id": obs_id,
+                    "observation": {"observation_id": obs_id, **payload},
                 },
                 201,
             )
 
-        return self._send_json({"error": "Not found"}, 404)
+        return self._send_json({"error": self._ERR_NOT_FOUND}, 404)
 
     def do_PATCH(self):  # noqa: N802 - required by BaseHTTPRequestHandler
+        # pylint: disable=invalid-name
+        """Handle observation status updates."""
         parsed = urlparse(self.path)
         path = parsed.path
 
         if path.startswith("/api/agent/observations/"):
-            observation_id = path.rsplit("/", 1)[-1]
+            obs_id = path.rsplit("/", 1)[-1]
             payload = self._read_json()
             status = payload.get("status", "resolved")
             return self._send_json(
                 {
-                    "observation_id": observation_id,
+                    "observation_id": obs_id,
                     "status": status,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 },
                 200,
             )
 
-        return self._send_json({"error": "Not found"}, 404)
+        return self._send_json({"error": self._ERR_NOT_FOUND}, 404)
 
 
 class _ThreadedHTTPServer(HTTPServer):
     daemon_threads = True
 
 
-def _start_test_server() -> Optional[HTTPServer]:
+def _start_test_server() -> Optional[Tuple[HTTPServer, threading.Thread]]:
+    """Start a local HTTP server for agent memory tests."""
     try:
         server = _ThreadedHTTPServer(("127.0.0.1", 7071), _AgentMemoryRequestHandler)
     except OSError:
@@ -319,22 +331,22 @@ def _start_test_server() -> Optional[HTTPServer]:
     thread = threading.Thread(target=server.serve_forever, name="agent-memory-test-server")
     thread.daemon = True
     thread.start()
-    server._thread = thread  # type: ignore[attr-defined]
-    return server
+    return server, thread
 
 
 @pytest.fixture(scope="session", autouse=True)
 def agent_memory_test_server():
-    server = _start_test_server()
+    """Provide a lightweight HTTP server for integration-style tests."""
+    server_info = _start_test_server()
     yield
-    if server is not None:
+    if server_info is not None:
+        server, thread = server_info
         server.shutdown()
         server.server_close()
-        thread = getattr(server, "_thread", None)
-        if thread is not None:
-            thread.join(timeout=2)
+        thread.join(timeout=2)
 
 
-@pytest.fixture(scope="session")
-def observation_id() -> str:
+@pytest.fixture(scope="session", name="observation_id")
+def fixture_observation_id() -> str:
+    """Provide a stable observation id for tests that require one."""
     return "test-observation-1"

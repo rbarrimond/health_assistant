@@ -6,7 +6,6 @@
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
 import azure.functions as func
 
 # Import endpoints (these are module-level functions in function_app.py)
@@ -241,18 +240,17 @@ class TestConfigHistoryEndpoint:
 
         mock_history.assert_called_once_with(limit=50)
 
-    @pytest.mark.skip(reason="Needs proper Config.get_physiometrics_history mocking")
     def test_config_history_invalid_limit(self) -> None:
-        """Verify invalid limit defaults to 10."""
-        from FitParser.config import Config
+        """Verify invalid limit returns 400."""
         from function_app import config_history
 
-        with patch.object(Config, "get_physiometrics_history", return_value=[]) as mock_history:
-            req = MagicMock(spec=func.HttpRequest)
-            req.params = {"limit": "invalid"}
-            config_history(req)
+        req = MagicMock(spec=func.HttpRequest)
+        req.params = {"limit": "invalid"}
+        response = config_history(req)
 
-        mock_history.assert_called_once_with(limit=10)
+        assert response.status_code == 400
+        body = json.loads(response.get_body())
+        assert body["error"] == "Invalid limit parameter"
 
     def test_config_history_error(self) -> None:
         """Verify 500 on retrieval error."""
