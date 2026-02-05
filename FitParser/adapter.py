@@ -11,6 +11,25 @@ from .apple_workout_types import AppleWorkoutTypeResolver
 from .exceptions import FitAdapterError
 from .models import DeviceInfo, RecordSample, Workout, WorkoutSession
 
+# FIT standard sub-sport keywords indicating indoor activities
+# Covers documented FIT sub-sport types and common platform variants
+INDOOR_KEYWORDS = [
+    "indoor",  # Catches indoor_cycling, indoor_running, indoor_walk, etc.
+    "virtual",  # virtual_ride, virtual_run (Zwift, etc.)
+    "stationary",  # stationary_bike
+    "trainer",  # Common cycling trainer terminology
+    "treadmill",  # Indoor running variant
+    "pool",  # pool_swimming vs open_water_swimming
+    "strength_training",  # FIT standard training sub-sport
+    "functional_training",  # FIT standard training sub-sport
+    "core",  # FIT standard core training sub-sport
+    "track_cycling",  # Velodrome (typically indoor)
+    "spin",  # Common indoor cycling term
+    "zwift",  # Specific virtual platform
+    "peloton",  # Specific indoor cycling platform
+    "rowing_machine",  # Indoor rowing variant
+]
+
 
 class FitAdapter:
     """Build Workout entities from a FIT file."""
@@ -18,6 +37,7 @@ class FitAdapter:
     def __init__(self, file_path: str, source_file_name: Optional[str] = None):
         self.file_path = file_path
         self.source_file_name = source_file_name
+        self._gps_data_cache: Optional[bool] = None
         try:
             self.fit = fitparse.FitFile(file_path)
             self.file_id_msg, self.session_msg = self._cache_core_messages()
@@ -121,6 +141,49 @@ class FitAdapter:
 
         return distance_m, elev_gain_m, elev_loss_m, avg_speed_mps, max_speed_mps
 
+    def _has_gps_data(self) -> bool:
+        """Check if any records in the FIT file have GPS coordinates (cached)."""
+        if self._gps_data_cache is not None:
+            return self._gps_data_cache
+        
+        has_gps = False
+        try:
+            for record in self.fit.get_messages("record"):
+                lat = self._get_field_value(record, "position_lat")
+                lon = self._get_field_value(record, "position_long")
+                if lat is not None and lon is not None:
+                    has_gps = True
+                    break
+        except Exception:  # pylint: disable=broad-exception-caught
+            # If there's any error checking GPS, assume no GPS data
+            has_gps = False
+        
+        self._gps_data_cache = has_gps
+        return has_gps
+
+    @staticmethod
+    def _parse_indoor_flag(value) -> bool | None:
+        """Parse the indoor flag, handling various input formats."""
+        if value is None:
+            return None
+        # Handle empty strings
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        # Handle string representations of boolean
+        if isinstance(value, str):
+            if value.lower() in ("true", "1", "yes"):
+                return True
+            if value.lower() in ("false", "0", "no"):
+                return False
+            return None
+        # Handle actual boolean
+        if isinstance(value, bool):
+            return value
+        # Handle numeric (1/0)
+        if isinstance(value, (int, float)):
+            return bool(value)
+        return None
+
     def _build_session(self) -> WorkoutSession:
         """Build a WorkoutSession from cached messages."""
         session_msg = self.session_msg
@@ -136,19 +199,18 @@ class FitAdapter:
         calories = self._get_field_value(session_msg, "total_calories")
         calories_kcal = float(calories) if calories is not None else None
 
-        # Infer is_indoor from sub_sport or explicit flag
-        is_indoor_flag = bool(indoor) if indoor is not None else None
-        if is_indoor_flag is None and sub_sport_name:
-            indoor_keywords = [
-                "indoor",
-                "virtual",
-                "zwift",
-                "trainer",
-                "stationary",
-            ]
-            is_indoor_flag = any(
-                keyword in sub_sport_name.lower() for keyword in indoor_keywords
-            )
+        # Infer is_indoor from explicit flag, keywords, GPS data
+        is_indoor_flag = self._parse_indoor_flag(indoor)
+        if is_indoor_flag is None:
+            # Check for FIT standard indoor keywords first (handles virtual rides/runs with GPS)
+            if sub_sport_name and any(
+                keyword in sub_sport_name.lower() for keyword in INDOOR_KEYWORDS
+            ):
+                is_indoor_flag = True
+            # If no indoor keywords, check if records have GPS data
+            elif self._has_gps_data():
+                is_indoor_flag = False  # GPS present without indoor keywords = outdoor
+            # Otherwise leave as None
 
         resolver = AppleWorkoutTypeResolver(
             session_name=str(workout_name) if workout_name is not None else None,
