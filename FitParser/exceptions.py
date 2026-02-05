@@ -27,3 +27,11 @@ class AuthError(HealthAssistantError):
 
 class ExternalServiceError(HealthAssistantError):
     """Raised when external service (Withings, OneDrive, etc.) fails."""
+
+
+class FitAdapterError(HealthAssistantError):
+    """Raised when the FIT adapter cannot build workout entities."""
+
+
+class WorkoutTypeResolutionError(HealthAssistantError):
+    """Raised when Apple workout type resolution fails unexpectedly."""

@@ -8,6 +8,7 @@ from typing import Optional
 import fitparse
 
 from .apple_workout_types import AppleWorkoutTypeResolver
+from .exceptions import FitAdapterError
 from .models import DeviceInfo, RecordSample, Workout, WorkoutSession
 
 
@@ -17,15 +18,21 @@ class FitAdapter:
     def __init__(self, file_path: str, source_file_name: Optional[str] = None):
         self.file_path = file_path
         self.source_file_name = source_file_name
-        self.fit = fitparse.FitFile(file_path)
-        self.file_id_msg, self.session_msg = self._cache_core_messages()
+        try:
+            self.fit = fitparse.FitFile(file_path)
+            self.file_id_msg, self.session_msg = self._cache_core_messages()
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            raise FitAdapterError(f"Failed to initialize FitAdapter for {file_path}") from exc
 
     def load_workout(self) -> Workout:
         """Parse the FIT file and map it into Workout entities."""
-        session = self._build_session()
-        device = self._build_device()
-        records = self._build_records()
-        return Workout(session=session, device=device, records=records)
+        try:
+            session = self._build_session()
+            device = self._build_device()
+            records = self._build_records()
+            return Workout(session=session, device=device, records=records)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            raise FitAdapterError("Failed to build Workout from FIT data") from exc
 
     @staticmethod
     def _get_field_value(msg, field_name: str):

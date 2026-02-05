@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
+from FitParser.exceptions import FitAdapterError, WorkoutTypeResolutionError
 from FitParser.fit_parser import FitParser, compute_file_hash
 from FitParser.table_storage import WorkoutTableStorage
 
@@ -88,6 +89,12 @@ class FitUploadHandler:
         except ValueError as exc:
             logger.warning("Invalid FIT file: %s", exc)
             return None, 400
+        except FitAdapterError as exc:
+            logger.warning("FIT adapter failed: %s", exc)
+            return None, 400
+        except WorkoutTypeResolutionError as exc:
+            logger.error("Workout type resolution failed: %s", exc)
+            return None, 500
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Upload failed: %s", exc, exc_info=True)
             return None, 500

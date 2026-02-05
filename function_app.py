@@ -7,6 +7,8 @@ in FitParser.handlers. All endpoints are thin wrappers that:
 3. Return JSON response
 """
 
+# pylint: disable=too-many-lines
+
 import base64
 import json
 import logging
@@ -21,6 +23,7 @@ import azure.functions as func
 from azure.core.exceptions import AzureError
 
 from FitParser.backup_exporter import BackupExporter
+from FitParser.exceptions import FitAdapterError, WorkoutTypeResolutionError
 from FitParser.onedrive_sync import (
     OneDrivePersonalSyncService,
     OneDriveSyncConfig,
@@ -220,6 +223,26 @@ def _ingest_fit_payload(payload: Dict[str, Any]) -> tuple[Dict[str, Any], int]:
                 error=str(exc),
             )
         return {"status": "error", "error": str(exc)}, 400
+    except FitAdapterError as exc:
+        logger.warning("FIT adapter failed: %s", exc)
+        if source_info:
+            storage.record_ingestion_state(
+                athlete_id,
+                source_info,
+                status="failed",
+                error=str(exc),
+            )
+        return {"status": "error", "error": str(exc)}, 400
+    except WorkoutTypeResolutionError as exc:
+        logger.error("Workout type resolution failed: %s", exc)
+        if source_info:
+            storage.record_ingestion_state(
+                athlete_id,
+                source_info,
+                status="failed",
+                error="Workout type resolution failed",
+            )
+        return {"status": "error", "error": "Workout type resolution failed"}, 500
     except OSError as exc:
         logger.error("FIT payload file operation failed: %s", exc)
         if source_info:

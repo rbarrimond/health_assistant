@@ -3,6 +3,7 @@
 import logging
 from typing import Optional
 
+from .exceptions import WorkoutTypeResolutionError
 logger = logging.getLogger(__name__)
 
 
@@ -53,37 +54,40 @@ class AppleWorkoutTypeResolver:
         Returns:
             Apple Watch workout type string or None
         """
-        # Strategy 1: Try session_name first
-        if self.session_name:
-            result = self._extract_from_name(self.session_name)
-            if result:
-                logger.debug("Resolved from session_name: %r -> %r",
-                             self.session_name, result)
-                return result
-            logger.debug("No match in session_name: %r", self.session_name)
+        try:
+            # Strategy 1: Try session_name first
+            if self.session_name:
+                result = self._extract_from_name(self.session_name)
+                if result:
+                    logger.debug("Resolved from session_name: %r -> %r",
+                                 self.session_name, result)
+                    return result
+                logger.debug("No match in session_name: %r", self.session_name)
 
-        # Strategy 2: Fallback to source filename
-        if self.source_file_name:
-            result = self._extract_from_name(self.source_file_name)
-            if result:
-                logger.debug("Resolved from source_file_name: %r -> %r",
-                             self.source_file_name, result)
-                return result
-            logger.debug("No match in source_file_name: %r",
-                         self.source_file_name)
+            # Strategy 2: Fallback to source filename
+            if self.source_file_name:
+                result = self._extract_from_name(self.source_file_name)
+                if result:
+                    logger.debug("Resolved from source_file_name: %r -> %r",
+                                 self.source_file_name, result)
+                    return result
+                logger.debug("No match in source_file_name: %r",
+                             self.source_file_name)
 
-        # Strategy 3: Final fallback to FIT sport mapping
-        if self.sport:
-            result = self._match_fit_sport(self.sport, self.sub_sport)
-            if result:
-                logger.debug("Resolved from FIT sport: (%r, %r) -> %r",
-                             self.sport, self.sub_sport, result)
-                return result
-            logger.debug("No mapping for FIT sport: (%r, %r)",
-                         self.sport, self.sub_sport)
+            # Strategy 3: Final fallback to FIT sport mapping
+            if self.sport:
+                result = self._match_fit_sport(self.sport, self.sub_sport)
+                if result:
+                    logger.debug("Resolved from FIT sport: (%r, %r) -> %r",
+                                 self.sport, self.sub_sport, result)
+                    return result
+                logger.debug("No mapping for FIT sport: (%r, %r)",
+                             self.sport, self.sub_sport)
 
-        logger.debug("Could not resolve Apple workout type")
-        return None
+            logger.debug("Could not resolve Apple workout type")
+            return None
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            raise WorkoutTypeResolutionError("Apple workout type resolution failed") from exc
 
     @staticmethod
     def _check_special_cases(normalized_name: str) -> Optional[str]:

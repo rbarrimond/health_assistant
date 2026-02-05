@@ -5,13 +5,18 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, cast
 
+import fitparse
 import numpy as np
 from .adapter import FitAdapter
 from .apple_workout_types import AppleWorkoutTypeResolver
 from .config import Config
+from .exceptions import FitAdapterError, WorkoutTypeResolutionError
 from .models import Workout
 
 logger = logging.getLogger(__name__)
+
+# Expose fitparse for tests that patch FitParser.fit_parser.fitparse.
+_fitparse = fitparse
 
 
 class FitParser:
@@ -94,6 +99,9 @@ class FitParser:
             )
             self.workout = adapter.load_workout()
             self.fit = adapter.fit
+        except (FitAdapterError, WorkoutTypeResolutionError) as exc:
+            logger.error("FIT adapter failure for %s: %s", self.file_path, exc)
+            raise
         except Exception as e:
             logger.error("Error parsing FIT file %s: %s", self.file_path, e)
             raise
