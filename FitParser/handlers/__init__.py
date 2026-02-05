@@ -7,6 +7,7 @@ from .physiometrics_handler import PhysiometricsHandler
 from .withings_handler import WithingsHandler
 from .config_handler import ConfigHandler
 from .health_handler import HealthHandler
+from .agent_memory_handler import AgentMemoryHandler
 
 __all__ = [
     "FitUploadHandler",
@@ -17,4 +18,5 @@ __all__ = [
     "WithingsHandler",
     "ConfigHandler",
     "HealthHandler",
+    "AgentMemoryHandler",
 ]

@@ -73,6 +73,8 @@ class WorkoutTableStorage:
             "WithingsTokens",
             "OneDriveTokens",
             "WebhookDeduplication",
+            "AgentPreferences",
+            "AgentObservations",
         ]
         for table_name in table_names:
             try:

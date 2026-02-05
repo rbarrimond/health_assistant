@@ -179,3 +179,60 @@ class WorkoutMetricsModel(BaseModel):
     zones_power: Optional[PowerZonesModel] = None
     aerobic_efficiency_mphb: Optional[float] = Field(None, ge=0)
     hr_resting_bpm: Optional[float] = Field(None, ge=0, le=300)
+
+
+# ============================================================================
+# AGENT MEMORY MODELS - For external memory storage
+# ============================================================================
+
+
+class AgentPreferences(BaseModel):
+    """User preferences and training context for the agent."""
+
+    athlete_id: str = Field(description="Athlete identifier")
+    current_goal: Optional[str] = Field(
+        None, description="Current training goal or race target"
+    )
+    training_phase: Optional[str] = Field(
+        None, description="Current training phase (e.g., 'base-building', 'build', 'peak', 'recovery')"
+    )
+    preferred_sports: List[str] = Field(
+        default_factory=list, description="Preferred sports in priority order"
+    )
+    ftp_test_frequency_weeks: Optional[int] = Field(
+        None, description="How often to prompt for FTP testing"
+    )
+    last_ftp_test_date: Optional[str] = Field(
+        None, description="ISO 8601 date of last FTP test"
+    )
+    notes: Optional[str] = Field(
+        None, description="Free-form context notes"
+    )
+    updated_at: Optional[str] = Field(
+        None, description="ISO 8601 UTC timestamp of last update"
+    )
+
+
+class AgentObservation(BaseModel):
+    """Agent observations and flags for future reference."""
+
+    athlete_id: str = Field(description="Athlete identifier")
+    observation_id: str = Field(description="Unique observation identifier")
+    category: str = Field(
+        description="Observation category (e.g., 'pattern', 'flag', 'insight')"
+    )
+    summary: str = Field(description="Brief observation summary")
+    details: Optional[str] = Field(None, description="Detailed observation context")
+    referenced_workout_ids: List[str] = Field(
+        default_factory=list, description="Related workout IDs"
+    )
+    priority: str = Field(
+        default="normal", description="Priority level: low, normal, high"
+    )
+    status: str = Field(
+        default="active", description="Status: active, resolved, archived"
+    )
+    created_at: str = Field(description="ISO 8601 UTC timestamp")
+    expires_at: Optional[str] = Field(
+        None, description="ISO 8601 UTC timestamp when observation expires"
+    )
