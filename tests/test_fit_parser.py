@@ -569,7 +569,7 @@ class TestAdapterIntegration:
     def test_load_workout_maps_messages(self, tmp_path: Path) -> None:
         """Ensure adapter builds session, device, and records from FitFile."""
         # pylint: disable=import-outside-toplevel
-        from FitParser.adapter import load_workout_from_fit
+        from FitParser.adapter import FitAdapter
 
         def create_field_getter(field_map):
             """Create a getter function for mock field lookups."""
@@ -639,7 +639,8 @@ class TestAdapterIntegration:
         fit_file.get_messages = MagicMock(side_effect=get_messages)
 
         with patch("fitparse.FitFile", return_value=fit_file):
-            workout = load_workout_from_fit(str(tmp_path / "sample.fit"))
+            adapter = FitAdapter(str(tmp_path / "sample.fit"))
+            workout = adapter.load_workout()
 
         assert workout.session.sport == "cycling"
         assert workout.session.sub_sport == "road"
@@ -687,12 +688,12 @@ class TestFitParserWithEntities:
 
         parser = FitParser(str(tmp_path / "sample.fit"))
 
-        with patch(
-            "FitParser.fit_parser.load_workout_from_fit", return_value=workout
-        ), patch("fitparse.FitFile") as fit_file_cls:
+        with patch("FitParser.fit_parser.FitAdapter") as adapter_cls:
+            adapter_instance = adapter_cls.return_value
             fit_instance = MagicMock()
             fit_instance.get_messages.return_value = []
-            fit_file_cls.return_value = fit_instance
+            adapter_instance.fit = fit_instance
+            adapter_instance.load_workout.return_value = workout
 
             metrics = parser.parse()
 

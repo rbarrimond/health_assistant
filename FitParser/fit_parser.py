@@ -5,9 +5,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, cast
 
-import fitparse
 import numpy as np
-from .adapter import load_workout_from_fit
+from .adapter import FitAdapter
 from .apple_workout_types import AppleWorkoutTypeResolver
 from .config import Config
 from .models import Workout
@@ -89,8 +88,12 @@ class FitParser:
     def _load_fit_sources(self) -> None:
         """Load structured entities and raw fitparse for fallbacks."""
         try:
-            self.workout = load_workout_from_fit(self.file_path)
-            self.fit = fitparse.FitFile(self.file_path)
+            adapter = FitAdapter(
+                self.file_path,
+                source_file_name=self.source_file_name,
+            )
+            self.workout = adapter.load_workout()
+            self.fit = adapter.fit
         except Exception as e:
             logger.error("Error parsing FIT file %s: %s", self.file_path, e)
             raise
