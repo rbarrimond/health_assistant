@@ -21,6 +21,17 @@ MovesMethod is compatible with Zone 2 cycling and rest days, but should be limit
 
 ---
 
+## What MovesMethod Is Not
+
+- **Not metabolic conditioning** – Heart rate elevation is incidental, not a training target
+- **Not strength testing** – Load chasing and PR attempts defeat the purpose
+- **Not soreness-driven** – Sessions that meaningfully interfere with next-day cycling are mis-scaled
+- **Not heart-rate–based training** – Breathing is the primary load signal
+
+Any session that compromises the ability to perform endurance training the following day (unless explicitly planned) indicates excessive load.
+
+---
+
 ## RPE Interpretation Framework
 
 ### Dual-Domain RPE
@@ -113,12 +124,36 @@ Completion of prescribed volume is less important than consistency and tolerance
 
 ---
 
+## Re-Entry Rule (Critical)
+
+Time away from MovesMethod requires **re-entry scaling**, regardless of what phase you were in previously.
+
+- First session after a gap is treated as reacquaintance, not continuation
+- Volume is reduced (typically 50–60% of previous tolerance)
+- Emphasis is on pattern exposure and movement quality, not adaptation
+- Progression resumes only after tolerance is re-established across 2–3 sessions
+
+**Key principle:** Phase labels describe training intent, not current tissue readiness. After time away, tissue readiness resets even if the program phase doesn't.
+
+Examples of gaps requiring re-entry:
+
+- 7+ days away from MovesMethod
+- Illness or injury
+- Travel or life disruption
+- Medical procedures affecting movement capacity
+
+---
+
 ## Cycling Integration Rules
 
 - Compatible with Zone 2 endurance rides
 - Preferred on rest or recovery days
 - Avoid stacking full MovesMethod sessions with hard cycling intensity
 - Unilateral + overhead sessions (e.g., Week 3 Workout B–type stressors) are treated as primary stressors
+
+**Target feeling post-session:** "Worked locally, intact globally."
+
+On endurance-heavy days, MovesMethod should be shortened or omitted entirely rather than forced to completion.
 
 ---
 
@@ -131,6 +166,19 @@ Completion of prescribed volume is less important than consistency and tolerance
   - Asymmetries
   - Local difficulty
 - RPE corrections (e.g., adjusting down after reflection) are valid and encouraged
+
+---
+
+## Success Criteria
+
+A successful MovesMethod session:
+
+- **Preserves next-day readiness** – You can execute planned cycling without compromise
+- **Produces no joint pain** – Discomfort and local fatigue are acceptable; pain is not
+- **Ends with confidence in repeatability** – You could do this again in 2–3 days
+- **Feels deliberately under-reached** – Not maximized or exhausted
+
+Long-term consistency outweighs short-term completeness.
 
 ---
 
