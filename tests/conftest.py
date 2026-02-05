@@ -1,12 +1,15 @@
 """Pytest configuration and fixtures."""
 
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from unittest.mock import MagicMock, Mock, patch
+from urllib.parse import parse_qs, urlparse
 
 import json
 import pytest
+import threading
 
 
 class _SimpleMocker:
@@ -182,3 +185,156 @@ def sample_payload() -> Dict[str, Any]:
     data_path = Path(__file__).resolve().parent / "data" / "test_payload_example.json"
     with data_path.open("r", encoding="utf-8") as f:
         return json.load(f)
+
+
+class _AgentMemoryRequestHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):  # noqa: A003 - match base signature
+        return
+
+    def _send_json(self, payload: dict, status: int = 200) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _read_json(self) -> dict:
+        length = int(self.headers.get("Content-Length", "0"))
+        if length == 0:
+            return {}
+        raw = self.rfile.read(length)
+        return json.loads(raw.decode("utf-8"))
+
+    def do_GET(self):  # noqa: N802 - required by BaseHTTPRequestHandler
+        parsed = urlparse(self.path)
+        path = parsed.path
+        query = parse_qs(parsed.query)
+        athlete_id = query.get("athlete_id", [""])[0]
+
+        if path == "/api/agent/context":
+            if not athlete_id:
+                return self._send_json(
+                    {"error": "Missing required parameter: athlete_id"},
+                    400,
+                )
+            return self._send_json(
+                {
+                    "athlete_id": athlete_id,
+                    "preferences": {},
+                    "active_observations": [],
+                    "instruction_addendum": None,
+                    "retrieved_at": datetime.now(timezone.utc).isoformat(),
+                },
+                200,
+            )
+
+        if path == "/api/agent/preferences":
+            if not athlete_id:
+                return self._send_json(
+                    {"error": "Missing required parameter: athlete_id"},
+                    400,
+                )
+            return self._send_json({"athlete_id": athlete_id, "preferences": {}}, 200)
+
+        if path == "/api/agent/observations":
+            if not athlete_id:
+                return self._send_json(
+                    {"error": "Missing required parameter: athlete_id"},
+                    400,
+                )
+            return self._send_json(
+                {"athlete_id": athlete_id, "observations": [], "count": 0},
+                200,
+            )
+
+        return self._send_json({"error": "Not found"}, 404)
+
+    def do_POST(self):  # noqa: N802 - required by BaseHTTPRequestHandler
+        parsed = urlparse(self.path)
+        path = parsed.path
+        payload = self._read_json()
+
+        if path == "/api/agent/preferences":
+            athlete_id = payload.get("athlete_id", "")
+            if not athlete_id:
+                return self._send_json(
+                    {"error": "Missing required parameter: athlete_id"},
+                    400,
+                )
+            return self._send_json(
+                {
+                    "athlete_id": athlete_id,
+                    "preferences": payload,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+                200,
+            )
+
+        if path == "/api/agent/observations":
+            athlete_id = payload.get("athlete_id", "")
+            if not athlete_id:
+                return self._send_json({"error": "Missing required parameters"}, 400)
+            observation_id = "test-observation-1"
+            return self._send_json(
+                {
+                    "observation_id": observation_id,
+                    "observation": {"observation_id": observation_id, **payload},
+                },
+                201,
+            )
+
+        return self._send_json({"error": "Not found"}, 404)
+
+    def do_PATCH(self):  # noqa: N802 - required by BaseHTTPRequestHandler
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path.startswith("/api/agent/observations/"):
+            observation_id = path.rsplit("/", 1)[-1]
+            payload = self._read_json()
+            status = payload.get("status", "resolved")
+            return self._send_json(
+                {
+                    "observation_id": observation_id,
+                    "status": status,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+                200,
+            )
+
+        return self._send_json({"error": "Not found"}, 404)
+
+
+class _ThreadedHTTPServer(HTTPServer):
+    daemon_threads = True
+
+
+def _start_test_server() -> Optional[HTTPServer]:
+    try:
+        server = _ThreadedHTTPServer(("127.0.0.1", 7071), _AgentMemoryRequestHandler)
+    except OSError:
+        return None
+
+    thread = threading.Thread(target=server.serve_forever, name="agent-memory-test-server")
+    thread.daemon = True
+    thread.start()
+    server._thread = thread  # type: ignore[attr-defined]
+    return server
+
+
+@pytest.fixture(scope="session", autouse=True)
+def agent_memory_test_server():
+    server = _start_test_server()
+    yield
+    if server is not None:
+        server.shutdown()
+        server.server_close()
+        thread = getattr(server, "_thread", None)
+        if thread is not None:
+            thread.join(timeout=2)
+
+
+@pytest.fixture(scope="session")
+def observation_id() -> str:
+    return "test-observation-1"
