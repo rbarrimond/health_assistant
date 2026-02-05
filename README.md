@@ -199,3 +199,4 @@ Use the OAuth flow to connect OneDrive, then run the timer/HTTP sync. Full setup
 3. Run sync via timer or `POST /api/onedrive/sync` (defaults to async; set `async=false` to block)
 
 Note: lookback filtering uses the workout date parsed from the filename (YYYY-MM-DD) when available; otherwise it falls back to OneDrive `lastModifiedDateTime`.
+
