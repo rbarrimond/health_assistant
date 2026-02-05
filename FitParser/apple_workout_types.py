@@ -138,7 +138,7 @@ class AppleWorkoutTypeResolver:
     @staticmethod
     def _match_fit_sport(sport: str, sub_sport: Optional[str]) -> Optional[str]:
         """Match FIT sport/sub_sport to Apple Watch workout type."""
-        sport_lower = sport.lower()
+        sport_lower = sport.lower() if sport else None
         sub_sport_lower = sub_sport.lower() if sub_sport else None
 
         # Exact match (sport, sub_sport)
@@ -151,10 +151,11 @@ class AppleWorkoutTypeResolver:
         if key_no_subsport in FIT_TO_APPLE_WORKOUT_TYPE:
             return FIT_TO_APPLE_WORKOUT_TYPE[key_no_subsport]
 
-        return None
+        # Final fallback to catch-all
+        return FIT_TO_APPLE_WORKOUT_TYPE.get(("generic", "generic"), "Other")
 
 
-# Apple Watch workout type constants (for reuse in mappings)
+# Apple Watch workout type constants (for reuse in methods)
 TRADITIONAL_STRENGTH = "Traditional Strength Training"
 FUNCTIONAL_STRENGTH = "Functional Strength Training"
 INDOOR_CYCLE = "Indoor Cycle"
@@ -249,4 +250,5 @@ FIT_TO_APPLE_WORKOUT_TYPE = {
     ("swimming", None): "Swimming",
     ("rowing", None): "Rowing",
     ("elliptical", None): "Elliptical",
+    ("generic", "generic"): "Other",  # Catch-all for unmapped sports
 }
