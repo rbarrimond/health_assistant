@@ -1,9 +1,26 @@
 # Postman Testing Guide for Health Assistant Function App
 
+**Quick Reference**: Ready-to-use API testing collection with 30+ requests covering all endpoints.
+
 ## Quick Links
 
 - [API Alignment Report](./API_ALIGNMENT.md) - Verification that collection, openapi.yaml, and function_app.py are aligned
-- [postman_collection.json](./postman_collection.json) - Ready-to-use test collection
+- [postman_collection.json](./postman_collection.json) - Ready-to-use test collection (import this!)
+- [Complete API Reference](../../docs/SEMANTIC_LAYER_API.md) - Full API documentation
+
+## What's Included
+
+The Postman collection provides organized testing for:
+
+- ✅ **Agent Memory System** (6 requests) - Preferences, observations, context
+- ✅ **Planning & Analysis** (8 requests) - Planning context, workouts, rollups, zones
+- ✅ **Real Data Tests** (3 requests) - Actual FIT files (small, medium, large)
+- ✅ **Physiometrics** (3 requests) - Body metrics CRUD operations
+- ✅ **Configuration** (3 requests) - Config management endpoints
+- ✅ **Backend Integration** (7 requests) - OneDrive and Withings OAuth flows
+- ✅ **System Health** (1 request) - Health check endpoint
+
+**Total**: 31 pre-configured requests ready to run
 
 ## Import Collection
 
@@ -236,7 +253,34 @@ base64 -i your_workout.fit
 
 ## Troubleshooting
 
-- **Connection Refused**: Make sure the function app is running
+### Connection Issues
+
+- **Connection Refused**: Make sure the function app is running (`func start`)
+- **Timeout**: Large FIT files may take longer to process (expect <1 second for 121 KB file)
+- **Port conflicts**: Try different port if 7071 is in use
+
+### Request Errors
+
 - **500 Errors**: Check function logs for parsing or storage errors
-- **Timeout**: Large FIT files may take longer to process
+- **400 Bad Request**: Verify JSON payload structure and required fields
+- **401 Unauthorized**: Add function key for admin endpoints
+- **404 Not Found**: Check endpoint URL and workout_id
+
+### Data Issues
+
 - **Storage Errors**: Verify Azure Storage connection string in local.settings.json
+- **Duplicate detection**: Sending same payload twice should return "skipped" status
+- **Missing metrics**: Some workouts naturally lack certain data (e.g., power on non-power devices)
+
+## Additional Resources
+
+- [Complete API Reference](../../docs/SEMANTIC_LAYER_API.md) - All 31 endpoints documented
+- [Test Data Files](../data/README.md) - FIT file details and conversion scripts
+- [Main Testing Guide](../README.md) - Complete test suite (330 tests)
+- [API Alignment Report](./API_ALIGNMENT.md) - Collection consistency verification
+
+---
+
+**Collection Status**: ✅ Aligned with Function App (31 requests covering all endpoints)
+
+**Last Updated**: February 2026

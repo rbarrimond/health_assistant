@@ -1,6 +1,22 @@
 # Testing
 
-> **Source of Truth**: See [WORKOUT_SCHEMA.md](../WORKOUT_SCHEMA.md) for the complete specification of expected fields and metrics. This document describes the test coverage of that schema.
+> **Source of Truth**: See [WORKOUT_SCHEMA.md](../docs/WORKOUT_SCHEMA.md) for the complete specification of expected fields and metrics. This document describes the test coverage of that schema.
+
+## Quick Start
+
+```bash
+# Run all tests
+pytest
+
+# Run with coverage report
+pytest --cov=FitParser --cov=function_app --cov-report=html
+
+# Run specific test file
+pytest tests/test_fit_parser.py -v
+
+# Run specific test class
+pytest tests/test_semantic_layer.py::TestPlanningContext -v
+```
 
 ## Quick Links
 
@@ -711,16 +727,118 @@ Real FIT workout files are available in [tests/data/](./data/README.md):
 
 - pytest >= 8.3.0
 - pytest-cov >= 5.0.0
-- fitparse (mocked in most tests)
-- azure-data-tables (mocked for table storage tests)
-- Standard library: unittest.mock, datetime, pathlib, json
+- pytest-mock >= 3.14.0
+- freezegun >= 1.5.1 (for time-based testing)
+- debugpy >= 1.8.0 (for debugging)
+
+Install with:
+
+```bash
+pip install -e ".[dev]"
+```
+
+## Test Philosophy
+
+**Coverage Goals**:
+
+- High coverage across all core modules
+- Every handler has dedicated test suite
+- Integration tests with real FIT files
+- Edge cases and error conditions tested
+
+**Test Design Principles**:
+
+- **Fast execution**: Entire suite runs in ~1-2 seconds
+- **Isolated tests**: Each test is independent with fixtures
+- **Mock external dependencies**: No actual API calls in tests
+- **Descriptive names**: Test names clearly describe what they verify
+- **Parametrized tests**: Use `@pytest.mark.parametrize` for multiple inputs
+
+**Testing Layers**:
+
+1. **Unit Tests**: Pure function logic (FitParser, calculations)
+2. **Handler Tests**: Business logic orchestration
+3. **Endpoint Tests**: HTTP request/response integration
+4. **Integration Tests**: Real FIT file parsing end-to-end
+
+## Continuous Integration
+
+**Pre-commit checklist**:
+
+```bash
+# 1. Run full test suite
+pytest
+
+# 2. Check coverage (aim for >90%)
+pytest --cov=FitParser --cov=function_app --cov-report=term-missing
+
+# 3. Review coverage report for gaps
+pytest --cov=FitParser --cov=function_app --cov-report=html
+open htmlcov/index.html
+
+# 4. Run specific test file if making targeted changes
+pytest tests/test_<module>.py -v
+```
+
+## Debugging Tests
+
+**Run specific test with verbose output**:
+
+```bash
+pytest tests/test_fit_parser.py::TestFitParserHeartRateExtraction::test_extract_avg_hr -vv
+```
+
+**Use pytest debugger**:
+
+```bash
+pytest tests/test_fit_parser.py --pdb
+```
+
+**VS Code debugging**:
+
+- Set breakpoints in test files
+- Use "Python: Debug Tests" launch configuration
+- Step through test execution
+
+## Adding New Tests
+
+**When to add tests**:
+
+- New feature implementation
+- Bug fixes (add regression test)
+- Edge cases discovered
+- Refactoring existing code
+
+**Test structure template**:
+
+```python
+"""Tests for <module_name> functionality."""
+
+import pytest
+from FitParser.<module> import function_to_test
+
+
+class TestFeatureName:
+    """Tests for <feature> functionality."""
+
+    def test_basic_case(self):
+        """Test basic functionality works as expected."""
+        # Arrange
+        input_data = ...
+        
+        # Act
+        result = function_to_test(input_data)
+        
+        # Assert
+        assert result == expected_output
+```
 
 ## Related Documentation
 
-- [postman/README.md](./postman/README.md) - API testing with Postman
-- [data/README.md](./data/README.md) - Test data files and payloads
-- [WORKOUT_SCHEMA.md](../WORKOUT_SCHEMA.md) - Data schema being tested
-- [SEMANTIC_LAYER_API.md](../SEMANTIC_LAYER_API.md) - API endpoints being tested
+- [Main README](../README.md) - Project overview
+- [WORKOUT_SCHEMA.md](../docs/WORKOUT_SCHEMA.md) - Expected data model
+
+**Test Coverage Status**: ✅ 330 tests passing, high coverage across all modules
 
 ---
 
