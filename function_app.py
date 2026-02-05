@@ -41,6 +41,7 @@ from FitParser.handlers import (
     WithingsHandler,
     ConfigHandler,
     HealthHandler,
+    AgentMemoryHandler,
 )
 
 logger = logging.getLogger(__name__)
@@ -846,6 +847,153 @@ def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Physiometrics update endpoint failed: %s",
                      exc, exc_info=True)
+        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+
+
+# ============================================================================
+# Agent Memory Endpoints
+# ============================================================================
+
+@app.route(route="agent/context", methods=["GET"])
+def get_agent_context(req: func.HttpRequest) -> func.HttpResponse:
+    """Get complete agent context (preferences + active observations).
+    
+    Use this at conversation start to provide context to the GPT agent.
+    """
+    try:
+        athlete_id = req.params.get("athlete_id", "rob")
+
+        handler = AgentMemoryHandler(_get_storage())
+        result, status = handler.get_context(athlete_id)
+
+        return _json_response(result, status)
+
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error("Agent context endpoint failed: %s", exc, exc_info=True)
+        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+
+
+@app.route(route="agent/preferences", methods=["GET"])
+def get_agent_preferences(req: func.HttpRequest) -> func.HttpResponse:
+    """Get user preferences for the agent."""
+    try:
+        athlete_id = req.params.get("athlete_id", "rob")
+
+        handler = AgentMemoryHandler(_get_storage())
+        result, status = handler.get_preferences(athlete_id)
+
+        return _json_response(result, status)
+
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error("Agent preferences GET endpoint failed: %s", exc, exc_info=True)
+        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+
+
+@app.route(route="agent/preferences", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+def update_agent_preferences(req: func.HttpRequest) -> func.HttpResponse:
+    """Update user preferences for the agent."""
+    try:
+        try:
+            req_body = req.get_json()
+        except ValueError:
+            return _json_response({"error": ERR_INVALID_JSON}, 400)
+
+        athlete_id = req_body.get("athlete_id", "rob")
+        preferences = {k: v for k, v in req_body.items() if k != "athlete_id"}
+
+        handler = AgentMemoryHandler(_get_storage())
+        result, status = handler.update_preferences(athlete_id, preferences)
+
+        return _json_response(result, status)
+
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error("Agent preferences POST endpoint failed: %s", exc, exc_info=True)
+        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+
+
+@app.route(route="agent/observations", methods=["GET"])
+def list_agent_observations(req: func.HttpRequest) -> func.HttpResponse:
+    """List observations for an athlete."""
+    try:
+        athlete_id = req.params.get("athlete_id", "rob")
+        status_filter = req.params.get("status", "active")
+        limit = int(req.params.get("limit", "20"))
+
+        handler = AgentMemoryHandler(_get_storage())
+        result, status = handler.list_observations(athlete_id, status_filter, limit)
+
+        return _json_response(result, status)
+
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error("Agent observations list endpoint failed: %s", exc, exc_info=True)
+        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+
+
+@app.route(route="agent/observations", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+def add_agent_observation(req: func.HttpRequest) -> func.HttpResponse:
+    """Add a new observation for the agent."""
+    try:
+        try:
+            req_body = req.get_json()
+        except ValueError:
+            return _json_response({"error": ERR_INVALID_JSON}, 400)
+
+        athlete_id = req_body.get("athlete_id", "rob")
+        category = req_body.get("category")
+        summary = req_body.get("summary")
+        details = req_body.get("details")
+        workout_ids = req_body.get("workout_ids", [])
+        priority = req_body.get("priority", "normal")
+        expires_days = req_body.get("expires_days")
+
+        handler = AgentMemoryHandler(_get_storage())
+        result, status = handler.add_observation(
+            athlete_id=athlete_id,
+            category=category,
+            summary=summary,
+            details=details,
+            workout_ids=workout_ids,
+            priority=priority,
+            expires_days=expires_days
+        )
+
+        return _json_response(result, status)
+
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error("Agent observations POST endpoint failed: %s", exc, exc_info=True)
+        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+
+
+@app.route(route="agent/observations/{observation_id}", methods=["PATCH"],
+           auth_level=func.AuthLevel.FUNCTION)
+def update_agent_observation(req: func.HttpRequest) -> func.HttpResponse:
+    """Update an observation's status."""
+    try:
+        observation_id = req.route_params.get("observation_id")
+        if not observation_id:
+            return _json_response({"error": "observation_id required in route"}, 400)
+
+        try:
+            req_body = req.get_json()
+        except ValueError:
+            return _json_response({"error": ERR_INVALID_JSON}, 400)
+
+        athlete_id = req_body.get("athlete_id", "rob")
+        status = req_body.get("status")
+
+        handler = AgentMemoryHandler(_get_storage())
+        result, status_code = handler.update_observation_status(
+            athlete_id=athlete_id,
+            observation_id=observation_id,
+            status=status
+        )
+
+        return _json_response(result, status_code)
+
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error(
+            "Agent observations PATCH endpoint failed: %s", exc, exc_info=True
+        )
         return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
