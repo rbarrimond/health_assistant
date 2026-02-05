@@ -17,9 +17,9 @@ The Agent Memory System provides lightweight external memory for the GPT Workout
 ┌────────▼────────────────────────────────────────┐
 │ Agent Memory Handler                            │
 │                                                 │
-│  • Fetches user preferences                    │
-│  • Fetches active observations                 │
-│  • Builds instruction addendum                 │
+│  • Fetches user preferences                     │
+│  • Fetches active observations                  │
+│  • Builds instruction addendum                  │
 └────────┬────────────────────────────────────────┘
          │
          │ Queries Table Storage
@@ -27,20 +27,20 @@ The Agent Memory System provides lightweight external memory for the GPT Workout
 ┌────────▼─────────────────────────────────────┐
 │ Azure Table Storage                          │
 │                                              │
-│  ┌─────────────────────┐                    │
-│  │ AgentPreferences    │                    │
-│  │  - Training goals   │                    │
-│  │  - Training phase   │                    │
-│  │  - Sport prefs      │                    │
-│  │  - FTP test cadence │                    │
-│  └─────────────────────┘                    │
+│  ┌─────────────────────┐                     │
+│  │ AgentPreferences    │                     │
+│  │  - Training goals   │                     │
+│  │  - Training phase   │                     │
+│  │  - FTP test cadence │                     │
+│  └─────────────────────┘                     │
+│  │  - Sport prefs      │                     │
 │                                              │
-│  ┌─────────────────────┐                    │
-│  │ AgentObservations   │                    │
-│  │  - Active patterns  │                    │
-│  │  - Flags            │                    │
-│  │  - Insights         │                    │
-│  └─────────────────────┘                    │
+│  ┌─────────────────────┐                     │
+│  │ AgentObservations   │                     │
+│  │  - Active patterns  │                     │
+│  │  - Flags            │                     │
+│  │  - Insights         │                     │
+│  └─────────────────────┘                     │
 └──────────────────────────────────────────────┘
 ```
 
