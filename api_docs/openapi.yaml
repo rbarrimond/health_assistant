@@ -26,6 +26,182 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthStatus'
+  /api/agent/context:
+    get:
+      summary: Get agent memory context (preferences + active observations)
+      operationId: getAgentContext
+      description: Primary agent memory endpoint. Call at conversation start to load user preferences and active observations.
+      parameters:
+        - name: athlete_id
+          in: query
+          required: false
+          description: Athlete identifier (defaults to 'rob')
+          schema:
+            type: string
+            default: rob
+      responses:
+        '200':
+          description: Agent context with preferences and observations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentContext'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/agent/preferences:
+    get:
+      summary: Get user preferences for agent
+      operationId: getAgentPreferences
+      parameters:
+        - name: athlete_id
+          in: query
+          required: false
+          description: Athlete identifier (defaults to 'rob')
+          schema:
+            type: string
+            default: rob
+      responses:
+        '200':
+          description: User preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentPreferencesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      summary: Update user preferences
+      operationId: updateAgentPreferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePreferencesRequest'
+      security:
+        - FunctionKey: []
+      responses:
+        '200':
+          description: Preferences updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentPreferencesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/agent/observations:
+    get:
+      summary: List training observations
+      operationId: listAgentObservations
+      parameters:
+        - name: athlete_id
+          in: query
+          required: false
+          description: Athlete identifier (defaults to 'rob')
+          schema:
+            type: string
+            default: rob
+        - name: status
+          in: query
+          required: false
+          description: Filter by status
+          schema:
+            type: string
+            enum: [active, resolved, archived, all]
+            default: active
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of observations
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        '200':
+          description: List of observations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObservationsList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      summary: Add new training observation
+      operationId: addAgentObservation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateObservationRequest'
+      security:
+        - FunctionKey: []
+      responses:
+        '200':
+          description: Observation created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObservationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/agent/observations/{observation_id}:
+    patch:
+      summary: Update observation status
+      operationId: updateAgentObservation
+      parameters:
+        - name: observation_id
+          in: path
+          required: true
+          description: Observation UUID
+          schema:
+            type: string
+            format: uuid
+        - name: athlete_id
+          in: query
+          required: false
+          description: Athlete identifier (defaults to 'rob')
+          schema:
+            type: string
+            default: rob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum: [active, resolved, archived]
+      security:
+        - FunctionKey: []
+      responses:
+        '200':
+          description: Observation updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObservationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/physiometrics/current:
     get:
       summary: Get current physiometric values
@@ -697,6 +873,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
   schemas:
     HealthStatus:
       type: object
@@ -722,6 +904,163 @@ components:
         error:
           type: string
           example: athlete_id required
+    AgentContext:
+      type: object
+      properties:
+        preferences:
+          $ref: '#/components/schemas/AgentPreferences'
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Observation'
+      required:
+        - preferences
+        - observations
+    AgentPreferences:
+      type: object
+      properties:
+        training_goal:
+          type: string
+          description: Current training goal
+        current_phase:
+          type: string
+          description: Training phase (base, build, peak, recovery)
+        current_sports:
+          type: array
+          items:
+            type: string
+          description: Active sports/disciplines
+        ftp_test_cadence:
+          type: string
+          description: How often to test FTP
+      required:
+        - training_goal
+        - current_phase
+        - current_sports
+    AgentPreferencesResponse:
+      type: object
+      properties:
+        athlete_id:
+          type: string
+        preferences:
+          $ref: '#/components/schemas/AgentPreferences'
+      required:
+        - athlete_id
+        - preferences
+    UpdatePreferencesRequest:
+      type: object
+      required:
+        - athlete_id
+        - preferences
+      properties:
+        athlete_id:
+          type: string
+        preferences:
+          $ref: '#/components/schemas/AgentPreferences'
+    Observation:
+      type: object
+      properties:
+        observation_id:
+          type: string
+          format: uuid
+        category:
+          type: string
+          enum: [fatigue, injury, performance, recovery, equipment, nutrition, sleep, stress]
+        summary:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        priority:
+          type: string
+          enum: [high, medium, low]
+        status:
+          type: string
+          enum: [active, resolved, archived]
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+      required:
+        - observation_id
+        - category
+        - summary
+        - priority
+        - status
+        - created_at
+    CreateObservationRequest:
+      type: object
+      required:
+        - athlete_id
+        - category
+        - summary
+        - priority
+      properties:
+        athlete_id:
+          type: string
+        category:
+          type: string
+          enum: [fatigue, injury, performance, recovery, equipment, nutrition, sleep, stress]
+        summary:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        priority:
+          type: string
+          enum: [high, medium, low]
+        expires_at:
+          type: string
+          format: date-time
+    ObservationResponse:
+      type: object
+      properties:
+        observation_id:
+          type: string
+          format: uuid
+        athlete_id:
+          type: string
+        category:
+          type: string
+        summary:
+          type: string
+        details:
+          type: object
+        priority:
+          type: string
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+      required:
+        - observation_id
+        - athlete_id
+        - category
+        - summary
+        - priority
+        - status
+        - created_at
+    ObservationsList:
+      type: object
+      properties:
+        athlete_id:
+          type: string
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Observation'
+        count:
+          type: integer
+      required:
+        - athlete_id
+        - observations
+        - count
     PhysiometricSnapshot:
       type: object
       description: Key-value map of the latest physiometric metrics for the athlete.
