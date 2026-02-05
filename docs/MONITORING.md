@@ -73,9 +73,11 @@ Power BI fits naturally as the analytics layer. The OneDrive sync already handle
 
 ### Prerequisites
 
-- Azure Storage Account with tables: `Workouts`, `WeeklyRollups`, `IngestionState`
+- Azure Storage Account with tables: `Workouts`, `WeeklyRollups`, `IngestionState`, `Physiometrics`, `AgentPreferences`, `AgentObservations`
 - Power BI Desktop (free) or Power BI Pro subscription ($10/month)
 - Azure Storage account credentials
+
+> **Note:** `AgentPreferences` and `AgentObservations` tables support the Agent Memory System and are typically not used in Power BI dashboards.
 
 ### Step 1: Connect Power BI to Azure Table Storage
 

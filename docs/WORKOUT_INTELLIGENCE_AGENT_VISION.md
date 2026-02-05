@@ -205,13 +205,33 @@ The agent exists because dashboards plateau.
 
 ---
 
-## 5. The Planning Context Contract (Key Insight)
+## 5. The Memory + Context Contract (Key Insight)
 
-The single most important endpoint:
+The two most important endpoints work together:
 
- GET /api/planning/context?days=N
+### 1. Agent Memory (Priority 0)
 
-It returns:
+```text
+GET /api/agent/context?athlete_id=rob
+```
+
+Returns:
+
+- **preferences**: training goal, current phase, active sports, FTP test cadence
+- **observations**: active injury/fatigue/performance notes with priority and expiration
+
+This payload answers:
+> "Who am I, what am I working toward, and what should I be aware of?"
+
+See [AGENT_MEMORY.md](AGENT_MEMORY.md) for full details.
+
+### 2. Planning Context (Priority 1)
+
+```text
+GET /api/planning/context?days=N
+```
+
+Returns:
 
 - recent workouts (summaries only)
 - weekly rollups covering the window
@@ -222,7 +242,13 @@ It returns:
 - notable flags (missing HR, excessive drift, etc.)
 
 This payload answers:
-> “Given what I’ve actually done, what does tomorrow look like?”
+> "Given what I've actually done, what does tomorrow look like?"
+
+**Together**, these endpoints provide:
+
+- **who** you are (memory)
+- **what** you've done (planning context)
+- **where** you're going (goal + phase)
 
 Everything else is secondary.
 

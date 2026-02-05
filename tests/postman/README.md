@@ -38,6 +38,25 @@ Returns HTTP 503 with `"status": "degraded"` if storage connectivity fails.
 - Set the Postman variable `azure_function_name` to your deployed function app name
 - Go to: Collection → Variables → Set `azure_function_name`
 
+## Agent Memory Endpoints (Priority 0)
+
+The collection includes a dedicated **Agent Memory** folder with 6 endpoints for managing user preferences and training observations:
+
+### Core Endpoints
+
+1. **GET /api/agent/context** - Priority 0 endpoint that returns combined context (preferences + active observations). Call this at conversation start.
+2. **GET /api/agent/preferences** - Get user training preferences (goal, phase, sports, FTP test cadence)
+3. **POST /api/agent/preferences** - Update preferences (requires function key)
+4. **GET /api/agent/observations** - List training observations filtered by status (active/resolved/archived)
+5. **POST /api/agent/observations** - Add new observation (fatigue, injury, performance, etc.)
+6. **PATCH /api/agent/observations/{id}** - Update observation status (requires function key)
+
+### Usage
+
+- **GET endpoints** are public (no auth required)
+- **POST/PATCH endpoints** require function key authentication
+- See [AGENT_MEMORY.md](../../docs/AGENT_MEMORY.md) for detailed documentation
+
 ## Test Requests
 
 ### Real Data Tests (Recommended)

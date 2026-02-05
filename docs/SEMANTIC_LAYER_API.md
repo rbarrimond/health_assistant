@@ -22,13 +22,16 @@ GET /api/planning/context?athlete_id=rob&days=45
 
 **Returns:** Recent workouts, weekly rollups, last hard day, Z2 volume, intensity minutes, data flags
 
-### 📋 Core Semantic Layer Endpoints (14)
+### 📋 Core Semantic Layer Endpoints (20)
 
 **ChatGPT-Facing Endpoints:**
 
 | Endpoint | Purpose | Example |
 | -------- | ------- | ------- |
 | `/api/health` | Health check | Always returns 200 |
+| `/api/agent/context` | **Agent memory context** | `?athlete_id=rob` |
+| `/api/agent/preferences` | User preferences | GET/POST `?athlete_id=rob` |
+| `/api/agent/observations` | Training observations | GET/POST `?athlete_id=rob` |
 | `/api/planning/context` | Planning decisions | `?athlete_id=rob&days=45` |
 | `/api/workouts` | List workouts | `?athlete_id=rob&since=2026-01-01&sport=Cycling` |
 | `/api/workouts/{id}` | Workout detail | `/{workout_id}?athlete_id=rob` |
@@ -68,6 +71,7 @@ These support ingestion and infrastructure but are not part of the ChatGPT-facin
 #### "What should I do tomorrow?"
 
 ```text
+→ GET /api/agent/context?athlete_id=rob  # Load preferences & observations first
 → GET /api/planning/context?athlete_id=rob&days=45
 → Returns: Last hard day, Z2 volume, intensity load, flags
 ```
@@ -140,6 +144,77 @@ GET /api/planning/context?athlete_id=rob&days=45
 - Assessing readiness for intensity
 - Identifying fatigue or recovery needs
 - Detecting data quality issues
+
+---
+
+## Agent Memory System
+
+> **New in v2.0:** External memory for persistent user context, training goals, and observations.  
+> **See:** [AGENT_MEMORY.md](./AGENT_MEMORY.md) for complete documentation.
+
+### 0. Get Agent Context (Call First)
+
+```http
+GET /api/agent/context?athlete_id=rob
+```
+
+**Primary agent memory endpoint.** Call at conversation start to load user preferences, training goals, and active observations into GPT context.
+
+**Query Parameters:**
+
+- `athlete_id` (required): Athlete identifier
+
+**Response:**
+
+```json
+{
+  "athlete_id": "rob",
+  "preferences": {
+    "current_goal": "Build aerobic base for spring races",
+    "training_phase": "base-building",
+    "preferred_sports": ["cycling", "running"],
+    "ftp_test_frequency_weeks": 6,
+    "last_ftp_test_date": "2026-01-15"
+  },
+  "active_observations": [
+    {
+      "observation_id": "uuid",
+      "category": "pattern",
+      "summary": "Low decoupling trend since Jan",
+      "priority": "normal",
+      "status": "active"
+    }
+  ],
+  "instruction_addendum": "User's current goal: Build aerobic base for spring races | Training phase: base-building | Active observations: Low decoupling trend since Jan",
+  "retrieved_at": "2026-02-05T12:00:00Z"
+}
+```
+
+**Use cases:**
+
+- Load user preferences at conversation start
+- Tailor advice based on current training goals
+- Reference active observations and patterns
+- Provide contextually aware recommendations
+
+### Get/Update Preferences
+
+```http
+GET /api/agent/preferences?athlete_id=rob
+POST /api/agent/preferences?code=<function_key>
+```
+
+Manage user training preferences and goals. POST requires function authentication.
+
+### Manage Observations
+
+```http
+GET /api/agent/observations?athlete_id=rob&status=active&limit=20
+POST /api/agent/observations?code=<function_key>
+PATCH /api/agent/observations/{observation_id}?code=<function_key>
+```
+
+Track training patterns, flags, and insights. POST/PATCH require function authentication.
 
 ---
 

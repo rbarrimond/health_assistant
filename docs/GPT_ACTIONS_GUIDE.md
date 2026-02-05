@@ -29,6 +29,9 @@ It only interprets facts returned by the Read API.
 
 ## Primary Endpoints (Order of Preference)
 
+0. **Agent context (CALL FIRST)**
+   - `GET /api/agent/context?athlete_id=rob`
+   - **Always call at conversation start** to load user preferences, goals, and active observations.
 1. **Planning context**
    - `GET /api/planning/context?days=45`
    - Use for readiness, “what should I do tomorrow?”, or overall context.
@@ -60,6 +63,14 @@ It only interprets facts returned by the Read API.
 8. **Physiometrics history**
    - `GET /api/physiometrics/history?days=90&metrics=...`
    - Use for body/fitness trends.
+
+9. **Agent preferences**
+   - `GET /api/agent/preferences?athlete_id=rob`
+   - Use to view or update user training goals and preferences (POST requires auth).
+
+10. **Agent observations**
+    - `GET /api/agent/observations?athlete_id=rob&status=active`
+    - Use to list or add training observations/flags (POST requires auth).
 
 ---
 

@@ -1,23 +1,27 @@
 # API Alignment Check Report
 
-**Date**: February 3, 2026  
+**Date**: February 5, 2026  
 **Status**: ✅ ALIGNED with minor observations
 
 ## Summary
 
 The API is well-aligned across all three sources:
 
-- **function_app.py**: 23 routes defined
-- **openapi.yaml**: 22 documented paths  
-- **Postman collection**: 24+ test requests
+- **function_app.py**: 29 routes defined
+- **openapi.yaml**: 28 documented paths  
+- **Postman collection**: 30+ test requests
 
 ## Detailed Comparison
 
-### ✅ Fully Aligned Endpoints (22)
+### ✅ Fully Aligned Endpoints (28)
 
 All core endpoints are present in all three sources:
 
 ``` text
+/api/agent/context                ✓ func_app  ✓ openapi  ✓ postman
+/api/agent/observations           ✓ func_app  ✓ openapi  ✓ postman
+/api/agent/observations/{id}      ✓ func_app  ✓ openapi  ✓ postman
+/api/agent/preferences            ✓ func_app  ✓ openapi  ✓ postman
 /api/analysis/efficiency          ✓ func_app  ✓ openapi  ✓ postman
 /api/analysis/zones               ✓ func_app  ✓ openapi  ✓ postman
 /api/config/history               ✓ func_app  ✓ openapi  ✓ postman
@@ -55,21 +59,23 @@ These are asset/documentation endpoints not typically included in API specs:
 
 ### Summary by Source
 
-#### Function App (23 routes)
+#### Function App (29 routes)
 
-- All 22 core API endpoints ✓
+- All 28 core API endpoints ✓
 - 1 asset endpoint missing from openapi (.well-known) - intentional
 - 2 asset endpoints (logo.svg, openapi.yaml) - intentional
 
-#### OpenAPI YAML (22 paths)
+#### OpenAPI YAML (28 paths)
 
-- All 22 core API endpoints documented ✓
+- All 28 core API endpoints documented ✓
 - Missing 3 asset endpoints - acceptable (not part of OpenAPI spec)
+- Includes 6 new agent memory endpoints (context, preferences, observations)
 
-#### Postman Collection (24+ requests)
+#### Postman Collection (30+ requests)
 
-- All 22 core API endpoints tested ✓
+- All 28 core API endpoints tested ✓
 - All 3 asset endpoints tested ✓
+- Includes dedicated "Agent Memory" folder with 6 test requests
 - Multiple test payloads per endpoint for comprehensive coverage
 
 ## Testing Readiness

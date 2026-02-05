@@ -12,6 +12,7 @@ Azure Function for parsing HealthFit FIT files from OneDrive Personal (delegated
 | **Deploying?** | [DEPLOYMENT.md](./docs/DEPLOYMENT.md) (30 min) |
 | **Setting up dashboards?** | [MONITORING.md](./docs/MONITORING.md) → Power BI section |
 | **Building integrations?** | [SEMANTIC_LAYER_API.md](./docs/SEMANTIC_LAYER_API.md) |
+| **Agent memory system?** | [AGENT_MEMORY.md](./docs/AGENT_MEMORY.md) |
 | **Configuring backends?** | [BACKENDS.md](./docs/BACKENDS.md) → OneDrive, Withings, Garmin |
 | **Understanding the data model?** | [WORKOUT_SCHEMA.md](./docs/WORKOUT_SCHEMA.md) |
 | **Design philosophy?** | [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./docs/WORKOUT_INTELLIGENCE_AGENT_VISION.md) |
@@ -199,4 +200,3 @@ Use the OAuth flow to connect OneDrive, then run the timer/HTTP sync. Full setup
 3. Run sync via timer or `POST /api/onedrive/sync` (defaults to async; set `async=false` to block)
 
 Note: lookback filtering uses the workout date parsed from the filename (YYYY-MM-DD) when available; otherwise it falls back to OneDrive `lastModifiedDateTime`.
-

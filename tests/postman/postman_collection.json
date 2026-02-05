@@ -318,6 +318,98 @@
       ]
     },
     {
+      "name": "Agent Memory",
+      "item": [
+        {
+          "name": "GET /api/agent/context",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/agent/context?athlete_id={{athlete_id}}",
+            "description": "Priority 0 endpoint: Get combined agent context (preferences + active observations). Called at conversation start."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/agent/preferences",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/agent/preferences?athlete_id={{athlete_id}}",
+            "description": "Get user preferences (training goal, phase, sports, FTP test cadence)."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/agent/preferences",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/agent/preferences?code={{function_key}}",
+            "description": "Update user preferences (function key required).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"athlete_id\": \"{{athlete_id}}\",\n  \"preferences\": {\n    \"training_goal\": \"Build aerobic base for century ride in June 2026\",\n    \"current_phase\": \"base\",\n    \"current_sports\": [\"cycling\", \"strength\"],\n    \"ftp_test_cadence\": \"every 6-8 weeks\"\n  }\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/agent/observations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/agent/observations?athlete_id={{athlete_id}}&status=active&limit=20",
+            "description": "List training observations filtered by status (active, resolved, archived, all)."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/agent/observations",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/agent/observations?code={{function_key}}",
+            "description": "Add new training observation (function key required).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"athlete_id\": \"{{athlete_id}}\",\n  \"category\": \"fatigue\",\n  \"summary\": \"Elevated resting heart rate detected\",\n  \"details\": {\n    \"resting_hr\": 58,\n    \"baseline\": 52,\n    \"duration_days\": 3\n  },\n  \"priority\": \"high\",\n  \"expires_at\": \"2026-02-12T00:00:00Z\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PATCH /api/agent/observations/{observation_id}",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/agent/observations/REPLACE_WITH_OBSERVATION_ID?athlete_id={{athlete_id}}&code={{function_key}}",
+            "description": "Update observation status (active → resolved/archived). Function key required.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"resolved\"\n}"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Withings",
       "item": [
         {

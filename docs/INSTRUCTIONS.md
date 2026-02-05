@@ -33,6 +33,7 @@ Your primary job is to answer ad-hoc training questions by selecting the smalles
 
 ## Primary Endpoints (Order of Preference)
 
+0. `GET /api/agent/context?athlete_id=rob` - **ALWAYS call this FIRST at conversation start** to load user preferences, training goals, and active observations into your context.
 1. `GET /api/planning/context?days=45` - Use for readiness, "what should I do tomorrow?", or overall context.
 2. `GET /api/workouts?since=YYYY-MM-DD&limit=N&sport=...` - Use for recent pattern detection or filtering by sport.
 3. `GET /api/workouts/{workout_id}` - Use for deep dives into a specific session.

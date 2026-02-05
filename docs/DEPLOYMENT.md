@@ -65,7 +65,7 @@ STORAGE_KEY=$(az storage account keys list \
   --query '[0].value' -o tsv)
 
 # Create tables
-for TABLE in Workouts WeeklyRollups IngestionState Physiometrics OneDriveTokens WithingsTokens; do
+for TABLE in Workouts WeeklyRollups IngestionState Physiometrics OneDriveTokens WithingsTokens AgentPreferences AgentObservations; do
   az storage table create \
     --account-name $STORAGE_ACCOUNT \
     --account-key $STORAGE_KEY \

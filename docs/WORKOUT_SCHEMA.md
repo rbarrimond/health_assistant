@@ -20,6 +20,11 @@ It assumes:
 1. `Workouts` — **one entity per workout** (primary fact table)
 2. `WeeklyRollups` — **one entity per week** (optional but recommended)
 3. `IngestionState` — **idempotency + operational tracking** (recommended)
+4. `Physiometrics` — **body and fitness metrics** (FTP, weight, LTHR, etc.)
+5. `AgentPreferences` — **user training preferences and goals** (agent memory)
+6. `AgentObservations` — **training patterns and observations** (agent memory)
+
+> **Note:** Tables 5-6 are part of the Agent Memory System. See [AGENT_MEMORY.md](./AGENT_MEMORY.md) for details.
 
 ---
 
