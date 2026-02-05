@@ -354,14 +354,13 @@ class AgentMemoryHandler:
             observations = [
                 self._entity_to_observation_dict(e) for e in entities]
 
-            # Sort by priority and created_at
+            # Sort by priority (high first) then created_at
             priority_order = {"high": 0, "normal": 1, "low": 2}
             observations.sort(
                 key=lambda x: (
                     priority_order.get(x.get("priority", "normal"), 1),
                     x.get("created_at", "")
-                ),
-                reverse=True
+                )
             )
 
             return observations[:limit]
