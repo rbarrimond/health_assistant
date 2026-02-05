@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, cast
 import fitparse
 import numpy as np
 from .adapter import load_workout_from_fit
-from .apple_workout_types import extract_apple_workout_type
+from .apple_workout_types import AppleWorkoutTypeResolver
 from .config import Config
 from .models import Workout
 
@@ -253,25 +253,19 @@ class FitParser:
         return None
 
     def _get_apple_workout_type(self) -> Optional[str]:
-        """Get Apple Watch workout type if available.
-        
-        Priority:
-        1. FIT session_name (most accurate, from device)
-        2. source_file_name (e.g., from OneDrive export)
-        3. Fallback to FIT sport/sub_sport mapping
         """
-        workout_name = self._get_workout_name()
-        # Use source_file_name as fallback for more descriptive names
-        if not workout_name and self.source_file_name:
-            workout_name = self.source_file_name
-        sport = self._get_sport()
-        sub_sport = self._get_sub_sport()
-        result = extract_apple_workout_type(workout_name, sport, sub_sport)
-        logger.debug(
-            "Apple workout type: workout_name=%s, sport=%s, sub_sport=%s, result=%s",
-            workout_name, sport, sub_sport, result
+        Get Apple Watch workout type using the resolver.
+        
+        Passes all available inputs to AppleWorkoutTypeResolver for
+        clear, testable resolution logic.
+        """
+        resolver = AppleWorkoutTypeResolver(
+            session_name=self._get_workout_name(),
+            source_file_name=self.source_file_name,
+            sport=self._get_sport(),
+            sub_sport=self._get_sub_sport()
         )
-        return result
+        return resolver.resolve()
 
     def _get_workout_name(self) -> Optional[str]:
         """Get workout/session name if available."""

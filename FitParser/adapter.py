@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 import fitparse
 
-from .apple_workout_types import extract_apple_workout_type
+from .apple_workout_types import AppleWorkoutTypeResolver
 from .models import DeviceInfo, RecordSample, Workout, WorkoutSession
 
 
@@ -123,11 +123,12 @@ def _build_session(session_msg) -> WorkoutSession:
         )
 
     # Extract Apple Watch workout type
-    apple_workout_type = extract_apple_workout_type(
-        workout_name=str(workout_name) if workout_name is not None else None,
+    resolver = AppleWorkoutTypeResolver(
+        session_name=str(workout_name) if workout_name is not None else None,
         sport=sport_name,
         sub_sport=sub_sport_name,
     )
+    apple_workout_type = resolver.resolve()
 
     return WorkoutSession(
         sport=sport_name,
