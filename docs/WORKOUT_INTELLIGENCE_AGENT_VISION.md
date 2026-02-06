@@ -225,6 +225,15 @@ This payload answers:
 
 See [AGENT_MEMORY.md](AGENT_MEMORY.md) for full details.
 
+Memory exists to uphold the contract: it gives the agent durable context that makes every downstream question more accurate, more consistent, and more useful. The memory layer does not change how metrics are computed; it changes how the agent interprets and prioritizes them.
+
+What this means in practice:
+
+- Better defaults without guessing (goal, phase, sport mix, cadence)
+- Clearer tradeoffs because history and intent are explicit
+- Fewer repeated questions because the system already knows the stable truths
+- Safer responses because constraints (injury, fatigue, flags) are part of the contract
+
 ### 2. Planning Context (Priority 1)
 
 ```text
