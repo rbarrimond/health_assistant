@@ -182,37 +182,49 @@ class WorkoutTableStorage:
                    file_info.get("file_sha256") or
                    file_info.get("source_file_name"))
 
+        # Ensure RowKey is a string before passing to get_ingestion_state
+        if row_key is None:
+            logger.error("RowKey cannot be None. File info: %s", file_info)
+            raise ValueError("RowKey cannot be None")
+
+        # Retrieve existing ingestion state to update retry count
+        existing_state = self.get_ingestion_state(athlete_id, row_key)
+        retry_count = existing_state.get("retry_count", 0) + 1 if existing_state else 0
+
+        # Log RowKey and retry count for debugging idempotency
+        logger.debug("Generated RowKey for ingestion state: %s", row_key)
+        logger.debug("Retry count for %s: %d", row_key, retry_count)
+
         entity = {
             "PartitionKey": athlete_id,
             "RowKey": row_key,
             "status": status,
             "first_seen_at_utc": (
-                file_info.get(
-                    "first_seen_at_utc",
-                    datetime.now(timezone.utc)
-                    .isoformat()
-                    .replace(UTC_SUFFIX, "Z"),
-                )
+                existing_state["first_seen_at_utc"]
+                if existing_state else
+                datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z")
             ),
             "last_attempt_at_utc": (
-                datetime.now(timezone.utc)
-                .isoformat()
-                .replace(UTC_SUFFIX, "Z")
+                datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z")
             ),
+            "retry_count": retry_count,
             "workout_id": workout_id,
-            "retry_count": 0,
         }
 
         if error:
-            entity["last_error"] = error[:500]  # Truncate long errors
+            entity["error_message"] = error
 
+        # Log entity details for debugging
+        logger.debug("Ingestion state entity: %s", entity)
+
+        # Store in table
         try:
             table_client = self._get_table_client("IngestionState")
             table_client.upsert_entity(entity)
-            logger.info("Recorded ingestion state for %s: %s", row_key, status)
+            logger.info("Recorded ingestion state for %s: %s", athlete_id, status)
         except HttpResponseError as e:
-            logger.error("Error recording ingestion state: %s", e)
-            # Don't raise - this shouldn't block the main ingestion
+            logger.error("Error recording ingestion state for %s: %s", athlete_id, e)
+            raise
 
     def get_ingestion_state(self, athlete_id: str, file_key: str) -> Optional[Dict]:
         """Check if file was already ingested."""
