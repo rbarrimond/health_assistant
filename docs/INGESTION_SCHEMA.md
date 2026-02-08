@@ -1,0 +1,116 @@
+# Ingestion Schema (v2.3.0)
+
+This document defines the ingestion payloads and the IngestionState table schema.
+It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
+
+## Scope
+
+- **Ingestion payloads** accepted by the ingestion entrypoints.
+- **IngestionState** table schema (idempotency + provenance + operational tracking).
+- **Workouts** provenance policy (what stays vs what moves to IngestionState).
+
+This document does **not** define the workout metrics schema. See WORKOUT_SCHEMA.md for that.
+
+---
+
+## Ingestion Payload (process_fit / payload ingest)
+
+### Required fields
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| athlete_id | string | Yes | Athlete identifier (default: `rob` if caller omits and endpoint provides fallback). |
+| file_content_b64 | string | Yes | Base64-encoded FIT file content. |
+
+### Optional fields (source provenance)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| source_system | string | No | Source system name (e.g., `HealthFit`, `Local`). |
+| source_file_name | string | No | Original filename (e.g., `2026-01-07-...fit`). |
+| source_file_path | string | No | Full source path, if known. |
+| source_item_id | string | No | Stable source item ID (e.g., OneDrive item ID). |
+| source_drive_id | string | No | Drive ID (OneDrive). |
+| source_etag | string | No | OneDrive eTag (version token). |
+| source_ctag | string | No | OneDrive cTag (content version token). |
+| source_quickxor_hash | string | No | OneDrive quickXor hash for content. |
+| source_modified_at_utc | string | No | Source last-modified timestamp (ISO 8601 UTC). |
+| file_size_bytes | int | No | Size of FIT file in bytes. |
+| file_sha256 | string | No | SHA-256 hash of file content. |
+
+### Notes
+
+- `source_item_id` and `file_sha256` are the preferred inputs for idempotency and
+  `workout_id` creation.
+- If `file_sha256` is not supplied for direct uploads, ingestion computes it from the file.
+- `source_file_name` is used to **infer `workout_name`** when the FIT session name is missing.
+- `workout_id` is deterministic and should be **treated as immutable once created**.
+
+---
+
+## IngestionState Table
+
+This table is the authoritative store for ingestion provenance and idempotency.
+It is intentionally separate from Workouts to keep workout entities small and stable.
+
+### Keys
+
+- PartitionKey: `athlete_id`
+- RowKey: `source_item_id` OR `file_sha256` OR `workout_id`
+
+### Fields
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| status | string | Yes | `ingested`, `failed`, `skipped`. |
+| first_seen_at_utc | string | Yes | ISO 8601 UTC timestamp when first observed. |
+| last_attempt_at_utc | string | Yes | ISO 8601 UTC timestamp for latest attempt. |
+| retry_count | int | Yes | Retry count (increments only on failures). |
+| workout_id | string | No | Workout ID linked to Workouts table. |
+| source_file_name | string | No | Original source filename (e.g., `2026-01-07-...fit`). |
+| source_drive_id | string | No | Source drive ID (OneDrive). |
+| source_etag | string | No | OneDrive eTag (version token). |
+| source_ctag | string | No | OneDrive cTag (content version token). |
+| source_quickxor_hash | string | No | OneDrive quickXor hash for content. |
+| source_modified_at_utc | string | No | OneDrive last modified timestamp (ISO 8601 UTC). |
+| file_sha256 | string | No | SHA-256 hash of file content. |
+| ingest_version | string | Yes | Ingestion code version (e.g., `v2.3.0`). |
+| ingested_at_utc | string | No | ISO 8601 UTC timestamp when status becomes `ingested`. |
+| error_message | string | No | Last error message (truncated). |
+
+### Idempotency rules
+
+- A file is considered **unchanged** when any of the following match previous state:
+  `source_ctag`, `source_quickxor_hash`, `file_sha256`, `source_etag`, or
+  `source_modified_at_utc` (in that order of preference).
+- Skipped ingestions preserve prior provenance values.
+- `workout_id` should be reused from existing ingestion state if present.
+
+---
+
+## Workouts Provenance Policy
+
+Workouts should only store minimal provenance used by downstream consumers.
+
+### Allowed provenance fields in Workouts
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| source_system | string | Yes | Source system name (e.g., `HealthFit`). |
+| source_item_id | string | No | Stable source item ID (OneDrive item ID). |
+
+All other provenance fields belong in **IngestionState**.
+
+---
+
+## workout_id Determinism
+
+The `workout_id` is computed deterministically using the best available inputs
+in this order:
+
+1. `source_item_id`
+2. `file_sha256`
+3. `source_file_path` + `source_file_name` + `start_time_utc`
+
+Once a `workout_id` has been assigned to a file, it is treated as immutable
+and should be reused for reprocessing via IngestionState lookup.
