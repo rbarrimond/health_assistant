@@ -256,8 +256,6 @@ These are derived from the zone fields but are worth storing for fast queries.
 |---|---:|:---:|---|
 |flags|string|⛔️|Comma-separated machine flags, e.g. `missing_hr,indoor,short_warmup`|
 |notes|string|⛔️|Short user note if you capture later|
-|ingest_version|string|✅|Version string of ingestion code (e.g., `v1.0.3`)|
-|ingested_at_utc|datetime (ISO string)|✅|Ingestion timestamp|
 |updated_at_utc|datetime (ISO string)|⛔️|Update timestamp if reprocessed|
 
 ---
@@ -311,6 +309,8 @@ Tracks what was ingested, avoids duplicates, and preserves errors for troublesho
 |last_error|string|⛔️|Last error message (truncated)|
 |workout_id|string|⛔️|Link to Workouts entity|
 |retry_count|int|✅|Retry count|
+|ingest_version|string|✅|Version string of ingestion code (e.g., `v2.0.0`)|
+|ingested_at_utc|datetime (ISO string)|⛔️|Timestamp when status becomes `ingested`|
 
 ---
 

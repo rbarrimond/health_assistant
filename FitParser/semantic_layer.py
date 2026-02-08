@@ -540,7 +540,6 @@ class SemanticLayer:
         workout.update({
             "source_system": entity.get("source_system"),
             "source_file_name": entity.get("source_file_name"),
-            "ingested_at_utc": entity.get("ingested_at_utc"),
         })
 
         # Include time series only if requested

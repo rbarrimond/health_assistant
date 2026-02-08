@@ -15,6 +15,7 @@ from FitParser.fit_parser import compute_workout_id
 
 # Constant for UTC timezone suffix replacement
 UTC_SUFFIX = "+00:00"
+INGEST_VERSION = "v2.0.0"
 
 logger = logging.getLogger(__name__)
 
@@ -35,13 +36,12 @@ class WorkoutEntity:
     source_etag: Optional[str]
     file_size_bytes: Optional[int]
     file_sha256: Optional[str]
-    ingest_version: str
-    ingested_at_utc: str
     metrics: Dict = field(default_factory=dict)
 
     def to_entity(self) -> Dict:
         """
-        Convert the WorkoutEntity instance to a dictionary representation suitable for Azure Table Storage.
+        Convert the WorkoutEntity instance to a dictionary representation suitable 
+        for Azure Table Storage.
 
         Returns:
             Dict: A dictionary containing the entity's data.
@@ -59,8 +59,6 @@ class WorkoutEntity:
             "source_etag": self.source_etag,
             "file_size_bytes": self.file_size_bytes,
             "file_sha256": self.file_sha256,
-            "ingest_version": self.ingest_version,
-            "ingested_at_utc": self.ingested_at_utc,
         }
 
         for key, value in self.metrics.items():
@@ -81,11 +79,14 @@ class IngestionStateEntity:
     last_attempt_at_utc: str
     retry_count: int
     workout_id: Optional[str]
+    ingest_version: Optional[str] = None
+    ingested_at_utc: Optional[str] = None
     error_message: Optional[str] = None
 
     def to_entity(self) -> Dict:
         """
-        Convert the IngestionStateEntity instance to a dictionary representation suitable for Azure Table Storage.
+        Convert the IngestionStateEntity instance to a dictionary representation suitable 
+        for Azure Table Storage.
 
         Returns:
             Dict: A dictionary containing the entity's data.
@@ -99,6 +100,10 @@ class IngestionStateEntity:
             "retry_count": self.retry_count,
             "workout_id": self.workout_id,
         }
+        if self.ingest_version:
+            entity["ingest_version"] = self.ingest_version
+        if self.ingested_at_utc:
+            entity["ingested_at_utc"] = self.ingested_at_utc
         if self.error_message:
             entity["error_message"] = self.error_message
         return entity
@@ -199,14 +204,17 @@ class IngestionContext:
         Returns:
             IngestionStateEntity: The constructed ingestion state entity.
         """
+        now_utc = datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z")
         return IngestionStateEntity(
             partition_key=self.athlete_id,
             row_key=self.ingestion_key,
             status=status,
             first_seen_at_utc=self.first_seen_at_utc,
-            last_attempt_at_utc=datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z"),
+            last_attempt_at_utc=now_utc,
             retry_count=self.retry_count,
             workout_id=self.workout_id,
+            ingest_version=INGEST_VERSION,
+            ingested_at_utc=now_utc if status == "ingested" else None,
             error_message=error,
         )
 
@@ -317,12 +325,6 @@ class WorkoutTableStorage:
             partition_key = f"{athlete_id}|unknown"
             row_key = workout_id[:20]
 
-        # Add ingestion metadata
-        now_utc = (
-            datetime.now(timezone.utc)
-            .isoformat()
-            .replace(UTC_SUFFIX, "Z")
-        )
         entity = WorkoutEntity(
             partition_key=partition_key,
             row_key=row_key,
@@ -336,8 +338,6 @@ class WorkoutTableStorage:
             source_etag=source_info.get("source_etag"),
             file_size_bytes=source_info.get("file_size_bytes"),
             file_sha256=source_info.get("file_sha256"),
-            ingest_version="v1.0.0",
-            ingested_at_utc=now_utc,
             metrics=metrics,
         ).to_entity()
 
