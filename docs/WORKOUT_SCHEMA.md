@@ -221,16 +221,15 @@ Store enough to interpret time-in-zone historically even if settings change late
 |pwr_z7_sec|int|✅|Seconds in Power Zone 7|
 |pwr_zone_total_sec|int|✅|Sum of power zone seconds|
 
-### Convenience “hot fields” (recommended)
+### Convenience “hot fields” (seconds only)
 
-These are derived from the zone fields but are worth storing for fast queries.
+All stored metrics use seconds to avoid mixing units. If minutes are needed,
+derive them at read time.
 
 |Field|Type|Required|Description|
 |---|---:|:---:|---|
-|hr_z2_min|float|✅|`hr_z2_sec / 60`|
-|pwr_z2_min|float|✅|`pwr_z2_sec / 60`|
-|intensity_min|float|✅|e.g., `pwr_z4+z5+z6+z7` minutes (define explicitly)|
-|low_aerobic_min|float|✅|e.g., `pwr_z1+z2` minutes (define explicitly)|
+|low_aerobic_sec|float|✅|Seconds in low aerobic (pwr_z1+pwr_z2)|
+|intensity_sec|float|✅|Seconds in intensity (pwr_z4+pwr_z5+pwr_z6+pwr_z7)|
 
 > Define intensity/low-aerobic once and keep it consistent.
 

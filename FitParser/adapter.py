@@ -42,7 +42,8 @@ class FitAdapter:
             self.fit = fitparse.FitFile(file_path)
             self.file_id_msg, self.session_msg = self._cache_core_messages()
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            raise FitAdapterError(f"Failed to initialize FitAdapter for {file_path}") from exc
+            raise FitAdapterError(
+                f"Failed to initialize FitAdapter for {file_path}") from exc
 
     def load_workout(self) -> Workout:
         """Parse the FIT file and map it into Workout entities."""
@@ -52,7 +53,8 @@ class FitAdapter:
             records = self._build_records()
             return Workout(session=session, device=device, records=records)
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            raise FitAdapterError("Failed to build Workout from FIT data") from exc
+            raise FitAdapterError(
+                "Failed to build Workout from FIT data") from exc
 
     @staticmethod
     def _get_field_value(msg, field_name: str):
@@ -124,6 +126,49 @@ class FitAdapter:
 
         return start_iso, end_iso, duration_sec
 
+    def _extract_timezone(self) -> str:
+        """Extract timezone name or UTC offset from FIT messages.
+
+        FIT timestamps are UTC by spec; prefer explicit time zone names,
+        fallback to device UTC offsets when available.
+        """
+        tz_name = self._get_time_zone_name()
+        if tz_name:
+            return tz_name
+
+        offset_minutes = self._get_device_utc_offset_minutes()
+        if offset_minutes is not None:
+            return self._format_utc_offset(offset_minutes)
+
+        return "UTC"
+
+    def _get_time_zone_name(self) -> Optional[str]:
+        """Return time zone name from FIT messages, if present."""
+        for msg in self.fit.get_messages("time_zone"):
+            name = self._get_field_value(msg, "name")
+            if name:
+                return str(name)
+        return None
+
+    def _get_device_utc_offset_minutes(self) -> Optional[int]:
+        """Return device UTC offset in minutes from settings, if present."""
+        for msg in self.fit.get_messages("device_settings"):
+            offset = (
+                self._get_field_value(msg, "utc_offset")
+                or self._get_field_value(msg, "timezone_offset")
+            )
+            if isinstance(offset, (int, float)):
+                return int(round(offset / 60))
+        return None
+
+    @staticmethod
+    def _format_utc_offset(minutes: int) -> str:
+        """Format minutes offset as 'UTC±HH:MM'."""
+        sign = "+" if minutes >= 0 else "-"
+        minutes = abs(minutes)
+        hours, mins = divmod(minutes, 60)
+        return f"UTC{sign}{hours:02d}:{mins:02d}"
+
     def _extract_session_metrics(self, session_msg):
         """Extract distance, elevation, and speed metrics."""
         distance = self._get_field_value(session_msg, "total_distance")
@@ -143,12 +188,12 @@ class FitAdapter:
 
     def _has_gps_data(self) -> bool:
         """Check if any records in the FIT file have GPS coordinates (cached).
-        
+
         Limits checks to first 100 records to avoid timeout on large files.
         """
         if self._gps_data_cache is not None:
             return self._gps_data_cache
-        
+
         has_gps = False
         try:
             record_count = 0
@@ -165,7 +210,7 @@ class FitAdapter:
         except Exception:  # pylint: disable=broad-exception-caught
             # If there's any error checking GPS, assume no GPS data
             has_gps = False
-        
+
         self._gps_data_cache = has_gps
         return has_gps
 
@@ -196,7 +241,8 @@ class FitAdapter:
         """Build a WorkoutSession from cached messages."""
         session_msg = self.session_msg
         sport_name, sub_sport_name = self._extract_sport_names(session_msg)
-        start_iso, end_iso, duration_sec = self._extract_session_times(session_msg)
+        start_iso, end_iso, duration_sec = self._extract_session_times(
+            session_msg)
         (distance_m, elev_gain_m, elev_loss_m,
          avg_speed_mps, max_speed_mps) = self._extract_session_metrics(session_msg)
 
@@ -206,6 +252,7 @@ class FitAdapter:
         moving_sec = int(moving) if moving is not None else None
         calories = self._get_field_value(session_msg, "total_calories")
         calories_kcal = float(calories) if calories is not None else None
+        timezone = self._extract_timezone()
 
         # Infer is_indoor from explicit flag, keywords, GPS data
         is_indoor_flag = self._parse_indoor_flag(indoor)
@@ -221,7 +268,8 @@ class FitAdapter:
             # Otherwise leave as None
 
         resolver = AppleWorkoutTypeResolver(
-            session_name=str(workout_name) if workout_name is not None else None,
+            session_name=str(
+                workout_name) if workout_name is not None else None,
             source_file_name=self.source_file_name,
             sport=sport_name,
             sub_sport=sub_sport_name,
@@ -232,11 +280,12 @@ class FitAdapter:
             sport=sport_name,
             sub_sport=sub_sport_name,
             apple_workout_type=apple_workout_type,
-            workout_name=str(workout_name) if workout_name is not None else None,
+            workout_name=str(
+                workout_name) if workout_name is not None else None,
             is_indoor=is_indoor_flag,
             start_time_utc=start_iso,
             end_time_utc=end_iso,
-            timezone="UTC",
+            timezone=timezone,
             duration_sec=duration_sec,
             moving_time_sec=moving_sec,
             distance_m=distance_m,

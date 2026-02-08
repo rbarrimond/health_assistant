@@ -7,3 +7,7 @@
 - Bump ingestion version to v2.0.0.
 - Add a backfill script for IngestionState metadata.
 - Fix backfill script to query workouts with a filter.
+- Exclude Azure Table system metadata from Workouts metrics.
+- Stop storing minute-based zone fields; derive minutes from seconds at read time.
+- Store low aerobic and intensity metrics in seconds only.
+- Respect FIT-provided timezone names or device UTC offsets in adapter output.

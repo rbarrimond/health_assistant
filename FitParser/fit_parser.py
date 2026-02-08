@@ -621,8 +621,6 @@ class FitParser:
             total_sec += count
 
         self.metrics["hr_zone_total_sec"] = total_sec
-        self.metrics["hr_z2_min"] = round(
-            self.metrics.get("hr_z2_sec", 0) / 60, 1)
 
         # Map zone basis to researcher/author name
         basis_to_model = {
@@ -668,8 +666,6 @@ class FitParser:
             total_sec += count
 
         self.metrics["pwr_zone_total_sec"] = total_sec
-        self.metrics["pwr_z2_min"] = round(
-            self.metrics.get("pwr_z2_sec", 0) / 60, 1)
         low_aerobic = self.metrics.get(
             "pwr_z1_sec", 0) + self.metrics.get("pwr_z2_sec", 0)
         intensity = sum(
@@ -678,8 +674,8 @@ class FitParser:
                 0) for i in range(
                 4,
                 8))
-        self.metrics["low_aerobic_min"] = round(low_aerobic / 60, 1)
-        self.metrics["intensity_min"] = round(intensity / 60, 1)
+        self.metrics["low_aerobic_sec"] = low_aerobic
+        self.metrics["intensity_sec"] = intensity
         self.metrics["pwr_zone_model"] = "coggan_7"
         self.metrics["ftp_watts"] = ftp
 

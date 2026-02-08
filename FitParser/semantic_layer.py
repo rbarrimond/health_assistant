@@ -11,7 +11,7 @@ from typing import Dict, List, Optional
 
 from azure.core.exceptions import HttpResponseError
 
-from FitParser.table_storage import WorkoutTableStorage
+from FitParser.table_storage import WorkoutEntity, WorkoutTableStorage
 
 logger = logging.getLogger(__name__)
 
@@ -421,137 +421,147 @@ class SemanticLayer:
         Returns:
             Cleaned workout dict
         """
-        # Infer sport from sub_sport or source if missing
-        sport = entity.get("sport")
-        if not sport:
-            sub_sport = entity.get("sub_sport")
-            if sub_sport:
-                # Map common sub_sports to parent sport
-                if "cycling" in sub_sport.lower() or "bike" in sub_sport.lower():
-                    sport = "cycling"
-                elif "run" in sub_sport.lower():
-                    sport = "running"
-                elif "swim" in sub_sport.lower():
-                    sport = "swimming"
-                else:
-                    sport = "unknown"
-            else:
-                sport = "unknown"
+        workout_entity = WorkoutEntity.from_table_entity(entity)
+        metrics = workout_entity.metrics
 
-        # Infer is_indoor from elevation gain if missing
-        is_indoor = entity.get("is_indoor")
-        if is_indoor is None:
-            elevation = entity.get("elevation_gain_m", 0) or 0
-            distance = entity.get("distance_m", 0) or 0
-            # If distance > 0 and elevation is 0 or very low, likely indoor
-            if distance > 100 and elevation < 5:
-                is_indoor = True
-            else:
-                is_indoor = False
-
-        # Generate workout name if missing
-        workout_name = entity.get("workout_name")
-        if not workout_name:
-            start_time = entity.get("start_time_utc")
-            if start_time:
-                try:
-                    dt = datetime.fromisoformat(str(start_time).replace("Z", ""))
-                    workout_name = f"{sport.title()} - {dt.strftime('%b %d, %Y')}"
-                except (ValueError, AttributeError):
-                    workout_name = f"{sport.title()} Workout"
-            else:
-                workout_name = f"{sport.title()} Workout"
-
-        # Sub-sport (use sport as fallback if not set)
-        sub_sport = entity.get("sub_sport")
-        if not sub_sport:
-            sub_sport = sport
-
-        # Calories (estimate from duration if missing)
-        calories = entity.get("calories_kcal")
-        if calories is None:
-            # Very rough estimate: 10 kcal per minute for cycling, 15 for running
-            duration_min = (entity.get("duration_sec") or 0) / 60
-            if "run" in sport.lower():
-                calories = int(duration_min * 15)
-            else:
-                calories = int(duration_min * 10)
+        sport = self._infer_sport(metrics)
+        is_indoor = self._infer_is_indoor(metrics)
+        workout_name = self._infer_workout_name(metrics, sport)
+        sub_sport = metrics.get("sub_sport") or sport
+        calories = self._infer_calories(metrics, sport)
 
         # Core summary fields
         workout = {
-            "workout_id": entity.get("workout_id"),
-            "athlete_id": entity.get("athlete_id"),
+            "workout_id": workout_entity.workout_id,
+            "athlete_id": workout_entity.athlete_id,
             "sport": sport,
             "sub_sport": sub_sport,
             "workout_name": workout_name,
             "is_indoor": is_indoor,
-            "start_time_utc": entity.get("start_time_utc"),
-            "end_time_utc": entity.get("end_time_utc"),
-            "duration_sec": entity.get("duration_sec"),
-            "moving_time_sec": entity.get("moving_time_sec"),
-            "distance_m": entity.get("distance_m"),
-            "elevation_gain_m": entity.get("elevation_gain_m"),
+            "start_time_utc": metrics.get("start_time_utc"),
+            "end_time_utc": metrics.get("end_time_utc"),
+            "duration_sec": metrics.get("duration_sec"),
+            "moving_time_sec": metrics.get("moving_time_sec"),
+            "distance_m": metrics.get("distance_m"),
+            "elevation_gain_m": metrics.get("elevation_gain_m"),
             "calories_kcal": calories,
         }
 
         # Heart rate summary
-        if entity.get("hr_avg_bpm"):
-            workout.update({
-                "hr_avg_bpm": entity.get("hr_avg_bpm"),
-                "hr_max_bpm": entity.get("hr_max_bpm"),
-                "hr_z1_sec": entity.get("hr_z1_sec"),
-                "hr_z2_sec": entity.get("hr_z2_sec"),
-                "hr_z3_sec": entity.get("hr_z3_sec"),
-                "hr_z4_sec": entity.get("hr_z4_sec"),
-                "hr_z5_sec": entity.get("hr_z5_sec"),
-                "hr_z2_min": entity.get("hr_z2_min"),
-                "hr_zone_basis": entity.get("hr_zone_basis"),
-                "hr_zone_reference_bpm": entity.get("hr_zone_reference_bpm"),
-            })
+        if metrics.get("hr_avg_bpm"):
+            workout.update(self._select_fields(metrics, {
+                "hr_avg_bpm",
+                "hr_max_bpm",
+                "hr_z1_sec",
+                "hr_z2_sec",
+                "hr_z3_sec",
+                "hr_z4_sec",
+                "hr_z5_sec",
+                "hr_zone_basis",
+                "hr_zone_reference_bpm",
+            }))
 
         # Power summary
-        if entity.get("pwr_avg_watts"):
-            workout.update({
-                "pwr_avg_watts": entity.get("pwr_avg_watts"),
-                "pwr_max_watts": entity.get("pwr_max_watts"),
-                "pwr_normalized_watts": entity.get("pwr_normalized_watts"),
-                "pwr_variability_index": entity.get("pwr_variability_index"),
-                "pwr_z1_sec": entity.get("pwr_z1_sec"),
-                "pwr_z2_sec": entity.get("pwr_z2_sec"),
-                "pwr_z3_sec": entity.get("pwr_z3_sec"),
-                "pwr_z4_sec": entity.get("pwr_z4_sec"),
-                "pwr_z5_sec": entity.get("pwr_z5_sec"),
-                "pwr_z6_sec": entity.get("pwr_z6_sec"),
-                "pwr_z7_sec": entity.get("pwr_z7_sec"),
-                "pwr_z2_min": entity.get("pwr_z2_min"),
-                "intensity_min": entity.get("intensity_min"),
-                "low_aerobic_min": entity.get("low_aerobic_min"),
-                "ftp_watts": entity.get("ftp_watts"),
-                "intensity_factor": entity.get("intensity_factor"),
-                "tss": entity.get("tss"),
-                "decoupling_pct": entity.get("decoupling_pct"),
-                "hr_drift_bpm": entity.get("hr_drift_bpm"),
-                "ef_first_half": entity.get("ef_first_half"),
-                "ef_second_half": entity.get("ef_second_half"),
-                "ef_overall": entity.get("ef_overall"),
-            })
+        if metrics.get("pwr_avg_watts"):
+            workout.update(self._select_fields(metrics, {
+                "pwr_avg_watts",
+                "pwr_max_watts",
+                "pwr_normalized_watts",
+                "pwr_variability_index",
+                "pwr_z1_sec",
+                "pwr_z2_sec",
+                "pwr_z3_sec",
+                "pwr_z4_sec",
+                "pwr_z5_sec",
+                "pwr_z6_sec",
+                "pwr_z7_sec",
+                "low_aerobic_sec",
+                "intensity_sec",
+                "ftp_watts",
+                "intensity_factor",
+                "tss",
+                "decoupling_pct",
+                "hr_drift_bpm",
+                "ef_first_half",
+                "ef_second_half",
+                "ef_overall",
+            }))
 
         # Source metadata
         workout.update({
-            "source_system": entity.get("source_system"),
-            "source_file_name": entity.get("source_file_name"),
+            "source_system": workout_entity.source_system,
+            "source_file_name": workout_entity.source_file_name,
         })
 
         # Include time series only if requested
-        if include_records and entity.get("records_json"):
+        if include_records and metrics.get("records_json"):
             try:
-                records_data = entity.get("records_json")
+                records_data = metrics.get("records_json")
                 if records_data:
                     workout["records"] = json.loads(records_data)
             except (json.JSONDecodeError, TypeError):
                 pass
 
         return workout
+
+    @staticmethod
+    def _select_fields(source: Dict, fields: set[str]) -> Dict:
+        return {field: source.get(field) for field in fields}
+
+
+    @staticmethod
+    def _infer_sport(metrics: Dict) -> str:
+        sport = metrics.get("sport")
+        if sport:
+            return sport
+
+        sub_sport = metrics.get("sub_sport")
+        if sub_sport:
+            lowered = sub_sport.lower()
+            if "cycling" in lowered or "bike" in lowered:
+                return "cycling"
+            if "run" in lowered:
+                return "running"
+            if "swim" in lowered:
+                return "swimming"
+        return "unknown"
+
+    @staticmethod
+    def _infer_is_indoor(metrics: Dict) -> bool:
+        is_indoor = metrics.get("is_indoor")
+        if is_indoor is not None:
+            return bool(is_indoor)
+
+        elevation = metrics.get("elevation_gain_m", 0) or 0
+        distance = metrics.get("distance_m", 0) or 0
+        return bool(distance > 100 and elevation < 5)
+
+    @staticmethod
+    def _infer_workout_name(metrics: Dict, sport: str) -> str:
+        workout_name = metrics.get("workout_name")
+        if workout_name:
+            return workout_name
+
+        start_time = metrics.get("start_time_utc")
+        if start_time:
+            try:
+                parsed = datetime.fromisoformat(str(start_time).replace("Z", ""))
+                return f"{sport.title()} - {parsed.strftime('%b %d, %Y')}"
+            except (ValueError, AttributeError):
+                return f"{sport.title()} Workout"
+
+        return f"{sport.title()} Workout"
+
+    @staticmethod
+    def _infer_calories(metrics: Dict, sport: str) -> Optional[int]:
+        calories = metrics.get("calories_kcal")
+        if calories is not None:
+            return calories
+
+        duration_min = (metrics.get("duration_sec") or 0) / 60
+        if "run" in sport.lower():
+            return int(duration_min * 15)
+        return int(duration_min * 10)
 
     def _get_weekly_rollups(
         self, athlete_id: str, days: int

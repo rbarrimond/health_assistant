@@ -15,7 +15,7 @@ from FitParser.fit_parser import compute_workout_id
 
 # Constant for UTC timezone suffix replacement
 UTC_SUFFIX = "+00:00"
-INGEST_VERSION = "v2.0.0"
+INGEST_VERSION = "v2.2.1"
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,50 @@ class WorkoutEntity:
     file_size_bytes: Optional[int]
     file_sha256: Optional[str]
     metrics: Dict = field(default_factory=dict)
+
+    @classmethod
+    def from_table_entity(cls, entity: Dict) -> "WorkoutEntity":
+        """Create a WorkoutEntity from a raw Azure Table entity."""
+        core_keys = {
+            "PartitionKey",
+            "RowKey",
+            "workout_id",
+            "athlete_id",
+            "source_system",
+            "source_file_name",
+            "source_file_path",
+            "source_item_id",
+            "source_drive_id",
+            "source_etag",
+            "file_size_bytes",
+            "file_sha256",
+        }
+        system_keys = {
+            "Timestamp",
+            "etag",
+            "odata.etag",
+        }
+        metrics = {
+            key: value
+            for key, value in entity.items()
+            if key not in core_keys | system_keys
+        }
+
+        return cls(
+            partition_key=entity.get("PartitionKey", ""),
+            row_key=entity.get("RowKey", ""),
+            workout_id=entity.get("workout_id", ""),
+            athlete_id=entity.get("athlete_id", ""),
+            source_system=entity.get("source_system", ""),
+            source_file_name=entity.get("source_file_name", ""),
+            source_file_path=entity.get("source_file_path", ""),
+            source_item_id=entity.get("source_item_id"),
+            source_drive_id=entity.get("source_drive_id"),
+            source_etag=entity.get("source_etag"),
+            file_size_bytes=entity.get("file_size_bytes"),
+            file_sha256=entity.get("file_sha256"),
+            metrics=metrics,
+        )
 
     def to_entity(self) -> Dict:
         """
