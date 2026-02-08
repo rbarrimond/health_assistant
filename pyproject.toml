@@ -27,6 +27,7 @@ dev = [
     "pytest-mock>=3.14.0",
     "freezegun>=1.5.1",
     "debugpy>=1.8.0",
+    "ipykernel>=6.29.0",
 ]
 
 [tool.pytest.ini_options]
