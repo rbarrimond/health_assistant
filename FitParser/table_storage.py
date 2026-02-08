@@ -15,7 +15,7 @@ from FitParser.fit_parser import compute_workout_id
 
 # Constant for UTC timezone suffix replacement
 UTC_SUFFIX = "+00:00"
-INGEST_VERSION = "v2.2.1"
+INGEST_VERSION = "v2.2.2"
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +123,8 @@ class IngestionStateEntity:
     last_attempt_at_utc: str
     retry_count: int
     workout_id: Optional[str]
+    source_etag: Optional[str] = None
+    file_sha256: Optional[str] = None
     ingest_version: Optional[str] = None
     ingested_at_utc: Optional[str] = None
     error_message: Optional[str] = None
@@ -144,6 +146,10 @@ class IngestionStateEntity:
             "retry_count": self.retry_count,
             "workout_id": self.workout_id,
         }
+        if self.source_etag is not None:
+            entity["source_etag"] = self.source_etag
+        if self.file_sha256 is not None:
+            entity["file_sha256"] = self.file_sha256
         if self.ingest_version:
             entity["ingest_version"] = self.ingest_version
         if self.ingested_at_utc:
@@ -211,15 +217,39 @@ class IngestionContext:
 
     @property
     def retry_count(self) -> int:
-        """
-        Get the retry count for the ingestion process.
-
-        Returns:
-            int: The number of retries.
-        """
+        """Get the current retry count stored in the ingestion state."""
         if not self.existing_state:
             return 0
-        return int(self.existing_state.get("retry_count", 0)) + 1
+        return int(self.existing_state.get("retry_count", 0))
+
+    def next_retry_count(self, status: str) -> int:
+        """
+        Compute the next retry count for the given status.
+
+        Only increment on failures so idempotent re-processing does not inflate retries.
+        """
+        base_count = self.retry_count
+        if status == "failed":
+            return base_count + 1
+        return base_count
+
+    def is_unchanged(self) -> bool:
+        """Check whether the incoming file metadata matches the last ingested state."""
+        if not self.existing_state:
+            return False
+
+        existing_etag = self.existing_state.get("source_etag")
+        incoming_etag = self.file_info.get("source_etag")
+        if incoming_etag and existing_etag:
+            return incoming_etag == existing_etag
+
+        existing_sha = self.existing_state.get("file_sha256")
+        incoming_sha = self.file_info.get("file_sha256")
+        return bool(incoming_sha and existing_sha and incoming_sha == existing_sha)
+
+    def should_skip(self) -> bool:
+        """Return True when an already-ingested file is unchanged and should be skipped."""
+        return self.is_ingested and self.is_unchanged()
 
     @property
     def first_seen_at_utc(self) -> str:
@@ -255,8 +285,10 @@ class IngestionContext:
             status=status,
             first_seen_at_utc=self.first_seen_at_utc,
             last_attempt_at_utc=now_utc,
-            retry_count=self.retry_count,
+            retry_count=self.next_retry_count(status),
             workout_id=self.workout_id,
+            source_etag=self.file_info.get("source_etag"),
+            file_sha256=self.file_info.get("file_sha256"),
             ingest_version=INGEST_VERSION,
             ingested_at_utc=now_utc if status == "ingested" else None,
             error_message=error,
@@ -332,6 +364,24 @@ class WorkoutTableStorage:
     def _get_table_client(self, table_name: str) -> TableClient:
         """Get table client for specified table."""
         return self.service_client.get_table_client(table_name)
+
+    def get_ingestion_context(
+        self,
+        athlete_id: str,
+        file_info: Dict,
+        workout_id: Optional[str] = None,
+        ingestion_key: Optional[str] = None,
+        existing_state: Optional[Dict] = None,
+    ) -> IngestionContext:
+        """Create an ingestion context that encapsulates idempotency checks."""
+        return IngestionContext(
+            athlete_id=athlete_id,
+            file_info=file_info,
+            workout_id=workout_id,
+            storage=self,
+            ingestion_key=ingestion_key,
+            existing_state=existing_state,
+        )
 
     def store_workout(self, athlete_id: str, metrics: Dict,
                        source_info: Dict) -> str:
@@ -423,7 +473,7 @@ class WorkoutTableStorage:
 
         # Log ingestion key and retry count for debugging idempotency
         logger.debug("Generated ingestion key for state: %s", context.ingestion_key)
-        logger.debug("Retry count for %s: %d", context.ingestion_key, context.retry_count)
+        logger.debug("Retry count for %s: %d", context.ingestion_key, context.next_retry_count(status))
 
         entity = context.build_state_entity(status=status, error=error).to_entity()
 

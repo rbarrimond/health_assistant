@@ -5,17 +5,14 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 from FitParser.exceptions import FitAdapterError, WorkoutTypeResolutionError
-from FitParser.fit_parser import FitParser, compute_file_hash
-from FitParser.table_storage import WorkoutTableStorage
+from FitParser.fit_parser import compute_file_hash
+from FitParser.handlers.ingestion_base import IngestionHandlerBase
 
 logger = logging.getLogger(__name__)
 
 
-class FitUploadHandler:
+class FitUploadHandler(IngestionHandlerBase):
     """Orchestrates FIT file upload → parse → store workflow."""
-
-    def __init__(self, storage: WorkoutTableStorage):
-        self.storage = storage
 
     def handle(
         self,
@@ -42,14 +39,7 @@ class FitUploadHandler:
                 logger.warning("FIT file not found: %s", file_path)
                 return None, 404
 
-            # Parse FIT file
             file_path_obj = Path(file_path)
-            parser = FitParser(
-                file_path,
-                source_file_name=source_file_name or file_path_obj.name
-            )
-            metrics: Dict = parser.parse()
-
             file_sha256 = compute_file_hash(file_path)
 
             # Use provided source_info or build default
@@ -57,25 +47,29 @@ class FitUploadHandler:
                 # Merge with computed file hash if not provided
                 if "file_sha256" not in source_info or not source_info["file_sha256"]:
                     source_info["file_sha256"] = file_sha256
+                if source_file_name:
+                    source_info.setdefault("source_file_name", source_file_name)
                 final_source_info = source_info
             else:
                 final_source_info = {
                     "source_system": "Local",
-                    "source_file_name": file_path_obj.name,
+                    "source_file_name": source_file_name or file_path_obj.name,
                     "source_file_path": str(file_path_obj),
                     "file_size_bytes": file_path_obj.stat().st_size,
                     "file_sha256": file_sha256,
                 }
 
-            # Store workout and record ingestion state
-            workout_id = self.storage.store_workout(
-                athlete_id, metrics, final_source_info
-            )
-            self.storage.record_ingestion_state(
-                athlete_id,
-                final_source_info,
-                status="ingested",
-                workout_id=workout_id,
+            skipped, _ = self._skip_if_unchanged(athlete_id, final_source_info)
+            if skipped:
+                logger.info(
+                    "Skipping already ingested FIT: athlete=%s, file=%s",
+                    athlete_id,
+                    final_source_info.get("source_file_name"),
+                )
+                return None, 200
+
+            metrics, _ = self._parse_and_store(
+                athlete_id, file_path, final_source_info
             )
 
             logger.info(

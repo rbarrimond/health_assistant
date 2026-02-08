@@ -12,3 +12,6 @@
 - Store low aerobic and intensity metrics in seconds only.
 - Respect FIT-provided timezone names or device UTC offsets in adapter output.
 - Add optional runtime chaos injection via `sitecustomize` for local ingestion testing.
+- Add a dummy tasks.json entry to work around VS Code task ordering issues.
+- Skip ingestion when OneDrive etag or file hash is unchanged; record `skipped` status without incrementing retries.
+- Store `source_etag` and `file_sha256` in IngestionState; bump ingest version to v2.2.2.

@@ -1,6 +1,7 @@
 """HTTP handlers - pure business logic, no Azure Functions framework."""
 
 from .fit_upload_handler import FitUploadHandler
+from .fit_payload_handler import FitPayloadIngestionHandler
 from .onedrive_sync_handler import OneDriveSyncHandler, OneDriveSyncRequest
 from .query_handler import QueryHandler
 from .physiometrics_handler import PhysiometricsHandler
@@ -11,6 +12,7 @@ from .agent_memory_handler import AgentMemoryHandler
 
 __all__ = [
     "FitUploadHandler",
+    "FitPayloadIngestionHandler",
     "OneDriveSyncHandler",
     "OneDriveSyncRequest",
     "QueryHandler",

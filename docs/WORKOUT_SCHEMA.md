@@ -305,9 +305,11 @@ Tracks what was ingested, avoids duplicates, and preserves errors for troublesho
 |status|string|✅|`ingested`, `failed`, `skipped`|
 |first_seen_at_utc|datetime|✅|First time file observed|
 |last_attempt_at_utc|datetime|✅|Last ingestion attempt|
-|last_error|string|⛔️|Last error message (truncated)|
+|error_message|string|⛔️|Last error message (truncated)|
 |workout_id|string|⛔️|Link to Workouts entity|
 |retry_count|int|✅|Retry count|
+|source_etag|string|⛔️|Last seen OneDrive etag for the file|
+|file_sha256|string|⛔️|Last seen file hash for the file|
 |ingest_version|string|✅|Version string of ingestion code (e.g., `v2.0.0`)|
 |ingested_at_utc|datetime (ISO string)|⛔️|Timestamp when status becomes `ingested`|
 

@@ -377,6 +377,10 @@ class TestIngestionHelpersAndFlow:
         mock_storage = MagicMock()
         mock_storage.get_ingestion_state.return_value = None
         mock_storage.store_workout.return_value = "workout-456"
+        mock_context = MagicMock()
+        mock_context.should_skip.return_value = False
+        mock_context.existing_state = None
+        mock_storage.get_ingestion_context.return_value = mock_context
 
         mock_parser = MagicMock()
         mock_parser.parse.return_value = {
@@ -387,9 +391,9 @@ class TestIngestionHelpersAndFlow:
             "hr_avg_bpm": 150,
         }
 
-        with patch("function_app.compute_file_hash", return_value="hash"):
+        with patch("FitParser.handlers.fit_payload_handler.compute_file_hash", return_value="hash"):
             with patch("function_app._get_storage", return_value=mock_storage):
-                with patch("function_app.FitParser", return_value=mock_parser):
+                with patch("FitParser.handlers.ingestion_base.FitParser", return_value=mock_parser):
                     body, status_code = function_app._ingest_fit_payload(payload)
 
         assert status_code == 200

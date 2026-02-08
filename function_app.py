@@ -23,16 +23,15 @@ import azure.functions as func
 from azure.core.exceptions import AzureError
 
 from FitParser.backup_exporter import BackupExporter
-from FitParser.exceptions import FitAdapterError, WorkoutTypeResolutionError
 from FitParser.onedrive_sync import (
     OneDrivePersonalSyncService,
     OneDriveSyncConfig,
 )
-from FitParser.fit_parser import FitParser, compute_file_hash
 from FitParser.semantic_layer import SemanticLayer
 from FitParser.table_storage import WorkoutTableStorage
 from FitParser.withings_client import WithingsClient
 from FitParser.handlers import (
+    FitPayloadIngestionHandler,
     FitUploadHandler,
     OneDriveSyncHandler,
     OneDriveSyncRequest,
@@ -159,101 +158,10 @@ def _ingest_fit_payload(payload: Dict[str, Any]) -> tuple[Dict[str, Any], int]:
     Returns:
         (response_dict, HTTP status_code)
     """
-    athlete_id = payload.get("athlete_id", "rob")
-    storage = _get_storage()
-    source_info = None
-    try:
-        file_content_b64 = payload.get("file_content_b64")
-
-        if not file_content_b64:
-            return {"status": "error", "error": "No file content"}, 400
-
-        # Decode base64 content
-        file_content = base64.b64decode(file_content_b64)
-
-        # Write temp file for processing
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".fit") as tmp:
-            tmp.write(file_content)
-            tmp_path = tmp.name
-
-        try:
-            source_info = {
-                "source_system": payload.get("source_system", "HealthFit"),
-                "source_file_name": payload.get("source_file_name"),
-                "source_file_path": payload.get("source_file_path"),
-                "source_item_id": payload.get("source_item_id"),
-                "source_drive_id": payload.get("source_drive_id"),
-                "source_etag": payload.get("source_etag"),
-                "file_size_bytes": payload.get("file_size_bytes"),
-                "file_sha256": payload.get("file_sha256")
-                or compute_file_hash(tmp_path),
-            }
-
-            # Parse and store with source info from payload
-            parser = FitParser(
-                tmp_path, source_file_name=source_info.get("source_file_name"))
-            metrics = parser.parse()
-
-            workout_id = storage.store_workout(
-                athlete_id, metrics, source_info
-            )
-            storage.record_ingestion_state(
-                athlete_id,
-                source_info,
-                status="ingested",
-                workout_id=workout_id,
-            )
-
-            return {
-                "status": "success",
-                "workout_id": workout_id,
-            }, 200
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-
-    except (ValueError, TypeError) as exc:
-        logger.warning("FIT payload ingestion validation failed: %s", exc)
-        if source_info:
-            storage.record_ingestion_state(
-                athlete_id,
-                source_info,
-                status="failed",
-                error=str(exc),
-            )
-        return {"status": "error", "error": str(exc)}, 400
-    except FitAdapterError as exc:
-        logger.warning("FIT adapter failed: %s", exc)
-        if source_info:
-            storage.record_ingestion_state(
-                athlete_id,
-                source_info,
-                status="failed",
-                error=str(exc),
-            )
-        return {"status": "error", "error": str(exc)}, 400
-    except WorkoutTypeResolutionError as exc:
-        logger.error("Workout type resolution failed: %s", exc)
-        if source_info:
-            storage.record_ingestion_state(
-                athlete_id,
-                source_info,
-                status="failed",
-                error="Workout type resolution failed",
-            )
-        return {"status": "error", "error": "Workout type resolution failed"}, 500
-    except OSError as exc:
-        logger.error("FIT payload file operation failed: %s", exc)
-        if source_info:
-            storage.record_ingestion_state(
-                athlete_id,
-                source_info,
-                status="failed",
-                error="File operation failed",
-            )
-        return {"status": "error", "error": "File operation failed"}, 500
+    # Payloads provide base64 content plus metadata; we reconstruct a temp FIT file
+    # and pass its metadata into the ingestion pipeline for deterministic idempotency.
+    handler = FitPayloadIngestionHandler(_get_storage())
+    return handler.handle_payload(payload)
 
 
 def _get_onedrive_service() -> OneDrivePersonalSyncService:
