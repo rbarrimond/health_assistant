@@ -150,46 +150,152 @@ class OneDrivePersonalSyncService:
 
         for item in files:
             try:
-                raw_content = self._client.download_file(
-                    access_token=access_token, item_id=item["id"])
-                file_name, content = _maybe_decode_gzip(item["name"], raw_content)
-                parent_path = item.get("parentReference", {}).get("path", "")
-                file_path = f"{parent_path}/{item['name']}" if parent_path else item["name"]
-                payload = _build_source_payload(
-                    athlete_id=athlete_id,
-                    file_name=file_name,
-                    file_path=file_path,
-                    file_content=content,
-                    source_item_id=f"onedrive:{item['id']}",
-                    drive_id=item.get("parentReference", {}).get("driveId") or drive_id,
-                    file_size_bytes=item.get("size"),
-                    source_etag=item.get("eTag"),
+                item_meta = self._extract_item_metadata(item, drive_id)
+                source_info = self._build_source_info(item, item_meta)
+
+                context = self._storage.get_ingestion_context(
+                    athlete_id,
+                    source_info,
+                    ingestion_key=item_meta["source_item_id"],
                 )
-                body, status_code = self._ingest_payload(payload)
-                if status_code == 200 and body.get("status") == "success":
-                    results["ingested"] += 1
-                elif status_code == 200 and body.get("status") == "skipped":
-                    results["skipped"] += 1
-                else:
-                    results["failed"] += 1
-                results["items"].append({
-                    "name": item["name"],
-                    "id": item["id"],
-                    "status": body.get("status", "error"),
-                    "message": body.get("message") or body.get("error"),
-                    "workout_id": body.get("workout_id"),
-                })
+                if context.should_skip():
+                    self._record_skip_result(
+                        results,
+                        athlete_id,
+                        source_info,
+                        context=context,
+                        item=item,
+                    )
+                    continue
+
+                body, status_code = self._ingest_item(
+                    athlete_id=athlete_id,
+                    access_token=access_token,
+                    item=item,
+                    item_meta=item_meta,
+                )
+                self._record_ingest_result(results, item, body, status_code)
             except Exception as exc:  # pylint: disable=broad-exception-caught
-                results["failed"] += 1
-                results["errors"].append(str(exc))
-                results["items"].append({
-                    "name": item.get("name"),
-                    "id": item.get("id"),
-                    "status": "error",
-                    "message": str(exc),
-                })
+                self._record_error_result(results, item, exc)
 
         return results
+
+    def _extract_item_metadata(self, item: Dict, drive_id: str | None) -> Dict:
+        """Extract OneDrive fields used for ingest and state tracking."""
+        parent_path = item.get("parentReference", {}).get("path", "")
+        file_path = f"{parent_path}/{item['name']}" if parent_path else item["name"]
+        return {
+            "file_path": file_path,
+            "source_item_id": f"onedrive:{item['id']}",
+            "source_etag": item.get("eTag"),
+            "source_ctag": item.get("cTag"),
+            "source_modified_at_utc": item.get("lastModifiedDateTime"),
+            "source_quickxor_hash": item.get("file", {}).get("hashes", {}).get("quickXorHash"),
+            "source_drive_id": item.get("parentReference", {}).get("driveId") or drive_id,
+        }
+
+    def _build_source_info(self, item: Dict, item_meta: Dict) -> Dict:
+        """Build source info metadata for ingestion state tracking."""
+        return {
+            "source_system": "HealthFit",
+            "source_file_name": item.get("name"),
+            "source_file_path": item_meta["file_path"],
+            "source_item_id": item_meta["source_item_id"],
+            "source_drive_id": item_meta["source_drive_id"],
+            "source_etag": item_meta["source_etag"],
+            "source_ctag": item_meta["source_ctag"],
+            "source_quickxor_hash": item_meta["source_quickxor_hash"],
+            "source_modified_at_utc": item_meta["source_modified_at_utc"],
+            "file_size_bytes": item.get("size"),
+        }
+
+    def _record_skip_result(
+        self,
+        results: Dict,
+        athlete_id: str,
+        source_info: Dict,
+        *,
+        context,
+        item: Dict,
+    ) -> None:
+        workout_id = (
+            context.existing_state.get("workout_id")
+            if context.existing_state
+            else None
+        )
+        self._storage.record_ingestion_state(
+            athlete_id,
+            source_info,
+            status="skipped",
+            workout_id=workout_id,
+            ingestion_key=context.ingestion_key,
+            existing_state=context.existing_state,
+        )
+        results["skipped"] += 1
+        results["items"].append({
+            "name": item["name"],
+            "id": item["id"],
+            "status": "skipped",
+            "message": "Unchanged content",
+            "workout_id": workout_id,
+        })
+
+    def _ingest_item(
+        self,
+        *,
+        athlete_id: str,
+        access_token: str,
+        item: Dict,
+        item_meta: Dict,
+    ) -> tuple[Dict, int]:
+        raw_content = self._client.download_file(
+            access_token=access_token, item_id=item["id"])
+        file_name, content = _maybe_decode_gzip(item["name"], raw_content)
+        payload = _build_source_payload(
+            athlete_id=athlete_id,
+            file_name=file_name,
+            file_path=item_meta["file_path"],
+            file_content=content,
+            source_item_id=item_meta["source_item_id"],
+            drive_id=item_meta["source_drive_id"],
+            file_size_bytes=item.get("size"),
+            source_etag=item_meta["source_etag"],
+            source_ctag=item_meta["source_ctag"],
+            source_quickxor_hash=item_meta["source_quickxor_hash"],
+            source_modified_at_utc=item_meta["source_modified_at_utc"],
+        )
+        return self._ingest_payload(payload)
+
+    def _record_ingest_result(
+        self,
+        results: Dict,
+        item: Dict,
+        body: Dict,
+        status_code: int,
+    ) -> None:
+        if status_code == 200 and body.get("status") == "success":
+            results["ingested"] += 1
+        elif status_code == 200 and body.get("status") == "skipped":
+            results["skipped"] += 1
+        else:
+            results["failed"] += 1
+        results["items"].append({
+            "name": item["name"],
+            "id": item["id"],
+            "status": body.get("status", "error"),
+            "message": body.get("message") or body.get("error"),
+            "workout_id": body.get("workout_id"),
+        })
+
+    def _record_error_result(self, results: Dict, item: Dict, exc: Exception) -> None:
+        results["failed"] += 1
+        results["errors"].append(str(exc))
+        results["items"].append({
+            "name": item.get("name"),
+            "id": item.get("id"),
+            "status": "error",
+            "message": str(exc),
+        })
 
     def _get_tokens(self, athlete_id: str) -> Dict:
         """Load stored OneDrive tokens for the athlete."""
@@ -236,6 +342,9 @@ def _build_source_payload(
     drive_id: str | None,
     file_size_bytes: int | None,
     source_etag: str | None,
+    source_ctag: str | None,
+    source_quickxor_hash: str | None,
+    source_modified_at_utc: str | None,
 ) -> Dict:
     """Build the ingestion payload from a OneDrive file."""
     payload = {
@@ -251,6 +360,12 @@ def _build_source_payload(
         payload["source_drive_id"] = drive_id
     if source_etag:
         payload["source_etag"] = source_etag
+    if source_ctag:
+        payload["source_ctag"] = source_ctag
+    if source_quickxor_hash:
+        payload["source_quickxor_hash"] = source_quickxor_hash
+    if source_modified_at_utc:
+        payload["source_modified_at_utc"] = source_modified_at_utc
     return payload
 
 

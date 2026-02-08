@@ -108,7 +108,7 @@ class OneDriveGraphClient:
         path = _normalize_folder_path(folder_path)
         url = f"{self.graph_base_url}/me/drive/root:{path}:/children"
         params = {
-            "$select": "id,name,size,file,folder,lastModifiedDateTime,parentReference,eTag",
+            "$select": "id,name,size,file,folder,lastModifiedDateTime,parentReference,eTag,cTag",
             "$top": "200",
         }
         results: list[Dict] = []
