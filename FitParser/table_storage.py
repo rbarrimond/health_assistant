@@ -15,7 +15,7 @@ from FitParser.fit_parser import compute_workout_id
 
 # Constant for UTC timezone suffix replacement
 UTC_SUFFIX = "+00:00"
-INGEST_VERSION = "v2.2.2"
+INGEST_VERSION = "v2.2.6"
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +124,9 @@ class IngestionStateEntity:
     retry_count: int
     workout_id: Optional[str]
     source_etag: Optional[str] = None
+    source_ctag: Optional[str] = None
+    source_quickxor_hash: Optional[str] = None
+    source_modified_at_utc: Optional[str] = None
     file_sha256: Optional[str] = None
     ingest_version: Optional[str] = None
     ingested_at_utc: Optional[str] = None
@@ -148,6 +151,12 @@ class IngestionStateEntity:
         }
         if self.source_etag is not None:
             entity["source_etag"] = self.source_etag
+        if self.source_ctag is not None:
+            entity["source_ctag"] = self.source_ctag
+        if self.source_quickxor_hash is not None:
+            entity["source_quickxor_hash"] = self.source_quickxor_hash
+        if self.source_modified_at_utc is not None:
+            entity["source_modified_at_utc"] = self.source_modified_at_utc
         if self.file_sha256 is not None:
             entity["file_sha256"] = self.file_sha256
         if self.ingest_version:
@@ -238,14 +247,32 @@ class IngestionContext:
         if not self.existing_state:
             return False
 
+        existing_ctag = self.existing_state.get("source_ctag")
+        incoming_ctag = self.file_info.get("source_ctag")
+        if incoming_ctag and existing_ctag:
+            return incoming_ctag == existing_ctag
+
+        existing_qx = self.existing_state.get("source_quickxor_hash")
+        incoming_qx = self.file_info.get("source_quickxor_hash")
+        if incoming_qx and existing_qx:
+            return incoming_qx == existing_qx
+
+        existing_sha = self.existing_state.get("file_sha256")
+        incoming_sha = self.file_info.get("file_sha256")
+        if incoming_sha and existing_sha:
+            return incoming_sha == existing_sha
+
         existing_etag = self.existing_state.get("source_etag")
         incoming_etag = self.file_info.get("source_etag")
         if incoming_etag and existing_etag:
             return incoming_etag == existing_etag
 
-        existing_sha = self.existing_state.get("file_sha256")
-        incoming_sha = self.file_info.get("file_sha256")
-        return bool(incoming_sha and existing_sha and incoming_sha == existing_sha)
+        existing_modified = self.existing_state.get("source_modified_at_utc")
+        incoming_modified = self.file_info.get("source_modified_at_utc")
+        if incoming_modified and existing_modified:
+            return incoming_modified == existing_modified
+
+        return False
 
     def should_skip(self) -> bool:
         """Return True when an already-ingested file is unchanged and should be skipped."""
@@ -279,6 +306,23 @@ class IngestionContext:
             IngestionStateEntity: The constructed ingestion state entity.
         """
         now_utc = datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z")
+        source_etag = self.file_info.get("source_etag")
+        source_ctag = self.file_info.get("source_ctag")
+        source_quickxor_hash = self.file_info.get("source_quickxor_hash")
+        source_modified_at_utc = self.file_info.get("source_modified_at_utc")
+        file_sha256 = self.file_info.get("file_sha256")
+        if status == "skipped" and self.existing_state:
+            if self.existing_state.get("source_etag") is not None:
+                source_etag = self.existing_state.get("source_etag")
+            if self.existing_state.get("source_ctag") is not None:
+                source_ctag = self.existing_state.get("source_ctag")
+            if self.existing_state.get("source_quickxor_hash") is not None:
+                source_quickxor_hash = self.existing_state.get("source_quickxor_hash")
+            if self.existing_state.get("source_modified_at_utc") is not None:
+                source_modified_at_utc = self.existing_state.get("source_modified_at_utc")
+            if self.existing_state.get("file_sha256") is not None:
+                file_sha256 = self.existing_state.get("file_sha256")
+
         return IngestionStateEntity(
             partition_key=self.athlete_id,
             row_key=self.ingestion_key,
@@ -287,8 +331,11 @@ class IngestionContext:
             last_attempt_at_utc=now_utc,
             retry_count=self.next_retry_count(status),
             workout_id=self.workout_id,
-            source_etag=self.file_info.get("source_etag"),
-            file_sha256=self.file_info.get("file_sha256"),
+            source_etag=source_etag,
+            source_ctag=source_ctag,
+            source_quickxor_hash=source_quickxor_hash,
+            source_modified_at_utc=source_modified_at_utc,
+            file_sha256=file_sha256,
             ingest_version=INGEST_VERSION,
             ingested_at_utc=now_utc if status == "ingested" else None,
             error_message=error,

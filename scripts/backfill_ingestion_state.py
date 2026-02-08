@@ -41,6 +41,9 @@ def _merge_ingestion_state(
         merged.setdefault("retry_count", 0)
         merged.setdefault("workout_id", workout_entity.get("workout_id"))
         merged.setdefault("source_etag", workout_entity.get("source_etag"))
+        merged.setdefault("source_ctag", workout_entity.get("source_ctag"))
+        merged.setdefault("source_quickxor_hash", workout_entity.get("source_quickxor_hash"))
+        merged.setdefault("source_modified_at_utc", workout_entity.get("source_modified_at_utc"))
         merged.setdefault("file_sha256", workout_entity.get("file_sha256"))
         merged.setdefault("ingest_version", ingest_version)
         merged.setdefault("ingested_at_utc", ingested_at)
@@ -55,6 +58,9 @@ def _merge_ingestion_state(
         "retry_count": 0,
         "workout_id": workout_entity.get("workout_id"),
         "source_etag": workout_entity.get("source_etag"),
+        "source_ctag": workout_entity.get("source_ctag"),
+        "source_quickxor_hash": workout_entity.get("source_quickxor_hash"),
+        "source_modified_at_utc": workout_entity.get("source_modified_at_utc"),
         "file_sha256": workout_entity.get("file_sha256"),
         "ingest_version": ingest_version,
         "ingested_at_utc": ingested_at,

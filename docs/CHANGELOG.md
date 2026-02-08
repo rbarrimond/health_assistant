@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-02-08
+
+- Backfill IngestionState with OneDrive cTag/quickXor hash/modified timestamp when present.
+- Bump ingest version to v2.2.6.
+- Enforce required fields for FIT payload ingestion requests.
+- Allow OneDrive content metadata fields on process_fit payloads.
+- Bump ingest version to v2.2.5.
+- Prefer file SHA over OneDrive etag for unchanged detection during ingestion.
+- Use OneDrive cTag/quickXor hash/modified time to skip unchanged files before download.
+- Store OneDrive cTag, quickXor hash, and modified timestamp in ingestion state.
+- Preserve ingested metadata when recording skipped ingestion state.
+- Bump ingest version to v2.2.4.
+
 ## 2026-02-07
 
 - Move ingestion metadata (`ingest_version`, `ingested_at_utc`) from Workouts to IngestionState.
