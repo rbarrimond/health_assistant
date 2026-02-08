@@ -114,3 +114,11 @@ in this order:
 
 Once a `workout_id` has been assigned to a file, it is treated as immutable
 and should be reused for reprocessing via IngestionState lookup.
+
+---
+
+## Data Hygiene (Deferred)
+
+Duplicate resolution for recordings that share the same `start_time_utc`
+is deferred to a later data hygiene pass. The ingestion pipeline does not
+currently enforce a single winner for these cases.
