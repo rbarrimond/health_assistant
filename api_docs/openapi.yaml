@@ -1254,11 +1254,20 @@ components:
           type: string
         source_etag:
           type: string
+        source_ctag:
+          type: string
+        source_quickxor_hash:
+          type: string
+        source_modified_at_utc:
+          type: string
+          format: date-time
         file_content_b64:
           type: string
           description: Base64-encoded FIT file content
         file_size_bytes:
           type: integer
+        file_sha256:
+          type: string
     ProcessFitResponse:
       type: object
       properties:

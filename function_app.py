@@ -246,17 +246,18 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
         "source_file_path": "optional-path",
         "source_drive_id": "optional-drive-id",
         "source_etag": "optional-etag",
+        "source_ctag": "optional-ctag",
+        "source_quickxor_hash": "optional-quickxor-hash",
+        "source_modified_at_utc": "optional-utc-timestamp",
+        "file_sha256": "optional-sha256",
         "file_size_bytes": 12345
     }
     """
     try:
-        body = req.get_json()
+        body = parse_ingest_payload(req)
 
-        athlete_id = body.get("athlete_id", "rob")
+        athlete_id = body.get("athlete_id")
         file_content_b64 = body.get("file_content_b64")
-
-        if not file_content_b64:
-            return _json_response({"error": "file_content_b64 is required"}, 400)
 
         # Decode base64 content
         try:
@@ -282,7 +283,11 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
                 "source_item_id": body.get("source_item_id"),
                 "source_drive_id": body.get("source_drive_id"),
                 "source_etag": body.get("source_etag"),
+                "source_ctag": body.get("source_ctag"),
+                "source_quickxor_hash": body.get("source_quickxor_hash"),
+                "source_modified_at_utc": body.get("source_modified_at_utc"),
                 "file_size_bytes": body.get("file_size_bytes"),
+                "file_sha256": body.get("file_sha256"),
             }
 
             metrics, status = handler.handle(

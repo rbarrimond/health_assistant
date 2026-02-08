@@ -84,6 +84,9 @@ class FitPayloadIngestionHandler(IngestionHandlerBase):
             "source_item_id": payload.get("source_item_id"),
             "source_drive_id": payload.get("source_drive_id"),
             "source_etag": payload.get("source_etag"),
+            "source_ctag": payload.get("source_ctag"),
+            "source_quickxor_hash": payload.get("source_quickxor_hash"),
+            "source_modified_at_utc": payload.get("source_modified_at_utc"),
             "file_size_bytes": payload.get("file_size_bytes"),
             "file_sha256": payload.get("file_sha256")
             or compute_file_hash(tmp_path),
