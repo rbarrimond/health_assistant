@@ -490,7 +490,6 @@ class SemanticLayer:
         # Source metadata
         workout.update({
             "source_system": workout_entity.source_system,
-            "source_file_name": workout_entity.source_file_name,
         })
 
         # Include time series only if requested

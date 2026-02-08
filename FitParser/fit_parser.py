@@ -3,6 +3,7 @@
 import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, cast
 
 import fitparse
@@ -271,8 +272,7 @@ class FitParser:
         clear, testable resolution logic.
         """
         resolver = AppleWorkoutTypeResolver(
-            session_name=self._get_workout_name(),
-            source_file_name=self.source_file_name,
+            workout_name=self._get_workout_name(),
             sport=self._get_sport(),
             sub_sport=self._get_sub_sport()
         )
@@ -282,7 +282,15 @@ class FitParser:
         """Get workout/session name if available."""
         session = self.session_msg
         name = self._get_field_from_msg(session, "session_name")
-        return str(name) if name is not None else None
+        if name is not None:
+            return str(name)
+        if not self.source_file_name:
+            return None
+
+        file_name = Path(self.source_file_name).name
+        if file_name.lower().endswith(".gz"):
+            file_name = file_name[:-3]
+        return Path(file_name).stem or None
 
     def _get_device_name(self) -> Optional[str]:
         """Get device/manufacturer info."""

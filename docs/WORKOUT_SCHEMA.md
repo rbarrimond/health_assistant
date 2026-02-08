@@ -50,13 +50,7 @@ Why:
 |workout_id|string|✅|Stable unique id (see **workout_id generation**)|
 |athlete_id|string|✅|Short stable identifier for the athlete (e.g., `rob`)|
 |source_system|string|✅|`HealthFit` (or `Garmin`, `Strava`, etc. if expanded later)|
-|source_file_name|string|✅|File name from source (e.g., `2026-01-07-...fit`)|
-|source_file_path|string|✅|Source path (e.g., `/Apps/HealthFit/...`)|
-|source_drive_id|string|⛔️|Source drive ID (if available)|
 |source_item_id|string|⛔️|Source item ID (if available)|
-|source_etag|string|⛔️|Source ETag/version marker (if available)|
-|file_size_bytes|int|⛔️|Size of FIT file|
-|file_sha256|string|⛔️|Optional integrity hash for idempotency + validation|
 
 #### workout_id generation (deterministic)
 
@@ -308,7 +302,12 @@ Tracks what was ingested, avoids duplicates, and preserves errors for troublesho
 |error_message|string|⛔️|Last error message (truncated)|
 |workout_id|string|⛔️|Link to Workouts entity|
 |retry_count|int|✅|Retry count|
+|source_file_name|string|⛔️|Original source filename (e.g., `2026-01-07-...fit`)|
+|source_drive_id|string|⛔️|Source drive ID (if available)|
 |source_etag|string|⛔️|Last seen OneDrive etag for the file|
+|source_ctag|string|⛔️|Last seen OneDrive ctag for the file|
+|source_quickxor_hash|string|⛔️|Last seen OneDrive quickXor hash for the file|
+|source_modified_at_utc|datetime|⛔️|Last modified timestamp from OneDrive|
 |file_sha256|string|⛔️|Last seen file hash for the file|
 |ingest_version|string|✅|Version string of ingestion code (e.g., `v2.0.0`)|
 |ingested_at_utc|datetime (ISO string)|⛔️|Timestamp when status becomes `ingested`|

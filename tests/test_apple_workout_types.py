@@ -12,8 +12,7 @@ from FitParser.apple_workout_types import (
 def test_resolve_prefers_session_name() -> None:
     """Session name should have highest priority."""
     resolver = AppleWorkoutTypeResolver(
-        session_name="Functional Strength Training",
-        source_file_name="Outdoor Walk 2025-01-01.fit",
+        workout_name="Functional Strength Training",
         sport="training",
         sub_sport="strength_training",
     )
@@ -21,11 +20,10 @@ def test_resolve_prefers_session_name() -> None:
     assert resolver.resolve() == FUNCTIONAL_STRENGTH
 
 
-def test_resolve_falls_back_to_source_filename() -> None:
-    """Source filename should be used when session name is missing."""
+def test_resolve_uses_workout_name() -> None:
+    """Workout name should be used when available."""
     resolver = AppleWorkoutTypeResolver(
-        session_name=None,
-        source_file_name="Outdoor Walk 2025-01-01.fit",
+        workout_name="Outdoor Walk 2025-01-01",
         sport="training",
         sub_sport="strength_training",
     )
@@ -36,8 +34,7 @@ def test_resolve_falls_back_to_source_filename() -> None:
 def test_resolve_falls_back_to_fit_sport_mapping() -> None:
     """Sport/sub_sport mapping should be used as a final fallback."""
     resolver = AppleWorkoutTypeResolver(
-        session_name=None,
-        source_file_name=None,
+        workout_name=None,
         sport="training",
         sub_sport="strength_training",
     )
@@ -48,8 +45,7 @@ def test_resolve_falls_back_to_fit_sport_mapping() -> None:
 def test_resolve_handles_special_cases() -> None:
     """Special case strings should map correctly."""
     resolver = AppleWorkoutTypeResolver(
-        session_name="Indoor Cycling",
-        source_file_name=None,
+        workout_name="Indoor Cycling",
         sport="cycling",
         sub_sport="indoor_cycling",
     )

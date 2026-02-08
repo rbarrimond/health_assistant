@@ -2,6 +2,11 @@
 
 ## 2026-02-08
 
+- Remove file provenance fields from Workouts; keep source filename and drive ID in IngestionState.
+- Resolve workout names from FIT session_name, falling back to filename without extension.
+- Resolve Apple workout types from workout_name instead of source filenames.
+- Reuse existing workout_id from ingestion state when reprocessing.
+- Bump ingest version to v2.3.0.
 - Rename chatmodes to agents and remove unknown tool entries.
 - Guard OneDrive sync idempotency checks when storage context is mocked; bump ingest version to v2.2.7.
 - Backfill IngestionState with OneDrive cTag/quickXor hash/modified timestamp when present.

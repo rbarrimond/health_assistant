@@ -17,8 +17,7 @@ class AppleWorkoutTypeResolver:
 
     def __init__(
         self,
-        session_name: Optional[str] = None,
-        source_file_name: Optional[str] = None,
+        workout_name: Optional[str] = None,
         sport: Optional[str] = None,
         sub_sport: Optional[str] = None,
     ):
@@ -26,20 +25,18 @@ class AppleWorkoutTypeResolver:
         Initialize resolver with all available inputs.
 
         Args:
-            session_name: FIT session_name field (most accurate)
-            source_file_name: Original filename (e.g., from OneDrive)
+            workout_name: Resolved workout name (session name or filename fallback)
             sport: FIT sport enum value
             sub_sport: FIT sub_sport enum value
         """
-        self.session_name = session_name
-        self.source_file_name = source_file_name
+        self.workout_name = workout_name
         self.sport = sport
         self.sub_sport = sub_sport
 
         logger.debug(
-            "AppleWorkoutTypeResolver initialized: session_name=%r, "
-            "source_file_name=%r, sport=%r, sub_sport=%r",
-            session_name, source_file_name, sport, sub_sport
+            "AppleWorkoutTypeResolver initialized: workout_name=%r, "
+            "sport=%r, sub_sport=%r",
+            workout_name, sport, sub_sport
         )
 
     def resolve(self) -> Optional[str]:
@@ -47,34 +44,23 @@ class AppleWorkoutTypeResolver:
         Resolve Apple Watch workout type with clear priority.
 
         Resolution strategy:
-        1. Extract from session_name (FIT field, most reliable)
-        2. Extract from source_file_name (filename fallback)
-        3. Map from FIT sport/sub_sport (final fallback)
+        1. Extract from workout_name (session name or filename fallback)
+        2. Map from FIT sport/sub_sport (final fallback)
 
         Returns:
             Apple Watch workout type string or None
         """
         try:
-            # Strategy 1: Try session_name first
-            if self.session_name:
-                result = self._extract_from_name(self.session_name)
+            # Strategy 1: Try workout_name first
+            if self.workout_name:
+                result = self._extract_from_name(self.workout_name)
                 if result:
-                    logger.debug("Resolved from session_name: %r -> %r",
-                                 self.session_name, result)
+                    logger.debug("Resolved from workout_name: %r -> %r",
+                                 self.workout_name, result)
                     return result
-                logger.debug("No match in session_name: %r", self.session_name)
+                logger.debug("No match in workout_name: %r", self.workout_name)
 
-            # Strategy 2: Fallback to source filename
-            if self.source_file_name:
-                result = self._extract_from_name(self.source_file_name)
-                if result:
-                    logger.debug("Resolved from source_file_name: %r -> %r",
-                                 self.source_file_name, result)
-                    return result
-                logger.debug("No match in source_file_name: %r",
-                             self.source_file_name)
-
-            # Strategy 3: Final fallback to FIT sport mapping
+            # Strategy 2: Final fallback to FIT sport mapping
             if self.sport:
                 result = self._match_fit_sport(self.sport, self.sub_sport)
                 if result:
@@ -117,7 +103,7 @@ class AppleWorkoutTypeResolver:
         """
         Extract Apple Watch workout type from a name string.
 
-        This handles both session_name and source_file_name inputs.
+        This handles both session names and filename-derived names.
 
         Args:
             name: Name string to extract from (session or filename)

@@ -15,7 +15,7 @@ from FitParser.fit_parser import compute_workout_id
 
 # Constant for UTC timezone suffix replacement
 UTC_SUFFIX = "+00:00"
-INGEST_VERSION = "v2.2.7"
+INGEST_VERSION = "v2.3.0"
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +29,7 @@ class WorkoutEntity:
     workout_id: str
     athlete_id: str
     source_system: str
-    source_file_name: str
-    source_file_path: str
     source_item_id: Optional[str]
-    source_drive_id: Optional[str]
-    source_etag: Optional[str]
-    file_size_bytes: Optional[int]
-    file_sha256: Optional[str]
     metrics: Dict = field(default_factory=dict)
 
     @classmethod
@@ -47,9 +41,9 @@ class WorkoutEntity:
             "workout_id",
             "athlete_id",
             "source_system",
+            "source_item_id",
             "source_file_name",
             "source_file_path",
-            "source_item_id",
             "source_drive_id",
             "source_etag",
             "file_size_bytes",
@@ -72,13 +66,7 @@ class WorkoutEntity:
             workout_id=entity.get("workout_id", ""),
             athlete_id=entity.get("athlete_id", ""),
             source_system=entity.get("source_system", ""),
-            source_file_name=entity.get("source_file_name", ""),
-            source_file_path=entity.get("source_file_path", ""),
             source_item_id=entity.get("source_item_id"),
-            source_drive_id=entity.get("source_drive_id"),
-            source_etag=entity.get("source_etag"),
-            file_size_bytes=entity.get("file_size_bytes"),
-            file_sha256=entity.get("file_sha256"),
             metrics=metrics,
         )
 
@@ -96,13 +84,7 @@ class WorkoutEntity:
             "workout_id": self.workout_id,
             "athlete_id": self.athlete_id,
             "source_system": self.source_system,
-            "source_file_name": self.source_file_name,
-            "source_file_path": self.source_file_path,
             "source_item_id": self.source_item_id,
-            "source_drive_id": self.source_drive_id,
-            "source_etag": self.source_etag,
-            "file_size_bytes": self.file_size_bytes,
-            "file_sha256": self.file_sha256,
         }
 
         for key, value in self.metrics.items():
@@ -123,6 +105,8 @@ class IngestionStateEntity:
     last_attempt_at_utc: str
     retry_count: int
     workout_id: Optional[str]
+    source_file_name: Optional[str] = None
+    source_drive_id: Optional[str] = None
     source_etag: Optional[str] = None
     source_ctag: Optional[str] = None
     source_quickxor_hash: Optional[str] = None
@@ -149,6 +133,10 @@ class IngestionStateEntity:
             "retry_count": self.retry_count,
             "workout_id": self.workout_id,
         }
+        if self.source_file_name is not None:
+            entity["source_file_name"] = self.source_file_name
+        if self.source_drive_id is not None:
+            entity["source_drive_id"] = self.source_drive_id
         if self.source_etag is not None:
             entity["source_etag"] = self.source_etag
         if self.source_ctag is not None:
@@ -311,7 +299,13 @@ class IngestionContext:
         source_quickxor_hash = self.file_info.get("source_quickxor_hash")
         source_modified_at_utc = self.file_info.get("source_modified_at_utc")
         file_sha256 = self.file_info.get("file_sha256")
+        source_file_name = self.file_info.get("source_file_name")
+        source_drive_id = self.file_info.get("source_drive_id")
         if status == "skipped" and self.existing_state:
+            if self.existing_state.get("source_file_name") is not None:
+                source_file_name = self.existing_state.get("source_file_name")
+            if self.existing_state.get("source_drive_id") is not None:
+                source_drive_id = self.existing_state.get("source_drive_id")
             if self.existing_state.get("source_etag") is not None:
                 source_etag = self.existing_state.get("source_etag")
             if self.existing_state.get("source_ctag") is not None:
@@ -331,6 +325,8 @@ class IngestionContext:
             last_attempt_at_utc=now_utc,
             retry_count=self.next_retry_count(status),
             workout_id=self.workout_id,
+            source_file_name=source_file_name,
+            source_drive_id=source_drive_id,
             source_etag=source_etag,
             source_ctag=source_ctag,
             source_quickxor_hash=source_quickxor_hash,
@@ -443,8 +439,14 @@ class WorkoutTableStorage:
         Returns:
             workout_id of stored entity
         """
-        # Generate deterministic workout_id
-        workout_id = compute_workout_id(
+        existing_workout_id = None
+        if source_info.get("source_item_id") or source_info.get("file_sha256"):
+            context = self.get_ingestion_context(athlete_id, source_info)
+            if context.existing_state:
+                existing_workout_id = context.existing_state.get("workout_id")
+
+        # Generate deterministic workout_id (reuse existing if available)
+        workout_id = existing_workout_id or compute_workout_id(
             source_item_id=source_info.get("source_item_id"),
             file_sha256=source_info.get("file_sha256"),
             file_path=source_info.get("source_file_path"),
@@ -472,13 +474,7 @@ class WorkoutTableStorage:
             workout_id=workout_id,
             athlete_id=athlete_id,
             source_system=source_info.get("source_system", "HealthFit"),
-            source_file_name=source_info.get("source_file_name", ""),
-            source_file_path=source_info.get("source_file_path", ""),
             source_item_id=source_info.get("source_item_id"),
-            source_drive_id=source_info.get("source_drive_id"),
-            source_etag=source_info.get("source_etag"),
-            file_size_bytes=source_info.get("file_size_bytes"),
-            file_sha256=source_info.get("file_sha256"),
             metrics=metrics,
         ).to_entity()
 

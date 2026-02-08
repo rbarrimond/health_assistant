@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional
 
 import fitparse
@@ -247,6 +248,11 @@ class FitAdapter:
          avg_speed_mps, max_speed_mps) = self._extract_session_metrics(session_msg)
 
         workout_name = self._get_field_value(session_msg, "session_name")
+        if workout_name is None and self.source_file_name:
+            file_name = Path(self.source_file_name).name
+            if file_name.lower().endswith(".gz"):
+                file_name = file_name[:-3]
+            workout_name = Path(file_name).stem or None
         indoor = self._get_field_value(session_msg, "indoor")
         moving = self._get_field_value(session_msg, "total_timer_time")
         moving_sec = int(moving) if moving is not None else None
@@ -268,9 +274,8 @@ class FitAdapter:
             # Otherwise leave as None
 
         resolver = AppleWorkoutTypeResolver(
-            session_name=str(
+            workout_name=str(
                 workout_name) if workout_name is not None else None,
-            source_file_name=self.source_file_name,
             sport=sport_name,
             sub_sport=sub_sport_name,
         )
