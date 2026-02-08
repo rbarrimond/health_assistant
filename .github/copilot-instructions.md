@@ -1,0 +1,1 @@
+- Always record code changes you make, and bump the ingestion SemVer whenever your changes affect ingestion, parsing, or any stored workout/physiometrics schema.
