@@ -15,6 +15,7 @@ Azure Function App that parses FIT workout files from multiple sources (OneDrive
 | **Agent memory system?** | [AGENT_MEMORY.md](./docs/AGENT_MEMORY.md) |
 | **Configuring backends?** | [BACKENDS.md](./docs/BACKENDS.md) → OneDrive, Withings, Garmin |
 | **Understanding the data model?** | [WORKOUT_SCHEMA.md](./docs/WORKOUT_SCHEMA.md) |
+| **Chaos testing?** | [CHAOS.md](./docs/CHAOS.md) |
 | **Design philosophy?** | [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./docs/WORKOUT_INTELLIGENCE_AGENT_VISION.md) |
 
 ## Architecture
