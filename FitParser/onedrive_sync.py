@@ -12,7 +12,7 @@ import re
 from typing import Callable, Dict
 
 from .onedrive_client import OneDriveGraphClient
-from .table_storage import WorkoutTableStorage
+from .table_storage import IngestionContext, WorkoutTableStorage
 
 
 logger = logging.getLogger(__name__)
@@ -158,7 +158,12 @@ class OneDrivePersonalSyncService:
                     source_info,
                     ingestion_key=item_meta["source_item_id"],
                 )
-                if context.should_skip():
+                should_skip = (
+                    context.should_skip()
+                    if isinstance(context, IngestionContext)
+                    else False
+                )
+                if should_skip:
                     self._record_skip_result(
                         results,
                         athlete_id,

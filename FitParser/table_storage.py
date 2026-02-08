@@ -15,7 +15,7 @@ from FitParser.fit_parser import compute_workout_id
 
 # Constant for UTC timezone suffix replacement
 UTC_SUFFIX = "+00:00"
-INGEST_VERSION = "v2.2.6"
+INGEST_VERSION = "v2.2.7"
 
 logger = logging.getLogger(__name__)
 
@@ -520,7 +520,11 @@ class WorkoutTableStorage:
 
         # Log ingestion key and retry count for debugging idempotency
         logger.debug("Generated ingestion key for state: %s", context.ingestion_key)
-        logger.debug("Retry count for %s: %d", context.ingestion_key, context.next_retry_count(status))
+        logger.debug(
+            "Retry count for %s: %d",
+            context.ingestion_key,
+            context.next_retry_count(status),
+        )
 
         entity = context.build_state_entity(status=status, error=error).to_entity()
 

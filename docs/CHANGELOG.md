@@ -2,6 +2,8 @@
 
 ## 2026-02-08
 
+- Rename chatmodes to agents and remove unknown tool entries.
+- Guard OneDrive sync idempotency checks when storage context is mocked; bump ingest version to v2.2.7.
 - Backfill IngestionState with OneDrive cTag/quickXor hash/modified timestamp when present.
 - Bump ingest version to v2.2.6.
 - Enforce required fields for FIT payload ingestion requests.
