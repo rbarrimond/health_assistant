@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 
@@ -16,6 +17,198 @@ from FitParser.fit_parser import compute_workout_id
 UTC_SUFFIX = "+00:00"
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class WorkoutEntity:
+    """Structured Workouts table entity."""
+
+    partition_key: str
+    row_key: str
+    workout_id: str
+    athlete_id: str
+    source_system: str
+    source_file_name: str
+    source_file_path: str
+    source_item_id: Optional[str]
+    source_drive_id: Optional[str]
+    source_etag: Optional[str]
+    file_size_bytes: Optional[int]
+    file_sha256: Optional[str]
+    ingest_version: str
+    ingested_at_utc: str
+    metrics: Dict = field(default_factory=dict)
+
+    def to_entity(self) -> Dict:
+        """
+        Convert the WorkoutEntity instance to a dictionary representation suitable for Azure Table Storage.
+
+        Returns:
+            Dict: A dictionary containing the entity's data.
+        """
+        entity = {
+            "PartitionKey": self.partition_key,
+            "RowKey": self.row_key,
+            "workout_id": self.workout_id,
+            "athlete_id": self.athlete_id,
+            "source_system": self.source_system,
+            "source_file_name": self.source_file_name,
+            "source_file_path": self.source_file_path,
+            "source_item_id": self.source_item_id,
+            "source_drive_id": self.source_drive_id,
+            "source_etag": self.source_etag,
+            "file_size_bytes": self.file_size_bytes,
+            "file_sha256": self.file_sha256,
+            "ingest_version": self.ingest_version,
+            "ingested_at_utc": self.ingested_at_utc,
+        }
+
+        for key, value in self.metrics.items():
+            if value is not None:
+                entity[key] = value
+
+        return entity
+
+
+@dataclass
+class IngestionStateEntity:
+    """Structured IngestionState table entity."""
+
+    partition_key: str
+    row_key: str
+    status: str
+    first_seen_at_utc: str
+    last_attempt_at_utc: str
+    retry_count: int
+    workout_id: Optional[str]
+    error_message: Optional[str] = None
+
+    def to_entity(self) -> Dict:
+        """
+        Convert the IngestionStateEntity instance to a dictionary representation suitable for Azure Table Storage.
+
+        Returns:
+            Dict: A dictionary containing the entity's data.
+        """
+        entity = {
+            "PartitionKey": self.partition_key,
+            "RowKey": self.row_key,
+            "status": self.status,
+            "first_seen_at_utc": self.first_seen_at_utc,
+            "last_attempt_at_utc": self.last_attempt_at_utc,
+            "retry_count": self.retry_count,
+            "workout_id": self.workout_id,
+        }
+        if self.error_message:
+            entity["error_message"] = self.error_message
+        return entity
+
+
+class IngestionContext:
+    """Utility object for ingestion idempotency state and keying."""
+
+    def __init__(
+        self,
+        athlete_id: str,
+        file_info: Dict,
+        workout_id: Optional[str],
+        storage: "WorkoutTableStorage",
+        ingestion_key: Optional[str] = None,
+        existing_state: Optional[Dict] = None,
+    ):
+        self.athlete_id = athlete_id
+        self.file_info = file_info
+        self.workout_id = workout_id
+        self.storage = storage
+
+        self.ingestion_key = ingestion_key or self._build_ingestion_key()
+        self.existing_state = (
+            existing_state
+            if existing_state is not None
+            else self.storage.get_ingestion_state(athlete_id, self.ingestion_key)
+        )
+
+    def _build_ingestion_key(self) -> str:
+        """
+        Generate a unique ingestion key based on file information or workout ID.
+
+        Returns:
+            str: The generated ingestion key.
+
+        Raises:
+            ValueError: If no valid key can be generated.
+        """
+        ingestion_key = (
+            self.file_info.get("source_item_id")
+            or self.file_info.get("file_sha256")
+            or self.workout_id
+        )
+
+        if ingestion_key is None:
+            logger.error("Ingestion key cannot be None. File info: %s", self.file_info)
+            raise ValueError("Ingestion key cannot be None")
+
+        return ingestion_key
+
+    @property
+    def is_ingested(self) -> bool:
+        """
+        Check if the ingestion state indicates the entity is already ingested.
+
+        Returns:
+            bool: True if ingested, False otherwise.
+        """
+        return bool(self.existing_state and self.existing_state.get("status") == "ingested")
+
+    @property
+    def retry_count(self) -> int:
+        """
+        Get the retry count for the ingestion process.
+
+        Returns:
+            int: The number of retries.
+        """
+        if not self.existing_state:
+            return 0
+        return int(self.existing_state.get("retry_count", 0)) + 1
+
+    @property
+    def first_seen_at_utc(self) -> str:
+        """
+        Get the timestamp of the first time the entity was seen.
+
+        Returns:
+            str: The ISO 8601 formatted timestamp.
+        """
+        if self.existing_state and self.existing_state.get("first_seen_at_utc"):
+            return self.existing_state["first_seen_at_utc"]
+        return datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z")
+
+    def build_state_entity(
+        self,
+        status: str,
+        error: Optional[str] = None,
+    ) -> IngestionStateEntity:
+        """
+        Build an IngestionStateEntity instance based on the current context.
+
+        Args:
+            status (str): The status of the ingestion.
+            error (Optional[str]): An optional error message.
+
+        Returns:
+            IngestionStateEntity: The constructed ingestion state entity.
+        """
+        return IngestionStateEntity(
+            partition_key=self.athlete_id,
+            row_key=self.ingestion_key,
+            status=status,
+            first_seen_at_utc=self.first_seen_at_utc,
+            last_attempt_at_utc=datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z"),
+            retry_count=self.retry_count,
+            workout_id=self.workout_id,
+            error_message=error,
+        )
 
 
 class WorkoutTableStorage:
@@ -124,35 +317,29 @@ class WorkoutTableStorage:
             partition_key = f"{athlete_id}|unknown"
             row_key = workout_id[:20]
 
-        # Build entity with all metrics
-        entity = {
-            "PartitionKey": partition_key,
-            "RowKey": row_key,
-            "workout_id": workout_id,
-            "athlete_id": athlete_id,
-            "source_system": source_info.get("source_system", "HealthFit"),
-            "source_file_name": source_info.get("source_file_name", ""),
-            "source_file_path": source_info.get("source_file_path", ""),
-            "source_item_id": source_info.get("source_item_id"),
-            "source_drive_id": source_info.get("source_drive_id"),
-            "source_etag": source_info.get("source_etag"),
-            "file_size_bytes": source_info.get("file_size_bytes"),
-            "file_sha256": source_info.get("file_sha256"),
-        }
-
-        # Add metrics (filter out None values)
-        for key, value in metrics.items():
-            if value is not None:
-                entity[key] = value
-
         # Add ingestion metadata
         now_utc = (
             datetime.now(timezone.utc)
             .isoformat()
             .replace(UTC_SUFFIX, "Z")
         )
-        entity["ingest_version"] = "v1.0.0"
-        entity["ingested_at_utc"] = now_utc
+        entity = WorkoutEntity(
+            partition_key=partition_key,
+            row_key=row_key,
+            workout_id=workout_id,
+            athlete_id=athlete_id,
+            source_system=source_info.get("source_system", "HealthFit"),
+            source_file_name=source_info.get("source_file_name", ""),
+            source_file_path=source_info.get("source_file_path", ""),
+            source_item_id=source_info.get("source_item_id"),
+            source_drive_id=source_info.get("source_drive_id"),
+            source_etag=source_info.get("source_etag"),
+            file_size_bytes=source_info.get("file_size_bytes"),
+            file_sha256=source_info.get("file_sha256"),
+            ingest_version="v1.0.0",
+            ingested_at_utc=now_utc,
+            metrics=metrics,
+        ).to_entity()
 
         # Store in table
         try:
@@ -166,7 +353,9 @@ class WorkoutTableStorage:
 
     def record_ingestion_state(self, athlete_id: str, file_info: Dict,
                                status: str, error: Optional[str] = None,
-                               workout_id: Optional[str] = None):
+                               workout_id: Optional[str] = None,
+                               ingestion_key: Optional[str] = None,
+                               existing_state: Optional[Dict] = None):
         """
         Record ingestion state for idempotency and debugging.
 
@@ -176,43 +365,23 @@ class WorkoutTableStorage:
             status: 'ingested', 'failed', 'skipped'
             error: Error message if status is 'failed'
             workout_id: Associated workout_id if successful
+            ingestion_key: Optional precomputed ingestion key
+            existing_state: Optional preloaded ingestion state entity
         """
-        # Use source_item_id as RowKey (primary idempotency key)
-        row_key = (file_info.get("source_item_id") or
-                   file_info.get("file_sha256") or
-                   file_info.get("source_file_name"))
+        context = IngestionContext(
+            athlete_id=athlete_id,
+            file_info=file_info,
+            workout_id=workout_id,
+            storage=self,
+            ingestion_key=ingestion_key,
+            existing_state=existing_state,
+        )
 
-        # Ensure RowKey is a string before passing to get_ingestion_state
-        if row_key is None:
-            logger.error("RowKey cannot be None. File info: %s", file_info)
-            raise ValueError("RowKey cannot be None")
+        # Log ingestion key and retry count for debugging idempotency
+        logger.debug("Generated ingestion key for state: %s", context.ingestion_key)
+        logger.debug("Retry count for %s: %d", context.ingestion_key, context.retry_count)
 
-        # Retrieve existing ingestion state to update retry count
-        existing_state = self.get_ingestion_state(athlete_id, row_key)
-        retry_count = existing_state.get("retry_count", 0) + 1 if existing_state else 0
-
-        # Log RowKey and retry count for debugging idempotency
-        logger.debug("Generated RowKey for ingestion state: %s", row_key)
-        logger.debug("Retry count for %s: %d", row_key, retry_count)
-
-        entity = {
-            "PartitionKey": athlete_id,
-            "RowKey": row_key,
-            "status": status,
-            "first_seen_at_utc": (
-                existing_state["first_seen_at_utc"]
-                if existing_state else
-                datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z")
-            ),
-            "last_attempt_at_utc": (
-                datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z")
-            ),
-            "retry_count": retry_count,
-            "workout_id": workout_id,
-        }
-
-        if error:
-            entity["error_message"] = error
+        entity = context.build_state_entity(status=status, error=error).to_entity()
 
         # Log entity details for debugging
         logger.debug("Ingestion state entity: %s", entity)
@@ -238,6 +407,7 @@ class WorkoutTableStorage:
         except HttpResponseError as e:
             logger.warning("Error checking ingestion state for %s: %s", file_key, e)
             return None
+
 
     def update_weekly_rollup(self, athlete_id: str, year: str, week: str, rollup_data: Dict):
         """
@@ -373,22 +543,9 @@ class WorkoutTableStorage:
             }
 
             # Add body composition fields if present
-            if latest.get("weight_kg") is not None:
-                result["weight_kg"] = latest.get("weight_kg")
-            if latest.get("fat_mass_kg") is not None:
-                result["fat_mass_kg"] = latest.get("fat_mass_kg")
-            if latest.get("muscle_mass_kg") is not None:
-                result["muscle_mass_kg"] = latest.get("muscle_mass_kg")
-            if latest.get("bone_mass_kg") is not None:
-                result["bone_mass_kg"] = latest.get("bone_mass_kg")
-            if latest.get("body_fat_pct") is not None:
-                result["body_fat_pct"] = latest.get("body_fat_pct")
-            if latest.get("visceral_fat_index") is not None:
-                result["visceral_fat_index"] = latest.get("visceral_fat_index")
-            if latest.get("metabolic_age_years") is not None:
-                result["metabolic_age_years"] = latest.get("metabolic_age_years")
-            if latest.get("cycling_vo2max_ml_kg_min") is not None:
-                result["cycling_vo2max_ml_kg_min"] = latest.get("cycling_vo2max_ml_kg_min")
+            for metric_field in ["weight_kg", "fat_mass_kg", "muscle_mass_kg", "bone_mass_kg"]:
+                if latest.get(metric_field) is not None:
+                    result[metric_field] = latest.get(metric_field)
 
             # Add metadata
             if latest.get("effective_date"):
@@ -475,11 +632,11 @@ class WorkoutTableStorage:
             }
 
             # Add body composition fields if present
-            for field in ["weight_kg", "fat_mass_kg", "muscle_mass_kg", "bone_mass_kg",
+            for metric_field in ["weight_kg", "fat_mass_kg", "muscle_mass_kg", "bone_mass_kg",
                          "body_fat_pct", "visceral_fat_index", "metabolic_age_years",
                          "cycling_vo2max_ml_kg_min"]:
-                if latest.get(field) is not None:
-                    result[field] = latest.get(field)
+                if latest.get(metric_field) is not None:
+                    result[metric_field] = latest.get(metric_field)
 
             # Add metadata
             if latest.get("effective_date"):
