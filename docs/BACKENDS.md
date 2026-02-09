@@ -112,7 +112,7 @@ Runs a one-time sync of recent files. Accepts JSON body:
 | File                                               | Purpose                           |
 | -------------------------------------------------- | --------------------------------- |
 | [onedrive_client.py](FitParser/onedrive_client.py) | Microsoft Graph OAuth + API calls |
-| [onedrive_sync.py](FitParser/onedrive_sync.py)     | OAuth + sync service              |
+| [onedrive_sync_handler.py](FitParser/handlers/onedrive_sync_handler.py) | OAuth + sync service              |
 | [function_app.py](function_app.py)                 | HTTP endpoints + timer trigger    |
 | [table_storage.py](FitParser/table_storage.py)     | Token storage + ingestion state   |
 

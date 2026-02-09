@@ -2,6 +2,13 @@
 
 ## 2026-02-09
 
+- Rename ingestion base and OneDrive sync classes for clearer hierarchy.
+- Make OneDrive sync a concrete ingestion handler; bump ingest version to v3.0.5.
+- Remove redundant bytes handler in favor of base ingestion; bump ingest version to v3.0.4.
+- Centralize bytes ingestion in the base handler; bump ingest version to v3.0.3.
+- Simplify OneDrive sync ingestion wiring; bump ingest version to v3.0.2.
+- Ingest OneDrive FIT bytes directly without base64 payloads or temp files.
+- Allow FitParser/FitAdapter to parse in-memory FIT bytes; bump ingest version to v3.0.1.
 - Refactor FIT ingestion handlers (payload + OneDrive sync) under abstract base; remove FitUploadHandler.
 - Route `process_fit` through payload handler to align HTTP ingestion behavior.
 - Bump ingest version to v3.0.0 (ingestion API response shape change).

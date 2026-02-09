@@ -194,14 +194,13 @@ health_assistant/
 │   ├── types.py                  # Type definitions & enums
 │   ├── logging_setup.py          # Centralized logging configuration
 │   ├── onedrive_client.py        # Microsoft Graph OAuth client
-│   ├── onedrive_sync.py          # OneDrive sync orchestration
 │   ├── withings_client.py        # Withings OAuth + webhook client
 │   ├── withings_webhook_processor.py  # Withings payload processing
 │   ├── backup_exporter.py        # Daily backup to Blob Storage
 │   ├── apple_workout_types.py    # Apple Watch workouts mapping
 │   └── handlers/                 # HTTP business logic handlers
 │       ├── fit_payload_handler.py      # FIT ingestion workflow
-│       ├── onedrive_sync_handler.py    # OneDrive sync endpoint
+│       ├── onedrive_sync_handler.py    # OneDrive sync ingestion + endpoint
 │       ├── query_handler.py            # Workout query orchestration
 │       ├── physiometrics_handler.py    # Body metrics CRUD
 │       ├── withings_handler.py         # Withings integration
