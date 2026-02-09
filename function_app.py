@@ -7,8 +7,6 @@ in FitParser.handlers. All endpoints are thin wrappers that:
 3. Return JSON response
 """
 
-# pylint: disable=too-many-lines
-
 import logging
 import os
 import time
@@ -171,14 +169,6 @@ def _get_athlete_id_from_state(state: str | None) -> str | None:
     if not state:
         return None
     return state.split("|", 1)[0] or None
-
-
-def _read_text_file(path: str) -> str:
-    """Read a text file with utf-8 encoding."""
-    with open(path, "r", encoding="utf-8") as file_handle:
-        return file_handle.read()
-
-
 
 
 # ============================================================================
