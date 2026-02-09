@@ -200,7 +200,7 @@ health_assistant/
 │   ├── backup_exporter.py        # Daily backup to Blob Storage
 │   ├── apple_workout_types.py    # Apple Watch workouts mapping
 │   └── handlers/                 # HTTP business logic handlers
-│       ├── fit_upload_handler.py       # FIT ingestion workflow
+│       ├── fit_payload_handler.py      # FIT ingestion workflow
 │       ├── onedrive_sync_handler.py    # OneDrive sync endpoint
 │       ├── query_handler.py            # Workout query orchestration
 │       ├── physiometrics_handler.py    # Body metrics CRUD
