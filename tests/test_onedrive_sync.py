@@ -2,15 +2,16 @@
 
 # pylint: disable=missing-function-docstring,missing-class-docstring,unused-argument,protected-access,line-too-long
 
-import base64
 from datetime import date, datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
 
-from FitParser import onedrive_sync
-
-from FitParser.onedrive_sync import OneDrivePersonalSyncService, OneDriveSyncConfig
+from FitParser.handlers import onedrive_sync_handler
+from FitParser.handlers.onedrive_sync_handler import (
+    OneDriveSyncIngestionHandler,
+    OneDriveSyncConfig,
+)
 
 
 def _config() -> OneDriveSyncConfig:
@@ -26,7 +27,7 @@ def _config() -> OneDriveSyncConfig:
 
 def test_build_authorize_url():
     storage = MagicMock()
-    service = OneDrivePersonalSyncService(_config(), storage, ingest_payload_fn=lambda _: ({}, 200))
+    service = OneDriveSyncIngestionHandler(_config(), storage)
 
     url = service.build_authorize_url(state="rob:token")
 
@@ -36,7 +37,7 @@ def test_build_authorize_url():
 
 def test_complete_authorization_stores_tokens(monkeypatch):
     storage = MagicMock()
-    service = OneDrivePersonalSyncService(_config(), storage, ingest_payload_fn=lambda _: ({}, 200))
+    service = OneDriveSyncIngestionHandler(_config(), storage)
 
     token_data = {
         "access_token": "access",
@@ -53,7 +54,7 @@ def test_complete_authorization_stores_tokens(monkeypatch):
     storage.store_onedrive_tokens.assert_called_once()
 
 
-def test_sync_uses_ingest_payload(monkeypatch):
+def test_sync_uses_ingest_bytes(monkeypatch):
     storage = MagicMock()
     future = datetime.now(timezone.utc) + timedelta(hours=2)
     tokens = {
@@ -65,12 +66,18 @@ def test_sync_uses_ingest_payload(monkeypatch):
     storage.get_onedrive_tokens.return_value = tokens
 
     payload_calls = []
-
-    def ingest(payload):
-        payload_calls.append(payload)
-        return {"status": "success"}, 200
-
-    service = OneDrivePersonalSyncService(_config(), storage, ingest_payload_fn=ingest)
+    service = OneDriveSyncIngestionHandler(_config(), storage)
+    service.ingest_bytes = MagicMock()
+    service.ingest_bytes.side_effect = (
+        lambda athlete_id, source_info, file_bytes, file_path=None: (
+            payload_calls.append({
+                "athlete_id": athlete_id,
+                "file_bytes": file_bytes,
+                "source_info": source_info,
+                "file_path": file_path,
+            }) or ({"status": "success"}, 200)
+        )
+    )
 
     service._client.list_files = MagicMock(return_value=[{
         "id": "file-id",
@@ -86,14 +93,18 @@ def test_sync_uses_ingest_payload(monkeypatch):
     assert result["status"] == "success"
     assert result["ingested"] == 1
     assert len(payload_calls) == 1
-    assert payload_calls[0]["source_file_name"] == "test.fit"
-    assert base64.b64decode(payload_calls[0]["file_content_b64"]) == b"fit-bytes"
+    assert payload_calls[0]["athlete_id"] == "rob"
+    assert payload_calls[0]["file_bytes"] == b"fit-bytes"
+    assert payload_calls[0]["source_info"]["source_file_name"] == "test.fit"
 
 
 def test_parse_workout_date_from_filename():
-    assert onedrive_sync._parse_workout_date("2026-01-15-ride.fit") == date(2026, 1, 15)
-    assert onedrive_sync._parse_workout_date("no-date.fit") is None
-    assert onedrive_sync._parse_workout_date("2026-13-40-ride.fit") is None
+    assert (
+        onedrive_sync_handler._parse_workout_date("2026-01-15-ride.fit")
+        == date(2026, 1, 15)
+    )
+    assert onedrive_sync_handler._parse_workout_date("no-date.fit") is None
+    assert onedrive_sync_handler._parse_workout_date("2026-13-40-ride.fit") is None
 
 
 def test_sync_filters_by_filename_date(monkeypatch):
@@ -112,9 +123,11 @@ def test_sync_filters_by_filename_date(monkeypatch):
         def now(cls, tz=None):
             return datetime(2026, 2, 1, tzinfo=timezone.utc)
 
-    monkeypatch.setattr(onedrive_sync, "datetime", FixedDateTime)
+    monkeypatch.setattr(onedrive_sync_handler, "datetime", FixedDateTime)
 
-    service = OneDrivePersonalSyncService(_config(), storage, ingest_payload_fn=lambda _: ({"status": "success"}, 200))
+    service = OneDriveSyncIngestionHandler(_config(), storage)
+    service.ingest_bytes = MagicMock()
+    service.ingest_bytes.return_value = ({"status": "success"}, 200)
 
     service._client.list_files = MagicMock(return_value=[{
         "id": "recent",
@@ -159,9 +172,11 @@ def test_sync_falls_back_to_modified_date(monkeypatch):
         def now(cls, tz=None):
             return datetime(2026, 2, 1, tzinfo=timezone.utc)
 
-    monkeypatch.setattr(onedrive_sync, "datetime", FixedDateTime)
+    monkeypatch.setattr(onedrive_sync_handler, "datetime", FixedDateTime)
 
-    service = OneDrivePersonalSyncService(_config(), storage, ingest_payload_fn=lambda _: ({"status": "success"}, 200))
+    service = OneDriveSyncIngestionHandler(_config(), storage)
+    service.ingest_bytes = MagicMock()
+    service.ingest_bytes.return_value = ({"status": "success"}, 200)
 
     service._client.list_files = MagicMock(return_value=[{
         "id": "unknown",
@@ -184,7 +199,7 @@ def test_sync_skips_when_no_tokens():
     storage = MagicMock()
     storage.get_onedrive_tokens.return_value = None
 
-    service = OneDrivePersonalSyncService(_config(), storage, ingest_payload_fn=lambda _: ({}, 200))
+    service = OneDriveSyncIngestionHandler(_config(), storage)
 
     with pytest.raises(ValueError):
         service.sync(athlete_id="rob", lookback_days=30)

@@ -13,7 +13,10 @@ from typing import Any, Dict
 
 from azure.core.exceptions import AzureError
 
-from FitParser.onedrive_sync import OneDrivePersonalSyncService, OneDriveSyncConfig
+from FitParser.handlers.onedrive_sync_handler import (
+    OneDriveSyncIngestionHandler,
+    OneDriveSyncConfig,
+)
 from FitParser.semantic_layer import SemanticLayer
 from FitParser.table_storage import WorkoutTableStorage
 from FitParser.withings_client import WithingsClient
@@ -50,13 +53,12 @@ class FunctionAppDependencies:
         return handler.handle(payload)
 
     @cached_property
-    def onedrive_service(self) -> OneDrivePersonalSyncService:
+    def onedrive_service(self) -> OneDriveSyncIngestionHandler:
         """Return a cached OneDrive sync service instance, creating it on first use."""
         config = OneDriveSyncConfig.from_env()
-        service = OneDrivePersonalSyncService(
+        service = OneDriveSyncIngestionHandler(
             config=config,
             storage=self.storage,
-            ingest_payload_fn=self.ingest_fit_payload,
         )
         logger.info("OneDrive service initialized")
         return service

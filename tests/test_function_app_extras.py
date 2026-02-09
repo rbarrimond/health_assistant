@@ -6,14 +6,14 @@
 import base64
 import json
 import os
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import azure.functions as func
 
 import function_app
-from FitParser.dependencies import FunctionAppDependencies
 from config.constants import ENV_PUBLIC_BASE_URL
-from FitParser.onedrive_sync import (
+from FitParser.dependencies import FunctionAppDependencies
+from FitParser.handlers.onedrive_sync_handler import (
     ONEDRIVE_CLIENT_ID,
     ONEDRIVE_CLIENT_SECRET,
     ONEDRIVE_REDIRECT_URI,
@@ -396,7 +396,7 @@ class TestIngestionHelpersAndFlow:
             "hr_avg_bpm": 150,
         }
 
-        with patch("FitParser.handlers.fit_payload_handler.compute_file_hash", return_value="hash"):
+        with patch("FitParser.handlers.fit_payload_handler.compute_bytes_hash", return_value="hash"):
             with _patch_dependency("storage", mock_storage):
                 with patch("FitParser.handlers.ingestion_base_handler.FitParser", return_value=mock_parser):
                     body, status_code = function_app.dependencies.ingest_fit_payload(payload)

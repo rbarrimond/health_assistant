@@ -16,7 +16,7 @@ from FitParser.handlers.onedrive_sync_handler import (
 
 @pytest.fixture
 def mock_service():
-    """Create a mock OneDrivePersonalSyncService."""
+    """Create a mock OneDriveSyncIngestionHandler."""
     service = MagicMock()
     service.config = MagicMock()
     service.config.lookback_days = 30
