@@ -34,7 +34,7 @@ GET /api/planning/context?athlete_id=rob&days=45
 | `/api/agent/observations` | Training observations | GET/POST `?athlete_id=rob` |
 | `/api/planning/context` | Planning decisions | `?athlete_id=rob&days=45` |
 | `/api/workouts` | List workouts | `?athlete_id=rob&since=2026-01-01&sport=Cycling` |
-| `/api/workouts/{id}` | Workout detail | `/{workout_id}?athlete_id=rob` |
+| `/api/workouts/{workout_id}` | Workout detail | `/{workout_id}?athlete_id=rob` |
 | `/api/rollups/weekly` | Weekly summaries | `?athlete_id=rob&weeks=16` |
 | `/api/analysis/zones` | Zone distribution | `?athlete_id=rob&days=30` |
 | `/api/analysis/efficiency` | Efficiency trends | `?athlete_id=rob&days=90` |
