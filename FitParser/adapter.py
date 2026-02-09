@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import io
 from pathlib import Path
 from typing import Optional
 
@@ -35,12 +36,22 @@ INDOOR_KEYWORDS = [
 class FitAdapter:
     """Build Workout entities from a FIT file."""
 
-    def __init__(self, file_path: str, source_file_name: Optional[str] = None):
+    def __init__(
+        self,
+        file_path: str,
+        source_file_name: Optional[str] = None,
+        file_bytes: Optional[bytes] = None,
+    ):
         self.file_path = file_path
         self.source_file_name = source_file_name
         self._gps_data_cache: Optional[bool] = None
+        self._fit_source = None
         try:
-            self.fit = fitparse.FitFile(file_path)
+            if file_bytes is not None:
+                self._fit_source = io.BytesIO(file_bytes)
+                self.fit = fitparse.FitFile(self._fit_source)
+            else:
+                self.fit = fitparse.FitFile(file_path)
             self.file_id_msg, self.session_msg = self._cache_core_messages()
         except Exception as exc:  # pylint: disable=broad-exception-caught
             raise FitAdapterError(

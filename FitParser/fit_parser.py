@@ -23,15 +23,25 @@ _fitparse = fitparse
 class FitParser:
     """Parser for FIT format workout files."""
 
-    def __init__(self, file_path: str, source_file_name: Optional[str] = None):
-        """Initialize FIT parser with file path and optional source filename.
+    def __init__(
+        self,
+        file_path: Optional[str] = None,
+        source_file_name: Optional[str] = None,
+        file_bytes: Optional[bytes] = None,
+    ):
+        """Initialize FIT parser with file path or in-memory bytes.
 
         Args:
             file_path: Path to the FIT file
             source_file_name: Optional original filename
                 (e.g., from OneDrive) for metadata extraction
+            file_bytes: Optional in-memory FIT bytes
         """
-        self.file_path = file_path
+        if not file_path and file_bytes is None:
+            raise ValueError("file_path or file_bytes must be provided")
+
+        self.file_path = file_path or "<in-memory>"
+        self.file_bytes = file_bytes
         self.source_file_name = source_file_name
         self.fit = None
         self.workout: Optional[Workout] = None
@@ -95,7 +105,8 @@ class FitParser:
         """Load structured entities and raw fitparse for fallbacks."""
         try:
             adapter = FitAdapter(
-                self.file_path,
+                file_path=self.file_path,
+                file_bytes=self.file_bytes,
                 source_file_name=self.source_file_name,
             )
             self.workout = adapter.load_workout()
@@ -809,6 +820,13 @@ def compute_file_hash(file_path: str) -> str:
     with open(file_path, "rb") as f:
         for byte_block in iter(lambda: f.read(4096), b""):
             sha256_hash.update(byte_block)
+    return sha256_hash.hexdigest()
+
+
+def compute_bytes_hash(file_bytes: bytes) -> str:
+    """Compute SHA256 hash of in-memory bytes."""
+    sha256_hash = hashlib.sha256()
+    sha256_hash.update(file_bytes)
     return sha256_hash.hexdigest()
 
 

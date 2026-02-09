@@ -10,10 +10,10 @@ from FitParser.table_storage import WorkoutTableStorage
 logger = logging.getLogger(__name__)
 
 
-class IngestionBaseHandler(ABC):
+class FitIngestionBaseHandler(ABC):
     """Abstract base for FIT ingestion handlers (payload + sync)."""
 
-    def __init__(self, storage: WorkoutTableStorage | None = None):
+    def __init__(self, storage: WorkoutTableStorage):
         self.storage = storage
 
     @abstractmethod
@@ -45,14 +45,39 @@ class IngestionBaseHandler(ABC):
         )
         return True, workout_id
 
+    def ingest_bytes(
+        self,
+        athlete_id: str,
+        source_info: Dict[str, Any],
+        file_bytes: bytes,
+        *,
+        file_path: Optional[str] = None,
+    ) -> Tuple[Dict[str, Any], int]:
+        # Derived handlers normalize input then call this to run shared ingestion.
+        """Ingest a FIT file already available as bytes."""
+        skipped, workout_id = self._skip_if_unchanged(athlete_id, source_info)
+        if skipped:
+            return {"status": "skipped", "workout_id": workout_id}, 200
+
+        _, workout_id = self._parse_and_store(
+            athlete_id,
+            source_info,
+            file_bytes=file_bytes,
+            file_path=file_path,
+        )
+        return {"status": "success", "workout_id": workout_id}, 200
+
     def _parse_and_store(
         self,
         athlete_id: str,
-        file_path: str,
         source_info: Dict[str, Any],
+        *,
+        file_path: Optional[str] = None,
+        file_bytes: Optional[bytes] = None,
     ) -> Tuple[Dict[str, Any], str]:
         parser = FitParser(
-            file_path,
+            file_path=file_path,
+            file_bytes=file_bytes,
             source_file_name=source_info.get("source_file_name"),
         )
         metrics = parser.parse()
