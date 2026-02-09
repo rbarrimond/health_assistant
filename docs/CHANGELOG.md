@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-09
+
+- Refactor FIT ingestion handlers (payload + OneDrive sync) under abstract base; remove FitUploadHandler.
+- Route `process_fit` through payload handler to align HTTP ingestion behavior.
+- Bump ingest version to v3.0.0 (ingestion API response shape change).
+
 ## 2026-02-08
 
 - Fix OpenAPI nullability schema and markdown table pipes; refactor ingestion state preservation.
