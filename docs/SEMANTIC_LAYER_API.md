@@ -28,7 +28,7 @@ GET /api/planning/context?athlete_id=rob&days=45
 
 | Endpoint | Purpose | Example |
 | -------- | ------- | ------- |
-| `/api/health` | Health check | Always returns 200 |
+| `/api/health` | Health check | Returns 200 when healthy, 503 when degraded |
 | `/api/agent/context` | **Agent memory context** | `?athlete_id=rob` |
 | `/api/agent/preferences` | User preferences | GET/POST `?athlete_id=rob` |
 | `/api/agent/observations` | Training observations | GET/POST `?athlete_id=rob` |
