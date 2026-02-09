@@ -393,7 +393,7 @@ class TestIngestionHelpersAndFlow:
 
         with patch("FitParser.handlers.fit_payload_handler.compute_file_hash", return_value="hash"):
             with patch("function_app._get_storage", return_value=mock_storage):
-                with patch("FitParser.handlers.ingestion_base.FitParser", return_value=mock_parser):
+                with patch("FitParser.handlers.ingestion_base_handler.FitParser", return_value=mock_parser):
                     body, status_code = function_app._ingest_fit_payload(payload)
 
         assert status_code == 200

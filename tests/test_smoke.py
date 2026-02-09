@@ -140,26 +140,6 @@ def test_semantic_layer_instantiation() -> None:
         assert layer.storage is storage
 
 
-def test_fit_upload_handler_instantiation() -> None:
-    """FitUploadHandler should instantiate with storage.
-    
-    Verifies that FitUploadHandler's dependencies are available and
-    initialization doesn't fail.
-    """
-    from FitParser.handlers import FitUploadHandler
-    from FitParser.table_storage import WorkoutTableStorage
-    
-    with patch.object(WorkoutTableStorage, "_ensure_tables_exist"):
-        storage = WorkoutTableStorage(
-            connection_string=(
-                "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake;"
-                "EndpointSuffix=core.windows.net"
-            )
-        )
-        handler = FitUploadHandler(storage)
-        assert handler is not None
-        assert handler.storage is storage
-
 
 def test_onedrive_sync_handler_instantiation() -> None:
     """OneDriveSyncHandler should instantiate with OneDrive service.

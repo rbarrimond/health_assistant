@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 
 import pytest
 
-from FitParser.handlers.fit_upload_handler import FitUploadHandler
 from FitParser.handlers.onedrive_sync_handler import (
     OneDriveSyncHandler,
     OneDriveSyncRequest,
@@ -191,40 +190,6 @@ def test_query_handler_handles_semantic_layer_errors():
     # Verify error response
     assert status == 400
     assert "Database error" not in context or context == {}  # ValueError results in empty context
-
-
-# ==============================================================================
-# FitUploadHandler Tests
-# ==============================================================================
-
-def test_fit_upload_handler_processes_valid_file():
-    """Test FIT file upload processing."""
-    # Mock storage
-    storage = Mock()
-    storage.store_workout.return_value = "W123"
-
-    # Create handler
-    handler = FitUploadHandler(storage)
-
-    # Mock FitParser (would need to actually test with real FIT file)
-    # This is simplified for illustration
-    # In real test, you'd create a temp FIT file
-
-    # For this test, we'll just verify the handler structure exists
-    assert handler
-    assert hasattr(handler, 'handle')
-
-
-def test_fit_upload_handler_returns_404_for_missing_file():
-    """Test handler returns 404 for non-existent file."""
-    storage = Mock()
-    handler = FitUploadHandler(storage)
-
-    # Execute with non-existent file
-    _, status = handler.handle("/nonexistent/file.fit", "rob")
-
-    # Verify 404 response
-    assert status == 404
 
 
 # ==============================================================================

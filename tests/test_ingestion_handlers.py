@@ -6,7 +6,14 @@ import base64
 from unittest.mock import Mock, patch
 
 from FitParser.handlers.fit_payload_handler import FitPayloadIngestionHandler
-from FitParser.handlers.ingestion_base import IngestionHandlerBase
+from FitParser.handlers.ingestion_base_handler import IngestionBaseHandler
+
+
+class _TestIngestionHandler(IngestionBaseHandler):
+    """Concrete handler for testing base behavior."""
+
+    def handle(self, *args, **kwargs):  # type: ignore[override]
+        return {"status": "ok"}, 200
 
 
 def test_ingestion_base_skips_unchanged_records_state() -> None:
@@ -18,7 +25,7 @@ def test_ingestion_base_skips_unchanged_records_state() -> None:
     context.ingestion_key = "ingestion-key"
     storage.get_ingestion_context.return_value = context
 
-    handler = IngestionHandlerBase(storage)
+    handler = _TestIngestionHandler(storage)
     skipped, workout_id = handler._skip_if_unchanged(
         "rob",
         {"source_file_name": "file.fit"},
@@ -43,7 +50,7 @@ def test_ingestion_base_does_not_skip_when_unchanged() -> None:
     context.should_skip.return_value = False
     storage.get_ingestion_context.return_value = context
 
-    handler = IngestionHandlerBase(storage)
+    handler = _TestIngestionHandler(storage)
     skipped, workout_id = handler._skip_if_unchanged(
         "rob",
         {"source_file_name": "file.fit"},
@@ -58,9 +65,9 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     """Test parsing and storing records."""
     storage = Mock()
     storage.store_workout.return_value = "workout-2"
-    handler = IngestionHandlerBase(storage)
+    handler = _TestIngestionHandler(storage)
 
-    with patch("FitParser.handlers.ingestion_base.FitParser") as parser_cls:
+    with patch("FitParser.handlers.ingestion_base_handler.FitParser") as parser_cls:
         parser = parser_cls.return_value
         parser.parse.return_value = {"sport": "Cycling"}
 
