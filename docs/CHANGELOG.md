@@ -2,6 +2,7 @@
 
 ## 2026-02-09
 
+- Move OneDrive sync orchestration into `OneDriveSyncHandler` and slim the ingestion handler to single-file work.
 - Rename ingestion base and OneDrive sync classes for clearer hierarchy.
 - Make OneDrive sync a concrete ingestion handler; bump ingest version to v3.0.5.
 - Remove redundant bytes handler in favor of base ingestion; bump ingest version to v3.0.4.
