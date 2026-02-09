@@ -51,7 +51,7 @@ class OneDriveSyncHandler(IngestionBaseHandler):
         super().__init__(storage=None)
         self.service = service
 
-    def handle(self, req: OneDriveSyncRequest) -> Tuple[Dict, int]:
+    def handle(self, *args, **kwargs) -> Tuple[Dict, int]:
         """
         Execute OneDrive sync.
 
@@ -61,6 +61,7 @@ class OneDriveSyncHandler(IngestionBaseHandler):
         Returns:
             (response_dict, HTTP status code)
         """
+        req = self._extract_request(args, kwargs)
         lookback_days = req.lookback_days or self.service.config.lookback_days
 
         if req.async_mode:
@@ -103,3 +104,11 @@ class OneDriveSyncHandler(IngestionBaseHandler):
             "mode": "async",
             "queued_at_utc": datetime.now(timezone.utc).isoformat(),
         }, 202
+
+    def _extract_request(self, args: tuple, kwargs: dict) -> OneDriveSyncRequest:
+        req = kwargs.get("req")
+        if req is None and args:
+            req = args[0]
+        if not isinstance(req, OneDriveSyncRequest):
+            raise TypeError("req must be a OneDriveSyncRequest")
+        return req

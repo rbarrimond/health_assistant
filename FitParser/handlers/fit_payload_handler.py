@@ -16,8 +16,9 @@ logger = logging.getLogger(__name__)
 class FitPayloadIngestionHandler(IngestionBaseHandler):
     """Ingest FIT payloads encoded as base64 plus metadata."""
 
-    def handle(self, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
+    def handle(self, *args, **kwargs) -> Tuple[Dict[str, Any], int]:
         """Handle ingestion requests (HTTP payloads)."""
+        payload = self._extract_payload(args, kwargs)
         return self.handle_payload(payload)
 
     def handle_payload(self, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
@@ -60,6 +61,14 @@ class FitPayloadIngestionHandler(IngestionBaseHandler):
                     os.unlink(tmp_path)
                 except OSError:
                     pass
+
+    def _extract_payload(self, args: tuple, kwargs: dict) -> Dict[str, Any]:
+        payload = kwargs.get("payload")
+        if payload is None and args:
+            payload = args[0]
+        if not isinstance(payload, dict):
+            raise TypeError("payload must be provided as a dict")
+        return payload
 
     def _extract_payload_bytes(self, payload: Dict[str, Any]) -> bytes:
         file_content_b64 = payload.get("file_content_b64")
