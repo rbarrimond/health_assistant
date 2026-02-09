@@ -27,10 +27,7 @@ from config.constants import (
     TEXT_PLAIN_CONTENT_TYPE,
 )
 from FitParser.backup_exporter import BackupExporter
-from FitParser.http_utils import (
-    json_response,
-    public_base_url,
-)
+from FitParser.http_utils import json_response, public_base_url
 from FitParser.onedrive_sync import (
     OneDrivePersonalSyncService,
     OneDriveSyncConfig,
@@ -49,45 +46,12 @@ from FitParser.handlers import (
     HealthHandler,
     AgentMemoryHandler,
 )
+from utils import endpoint, parse_ingest_payload
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 app = func.FunctionApp()
-
-# ============================================================================
-# Utility Functions
-# ============================================================================
-
-
-def parse_ingest_payload(req: func.HttpRequest) -> Dict[str, Any]:
-    """Parse FIT file ingestion payload from HTTP request.
-
-    Extracts and validates required fields from the JSON request body.
-
-    Args:
-        req: Azure HttpRequest object
-
-    Returns:
-        Parsed payload dictionary with required fields
-
-    Raises:
-        ValueError: If required fields are missing
-    """
-    try:
-        payload = req.get_json()
-
-        # Validate required fields
-        required_fields = ["athlete_id",
-                           "source_file_name", "file_content_b64"]
-        for field in required_fields:
-            if field not in payload:
-                raise ValueError(f"Missing required field: {field}")
-
-        return payload
-    except (ValueError, TypeError) as e:
-        msg = f"Invalid payload: {str(e)}"
-        raise ValueError(msg) from e
 
 # ============================================================================
 # Dependency Singletons
@@ -176,6 +140,7 @@ def _get_athlete_id_from_state(state: str | None) -> str | None:
 # ============================================================================
 
 @app.route(route="process_fit", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+@endpoint
 def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
     """Process FIT file upload from base64 content.
 
@@ -195,19 +160,11 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
         "file_size_bytes": 12345
     }
     """
-    try:
-        body = parse_ingest_payload(req)
+    body = parse_ingest_payload(req)
 
-        handler = FitPayloadIngestionHandler(_get_storage())
-        response, status = handler.handle(body)
-        return json_response(cast(Dict[str, Any], response), status)
-
-    except ValueError as exc:  # pylint: disable=broad-exception-caught
-        logger.warning("Upload validation failed: %s", exc)
-        return json_response({"error": str(exc)}, 400)
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Upload endpoint failed: %s", exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    handler = FitPayloadIngestionHandler(_get_storage())
+    response, status = handler.handle(body)
+    return json_response(cast(Dict[str, Any], response), status)
 
 
 # ============================================================================
@@ -215,28 +172,25 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
 # ============================================================================
 
 @app.route(route="onedrive/authorize", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
+@endpoint
 def onedrive_authorize(req: func.HttpRequest) -> func.HttpResponse:
     """Generate OneDrive OAuth authorization URL."""
-    try:
-        athlete_id = req.params.get("athlete_id", "rob")
-        state = req.params.get("state") or _build_onedrive_state(athlete_id)
-        service = _get_onedrive_service()
+    athlete_id = req.params.get("athlete_id", "rob")
+    state = req.params.get("state") or _build_onedrive_state(athlete_id)
+    service = _get_onedrive_service()
 
-        return json_response(
-            {
-                "authorization_url": service.build_authorize_url(state=state),
-                "athlete_id": athlete_id,
-                "state": state,
-            },
-            200,
-        )
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("OneDrive authorize endpoint failed: %s",
-                     exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(
+        {
+            "authorization_url": service.build_authorize_url(state=state),
+            "athlete_id": athlete_id,
+            "state": state,
+        },
+        200,
+    )
 
 
 @app.route(route="onedrive/callback", methods=["GET"])
+@endpoint
 def onedrive_callback(req: func.HttpRequest) -> func.HttpResponse:
     """Handle OneDrive OAuth callback and persist tokens."""
     code = req.params.get("code")
@@ -255,44 +209,36 @@ def onedrive_callback(req: func.HttpRequest) -> func.HttpResponse:
         or "rob"
     )
 
-    try:
-        service = _get_onedrive_service()
-        service.complete_authorization(athlete_id=athlete_id, code=code)
+    service = _get_onedrive_service()
+    service.complete_authorization(athlete_id=athlete_id, code=code)
 
-        success_html = (
-            "<html><body><h1>Success!</h1>"
-            f"<p>OneDrive connected for athlete {athlete_id}.</p>"
-            "<p>You can close this window and return to the app.</p>"
-            "</body></html>"
-        )
-        return func.HttpResponse(
-            success_html,
-            status_code=200,
-            mimetype=HTML_CONTENT_TYPE,
-        )
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("OneDrive callback failed: %s", exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    success_html = (
+        "<html><body><h1>Success!</h1>"
+        f"<p>OneDrive connected for athlete {athlete_id}.</p>"
+        "<p>You can close this window and return to the app.</p>"
+        "</body></html>"
+    )
+    return func.HttpResponse(
+        success_html,
+        status_code=200,
+        mimetype=HTML_CONTENT_TYPE,
+    )
 
 
 @app.route(route="onedrive/sync", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+@endpoint
 def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     """HTTP-triggered OneDrive sync."""
     try:
-        try:
-            body = req.get_json() if req.method == "POST" else {}
-        except ValueError:
-            body = {}
+        body = req.get_json() if req.method == "POST" else {}
+    except ValueError:
+        body = {}
 
-        sync_req = OneDriveSyncRequest(body, dict(req.params))
-        handler = OneDriveSyncHandler(_get_onedrive_service())
-        response, status = handler.handle(sync_req)
+    sync_req = OneDriveSyncRequest(body, dict(req.params))
+    handler = OneDriveSyncHandler(_get_onedrive_service())
+    response, status = handler.handle(sync_req)
 
-        return json_response(response, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Sync endpoint failed: %s", exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(response, status)
 
 
 @app.timer_trigger(arg_name="timer", schedule="0 0 * * * *")  # hourly
@@ -328,72 +274,60 @@ def onedrive_sync_timer(timer: func.TimerRequest) -> None:
 # ============================================================================
 
 @app.route(route="planning/context", methods=["GET"])
+@endpoint
 def planning_context(req: func.HttpRequest) -> func.HttpResponse:
     """Get planning context for training decisions."""
-    try:
-        athlete_id = req.params.get("athlete_id", "rob")
-        days = int(req.params.get("days", "45"))
-        days = max(1, min(days, 365))
+    athlete_id = req.params.get("athlete_id", "rob")
+    days = int(req.params.get("days", "45"))
+    days = max(1, min(days, 365))
 
-        handler = QueryHandler(_get_semantic_layer())
-        context, status = handler.query_planning_context(athlete_id, days)
+    handler = QueryHandler(_get_semantic_layer())
+    context, status = handler.query_planning_context(athlete_id, days)
 
-        return json_response(context, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Planning endpoint failed: %s", exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(context, status)
 
 
 @app.route(route="workouts", methods=["GET"])
+@endpoint
 def list_workouts(req: func.HttpRequest) -> func.HttpResponse:
     """Query workouts with filters."""
-    try:
-        athlete_id = req.params.get("athlete_id", "rob")
-        since = req.params.get("since")
-        until = req.params.get("until")
-        sport = req.params.get("sport")
-        limit = int(req.params.get("limit", "50"))
-        limit = max(1, min(limit, 200))
+    athlete_id = req.params.get("athlete_id", "rob")
+    since = req.params.get("since")
+    until = req.params.get("until")
+    sport = req.params.get("sport")
+    limit = int(req.params.get("limit", "50"))
+    limit = max(1, min(limit, 200))
 
-        handler = QueryHandler(_get_semantic_layer())
-        workouts, status = handler.query_athlete_workouts(
-            athlete_id,
-            limit=limit,
-            since=since,
-            until=until,
-            sport=sport,
-        )
+    handler = QueryHandler(_get_semantic_layer())
+    workouts, status = handler.query_athlete_workouts(
+        athlete_id,
+        limit=limit,
+        since=since,
+        until=until,
+        sport=sport,
+    )
 
-        return json_response({
-            "athlete_id": athlete_id,
-            "count": len(workouts),
-            "workouts": workouts,
-        }, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("List workouts endpoint failed: %s", exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response({
+        "athlete_id": athlete_id,
+        "count": len(workouts),
+        "workouts": workouts,
+    }, status)
 
 
 @app.route(route="workouts/{workout_id}", methods=["GET"])
+@endpoint
 def get_workout_detail(req: func.HttpRequest) -> func.HttpResponse:
     """Get detailed workout data including time series."""
-    try:
-        athlete_id = req.params.get("athlete_id", "rob")
-        workout_id = req.route_params.get("workout_id")
+    athlete_id = req.params.get("athlete_id", "rob")
+    workout_id = req.route_params.get("workout_id")
 
-        if not workout_id:
-            return json_response({"error": "workout_id required in route"}, 400)
+    if not workout_id:
+        return json_response({"error": "workout_id required in route"}, 400)
 
-        handler = QueryHandler(_get_semantic_layer())
-        workout, status = handler.query_workout_detail(athlete_id, workout_id)
+    handler = QueryHandler(_get_semantic_layer())
+    workout, status = handler.query_workout_detail(athlete_id, workout_id)
 
-        return json_response(workout, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Workout detail endpoint failed: %s", exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(workout, status)
 
 
 @app.route(
@@ -401,83 +335,66 @@ def get_workout_detail(req: func.HttpRequest) -> func.HttpResponse:
     methods=["GET"],
     auth_level=func.AuthLevel.FUNCTION
 )
+@endpoint
 def get_workout_recalculated(req: func.HttpRequest) -> func.HttpResponse:
     """Recalculate workout zones with override FTP/LTHR (placeholder endpoint)."""
-    try:
-        workout_id = req.route_params.get("workout_id")
-        ftp_watts = req.params.get("ftp_watts")
-        lthr_bpm = req.params.get("lthr_bpm")
+    workout_id = req.route_params.get("workout_id")
+    ftp_watts = req.params.get("ftp_watts")
+    lthr_bpm = req.params.get("lthr_bpm")
 
-        # Placeholder response - endpoint not yet implemented
-        response = {
-            "message": "Not implemented",
-            "workout_id": workout_id,
-            "physiometrics_override": {
-                "ftp_watts": float(ftp_watts) if ftp_watts else None,
-                "lthr_bpm": float(lthr_bpm) if lthr_bpm else None
-            }
+    # Placeholder response - endpoint not yet implemented
+    response = {
+        "message": "Not implemented",
+        "workout_id": workout_id,
+        "physiometrics_override": {
+            "ftp_watts": float(ftp_watts) if ftp_watts else None,
+            "lthr_bpm": float(lthr_bpm) if lthr_bpm else None
         }
+    }
 
-        return json_response(response, 501)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Recalculated workout endpoint failed: %s",
-                     exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(response, 501)
 
 
 @app.route(route="analysis/zones", methods=["GET"])
+@endpoint
 def zone_distribution(req: func.HttpRequest) -> func.HttpResponse:
     """Get time-in-zone distribution for planning."""
-    try:
-        athlete_id = req.params.get("athlete_id", "rob")
-        days = int(req.params.get("days", "30"))
-        days = max(1, min(days, 365))
+    athlete_id = req.params.get("athlete_id", "rob")
+    days = int(req.params.get("days", "30"))
+    days = max(1, min(days, 365))
 
-        handler = QueryHandler(_get_semantic_layer())
-        zones, status = handler.query_training_zones(athlete_id, days)
+    handler = QueryHandler(_get_semantic_layer())
+    zones, status = handler.query_training_zones(athlete_id, days)
 
-        return json_response(zones, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Zone analysis endpoint failed: %s", exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(zones, status)
 
 
 @app.route(route="analysis/efficiency", methods=["GET"])
+@endpoint
 def efficiency_trends(req: func.HttpRequest) -> func.HttpResponse:
     """Get aerobic efficiency and decoupling trends."""
-    try:
-        athlete_id = req.params.get("athlete_id", "rob")
-        days = int(req.params.get("days", "90"))
-        days = max(1, min(days, 365))
+    athlete_id = req.params.get("athlete_id", "rob")
+    days = int(req.params.get("days", "90"))
+    days = max(1, min(days, 365))
 
-        handler = QueryHandler(_get_semantic_layer())
-        trends, status = handler.query_efficiency_trends(athlete_id, days)
+    handler = QueryHandler(_get_semantic_layer())
+    trends, status = handler.query_efficiency_trends(athlete_id, days)
 
-        return json_response(trends, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Efficiency endpoint failed: %s", exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(trends, status)
 
 
 @app.route(route="rollups/weekly", methods=["GET"])
+@endpoint
 def weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
     """Get weekly rollup data."""
-    try:
-        athlete_id = req.params.get("athlete_id", "rob")
-        weeks = int(req.params.get("weeks", "16"))
-        weeks = max(1, min(weeks, 52))
+    athlete_id = req.params.get("athlete_id", "rob")
+    weeks = int(req.params.get("weeks", "16"))
+    weeks = max(1, min(weeks, 52))
 
-        handler = QueryHandler(_get_semantic_layer())
-        rollups, status = handler.query_weekly_rollups(athlete_id, weeks)
+    handler = QueryHandler(_get_semantic_layer())
+    rollups, status = handler.query_weekly_rollups(athlete_id, weeks)
 
-        return json_response(rollups, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Rollups endpoint failed: %s", exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(rollups, status)
 
 
 # ============================================================================
@@ -485,83 +402,71 @@ def weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
 # ============================================================================
 
 @app.route(route="health", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+@endpoint(
+    response_kind="json",
+    error_status=503,
+    error_body=lambda exc: {"status": "degraded", "error": "Health check failed"},
+)
 def health_check(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable=unused-argument
     """Health check endpoint with dependency verification."""
-    try:
-        handler = HealthHandler(_get_storage(), API_DOCS_DIR)
-        result, status = handler.check_health()
+    handler = HealthHandler(_get_storage(), API_DOCS_DIR)
+    result, status = handler.check_health()
 
-        # Add timestamp
-        result["timestamp"] = datetime.now(timezone.utc).isoformat()
+    # Add timestamp
+    result["timestamp"] = datetime.now(timezone.utc).isoformat()
 
-        return json_response(result, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Health check endpoint failed: %s", exc, exc_info=True)
-        return json_response({
-            "status": "degraded",
-            "error": "Health check failed"
-        }, 503)
+    return json_response(result, status)
 
 
 @app.route(route=".well-known/ai-plugin.json", methods=["GET"])
+@endpoint(
+    response_kind="json",
+    error_body=lambda exc: {"error": "Failed to load plugin manifest"},
+)
 def serve_ai_plugin_manifest(req: func.HttpRequest) -> func.HttpResponse:
     """Serve ChatGPT Actions plugin manifest with dynamic OpenAPI URL."""
-    try:
-        base_url = public_base_url(req)
+    base_url = public_base_url(req)
 
-        env_overrides = {
-            k: v for k, v in {
-                "logo_url": os.getenv(ENV_PLUGIN_LOGO_URL),
-                "contact_email": os.getenv(ENV_PLUGIN_CONTACT_EMAIL),
-                "legal_info_url": os.getenv(ENV_PLUGIN_LEGAL_URL)
-            }.items() if v is not None
-        }
+    env_overrides = {
+        k: v for k, v in {
+            "logo_url": os.getenv(ENV_PLUGIN_LOGO_URL),
+            "contact_email": os.getenv(ENV_PLUGIN_CONTACT_EMAIL),
+            "legal_info_url": os.getenv(ENV_PLUGIN_LEGAL_URL)
+        }.items() if v is not None
+    }
 
-        handler = HealthHandler(_get_storage(), API_DOCS_DIR)
-        result, status = handler.get_plugin_manifest(base_url, env_overrides)
+    handler = HealthHandler(_get_storage(), API_DOCS_DIR)
+    result, status = handler.get_plugin_manifest(base_url, env_overrides)
 
-        return json_response(result, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Plugin manifest endpoint failed: %s", exc, exc_info=True)
-        return json_response({"error": "Failed to load plugin manifest"}, 500)
+    return json_response(result, status)
 
 
 @app.route(route="openapi.yaml", methods=["GET"])
+@endpoint(
+    response_kind="text",
+    error_body=lambda exc: INTERNAL_SERVER_ERROR,
+)
 def serve_openapi_spec(req: func.HttpRequest) -> func.HttpResponse:
     """Serve OpenAPI specification with dynamic server URL."""
-    try:
-        base_url = public_base_url(req)
+    base_url = public_base_url(req)
 
-        handler = HealthHandler(_get_storage(), API_DOCS_DIR)
-        spec_body, status = handler.get_openapi_spec(base_url)
+    handler = HealthHandler(_get_storage(), API_DOCS_DIR)
+    spec_body, status = handler.get_openapi_spec(base_url)
 
-        return func.HttpResponse(spec_body, status_code=status, mimetype="application/x-yaml")
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("OpenAPI spec endpoint failed: %s", exc, exc_info=True)
-        return func.HttpResponse(
-            INTERNAL_SERVER_ERROR, status_code=500, mimetype=TEXT_PLAIN_CONTENT_TYPE
-        )
+    return func.HttpResponse(spec_body, status_code=status, mimetype="application/x-yaml")
 
 
 @app.route(route="logo.svg", methods=["GET"])
+@endpoint(
+    response_kind="text",
+    error_body=lambda exc: "Error loading logo",
+)
 def serve_logo(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable=unused-argument
     """Serve the Health Assistant logo."""
-    try:
-        handler = HealthHandler(_get_storage(), API_DOCS_DIR)
-        logo_body, status = handler.get_logo()
+    handler = HealthHandler(_get_storage(), API_DOCS_DIR)
+    logo_body, status = handler.get_logo()
 
-        return func.HttpResponse(logo_body, status_code=status, mimetype="image/svg+xml")
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Logo endpoint failed: %s", exc, exc_info=True)
-        return func.HttpResponse(
-            "Error loading logo",
-            status_code=500,
-            mimetype=TEXT_PLAIN_CONTENT_TYPE,
-        )
+    return func.HttpResponse(logo_body, status_code=status, mimetype="image/svg+xml")
 
 
 # ============================================================================
@@ -569,86 +474,71 @@ def serve_logo(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable=u
 # ============================================================================
 
 @app.route(route="physiometrics/current", methods=["GET"])
+@endpoint
 def get_current_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
     """Get current physiometric values for an athlete."""
-    try:
-        athlete_id = req.params.get("athlete_id", "rob")
+    athlete_id = req.params.get("athlete_id", "rob")
 
-        handler = PhysiometricsHandler(_get_semantic_layer())
-        result, status = handler.get_current(athlete_id)
+    handler = PhysiometricsHandler(_get_semantic_layer())
+    result, status = handler.get_current(athlete_id)
 
-        return json_response(result, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Physiometrics current endpoint failed: %s",
-                     exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(result, status)
 
 
 @app.route(route="physiometrics/history", methods=["GET"])
+@endpoint
 def get_physiometrics_history(req: func.HttpRequest) -> func.HttpResponse:
     """Get time-series physiometrics data."""
-    try:
-        athlete_id = req.params.get("athlete_id", "rob")
-        days = int(req.params.get("days", "90"))
+    athlete_id = req.params.get("athlete_id", "rob")
+    days = int(req.params.get("days", "90"))
 
-        metrics_param = req.params.get("metrics")
-        metrics = metrics_param.split(",") if metrics_param else None
+    metrics_param = req.params.get("metrics")
+    metrics = metrics_param.split(",") if metrics_param else None
 
-        handler = PhysiometricsHandler(_get_semantic_layer())
-        result, status = handler.get_history(athlete_id, days, metrics)
+    handler = PhysiometricsHandler(_get_semantic_layer())
+    result, status = handler.get_history(athlete_id, days, metrics)
 
-        return json_response(result, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Physiometrics history endpoint failed: %s",
-                     exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(result, status)
 
 
 @app.route(route="physiometrics/update", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+@endpoint
 def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
     """Update physiometric values (single metric or bulk)."""
     try:
-        try:
-            req_body = req.get_json()
-        except ValueError:
-            return json_response({"error": ERR_INVALID_JSON}, 400)
+        req_body = req.get_json()
+    except ValueError:
+        return json_response({"error": ERR_INVALID_JSON}, 400)
 
-        athlete_id = req_body.get("athlete_id")
-        has_single_metric = "metric" in req_body and "value" in req_body
-        has_bulk_metrics = "metrics" in req_body
+    athlete_id = req_body.get("athlete_id")
+    has_single_metric = "metric" in req_body and "value" in req_body
+    has_bulk_metrics = "metrics" in req_body
 
-        if not (has_single_metric or has_bulk_metrics):
-            return json_response(
-                {"error": "Either 'metric'+'value' or 'metrics' dict required"}, 400)
+    if not (has_single_metric or has_bulk_metrics):
+        return json_response(
+            {"error": "Either 'metric'+'value' or 'metrics' dict required"}, 400)
 
-        handler = PhysiometricsHandler(_get_semantic_layer())
-        effective_date = req_body.get("effective_date")
-        source = req_body.get("source", "chatgpt")
+    handler = PhysiometricsHandler(_get_semantic_layer())
+    effective_date = req_body.get("effective_date")
+    source = req_body.get("source", "chatgpt")
 
-        if has_single_metric:
-            result, status = handler.update_metric(
-                athlete_id=athlete_id,
-                metric=req_body["metric"],
-                value=req_body["value"],
-                effective_date=effective_date,
-                source=source
-            )
-        else:
-            result, status = handler.update_metrics(
-                athlete_id=athlete_id,
-                metrics=req_body["metrics"],
-                effective_date=effective_date,
-                source=source
-            )
+    if has_single_metric:
+        result, status = handler.update_metric(
+            athlete_id=athlete_id,
+            metric=req_body["metric"],
+            value=req_body["value"],
+            effective_date=effective_date,
+            source=source
+        )
+    else:
+        result, status = handler.update_metrics(
+            athlete_id=athlete_id,
+            metrics=req_body["metrics"],
+            effective_date=effective_date,
+            source=source
+        )
 
-        return json_response(result, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Physiometrics update endpoint failed: %s",
-                     exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(result, status)
 
 
 # ============================================================================
@@ -656,146 +546,120 @@ def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
 # ============================================================================
 
 @app.route(route="agent/context", methods=["GET"])
+@endpoint
 def get_agent_context(req: func.HttpRequest) -> func.HttpResponse:
     """Get complete agent context (preferences + active observations).
     
     Use this at conversation start to provide context to the GPT agent.
     """
-    try:
-        athlete_id = req.params.get("athlete_id", "rob")
+    athlete_id = req.params.get("athlete_id", "rob")
 
-        handler = AgentMemoryHandler(_get_storage())
-        result, status = handler.get_context(athlete_id)
+    handler = AgentMemoryHandler(_get_storage())
+    result, status = handler.get_context(athlete_id)
 
-        return json_response(result, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Agent context endpoint failed: %s", exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(result, status)
 
 
 @app.route(route="agent/preferences", methods=["GET"])
+@endpoint
 def get_agent_preferences(req: func.HttpRequest) -> func.HttpResponse:
     """Get user preferences for the agent."""
-    try:
-        athlete_id = req.params.get("athlete_id", "rob")
+    athlete_id = req.params.get("athlete_id", "rob")
 
-        handler = AgentMemoryHandler(_get_storage())
-        result, status = handler.get_preferences(athlete_id)
+    handler = AgentMemoryHandler(_get_storage())
+    result, status = handler.get_preferences(athlete_id)
 
-        return json_response(result, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Agent preferences GET endpoint failed: %s", exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(result, status)
 
 
 @app.route(route="agent/preferences", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+@endpoint
 def update_agent_preferences(req: func.HttpRequest) -> func.HttpResponse:
     """Update user preferences for the agent."""
     try:
-        try:
-            req_body = req.get_json()
-        except ValueError:
-            return json_response({"error": ERR_INVALID_JSON}, 400)
+        req_body = req.get_json()
+    except ValueError:
+        return json_response({"error": ERR_INVALID_JSON}, 400)
 
-        athlete_id = req_body.get("athlete_id", "rob")
-        preferences = {k: v for k, v in req_body.items() if k != "athlete_id"}
+    athlete_id = req_body.get("athlete_id", "rob")
+    preferences = {k: v for k, v in req_body.items() if k != "athlete_id"}
 
-        handler = AgentMemoryHandler(_get_storage())
-        result, status = handler.update_preferences(athlete_id, preferences)
+    handler = AgentMemoryHandler(_get_storage())
+    result, status = handler.update_preferences(athlete_id, preferences)
 
-        return json_response(result, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Agent preferences POST endpoint failed: %s", exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(result, status)
 
 
 @app.route(route="agent/observations", methods=["GET"])
+@endpoint
 def list_agent_observations(req: func.HttpRequest) -> func.HttpResponse:
     """List observations for an athlete."""
-    try:
-        athlete_id = req.params.get("athlete_id", "rob")
-        status_filter = req.params.get("status", "active")
-        limit = int(req.params.get("limit", "20"))
+    athlete_id = req.params.get("athlete_id", "rob")
+    status_filter = req.params.get("status", "active")
+    limit = int(req.params.get("limit", "20"))
 
-        handler = AgentMemoryHandler(_get_storage())
-        result, status = handler.list_observations(athlete_id, status_filter, limit)
+    handler = AgentMemoryHandler(_get_storage())
+    result, status = handler.list_observations(athlete_id, status_filter, limit)
 
-        return json_response(result, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Agent observations list endpoint failed: %s", exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(result, status)
 
 
 @app.route(route="agent/observations", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+@endpoint
 def add_agent_observation(req: func.HttpRequest) -> func.HttpResponse:
     """Add a new observation for the agent."""
     try:
-        try:
-            req_body = req.get_json()
-        except ValueError:
-            return json_response({"error": ERR_INVALID_JSON}, 400)
+        req_body = req.get_json()
+    except ValueError:
+        return json_response({"error": ERR_INVALID_JSON}, 400)
 
-        athlete_id = req_body.get("athlete_id", "rob")
-        category = req_body.get("category")
-        summary = req_body.get("summary")
-        details = req_body.get("details")
-        workout_ids = req_body.get("workout_ids", [])
-        priority = req_body.get("priority", "normal")
-        expires_days = req_body.get("expires_days")
+    athlete_id = req_body.get("athlete_id", "rob")
+    category = req_body.get("category")
+    summary = req_body.get("summary")
+    details = req_body.get("details")
+    workout_ids = req_body.get("workout_ids", [])
+    priority = req_body.get("priority", "normal")
+    expires_days = req_body.get("expires_days")
 
-        handler = AgentMemoryHandler(_get_storage())
-        result, status = handler.add_observation(
-            athlete_id=athlete_id,
-            category=category,
-            summary=summary,
-            details=details,
-            workout_ids=workout_ids,
-            priority=priority,
-            expires_days=expires_days
-        )
+    handler = AgentMemoryHandler(_get_storage())
+    result, status = handler.add_observation(
+        athlete_id=athlete_id,
+        category=category,
+        summary=summary,
+        details=details,
+        workout_ids=workout_ids,
+        priority=priority,
+        expires_days=expires_days
+    )
 
-        return json_response(result, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Agent observations POST endpoint failed: %s", exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(result, status)
 
 
 @app.route(route="agent/observations/{observation_id}", methods=["PATCH"],
            auth_level=func.AuthLevel.FUNCTION)
+@endpoint
 def update_agent_observation(req: func.HttpRequest) -> func.HttpResponse:
     """Update an observation's status."""
+    observation_id = req.route_params.get("observation_id")
+    if not observation_id:
+        return json_response({"error": "observation_id required in route"}, 400)
+
     try:
-        observation_id = req.route_params.get("observation_id")
-        if not observation_id:
-            return json_response({"error": "observation_id required in route"}, 400)
+        req_body = req.get_json()
+    except ValueError:
+        return json_response({"error": ERR_INVALID_JSON}, 400)
 
-        try:
-            req_body = req.get_json()
-        except ValueError:
-            return json_response({"error": ERR_INVALID_JSON}, 400)
+    athlete_id = req_body.get("athlete_id", "rob")
+    status = req_body.get("status")
 
-        athlete_id = req_body.get("athlete_id", "rob")
-        status = req_body.get("status")
+    handler = AgentMemoryHandler(_get_storage())
+    result, status_code = handler.update_observation_status(
+        athlete_id=athlete_id,
+        observation_id=observation_id,
+        status=status
+    )
 
-        handler = AgentMemoryHandler(_get_storage())
-        result, status_code = handler.update_observation_status(
-            athlete_id=athlete_id,
-            observation_id=observation_id,
-            status=status
-        )
-
-        return json_response(result, status_code)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error(
-            "Agent observations PATCH endpoint failed: %s", exc, exc_info=True
-        )
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(result, status_code)
 
 
 # ============================================================================
@@ -803,67 +667,57 @@ def update_agent_observation(req: func.HttpRequest) -> func.HttpResponse:
 # ============================================================================
 
 @app.route(route="withings/authorize", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
+@endpoint
 def withings_authorize(req: func.HttpRequest) -> func.HttpResponse:
     """Get Withings OAuth authorization URL."""
-    try:
-        athlete_id = req.params.get("athlete_id", "rob")
+    athlete_id = req.params.get("athlete_id", "rob")
 
-        handler = WithingsHandler(_get_withings_client(), _get_storage())
-        result, status = handler.get_authorization_url(athlete_id)
+    handler = WithingsHandler(_get_withings_client(), _get_storage())
+    result, status = handler.get_authorization_url(athlete_id)
 
-        return json_response(result, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Withings authorize endpoint failed: %s",
-                     exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(result, status)
 
 
 @app.route(route="withings/callback", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+@endpoint(
+    response_kind="html",
+    error_body=lambda exc: (
+        "<html><body><h1>Error</h1>"
+        "<p>Failed to connect Withings account</p>"
+        "</body></html>"
+    ),
+)
 def withings_callback(req: func.HttpRequest) -> func.HttpResponse:
     """Handle Withings OAuth callback."""
-    try:
-        code = req.params.get("code", "")
-        state = req.params.get("state", "")
-        webhook_base_url = os.getenv("WITHINGS_WEBHOOK_URL",
-                                     f"{req.url.split('/api/')[0]}/api/withings/webhook")
+    code = req.params.get("code", "")
+    state = req.params.get("state", "")
+    webhook_base_url = os.getenv("WITHINGS_WEBHOOK_URL",
+                                 f"{req.url.split('/api/')[0]}/api/withings/webhook")
 
-        handler = WithingsHandler(_get_withings_client(), _get_storage())
-        html, status, content_type = handler.handle_oauth_callback(
-            code, state, webhook_base_url)
+    handler = WithingsHandler(_get_withings_client(), _get_storage())
+    html, status, content_type = handler.handle_oauth_callback(
+        code, state, webhook_base_url)
 
-        return func.HttpResponse(html, status_code=status, mimetype=content_type)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Withings callback endpoint failed: %s",
-                     exc, exc_info=True)
-        error_html = (
-            "<html><body><h1>Error</h1>"
-            "<p>Failed to connect Withings account</p>"
-            "</body></html>"
-        )
-        return func.HttpResponse(error_html, status_code=500, mimetype=HTML_CONTENT_TYPE)
+    return func.HttpResponse(html, status_code=status, mimetype=content_type)
 
 
 @app.route(route="withings/webhook", methods=["POST"])
+@endpoint(
+    response_kind="text",
+    swallow_exceptions=True,
+)
 def withings_webhook(req: func.HttpRequest) -> func.HttpResponse:
     """Receive Withings webhook notifications."""
-    try:
-        userid = req.form.get("userid", "")
-        appli = req.form.get("appli", "")
-        startdate = req.form.get("startdate", "")
-        enddate = req.form.get("enddate", "")
+    userid = req.form.get("userid", "")
+    appli = req.form.get("appli", "")
+    startdate = req.form.get("startdate", "")
+    enddate = req.form.get("enddate", "")
 
-        handler = WithingsHandler(_get_withings_client(), _get_storage())
-        result, status = handler.process_webhook(
-            userid, appli, startdate, enddate)
+    handler = WithingsHandler(_get_withings_client(), _get_storage())
+    result, status = handler.process_webhook(
+        userid, appli, startdate, enddate)
 
-        return func.HttpResponse(result, status_code=status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Withings webhook endpoint failed: %s",
-                     exc, exc_info=True)
-        return func.HttpResponse("OK", status_code=200)
+    return func.HttpResponse(result, status_code=status)
 
 
 # ============================================================================
@@ -871,54 +725,43 @@ def withings_webhook(req: func.HttpRequest) -> func.HttpResponse:
 # ============================================================================
 
 @app.route(route="config/reload", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+@endpoint
 def reload_config(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable=unused-argument
     """Reload physiometrics configuration from disk."""
-    try:
-        handler = ConfigHandler()
-        result, status = handler.reload_config()
+    handler = ConfigHandler()
+    result, status = handler.reload_config()
 
-        return json_response(result, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Config reload endpoint failed: %s", exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(result, status)
 
 
 @app.route(route="config/update", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+@endpoint
 def update_config(req: func.HttpRequest) -> func.HttpResponse:
     """Update physiometrics configuration via HTTP POST."""
     try:
-        try:
-            req_body = req.get_json()
-        except ValueError:
-            return json_response({"error": ERR_INVALID_JSON}, 400)
+        req_body = req.get_json()
+    except ValueError:
+        return json_response({"error": ERR_INVALID_JSON}, 400)
 
-        handler = ConfigHandler()
-        result, status = handler.update_config(req_body)
+    handler = ConfigHandler()
+    result, status = handler.update_config(req_body)
 
-        return json_response(result, status)
-
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Config update endpoint failed: %s", exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+    return json_response(result, status)
 
 
 @app.route(route="config/history", methods=["GET"])
+@endpoint
 def config_history(req: func.HttpRequest) -> func.HttpResponse:
     """Get physiometrics configuration change history."""
     try:
         limit = int(req.params.get("limit", "10"))
-
-        handler = ConfigHandler()
-        result, status = handler.get_history(limit)
-
-        return json_response(result, status)
-
     except ValueError:
         return json_response({"error": "Invalid limit parameter"}, 400)
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("Config history endpoint failed: %s", exc, exc_info=True)
-        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+
+    handler = ConfigHandler()
+    result, status = handler.get_history(limit)
+
+    return json_response(result, status)
 
 
 # ============================================================================
