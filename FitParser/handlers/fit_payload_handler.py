@@ -8,13 +8,17 @@ from typing import Any, Dict, Optional, Tuple
 
 from FitParser.exceptions import FitAdapterError, WorkoutTypeResolutionError
 from FitParser.fit_parser import compute_file_hash
-from FitParser.handlers.ingestion_base import IngestionHandlerBase
+from FitParser.handlers.ingestion_base_handler import IngestionBaseHandler
 
 logger = logging.getLogger(__name__)
 
 
-class FitPayloadIngestionHandler(IngestionHandlerBase):
+class FitPayloadIngestionHandler(IngestionBaseHandler):
     """Ingest FIT payloads encoded as base64 plus metadata."""
+
+    def handle(self, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
+        """Handle ingestion requests (HTTP payloads)."""
+        return self.handle_payload(payload)
 
     def handle_payload(self, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
         """Process a payload containing base64 FIT file content and metadata."""

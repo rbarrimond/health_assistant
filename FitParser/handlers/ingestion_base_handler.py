@@ -1,6 +1,7 @@
 """Shared ingestion helper logic for FIT processing."""
 
 import logging
+from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Tuple
 
 from FitParser.fit_parser import FitParser
@@ -9,11 +10,16 @@ from FitParser.table_storage import WorkoutTableStorage
 logger = logging.getLogger(__name__)
 
 
-class IngestionHandlerBase:
-    """Base class for ingestion handlers that share idempotency logic."""
+class IngestionBaseHandler(ABC):
+    """Abstract base for FIT ingestion handlers (payload + sync)."""
 
-    def __init__(self, storage: WorkoutTableStorage):
+    def __init__(self, storage: WorkoutTableStorage | None = None):
         self.storage = storage
+
+    @abstractmethod
+    def handle(self, *args, **kwargs) -> Tuple[Dict[str, Any], int]:
+        """Process a FIT ingestion request and return (response, status)."""
+        raise NotImplementedError
 
     def _skip_if_unchanged(
         self,

@@ -9,11 +9,9 @@ in FitParser.handlers. All endpoints are thin wrappers that:
 
 # pylint: disable=too-many-lines
 
-import base64
 import json
 import logging
 import os
-import tempfile
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, cast
@@ -32,7 +30,6 @@ from FitParser.table_storage import WorkoutTableStorage
 from FitParser.withings_client import WithingsClient
 from FitParser.handlers import (
     FitPayloadIngestionHandler,
-    FitUploadHandler,
     OneDriveSyncHandler,
     OneDriveSyncRequest,
     QueryHandler,
@@ -161,7 +158,7 @@ def _ingest_fit_payload(payload: Dict[str, Any]) -> tuple[Dict[str, Any], int]:
     # Payloads provide base64 content plus metadata; we reconstruct a temp FIT file
     # and pass its metadata into the ingestion pipeline for deterministic idempotency.
     handler = FitPayloadIngestionHandler(_get_storage())
-    return handler.handle_payload(payload)
+    return handler.handle(payload)
 
 
 def _get_onedrive_service() -> OneDrivePersonalSyncService:
@@ -256,72 +253,9 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
     try:
         body = parse_ingest_payload(req)
 
-        athlete_id = body.get("athlete_id")
-        file_content_b64 = body.get("file_content_b64")
-
-        # Decode base64 content
-        try:
-            file_bytes = base64.b64decode(file_content_b64)
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            logger.error("Failed to decode base64 content: %s", e)
-            return _json_response({"error": "Invalid base64 content"}, 400)
-
-        # Write to temp file for processing
-        source_file_name = body.get("source_file_name", "unnamed.fit")
-        with tempfile.NamedTemporaryFile(suffix=".fit", delete=False) as tmp:
-            tmp.write(file_bytes)
-            tmp_path = tmp.name
-
-        try:
-            handler = FitUploadHandler(_get_storage())
-
-            # Build complete source metadata from request body
-            source_info = {
-                "source_system": body.get("source_system", "FitFile"),
-                "source_file_name": source_file_name,
-                "source_file_path": body.get("source_file_path"),
-                "source_item_id": body.get("source_item_id"),
-                "source_drive_id": body.get("source_drive_id"),
-                "source_etag": body.get("source_etag"),
-                "source_ctag": body.get("source_ctag"),
-                "source_quickxor_hash": body.get("source_quickxor_hash"),
-                "source_modified_at_utc": body.get("source_modified_at_utc"),
-                "file_size_bytes": body.get("file_size_bytes"),
-                "file_sha256": body.get("file_sha256"),
-            }
-
-            metrics, status = handler.handle(
-                tmp_path,
-                athlete_id,
-                source_file_name=source_file_name,
-                source_info=source_info
-            )
-
-            # Handle success response
-            if status == 201 and metrics:
-                payload = metrics
-                if not isinstance(metrics, dict) and hasattr(metrics, "model_dump"):
-                    payload = metrics.model_dump()  # type: ignore[attr-defined]
-
-                # Add source metadata to response
-                if isinstance(payload, dict):
-                    payload["source_info"] = source_info
-
-                return _json_response(cast(Dict[str, Any], payload), status)
-        finally:
-            # Clean up temp file
-            try:
-                os.unlink(tmp_path)
-            except Exception:  # pylint: disable=broad-exception-caught
-                pass
-
-        # Handle error responses
-        error_msg = {
-            404: "File not found",
-            400: "Invalid FIT file",
-            500: "Upload failed",
-        }.get(status, "Unknown error")
-        return _json_response({"error": error_msg}, status)
+        handler = FitPayloadIngestionHandler(_get_storage())
+        response, status = handler.handle(body)
+        return _json_response(cast(Dict[str, Any], response), status)
 
     except ValueError as exc:  # pylint: disable=broad-exception-caught
         logger.warning("Upload validation failed: %s", exc)

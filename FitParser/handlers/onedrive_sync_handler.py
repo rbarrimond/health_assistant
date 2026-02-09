@@ -5,6 +5,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Dict, Tuple
 
+from FitParser.handlers.ingestion_base_handler import IngestionBaseHandler
 from FitParser.onedrive_sync import OneDrivePersonalSyncService
 
 logger = logging.getLogger(__name__)
@@ -43,10 +44,11 @@ class OneDriveSyncRequest:
         return str(async_param).lower() in {"1", "true", "yes", "y"}
 
 
-class OneDriveSyncHandler:
+class OneDriveSyncHandler(IngestionBaseHandler):
     """Orchestrates OneDrive sync workflow."""
 
     def __init__(self, service: OneDrivePersonalSyncService):
+        super().__init__(storage=None)
         self.service = service
 
     def handle(self, req: OneDriveSyncRequest) -> Tuple[Dict, int]:
