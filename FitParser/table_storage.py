@@ -236,20 +236,20 @@ class IngestionContext:
         if not self.existing_state:
             return False
 
-        existing_ctag = self.existing_state.get("source_ctag")
-        incoming_ctag = self.file_info.get("source_ctag")
-        if incoming_ctag and existing_ctag:
-            return incoming_ctag == existing_ctag
+        existing_sha = self.existing_state.get("file_sha256")
+        incoming_sha = self.file_info.get("file_sha256")
+        if incoming_sha and existing_sha:
+            return incoming_sha == existing_sha
 
         existing_qx = self.existing_state.get("source_quickxor_hash")
         incoming_qx = self.file_info.get("source_quickxor_hash")
         if incoming_qx and existing_qx:
             return incoming_qx == existing_qx
 
-        existing_sha = self.existing_state.get("file_sha256")
-        incoming_sha = self.file_info.get("file_sha256")
-        if incoming_sha and existing_sha:
-            return incoming_sha == existing_sha
+        existing_ctag = self.existing_state.get("source_ctag")
+        incoming_ctag = self.file_info.get("source_ctag")
+        if incoming_ctag and existing_ctag:
+            return incoming_ctag == existing_ctag
 
         existing_etag = self.existing_state.get("source_etag")
         incoming_etag = self.file_info.get("source_etag")
