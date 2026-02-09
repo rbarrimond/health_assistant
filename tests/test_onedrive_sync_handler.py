@@ -9,24 +9,32 @@ import time
 import pytest
 
 from FitParser.handlers.onedrive_sync_handler import (
+    OneDriveSyncConfig,
     OneDriveSyncHandler,
     OneDriveSyncRequest,
 )
 
 
-@pytest.fixture
-def mock_service():
-    """Create a mock OneDriveSyncIngestionHandler."""
-    service = MagicMock()
-    service.config = MagicMock()
-    service.config.lookback_days = 30
-    return service
+def _config(lookback_days: int = 30) -> OneDriveSyncConfig:
+    return OneDriveSyncConfig(
+        client_id="client-id",
+        client_secret="client-secret",
+        redirect_uri="https://example.com/callback",
+        scopes="Files.ReadWrite offline_access",
+        folder_path="/Apps/HealthFit",
+        lookback_days=lookback_days,
+    )
 
 
 @pytest.fixture
-def handler(mock_service):
+def handler():
     """Create OneDriveSyncHandler instance."""
-    return OneDriveSyncHandler(mock_service)
+    return OneDriveSyncHandler(
+        _config(),
+        MagicMock(),
+        client=MagicMock(),
+        ingestion_handler=MagicMock(),
+    )
 
 
 class TestOneDriveSyncRequest:
@@ -100,11 +108,11 @@ class TestOneDriveSyncRequest:
 class TestOneDriveSyncHandler:
     """Test OneDriveSyncHandler sync execution."""
 
-    def test_handle_sync_success(self, handler, mock_service):
+    def test_handle_sync_success(self, handler):
         """Test successful synchronous sync."""
         # Arrange
         expected_result = {"files_processed": 5, "errors": 0}
-        mock_service.sync.return_value = expected_result
+        handler.sync = MagicMock(return_value=expected_result)
         req = OneDriveSyncRequest({"athlete_id": "athlete1", "days": "14"}, {})
 
         # Act
@@ -113,13 +121,18 @@ class TestOneDriveSyncHandler:
         # Assert
         assert status == 200
         assert result == expected_result
-        mock_service.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=14)
+        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=14)
 
-    def test_handle_sync_uses_default_lookback_days(self, handler, mock_service):
+    def test_handle_sync_uses_default_lookback_days(self):
         """Test sync uses default lookback days from config."""
         # Arrange
-        mock_service.config.lookback_days = 45
-        mock_service.sync.return_value = {"files_processed": 2}
+        handler = OneDriveSyncHandler(
+            _config(lookback_days=45),
+            MagicMock(),
+            client=MagicMock(),
+            ingestion_handler=MagicMock(),
+        )
+        handler.sync = MagicMock(return_value={"files_processed": 2})
         req = OneDriveSyncRequest({"athlete_id": "athlete1"}, {})
 
         # Act
@@ -127,12 +140,12 @@ class TestOneDriveSyncHandler:
 
         # Assert
         assert status == 200
-        mock_service.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=45)
+        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=45)
 
-    def test_handle_sync_validation_error(self, handler, mock_service):
+    def test_handle_sync_validation_error(self, handler):
         """Test sync returns 400 for validation errors."""
         # Arrange
-        mock_service.sync.side_effect = ValueError("Invalid athlete_id")
+        handler.sync = MagicMock(side_effect=ValueError("Invalid athlete_id"))
         req = OneDriveSyncRequest({"athlete_id": ""}, {})
 
         # Act
@@ -143,10 +156,10 @@ class TestOneDriveSyncHandler:
         assert "error" in error_resp
         assert "Invalid athlete_id" in error_resp["error"]
 
-    def test_handle_sync_exception(self, handler, mock_service):
+    def test_handle_sync_exception(self, handler):
         """Test sync returns 500 for unexpected errors."""
         # Arrange
-        mock_service.sync.side_effect = Exception("OneDrive API error")
+        handler.sync = MagicMock(side_effect=Exception("OneDrive API error"))
         req = OneDriveSyncRequest({"athlete_id": "athlete1"}, {})
 
         # Act
@@ -156,10 +169,10 @@ class TestOneDriveSyncHandler:
         assert status == 500
         assert "error" in error_resp
 
-    def test_handle_async_queued(self, handler, mock_service):
+    def test_handle_async_queued(self, handler):
         """Test asynchronous sync returns 202 immediately."""
         # Arrange
-        mock_service.sync.return_value = {"files_processed": 0}
+        handler.sync = MagicMock(return_value={"files_processed": 0})
         req = OneDriveSyncRequest(
             {"athlete_id": "athlete1", "days": "14", "async": "true"}, {}
         )
@@ -180,10 +193,10 @@ class TestOneDriveSyncHandler:
         queued_time = datetime.fromisoformat(result["queued_at_utc"])
         assert start_time <= queued_time <= end_time
 
-    def test_handle_async_runs_in_background(self, handler, mock_service):
+    def test_handle_async_runs_in_background(self, handler):
         """Test async sync runs in background thread."""
         # Arrange
-        mock_service.sync.return_value = {"files_processed": 3}
+        handler.sync = MagicMock(return_value={"files_processed": 3})
         req = OneDriveSyncRequest(
             {"athlete_id": "athlete1", "days": "7", "async": "true"}, {}
         )
@@ -199,12 +212,12 @@ class TestOneDriveSyncHandler:
         time.sleep(0.1)
 
         # Verify service.sync was called in background
-        mock_service.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=7)
+        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=7)
 
-    def test_handle_async_exception_logged(self, handler, mock_service):
+    def test_handle_async_exception_logged(self, handler):
         """Test async sync exceptions are logged but don't affect response."""
         # Arrange
-        mock_service.sync.side_effect = Exception("Sync error")
+        handler.sync = MagicMock(side_effect=Exception("Sync error"))
         req = OneDriveSyncRequest(
             {"athlete_id": "athlete1", "async": "true"}, {}
         )
@@ -220,13 +233,18 @@ class TestOneDriveSyncHandler:
         time.sleep(0.1)
 
         # Verify sync was attempted
-        mock_service.sync.assert_called_once()
+        handler.sync.assert_called_once()
 
-    def test_handle_async_default_lookback_days(self, handler, mock_service):
+    def test_handle_async_default_lookback_days(self):
         """Test async sync uses default lookback days from config."""
         # Arrange
-        mock_service.config.lookback_days = 60
-        mock_service.sync.return_value = {}
+        handler = OneDriveSyncHandler(
+            _config(lookback_days=60),
+            MagicMock(),
+            client=MagicMock(),
+            ingestion_handler=MagicMock(),
+        )
+        handler.sync = MagicMock(return_value={})
         req = OneDriveSyncRequest({"athlete_id": "athlete1", "async": "true"}, {})
 
         # Act
@@ -239,12 +257,12 @@ class TestOneDriveSyncHandler:
         # Wait for background thread
         time.sleep(0.1)
 
-        mock_service.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=60)
+        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=60)
 
-    def test_handle_sync_with_query_params(self, handler, mock_service):
+    def test_handle_sync_with_query_params(self, handler):
         """Test sync with query parameters."""
         # Arrange
-        mock_service.sync.return_value = {"files_processed": 1}
+        handler.sync = MagicMock(return_value={"files_processed": 1})
         req = OneDriveSyncRequest({}, {"athlete_id": "athlete2", "days": "28"})
 
         # Act
@@ -252,12 +270,12 @@ class TestOneDriveSyncHandler:
 
         # Assert
         assert status == 200
-        mock_service.sync.assert_called_once_with(athlete_id="athlete2", lookback_days=28)
+        handler.sync.assert_called_once_with(athlete_id="athlete2", lookback_days=28)
 
-    def test_handle_sync_body_overrides_query(self, handler, mock_service):
+    def test_handle_sync_body_overrides_query(self, handler):
         """Test body parameters override query parameters."""
         # Arrange
-        mock_service.sync.return_value = {}
+        handler.sync = MagicMock(return_value={})
         req = OneDriveSyncRequest(
             {"athlete_id": "athlete1", "days": "14"},
             {"athlete_id": "athlete2", "days": "7"},
@@ -267,12 +285,12 @@ class TestOneDriveSyncHandler:
         _, _ = handler.handle(req)
 
         # Assert
-        mock_service.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=14)
+        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=14)
 
-    def test_handle_sync_none_body(self, handler, mock_service):
+    def test_handle_sync_none_body(self, handler):
         """Test handler works with None body."""
         # Arrange
-        mock_service.sync.return_value = {}
+        handler.sync = MagicMock(return_value={})
         req = OneDriveSyncRequest(None, {"athlete_id": "athlete1"})
 
         # Act
@@ -280,12 +298,12 @@ class TestOneDriveSyncHandler:
 
         # Assert
         assert status == 200
-        mock_service.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=30)
+        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=30)
 
-    def test_handle_sync_none_query_params(self, handler, mock_service):
+    def test_handle_sync_none_query_params(self, handler):
         """Test handler works with None query params."""
         # Arrange
-        mock_service.sync.return_value = {}
+        handler.sync = MagicMock(return_value={})
         req = OneDriveSyncRequest({"athlete_id": "athlete1"}, None)
 
         # Act
@@ -293,4 +311,4 @@ class TestOneDriveSyncHandler:
 
         # Assert
         assert status == 200
-        mock_service.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=30)
+        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=30)

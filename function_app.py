@@ -30,7 +30,6 @@ from FitParser.dependencies import dependencies
 from FitParser.http_utils import json_response, public_base_url
 from FitParser.handlers import (
     FitPayloadIngestionHandler,
-    OneDriveSyncHandler,
     OneDriveSyncRequest,
     QueryHandler,
     PhysiometricsHandler,
@@ -163,7 +162,7 @@ def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
         body = {}
 
     sync_req = OneDriveSyncRequest(body, dict(req.params))
-    handler = OneDriveSyncHandler(dependencies.onedrive_service)
+    handler = dependencies.onedrive_service
     response, status = handler.handle(sync_req)
 
     return json_response(response, status)
@@ -177,12 +176,11 @@ def onedrive_sync_timer(timer: func.TimerRequest) -> None:
 
     try:
         athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
-        service = dependencies.onedrive_service
+        handler = dependencies.onedrive_service
 
         # Use handler with sync mode (async=False) to prevent thread leaks
         # Timer triggers must complete synchronously and return cleanly
         sync_req = OneDriveSyncRequest({"athlete_id": athlete_id}, {})
-        handler = OneDriveSyncHandler(service)
         response, status = handler.handle(sync_req)
 
         if status == 200:

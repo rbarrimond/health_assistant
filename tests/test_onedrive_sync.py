@@ -9,8 +9,8 @@ import pytest
 
 from FitParser.handlers import onedrive_sync_handler
 from FitParser.handlers.onedrive_sync_handler import (
-    OneDriveSyncIngestionHandler,
     OneDriveSyncConfig,
+    OneDriveSyncHandler,
 )
 
 
@@ -27,17 +27,20 @@ def _config() -> OneDriveSyncConfig:
 
 def test_build_authorize_url():
     storage = MagicMock()
-    service = OneDriveSyncIngestionHandler(_config(), storage)
+    client = MagicMock()
+    handler = OneDriveSyncHandler(_config(), storage, client=client)
 
-    url = service.build_authorize_url(state="rob:token")
+    client.build_authorize_url.return_value = "https://login.microsoftonline.com/..."
+    url = handler.build_authorize_url(state="rob:token")
 
     assert "login.microsoftonline.com" in url
-    assert "state=rob%3Atoken" in url
+    client.build_authorize_url.assert_called_once_with(state="rob:token")
 
 
 def test_complete_authorization_stores_tokens(monkeypatch):
     storage = MagicMock()
-    service = OneDriveSyncIngestionHandler(_config(), storage)
+    client = MagicMock()
+    handler = OneDriveSyncHandler(_config(), storage, client=client)
 
     token_data = {
         "access_token": "access",
@@ -46,15 +49,15 @@ def test_complete_authorization_stores_tokens(monkeypatch):
         "scope": "Files.ReadWrite",
     }
 
-    service._client.exchange_code = MagicMock(return_value=token_data)  # type: ignore[attr-defined]
-    service._client.get_drive_id = MagicMock(return_value="drive-id")  # type: ignore[attr-defined]
+    client.exchange_code = MagicMock(return_value=token_data)
+    client.get_drive_id = MagicMock(return_value="drive-id")
 
-    service.complete_authorization(athlete_id="rob", code="auth-code")
+    handler.complete_authorization(athlete_id="rob", code="auth-code")
 
     storage.store_onedrive_tokens.assert_called_once()
 
 
-def test_sync_uses_ingest_bytes(monkeypatch):
+def test_sync_calls_ingestion_handler(monkeypatch):
     storage = MagicMock()
     future = datetime.now(timezone.utc) + timedelta(hours=2)
     tokens = {
@@ -65,37 +68,30 @@ def test_sync_uses_ingest_bytes(monkeypatch):
     }
     storage.get_onedrive_tokens.return_value = tokens
 
-    payload_calls = []
-    service = OneDriveSyncIngestionHandler(_config(), storage)
-    service.ingest_bytes = MagicMock()
-    service.ingest_bytes.side_effect = (
-        lambda athlete_id, source_info, file_bytes, file_path=None: (
-            payload_calls.append({
-                "athlete_id": athlete_id,
-                "file_bytes": file_bytes,
-                "source_info": source_info,
-                "file_path": file_path,
-            }) or ({"status": "success"}, 200)
-        )
+    client = MagicMock()
+    ingestion_handler = MagicMock()
+    ingestion_handler.handle.return_value = ({"status": "success"}, 200)
+
+    handler = OneDriveSyncHandler(
+        _config(),
+        storage,
+        client=client,
+        ingestion_handler=ingestion_handler,
     )
 
-    service._client.list_files = MagicMock(return_value=[{
+    client.list_files = MagicMock(return_value=[{
         "id": "file-id",
         "name": "test.fit",
         "size": 10,
         "eTag": "etag",
         "parentReference": {"path": "/drive/root:/Apps/HealthFit", "driveId": "drive-id"},
-    }])  # type: ignore[attr-defined]
-    service._client.download_file = MagicMock(return_value=b"fit-bytes")  # type: ignore[attr-defined]
+    }])
 
-    result = service.sync(athlete_id="rob", lookback_days=30)
+    result = handler.sync(athlete_id="rob", lookback_days=30)
 
     assert result["status"] == "success"
     assert result["ingested"] == 1
-    assert len(payload_calls) == 1
-    assert payload_calls[0]["athlete_id"] == "rob"
-    assert payload_calls[0]["file_bytes"] == b"fit-bytes"
-    assert payload_calls[0]["source_info"]["source_file_name"] == "test.fit"
+    ingestion_handler.handle.assert_called_once()
 
 
 def test_parse_workout_date_from_filename():
@@ -125,11 +121,17 @@ def test_sync_filters_by_filename_date(monkeypatch):
 
     monkeypatch.setattr(onedrive_sync_handler, "datetime", FixedDateTime)
 
-    service = OneDriveSyncIngestionHandler(_config(), storage)
-    service.ingest_bytes = MagicMock()
-    service.ingest_bytes.return_value = ({"status": "success"}, 200)
+    client = MagicMock()
+    ingestion_handler = MagicMock()
+    ingestion_handler.handle.return_value = ({"status": "success"}, 200)
+    handler = OneDriveSyncHandler(
+        _config(),
+        storage,
+        client=client,
+        ingestion_handler=ingestion_handler,
+    )
 
-    service._client.list_files = MagicMock(return_value=[{
+    client.list_files = MagicMock(return_value=[{
         "id": "recent",
         "name": "2026-01-15-ride.fit",
         "size": 10,
@@ -143,17 +145,16 @@ def test_sync_filters_by_filename_date(monkeypatch):
         "eTag": "etag",
         "parentReference": {"path": "/drive/root:/Apps/HealthFit", "driveId": "drive-id"},
         "lastModifiedDateTime": "2026-01-31T12:00:00Z",
-    }])  # type: ignore[attr-defined]
-    service._client.download_file = MagicMock(return_value=b"fit-bytes")  # type: ignore[attr-defined]
+    }])
 
-    result = service.sync(athlete_id="rob", lookback_days=30)
+    result = handler.sync(athlete_id="rob", lookback_days=30)
 
     assert result["found"] == 1
     assert result["ingested"] == 1
-    service._client.list_files.assert_called_once()
-    _, kwargs = service._client.list_files.call_args
+    client.list_files.assert_called_once()
+    _, kwargs = client.list_files.call_args
     assert kwargs["modified_since"] is None
-    service._client.download_file.assert_called_once_with(access_token="access", item_id="recent")
+    ingestion_handler.handle.assert_called_once()
 
 
 def test_sync_falls_back_to_modified_date(monkeypatch):
@@ -174,32 +175,37 @@ def test_sync_falls_back_to_modified_date(monkeypatch):
 
     monkeypatch.setattr(onedrive_sync_handler, "datetime", FixedDateTime)
 
-    service = OneDriveSyncIngestionHandler(_config(), storage)
-    service.ingest_bytes = MagicMock()
-    service.ingest_bytes.return_value = ({"status": "success"}, 200)
+    client = MagicMock()
+    ingestion_handler = MagicMock()
+    ingestion_handler.handle.return_value = ({"status": "success"}, 200)
+    handler = OneDriveSyncHandler(
+        _config(),
+        storage,
+        client=client,
+        ingestion_handler=ingestion_handler,
+    )
 
-    service._client.list_files = MagicMock(return_value=[{
+    client.list_files = MagicMock(return_value=[{
         "id": "unknown",
         "name": "workout.fit",
         "size": 10,
         "eTag": "etag",
         "parentReference": {"path": "/drive/root:/Apps/HealthFit", "driveId": "drive-id"},
         "lastModifiedDateTime": "2025-12-01T12:00:00Z",
-    }])  # type: ignore[attr-defined]
-    service._client.download_file = MagicMock(return_value=b"fit-bytes")  # type: ignore[attr-defined]
+    }])
 
-    result = service.sync(athlete_id="rob", lookback_days=30)
+    result = handler.sync(athlete_id="rob", lookback_days=30)
 
     assert result["found"] == 0
     assert result["ingested"] == 0
-    service._client.download_file.assert_not_called()
+    ingestion_handler.handle.assert_not_called()
 
 
 def test_sync_skips_when_no_tokens():
     storage = MagicMock()
     storage.get_onedrive_tokens.return_value = None
 
-    service = OneDriveSyncIngestionHandler(_config(), storage)
+    handler = OneDriveSyncHandler(_config(), storage, client=MagicMock())
 
     with pytest.raises(ValueError):
-        service.sync(athlete_id="rob", lookback_days=30)
+        handler.sync(athlete_id="rob", lookback_days=30)

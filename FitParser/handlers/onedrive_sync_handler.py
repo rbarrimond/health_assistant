@@ -70,30 +70,189 @@ class OneDriveSyncConfig:
 
 
 class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
-    """Sync OneDrive Personal folders and ingest FIT files."""
+    """Ingest a single OneDrive item."""
+
+    def __init__(
+        self,
+        storage: WorkoutTableStorage,
+        client: OneDriveGraphClient,
+    ) -> None:
+        super().__init__(storage)
+        self._client = client
+
+    def handle(self, *args, **kwargs) -> tuple[Dict, int]:
+        """
+        Ingest a single OneDrive item.
+
+        Required kwargs:
+            athlete_id: Athlete identifier
+            access_token: OneDrive OAuth access token
+            item: OneDrive item dict
+            drive_id: Optional OneDrive drive ID fallback
+        """
+        athlete_id = kwargs["athlete_id"]
+        access_token = kwargs["access_token"]
+        item = kwargs["item"]
+        drive_id = kwargs.get("drive_id")
+
+        item_meta = self._extract_item_metadata(item, drive_id)
+        source_info = self._build_source_info(item, item_meta)
+
+        context = self.storage.get_ingestion_context(
+            athlete_id,
+            source_info,
+            ingestion_key=item_meta["source_item_id"],
+        )
+        should_skip = (
+            context.should_skip()
+            if isinstance(context, IngestionContext)
+            else False
+        )
+        if should_skip:
+            workout_id = (
+                context.existing_state.get("workout_id")
+                if context.existing_state
+                else None
+            )
+            self.storage.record_ingestion_state(
+                athlete_id,
+                source_info,
+                status="skipped",
+                workout_id=workout_id,
+                ingestion_key=context.ingestion_key,
+                existing_state=context.existing_state,
+            )
+            return {
+                "status": "skipped",
+                "workout_id": workout_id,
+                "message": "Unchanged content",
+            }, 200
+
+        raw_content = self._client.download_file(
+            access_token=access_token, item_id=item["id"]
+        )
+        file_name, content = _maybe_decode_gzip(item["name"], raw_content)
+        source_info["source_file_name"] = file_name
+        source_info["file_sha256"] = compute_bytes_hash(content)
+
+        _, workout_id = self._parse_and_store(
+            athlete_id,
+            source_info,
+            file_bytes=content,
+            file_path=source_info.get("source_file_path"),
+        )
+        return {"status": "success", "workout_id": workout_id}, 200
+
+    def _extract_item_metadata(self, item: Dict, drive_id: str | None) -> Dict:
+        """Extract OneDrive fields used for ingest and state tracking."""
+        parent_path = item.get("parentReference", {}).get("path", "")
+        file_path = f"{parent_path}/{item['name']}" if parent_path else item["name"]
+        return {
+            "file_path": file_path,
+            "source_item_id": f"onedrive:{item['id']}",
+            "source_etag": item.get("eTag"),
+            "source_ctag": item.get("cTag"),
+            "source_modified_at_utc": item.get("lastModifiedDateTime"),
+            "source_quickxor_hash": item.get("file", {}).get("hashes", {}).get("quickXorHash"),
+            "source_drive_id": item.get("parentReference", {}).get("driveId") or drive_id,
+        }
+
+    def _build_source_info(self, item: Dict, item_meta: Dict) -> Dict:
+        """Build source info metadata for ingestion state tracking."""
+        return {
+            "source_system": "HealthFit",
+            "source_file_name": item.get("name"),
+            "source_file_path": item_meta["file_path"],
+            "source_item_id": item_meta["source_item_id"],
+            "source_drive_id": item_meta["source_drive_id"],
+            "source_etag": item_meta["source_etag"],
+            "source_ctag": item_meta["source_ctag"],
+            "source_quickxor_hash": item_meta["source_quickxor_hash"],
+            "source_modified_at_utc": item_meta["source_modified_at_utc"],
+            "file_size_bytes": item.get("size"),
+        }
+
+    def _record_error(self, athlete_id: str, source_info: Dict, exc: Exception) -> None:
+        self._record_failure(athlete_id, source_info, str(exc))
+
+
+class OneDriveSyncRequest:
+    """Encapsulates OneDrive sync request parsing."""
+
+    def __init__(self, body: Dict, query_params: Dict):
+        self.body = body or {}
+        self.query_params = query_params or {}
+
+    @property
+    def athlete_id(self) -> str:
+        """Extract athlete_id from body or query params."""
+        athlete_id = self.body.get("athlete_id") or self.query_params.get("athlete_id")
+        return athlete_id or "rob"
+
+    @property
+    def lookback_days(self) -> int | None:
+        """Extract and validate lookback days."""
+        days = self.body.get("days") or self.query_params.get("days")
+        if days is None:
+            return None
+        try:
+            return int(days)
+        except (ValueError, TypeError):
+            return None
+
+    @property
+    def async_mode(self) -> bool:
+        """Extract async flag from body or query params."""
+        async_param = self.body.get("async") or self.query_params.get("async")
+        if async_param is None:
+            return False
+        return str(async_param).lower() in {"1", "true", "yes", "y"}
+
+
+class OneDriveSyncHandler:
+    """Orchestrates OneDrive sync workflow."""
 
     def __init__(
         self,
         config: OneDriveSyncConfig,
         storage: WorkoutTableStorage,
-    ) -> None:
-        """Initialize the OneDrive sync service with configuration and storage."""
-        super().__init__(storage)
+        *,
+        client: OneDriveGraphClient | None = None,
+        ingestion_handler: OneDriveSyncIngestionHandler | None = None,
+    ):
         self._config = config
         self._storage = storage
-        self._client = OneDriveGraphClient(
+        self._client = client or OneDriveGraphClient(
             client_id=config.client_id,
             client_secret=config.client_secret,
             redirect_uri=config.redirect_uri,
             scopes=config.scopes,
         )
+        self._ingestion_handler = ingestion_handler or OneDriveSyncIngestionHandler(
+            storage,
+            self._client,
+        )
 
-    def handle(self, *args, **kwargs) -> tuple[Dict, int]:
-        raise NotImplementedError("Use sync() for OneDrive ingestion")
+    def handle(self, *args, **kwargs) -> Tuple[Dict, int]:
+        """
+        Execute OneDrive sync.
+
+        Args:
+            req: Parsed sync request
+
+        Returns:
+            (response_dict, HTTP status code)
+        """
+        req = self._extract_request(args, kwargs)
+        lookback_days = req.lookback_days or self._config.lookback_days
+
+        if req.async_mode:
+            return self._handle_async(req.athlete_id, lookback_days)
+
+        return self._handle_sync(req.athlete_id, lookback_days)
 
     @property
     def config(self) -> OneDriveSyncConfig:
-        """Return the OneDrive sync configuration."""
         return self._config
 
     def build_authorize_url(self, *, state: str) -> str:
@@ -113,6 +272,48 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
             drive_id=drive_id,
         )
         return token_data
+
+    def _handle_sync(self, athlete_id: str, lookback_days: int) -> Tuple[Dict, int]:
+        """Execute synchronous sync."""
+        try:
+            result = self.sync(athlete_id=athlete_id, lookback_days=lookback_days)
+            return result, 200
+        except ValueError as exc:
+            logger.warning("Sync validation failed: %s", exc)
+            return {"error": str(exc)}, 400
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.error("Sync failed: %s", exc, exc_info=True)
+            return {"error": "Sync failed"}, 500
+
+    def _handle_async(self, athlete_id: str, lookback_days: int) -> Tuple[Dict, int]:
+        """Queue asynchronous sync."""
+
+        def _run_background_sync() -> None:
+            try:
+                result = self.sync(
+                    athlete_id=athlete_id, lookback_days=lookback_days
+                )
+                logger.info("Async sync completed: %s", result)
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                logger.error("Async sync failed: %s", exc, exc_info=True)
+
+        threading.Thread(target=_run_background_sync, daemon=True).start()
+
+        return {
+            "status": "queued",
+            "athlete_id": athlete_id,
+            "lookback_days": lookback_days,
+            "mode": "async",
+            "queued_at_utc": datetime.now(timezone.utc).isoformat(),
+        }, 202
+
+    def _extract_request(self, args: tuple, kwargs: dict) -> OneDriveSyncRequest:
+        req = kwargs.get("req")
+        if req is None and args:
+            req = args[0]
+        if not isinstance(req, OneDriveSyncRequest):
+            raise TypeError("req must be a OneDriveSyncRequest")
+        return req
 
     def sync(self, *, athlete_id: str, lookback_days: int) -> Dict:
         """Sync OneDrive folder and ingest qualifying FIT files."""
@@ -155,122 +356,17 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
 
         for item in files:
             try:
-                item_meta = self._extract_item_metadata(item, drive_id)
-                source_info = self._build_source_info(item, item_meta)
-
-                context = self._storage.get_ingestion_context(
-                    athlete_id,
-                    source_info,
-                    ingestion_key=item_meta["source_item_id"],
-                )
-                should_skip = (
-                    context.should_skip()
-                    if isinstance(context, IngestionContext)
-                    else False
-                )
-                if should_skip:
-                    self._record_skip_result(
-                        results,
-                        athlete_id,
-                        source_info,
-                        context=context,
-                        item=item,
-                    )
-                    continue
-
-                body, status_code = self._ingest_item(
+                body, status_code = self._ingestion_handler.handle(
                     athlete_id=athlete_id,
                     access_token=access_token,
                     item=item,
-                    item_meta=item_meta,
+                    drive_id=drive_id,
                 )
                 self._record_ingest_result(results, item, body, status_code)
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 self._record_error_result(results, item, exc)
 
         return results
-
-    def _extract_item_metadata(self, item: Dict, drive_id: str | None) -> Dict:
-        """Extract OneDrive fields used for ingest and state tracking."""
-        parent_path = item.get("parentReference", {}).get("path", "")
-        file_path = f"{parent_path}/{item['name']}" if parent_path else item["name"]
-        return {
-            "file_path": file_path,
-            "source_item_id": f"onedrive:{item['id']}",
-            "source_etag": item.get("eTag"),
-            "source_ctag": item.get("cTag"),
-            "source_modified_at_utc": item.get("lastModifiedDateTime"),
-            "source_quickxor_hash": item.get("file", {}).get("hashes", {}).get("quickXorHash"),
-            "source_drive_id": item.get("parentReference", {}).get("driveId") or drive_id,
-        }
-
-    def _build_source_info(self, item: Dict, item_meta: Dict) -> Dict:
-        """Build source info metadata for ingestion state tracking."""
-        return {
-            "source_system": "HealthFit",
-            "source_file_name": item.get("name"),
-            "source_file_path": item_meta["file_path"],
-            "source_item_id": item_meta["source_item_id"],
-            "source_drive_id": item_meta["source_drive_id"],
-            "source_etag": item_meta["source_etag"],
-            "source_ctag": item_meta["source_ctag"],
-            "source_quickxor_hash": item_meta["source_quickxor_hash"],
-            "source_modified_at_utc": item_meta["source_modified_at_utc"],
-            "file_size_bytes": item.get("size"),
-        }
-
-    def _record_skip_result(
-        self,
-        results: Dict,
-        athlete_id: str,
-        source_info: Dict,
-        *,
-        context,
-        item: Dict,
-    ) -> None:
-        workout_id = (
-            context.existing_state.get("workout_id")
-            if context.existing_state
-            else None
-        )
-        self._storage.record_ingestion_state(
-            athlete_id,
-            source_info,
-            status="skipped",
-            workout_id=workout_id,
-            ingestion_key=context.ingestion_key,
-            existing_state=context.existing_state,
-        )
-        results["skipped"] += 1
-        results["items"].append({
-            "name": item["name"],
-            "id": item["id"],
-            "status": "skipped",
-            "message": "Unchanged content",
-            "workout_id": workout_id,
-        })
-
-    def _ingest_item(
-        self,
-        *,
-        athlete_id: str,
-        access_token: str,
-        item: Dict,
-        item_meta: Dict,
-    ) -> tuple[Dict, int]:
-        raw_content = self._client.download_file(
-            access_token=access_token, item_id=item["id"]
-        )
-        file_name, content = _maybe_decode_gzip(item["name"], raw_content)
-        source_info = self._build_source_info(item, item_meta)
-        source_info["source_file_name"] = file_name
-        source_info["file_sha256"] = compute_bytes_hash(content)
-        return self.ingest_bytes(
-            athlete_id,
-            source_info,
-            content,
-            file_path=source_info.get("source_file_path"),
-        )
 
     def _record_ingest_result(
         self,
@@ -286,8 +382,8 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
         else:
             results["failed"] += 1
         results["items"].append({
-            "name": item["name"],
-            "id": item["id"],
+            "name": item.get("name"),
+            "id": item.get("id"),
             "status": body.get("status", "error"),
             "message": body.get("message") or body.get("error"),
             "workout_id": body.get("workout_id"),
@@ -341,108 +437,6 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
             except ValueError:
                 pass
         return tokens["access_token"]
-
-
-class OneDriveSyncRequest:
-    """Encapsulates OneDrive sync request parsing."""
-
-    def __init__(self, body: Dict, query_params: Dict):
-        self.body = body or {}
-        self.query_params = query_params or {}
-
-    @property
-    def athlete_id(self) -> str:
-        """Extract athlete_id from body or query params."""
-        athlete_id = self.body.get("athlete_id") or self.query_params.get("athlete_id")
-        return athlete_id or "rob"
-
-    @property
-    def lookback_days(self) -> int | None:
-        """Extract and validate lookback days."""
-        days = self.body.get("days") or self.query_params.get("days")
-        if days is None:
-            return None
-        try:
-            return int(days)
-        except (ValueError, TypeError):
-            return None
-
-    @property
-    def async_mode(self) -> bool:
-        """Extract async flag from body or query params."""
-        async_param = self.body.get("async") or self.query_params.get("async")
-        if async_param is None:
-            return False
-        return str(async_param).lower() in {"1", "true", "yes", "y"}
-
-
-class OneDriveSyncHandler:
-    """Orchestrates OneDrive sync workflow."""
-
-    def __init__(self, service: OneDriveSyncIngestionHandler):
-        self.service = service
-
-    def handle(self, *args, **kwargs) -> Tuple[Dict, int]:
-        """
-        Execute OneDrive sync.
-
-        Args:
-            req: Parsed sync request
-
-        Returns:
-            (response_dict, HTTP status code)
-        """
-        req = self._extract_request(args, kwargs)
-        lookback_days = req.lookback_days or self.service.config.lookback_days
-
-        if req.async_mode:
-            return self._handle_async(req.athlete_id, lookback_days)
-
-        return self._handle_sync(req.athlete_id, lookback_days)
-
-    def _handle_sync(self, athlete_id: str, lookback_days: int) -> Tuple[Dict, int]:
-        """Execute synchronous sync."""
-        try:
-            result = self.service.sync(
-                athlete_id=athlete_id, lookback_days=lookback_days
-            )
-            return result, 200
-        except ValueError as exc:
-            logger.warning("Sync validation failed: %s", exc)
-            return {"error": str(exc)}, 400
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger.error("Sync failed: %s", exc, exc_info=True)
-            return {"error": "Sync failed"}, 500
-
-    def _handle_async(self, athlete_id: str, lookback_days: int) -> Tuple[Dict, int]:
-        """Queue asynchronous sync."""
-
-        def _run_background_sync() -> None:
-            try:
-                result = self.service.sync(
-                    athlete_id=athlete_id, lookback_days=lookback_days
-                )
-                logger.info("Async sync completed: %s", result)
-            except Exception as exc:  # pylint: disable=broad-exception-caught
-                logger.error("Async sync failed: %s", exc, exc_info=True)
-
-        threading.Thread(target=_run_background_sync, daemon=True).start()
-
-        return {
-            "status": "queued",
-            "athlete_id": athlete_id,
-            "lookback_days": lookback_days,
-            "mode": "async",
-            "queued_at_utc": datetime.now(timezone.utc).isoformat(),
-        }, 202
-
-    def _extract_request(self, args: tuple, kwargs: dict) -> OneDriveSyncRequest:
-        req = kwargs.get("req")
-        if req is None and args:
-            req = args[0]
-        if not isinstance(req, OneDriveSyncRequest):
-            raise TypeError("req must be a OneDriveSyncRequest")
-        return req
 
 
 def _maybe_decode_gzip(file_name: str, content: bytes) -> tuple[str, bytes]:

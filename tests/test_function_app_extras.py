@@ -430,14 +430,12 @@ class TestOneDriveHelpersAndEndpoints:
         mock_handler = MagicMock()
         mock_handler.handle.return_value = ({"status": "success"}, 200)
 
-        with _patch_dependency("onedrive_service", MagicMock()):
-            with patch("function_app.OneDriveSyncHandler", return_value=mock_handler) as handler_cls:
-                response = function_app.onedrive_sync_http(req)
+        with _patch_dependency("onedrive_service", mock_handler):
+            response = function_app.onedrive_sync_http(req)
 
         assert response.status_code == 200
         body = json.loads(response.get_body())
         assert body["status"] == "success"
-        handler_cls.assert_called_once()
         mock_handler.handle.assert_called_once()
 
     def test_onedrive_sync_http_defaults_sync(self):
@@ -449,9 +447,8 @@ class TestOneDriveHelpersAndEndpoints:
         mock_handler = MagicMock()
         mock_handler.handle.return_value = ({"status": "success"}, 200)
 
-        with _patch_dependency("onedrive_service", MagicMock()):
-            with patch("function_app.OneDriveSyncHandler", return_value=mock_handler):
-                response = function_app.onedrive_sync_http(req)
+        with _patch_dependency("onedrive_service", mock_handler):
+            response = function_app.onedrive_sync_http(req)
 
         assert response.status_code == 200
         body = json.loads(response.get_body())
@@ -467,9 +464,8 @@ class TestOneDriveHelpersAndEndpoints:
         mock_handler = MagicMock()
         mock_handler.handle.return_value = ({"status": "queued"}, 202)
 
-        with _patch_dependency("onedrive_service", MagicMock()):
-            with patch("function_app.OneDriveSyncHandler", return_value=mock_handler):
-                response = function_app.onedrive_sync_http(req)
+        with _patch_dependency("onedrive_service", mock_handler):
+            response = function_app.onedrive_sync_http(req)
 
         assert response.status_code == 202
         mock_handler.handle.assert_called_once()
