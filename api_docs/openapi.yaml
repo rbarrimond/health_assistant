@@ -146,12 +146,12 @@ paths:
       security:
         - FunctionKey: []
       responses:
-        '200':
+        '201':
           description: Observation created successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ObservationResponse'
+                $ref: '#/components/schemas/ObservationCreateResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -168,13 +168,6 @@ paths:
           schema:
             type: string
             format: uuid
-        - name: athlete_id
-          in: query
-          required: false
-          description: Athlete identifier (defaults to 'rob')
-          schema:
-            type: string
-            default: rob
       requestBody:
         required: true
         content:
@@ -184,6 +177,8 @@ paths:
               required:
                 - status
               properties:
+                athlete_id:
+                  type: string
                 status:
                   type: string
                   enum: [active, resolved, archived]
@@ -195,7 +190,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ObservationResponse'
+                $ref: '#/components/schemas/ObservationStatusResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -209,10 +204,11 @@ paths:
       parameters:
         - name: athlete_id
           in: query
-          required: true
-          description: Athlete identifier
+          required: false
+          description: Athlete identifier (defaults to 'rob')
           schema:
             type: string
+            default: rob
       security:
         - FunctionKey: []
       responses:
@@ -233,10 +229,11 @@ paths:
       parameters:
         - name: athlete_id
           in: query
-          required: true
-          description: Athlete identifier
+          required: false
+          description: Athlete identifier (defaults to 'rob')
           schema:
             type: string
+            default: rob
         - name: days
           in: query
           required: false
@@ -321,6 +318,29 @@ paths:
             image/svg+xml:
               schema:
                 type: string
+  /api/.well-known/ai-plugin.json:
+    get:
+      summary: Retrieve the ChatGPT plugin manifest
+      operationId: getPluginManifest
+      responses:
+        '200':
+          description: Plugin manifest JSON
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/openapi.yaml:
+    get:
+      summary: Retrieve the OpenAPI specification
+      operationId: getOpenApiSpec
+      responses:
+        '200':
+          description: OpenAPI YAML document
+          content:
+            application/x-yaml:
+              schema:
+                type: string
   /api/withings/authorize:
     get:
       summary: Get Withings authorization URL
@@ -328,10 +348,11 @@ paths:
       parameters:
         - name: athlete_id
           in: query
-          required: true
-          description: Athlete identifier
+          required: false
+          description: Athlete identifier (defaults to 'rob')
           schema:
             type: string
+            default: rob
       security:
         - FunctionKey: []
       responses:
@@ -519,12 +540,14 @@ paths:
       security:
         - FunctionKey: []
       responses:
-        '200':
-          description: Workout ingested or skipped as duplicate
+        '201':
+          description: Workout ingested
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProcessFitResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -537,9 +560,10 @@ paths:
         - name: athlete_id
           in: query
           required: false
-          description: Athlete identifier (optional; falls back to DEFAULT_ATHLETE_ID)
+          description: Athlete identifier (defaults to 'rob')
           schema:
             type: string
+            default: rob
       security:
         - FunctionKey: []
       responses:
@@ -646,10 +670,11 @@ paths:
       parameters:
         - name: athlete_id
           in: query
-          required: true
-          description: Athlete identifier
+          required: false
+          description: Athlete identifier (defaults to 'rob')
           schema:
             type: string
+            default: rob
         - name: days
           in: query
           required: false
@@ -677,10 +702,11 @@ paths:
       parameters:
         - name: athlete_id
           in: query
-          required: true
-          description: Athlete identifier
+          required: false
+          description: Athlete identifier (defaults to 'rob')
           schema:
             type: string
+            default: rob
         - name: since
           in: query
           required: false
@@ -760,10 +786,11 @@ paths:
       parameters:
         - name: athlete_id
           in: query
-          required: true
-          description: Athlete identifier
+          required: false
+          description: Athlete identifier (defaults to 'rob')
           schema:
             type: string
+            default: rob
         - name: weeks
           in: query
           required: false
@@ -907,56 +934,88 @@ components:
     AgentContext:
       type: object
       properties:
+        athlete_id:
+          type: string
         preferences:
-          $ref: '#/components/schemas/AgentPreferences'
-        observations:
+          type: object
+          additionalProperties: true
+        active_observations:
           type: array
           items:
             $ref: '#/components/schemas/Observation'
+        instruction_addendum:
+          type:
+            - string
+            - 'null'
+        retrieved_at:
+          type: string
+          format: date-time
       required:
+        - athlete_id
         - preferences
-        - observations
+        - active_observations
     AgentPreferences:
       type: object
       properties:
-        training_goal:
+        current_goal:
           type: string
           description: Current training goal
-        current_phase:
+        training_phase:
           type: string
           description: Training phase (base, build, peak, recovery)
-        current_sports:
+        preferred_sports:
           type: array
           items:
             type: string
           description: Active sports/disciplines
-        ftp_test_cadence:
+        ftp_test_frequency_weeks:
+          type: integer
+          description: How often to test FTP (weeks)
+        last_ftp_test_date:
           type: string
-          description: How often to test FTP
-      required:
-        - training_goal
-        - current_phase
-        - current_sports
+          format: date
+          description: ISO date of last FTP test
+        notes:
+          type: string
+          description: Free-form context notes
+        updated_at:
+          type: string
+          format: date-time
     AgentPreferencesResponse:
       type: object
       properties:
         athlete_id:
           type: string
         preferences:
-          $ref: '#/components/schemas/AgentPreferences'
+          type: object
+          additionalProperties: true
+        updated_at:
+          type: string
+          format: date-time
       required:
         - athlete_id
         - preferences
     UpdatePreferencesRequest:
       type: object
-      required:
-        - athlete_id
-        - preferences
       properties:
         athlete_id:
           type: string
-        preferences:
-          $ref: '#/components/schemas/AgentPreferences'
+          default: rob
+        current_goal:
+          type: string
+        training_phase:
+          type: string
+        preferred_sports:
+          type: array
+          items:
+            type: string
+        ftp_test_frequency_weeks:
+          type: integer
+        last_ftp_test_date:
+          type: string
+          format: date
+        notes:
+          type: string
     Observation:
       type: object
       properties:
@@ -965,15 +1024,17 @@ components:
           format: uuid
         category:
           type: string
-          enum: [fatigue, injury, performance, recovery, equipment, nutrition, sleep, stress]
         summary:
           type: string
         details:
-          type: object
-          additionalProperties: true
+          type: string
+        referenced_workout_ids:
+          type: array
+          items:
+            type: string
         priority:
           type: string
-          enum: [high, medium, low]
+          enum: [low, normal, high]
         status:
           type: string
           enum: [active, resolved, archived]
@@ -993,27 +1054,28 @@ components:
     CreateObservationRequest:
       type: object
       required:
-        - athlete_id
         - category
         - summary
-        - priority
       properties:
         athlete_id:
           type: string
+          default: rob
         category:
           type: string
-          enum: [fatigue, injury, performance, recovery, equipment, nutrition, sleep, stress]
         summary:
           type: string
         details:
-          type: object
-          additionalProperties: true
+          type: string
+        workout_ids:
+          type: array
+          items:
+            type: string
         priority:
           type: string
-          enum: [high, medium, low]
-        expires_at:
-          type: string
-          format: date-time
+          enum: [low, normal, high]
+        expires_days:
+          type: integer
+          minimum: 1
     ObservationResponse:
       type: object
       properties:
@@ -1027,7 +1089,11 @@ components:
         summary:
           type: string
         details:
-          type: object
+          type: string
+        referenced_workout_ids:
+          type: array
+          items:
+            type: string
         priority:
           type: string
         status:
@@ -1046,6 +1112,34 @@ components:
         - priority
         - status
         - created_at
+      additionalProperties: true
+    ObservationCreateResponse:
+      type: object
+      properties:
+        observation_id:
+          type: string
+          format: uuid
+        observation:
+          $ref: '#/components/schemas/ObservationResponse'
+      required:
+        - observation_id
+        - observation
+    ObservationStatusResponse:
+      type: object
+      properties:
+        observation_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [active, resolved, archived]
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - observation_id
+        - status
+        - updated_at
     ObservationsList:
       type: object
       properties:
@@ -1083,23 +1177,24 @@ components:
       properties:
         athlete_id:
           type: string
-        metrics:
+        query_window:
+          type: object
+          properties:
+            start_date:
+              type: string
+              format: date
+            end_date:
+              type: string
+              format: date
+            days:
+              type: integer
+        count:
+          type: integer
+        data_points:
           type: array
           items:
             type: object
-            properties:
-              metric:
-                type: string
-              points:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    value:
-                      type: number
-                    timestamp:
-                      type: string
-                      format: date-time
+            additionalProperties: true
       additionalProperties: true
     UpdatePhysiometricRequest:
       type: object
@@ -1130,9 +1225,27 @@ components:
       properties:
         status:
           type: string
-          example: updated
+          example: success
         athlete_id:
           type: string
+        metric:
+          type: string
+        value:
+          type: number
+        effective_date:
+          type: string
+          format: date
+        source:
+          type: string
+        updated_at_utc:
+          type: string
+          format: date-time
+        updates:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      additionalProperties: true
     WithingsAuthorizeResponse:
       type: object
       properties:
@@ -1244,6 +1357,8 @@ components:
       properties:
         athlete_id:
           type: string
+        source_system:
+          type: string
         source_item_id:
           type: string
         source_file_name:
@@ -1270,30 +1385,37 @@ components:
           type: string
     ProcessFitResponse:
       type: object
+      description: Parsed FIT metrics with source metadata. Response fields mirror parsed metrics.
       properties:
-        status:
-          type: string
-          example: success
-        workout_id:
-          type: string
-        athlete_id:
-          type: string
-        sport:
-          type: string
-        duration_sec:
-          type: number
-        metrics:
+        source_info:
           type: object
           properties:
-            distance_m:
-              type: number
-            avg_power_watts:
-              type: number
-            avg_hr_bpm:
-              type: number
-        reason:
+            source_system:
+              type: string
+            source_file_name:
+              type: string
+            source_file_path:
+              type: string
+            source_item_id:
+              type: string
+            source_drive_id:
+              type: string
+            source_etag:
+              type: string
+            source_ctag:
+              type: string
+            source_quickxor_hash:
+              type: string
+            source_modified_at_utc:
+              type: string
+              format: date-time
+            file_size_bytes:
+              type: integer
+            file_sha256:
+              type: string
+        error:
           type: string
-          description: Present when status is skipped
+      additionalProperties: true
     PlanningContext:
       type: object
       description: Aggregated planning context for the athlete.
@@ -1333,42 +1455,106 @@ components:
       properties:
         workout_id:
           type: string
+        athlete_id:
+          type: string
         sport:
           type: string
+        sub_sport:
+          type: string
+        workout_name:
+          type: string
+        is_indoor:
+          type: boolean
         start_time_utc:
+          type: string
+          format: date-time
+        end_time_utc:
           type: string
           format: date-time
         duration_sec:
           type: number
+        moving_time_sec:
+          type: number
         distance_m:
           type: number
-        avg_power_watts:
+        elevation_gain_m:
           type: number
-        avg_hr_bpm:
+        calories_kcal:
           type: number
+        hr_avg_bpm:
+          type: number
+        hr_max_bpm:
+          type: number
+        hr_z1_sec:
+          type: number
+        hr_z2_sec:
+          type: number
+        hr_z3_sec:
+          type: number
+        hr_z4_sec:
+          type: number
+        hr_z5_sec:
+          type: number
+        hr_zone_basis:
+          type: string
+        hr_zone_reference_bpm:
+          type: number
+        pwr_avg_watts:
+          type: number
+        pwr_max_watts:
+          type: number
+        pwr_normalized_watts:
+          type: number
+        pwr_variability_index:
+          type: number
+        pwr_z1_sec:
+          type: number
+        pwr_z2_sec:
+          type: number
+        pwr_z3_sec:
+          type: number
+        pwr_z4_sec:
+          type: number
+        pwr_z5_sec:
+          type: number
+        pwr_z6_sec:
+          type: number
+        pwr_z7_sec:
+          type: number
+        low_aerobic_sec:
+          type: number
+        intensity_sec:
+          type: number
+        ftp_watts:
+          type: number
+        intensity_factor:
+          type: number
+        tss:
+          type: number
+        decoupling_pct:
+          type: number
+        hr_drift_bpm:
+          type: number
+        ef_first_half:
+          type: number
+        ef_second_half:
+          type: number
+        ef_overall:
+          type: number
+        source_system:
+          type: string
       additionalProperties: true
     WorkoutDetail:
       allOf:
         - $ref: '#/components/schemas/WorkoutSummary'
         - type: object
           properties:
-            intervals:
+            records:
               type: array
+              description: Optional per-sample record data
               items:
                 type: object
                 additionalProperties: true
-            time_series:
-              type: object
-              description: Optional time-series channels
-              additionalProperties:
-                type: array
-                items:
-                  oneOf:
-                    - type: number
-                    - type: string
-            source:
-              type: object
-              additionalProperties: true
     WeeklyRollups:
       type: object
       properties:
@@ -1409,7 +1595,7 @@ components:
       additionalProperties: true
   securitySchemes:
     FunctionKey:
-      type: http
-      scheme: bearer
-      bearerFormat: function-key
-      description: Azure Functions API key passed as Bearer token
+      type: apiKey
+      in: query
+      name: code
+      description: Azure Functions API key passed as `?code=...`
