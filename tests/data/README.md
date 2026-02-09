@@ -382,7 +382,6 @@ def test_real_fit_file_ingestion():
         payload = json.load(f)
     
     # Use the FIT upload handler
-    handler = FitUploadHandler(storage)
     result, status = handler.handle(payload)
     
     assert status == 200

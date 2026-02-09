@@ -36,7 +36,6 @@ Azure Functions App (31 HTTP/Timer Endpoints)
     │   ├── Withings OAuth + Webhook
     │   └── Idempotency Tracking
     └── Handler Architecture
-        ├── FitUploadHandler
         ├── OneDriveSyncHandler
         ├── QueryHandler
         ├── PhysiometricsHandler
