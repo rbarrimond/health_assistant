@@ -14,19 +14,35 @@ class QueryHandler:
     def __init__(self, semantic_layer: SemanticLayer):
         self.semantic_layer = semantic_layer
 
-    def query_athlete_workouts(self, athlete_id: str, limit: int = 20) -> Tuple[List[Dict], int]:
+    def query_athlete_workouts(
+        self,
+        athlete_id: str,
+        limit: int = 20,
+        since: str | None = None,
+        until: str | None = None,
+        sport: str | None = None,
+    ) -> Tuple[List[Dict], int]:
         """
         Retrieve athlete's recent workouts.
 
         Args:
             athlete_id: Athlete identifier
             limit: Maximum workouts to return
+            since: ISO start date (YYYY-MM-DD)
+            until: ISO end date (YYYY-MM-DD)
+            sport: Optional sport filter
 
         Returns:
             (list of workout dicts, HTTP status code)
         """
         try:
-            results = self.semantic_layer.get_workouts(athlete_id, limit=limit)
+            results = self.semantic_layer.get_workouts(
+                athlete_id,
+                since=since,
+                until=until,
+                limit=limit,
+                sport=sport,
+            )
             return results, 200
         except ValueError as exc:
             logger.warning("Query validation failed: %s", exc)

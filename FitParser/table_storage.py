@@ -1,4 +1,5 @@
 """Azure Table Storage client for workout data."""
+# pylint: disable=too-many-lines
 
 import json
 import logging
@@ -15,7 +16,7 @@ from FitParser.fit_parser import compute_workout_id
 
 # Constant for UTC timezone suffix replacement
 UTC_SUFFIX = "+00:00"
-INGEST_VERSION = "v2.3.0"
+INGEST_VERSION = "v2.3.1"
 
 logger = logging.getLogger(__name__)
 
@@ -294,28 +295,20 @@ class IngestionContext:
             IngestionStateEntity: The constructed ingestion state entity.
         """
         now_utc = datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z")
-        source_etag = self.file_info.get("source_etag")
-        source_ctag = self.file_info.get("source_ctag")
-        source_quickxor_hash = self.file_info.get("source_quickxor_hash")
-        source_modified_at_utc = self.file_info.get("source_modified_at_utc")
-        file_sha256 = self.file_info.get("file_sha256")
-        source_file_name = self.file_info.get("source_file_name")
-        source_drive_id = self.file_info.get("source_drive_id")
+        state_fields = {
+            "source_etag": self.file_info.get("source_etag"),
+            "source_ctag": self.file_info.get("source_ctag"),
+            "source_quickxor_hash": self.file_info.get("source_quickxor_hash"),
+            "source_modified_at_utc": self.file_info.get("source_modified_at_utc"),
+            "file_sha256": self.file_info.get("file_sha256"),
+            "source_file_name": self.file_info.get("source_file_name"),
+            "source_drive_id": self.file_info.get("source_drive_id"),
+        }
         if status == "skipped" and self.existing_state:
-            if self.existing_state.get("source_file_name") is not None:
-                source_file_name = self.existing_state.get("source_file_name")
-            if self.existing_state.get("source_drive_id") is not None:
-                source_drive_id = self.existing_state.get("source_drive_id")
-            if self.existing_state.get("source_etag") is not None:
-                source_etag = self.existing_state.get("source_etag")
-            if self.existing_state.get("source_ctag") is not None:
-                source_ctag = self.existing_state.get("source_ctag")
-            if self.existing_state.get("source_quickxor_hash") is not None:
-                source_quickxor_hash = self.existing_state.get("source_quickxor_hash")
-            if self.existing_state.get("source_modified_at_utc") is not None:
-                source_modified_at_utc = self.existing_state.get("source_modified_at_utc")
-            if self.existing_state.get("file_sha256") is not None:
-                file_sha256 = self.existing_state.get("file_sha256")
+            for key in state_fields:
+                existing_value = self.existing_state.get(key)
+                if existing_value is not None:
+                    state_fields[key] = existing_value
 
         return IngestionStateEntity(
             partition_key=self.athlete_id,
@@ -325,13 +318,13 @@ class IngestionContext:
             last_attempt_at_utc=now_utc,
             retry_count=self.next_retry_count(status),
             workout_id=self.workout_id,
-            source_file_name=source_file_name,
-            source_drive_id=source_drive_id,
-            source_etag=source_etag,
-            source_ctag=source_ctag,
-            source_quickxor_hash=source_quickxor_hash,
-            source_modified_at_utc=source_modified_at_utc,
-            file_sha256=file_sha256,
+            source_file_name=state_fields["source_file_name"],
+            source_drive_id=state_fields["source_drive_id"],
+            source_etag=state_fields["source_etag"],
+            source_ctag=state_fields["source_ctag"],
+            source_quickxor_hash=state_fields["source_quickxor_hash"],
+            source_modified_at_utc=state_fields["source_modified_at_utc"],
+            file_sha256=state_fields["file_sha256"],
             ingest_version=INGEST_VERSION,
             ingested_at_utc=now_utc if status == "ingested" else None,
             error_message=error,

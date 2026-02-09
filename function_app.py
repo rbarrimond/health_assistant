@@ -471,11 +471,20 @@ def list_workouts(req: func.HttpRequest) -> func.HttpResponse:
     """Query workouts with filters."""
     try:
         athlete_id = req.params.get("athlete_id", "rob")
+        since = req.params.get("since")
+        until = req.params.get("until")
+        sport = req.params.get("sport")
         limit = int(req.params.get("limit", "50"))
         limit = max(1, min(limit, 200))
 
         handler = QueryHandler(_get_semantic_layer())
-        workouts, status = handler.query_athlete_workouts(athlete_id, limit)
+        workouts, status = handler.query_athlete_workouts(
+            athlete_id,
+            limit=limit,
+            since=since,
+            until=until,
+            sport=sport,
+        )
 
         return _json_response({
             "athlete_id": athlete_id,
