@@ -9,18 +9,30 @@ in FitParser.handlers. All endpoints are thin wrappers that:
 
 # pylint: disable=too-many-lines
 
-import json
 import logging
 import os
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, cast
-from urllib.parse import urlparse
 
 import azure.functions as func
 from azure.core.exceptions import AzureError
 
+from config.constants import (
+    API_DOCS_DIR,
+    ENV_PLUGIN_CONTACT_EMAIL,
+    ENV_PLUGIN_LEGAL_URL,
+    ENV_PLUGIN_LOGO_URL,
+    ERR_INVALID_JSON,
+    HTML_CONTENT_TYPE,
+    INTERNAL_SERVER_ERROR,
+    TEXT_PLAIN_CONTENT_TYPE,
+)
 from FitParser.backup_exporter import BackupExporter
+from FitParser.http_utils import (
+    json_response,
+    public_base_url,
+)
 from FitParser.onedrive_sync import (
     OneDrivePersonalSyncService,
     OneDriveSyncConfig,
@@ -44,39 +56,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 app = func.FunctionApp()
-
-# ============================================================================
-# Constants & Configuration
-# ============================================================================
-
-JSON_CONTENT_TYPE = "application/json"
-HTML_CONTENT_TYPE = "text/html"
-TEXT_PLAIN_CONTENT_TYPE = "text/plain"
-INTERNAL_SERVER_ERROR = "Internal server error"
-
-# Error messages
-ERR_MISSING_ATHLETE_ID = "Missing required parameter: athlete_id"
-ERR_ATHLETE_ID_REQUIRED = "athlete_id parameter required"
-ERR_INVALID_JSON = "Invalid JSON payload"
-ERR_VALIDATION = "Validation error: %s"
-
-# Plugin metadata environment variables
-ENV_API_DOCS_DIR = "API_DOCS_DIR"
-ENV_PUBLIC_BASE_URL = "PUBLIC_BASE_URL"
-ENV_PLUGIN_LOGO_URL = "PLUGIN_LOGO_URL"
-ENV_PLUGIN_CONTACT_EMAIL = "PLUGIN_CONTACT_EMAIL"
-ENV_PLUGIN_LEGAL_URL = "PLUGIN_LEGAL_URL"
-
-# Plugin metadata defaults
-DEFAULT_LOGO_URL = "https://via.placeholder.com/128.png?text=Health+Assistant"
-DEFAULT_CONTACT_EMAIL = "rbarrimond+health-assistant@users.noreply.github.com"
-DEFAULT_LEGAL_URL = "https://github.com/rbarrimond/health_assistant/blob/main/README.md"
-
-# API documentation paths
-API_DOCS_DIR = os.getenv(ENV_API_DOCS_DIR, os.path.join(
-    os.path.dirname(__file__), "api_docs"))
-PLUGIN_MANIFEST_PATH = os.path.join(API_DOCS_DIR, "ai-plugin.json")
-OPENAPI_SPEC_PATH = os.path.join(API_DOCS_DIR, "openapi.yaml")
 
 # ============================================================================
 # Utility Functions
@@ -180,23 +159,6 @@ def _get_withings_client() -> WithingsClient:
     return WithingsClient()
 
 
-def _json_response(data: Dict[str, Any], status_code: int = 200) -> func.HttpResponse:
-    """Create JSON HTTP response."""
-    return func.HttpResponse(
-        json.dumps(data, default=str),
-        status_code=status_code,
-        mimetype=JSON_CONTENT_TYPE,
-    )
-
-
-def _public_base_url(req: func.HttpRequest) -> str:
-    """Return the externally reachable base URL, overridable via env."""
-    override = os.getenv(ENV_PUBLIC_BASE_URL)
-    if override:
-        return override.rstrip("/")
-
-    parsed = urlparse(req.url)
-    return f"{parsed.scheme}://{parsed.netloc}"
 
 
 def _build_onedrive_state(athlete_id: str) -> str:
@@ -217,13 +179,6 @@ def _read_text_file(path: str) -> str:
         return file_handle.read()
 
 
-def _response_missing_file(name: str) -> func.HttpResponse:
-    """Return 500 error for missing file."""
-    return func.HttpResponse(
-        json.dumps({"error": f"{name} not found"}),
-        status_code=500,
-        mimetype=JSON_CONTENT_TYPE,
-    )
 
 
 # ============================================================================
@@ -255,14 +210,14 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
 
         handler = FitPayloadIngestionHandler(_get_storage())
         response, status = handler.handle(body)
-        return _json_response(cast(Dict[str, Any], response), status)
+        return json_response(cast(Dict[str, Any], response), status)
 
     except ValueError as exc:  # pylint: disable=broad-exception-caught
         logger.warning("Upload validation failed: %s", exc)
-        return _json_response({"error": str(exc)}, 400)
+        return json_response({"error": str(exc)}, 400)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Upload endpoint failed: %s", exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 # ============================================================================
@@ -277,7 +232,7 @@ def onedrive_authorize(req: func.HttpRequest) -> func.HttpResponse:
         state = req.params.get("state") or _build_onedrive_state(athlete_id)
         service = _get_onedrive_service()
 
-        return _json_response(
+        return json_response(
             {
                 "authorization_url": service.build_authorize_url(state=state),
                 "athlete_id": athlete_id,
@@ -288,7 +243,7 @@ def onedrive_authorize(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("OneDrive authorize endpoint failed: %s",
                      exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 @app.route(route="onedrive/callback", methods=["GET"])
@@ -327,7 +282,7 @@ def onedrive_callback(req: func.HttpRequest) -> func.HttpResponse:
         )
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("OneDrive callback failed: %s", exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 @app.route(route="onedrive/sync", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
@@ -343,11 +298,11 @@ def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
         handler = OneDriveSyncHandler(_get_onedrive_service())
         response, status = handler.handle(sync_req)
 
-        return _json_response(response, status)
+        return json_response(response, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Sync endpoint failed: %s", exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 @app.timer_trigger(arg_name="timer", schedule="0 0 * * * *")  # hourly
@@ -393,11 +348,11 @@ def planning_context(req: func.HttpRequest) -> func.HttpResponse:
         handler = QueryHandler(_get_semantic_layer())
         context, status = handler.query_planning_context(athlete_id, days)
 
-        return _json_response(context, status)
+        return json_response(context, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Planning endpoint failed: %s", exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 @app.route(route="workouts", methods=["GET"])
@@ -420,7 +375,7 @@ def list_workouts(req: func.HttpRequest) -> func.HttpResponse:
             sport=sport,
         )
 
-        return _json_response({
+        return json_response({
             "athlete_id": athlete_id,
             "count": len(workouts),
             "workouts": workouts,
@@ -428,7 +383,7 @@ def list_workouts(req: func.HttpRequest) -> func.HttpResponse:
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("List workouts endpoint failed: %s", exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 @app.route(route="workouts/{workout_id}", methods=["GET"])
@@ -439,16 +394,16 @@ def get_workout_detail(req: func.HttpRequest) -> func.HttpResponse:
         workout_id = req.route_params.get("workout_id")
 
         if not workout_id:
-            return _json_response({"error": "workout_id required in route"}, 400)
+            return json_response({"error": "workout_id required in route"}, 400)
 
         handler = QueryHandler(_get_semantic_layer())
         workout, status = handler.query_workout_detail(athlete_id, workout_id)
 
-        return _json_response(workout, status)
+        return json_response(workout, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Workout detail endpoint failed: %s", exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 @app.route(
@@ -473,12 +428,12 @@ def get_workout_recalculated(req: func.HttpRequest) -> func.HttpResponse:
             }
         }
 
-        return _json_response(response, 501)
+        return json_response(response, 501)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Recalculated workout endpoint failed: %s",
                      exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 @app.route(route="analysis/zones", methods=["GET"])
@@ -492,11 +447,11 @@ def zone_distribution(req: func.HttpRequest) -> func.HttpResponse:
         handler = QueryHandler(_get_semantic_layer())
         zones, status = handler.query_training_zones(athlete_id, days)
 
-        return _json_response(zones, status)
+        return json_response(zones, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Zone analysis endpoint failed: %s", exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 @app.route(route="analysis/efficiency", methods=["GET"])
@@ -510,11 +465,11 @@ def efficiency_trends(req: func.HttpRequest) -> func.HttpResponse:
         handler = QueryHandler(_get_semantic_layer())
         trends, status = handler.query_efficiency_trends(athlete_id, days)
 
-        return _json_response(trends, status)
+        return json_response(trends, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Efficiency endpoint failed: %s", exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 @app.route(route="rollups/weekly", methods=["GET"])
@@ -528,11 +483,11 @@ def weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
         handler = QueryHandler(_get_semantic_layer())
         rollups, status = handler.query_weekly_rollups(athlete_id, weeks)
 
-        return _json_response(rollups, status)
+        return json_response(rollups, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Rollups endpoint failed: %s", exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 # ============================================================================
@@ -549,11 +504,11 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable
         # Add timestamp
         result["timestamp"] = datetime.now(timezone.utc).isoformat()
 
-        return _json_response(result, status)
+        return json_response(result, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Health check endpoint failed: %s", exc, exc_info=True)
-        return _json_response({
+        return json_response({
             "status": "degraded",
             "error": "Health check failed"
         }, 503)
@@ -563,7 +518,7 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable
 def serve_ai_plugin_manifest(req: func.HttpRequest) -> func.HttpResponse:
     """Serve ChatGPT Actions plugin manifest with dynamic OpenAPI URL."""
     try:
-        base_url = _public_base_url(req)
+        base_url = public_base_url(req)
 
         env_overrides = {
             k: v for k, v in {
@@ -576,18 +531,18 @@ def serve_ai_plugin_manifest(req: func.HttpRequest) -> func.HttpResponse:
         handler = HealthHandler(_get_storage(), API_DOCS_DIR)
         result, status = handler.get_plugin_manifest(base_url, env_overrides)
 
-        return _json_response(result, status)
+        return json_response(result, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Plugin manifest endpoint failed: %s", exc, exc_info=True)
-        return _json_response({"error": "Failed to load plugin manifest"}, 500)
+        return json_response({"error": "Failed to load plugin manifest"}, 500)
 
 
 @app.route(route="openapi.yaml", methods=["GET"])
 def serve_openapi_spec(req: func.HttpRequest) -> func.HttpResponse:
     """Serve OpenAPI specification with dynamic server URL."""
     try:
-        base_url = _public_base_url(req)
+        base_url = public_base_url(req)
 
         handler = HealthHandler(_get_storage(), API_DOCS_DIR)
         spec_body, status = handler.get_openapi_spec(base_url)
@@ -632,12 +587,12 @@ def get_current_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
         handler = PhysiometricsHandler(_get_semantic_layer())
         result, status = handler.get_current(athlete_id)
 
-        return _json_response(result, status)
+        return json_response(result, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Physiometrics current endpoint failed: %s",
                      exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 @app.route(route="physiometrics/history", methods=["GET"])
@@ -653,12 +608,12 @@ def get_physiometrics_history(req: func.HttpRequest) -> func.HttpResponse:
         handler = PhysiometricsHandler(_get_semantic_layer())
         result, status = handler.get_history(athlete_id, days, metrics)
 
-        return _json_response(result, status)
+        return json_response(result, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Physiometrics history endpoint failed: %s",
                      exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 @app.route(route="physiometrics/update", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
@@ -668,14 +623,14 @@ def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
         try:
             req_body = req.get_json()
         except ValueError:
-            return _json_response({"error": ERR_INVALID_JSON}, 400)
+            return json_response({"error": ERR_INVALID_JSON}, 400)
 
         athlete_id = req_body.get("athlete_id")
         has_single_metric = "metric" in req_body and "value" in req_body
         has_bulk_metrics = "metrics" in req_body
 
         if not (has_single_metric or has_bulk_metrics):
-            return _json_response(
+            return json_response(
                 {"error": "Either 'metric'+'value' or 'metrics' dict required"}, 400)
 
         handler = PhysiometricsHandler(_get_semantic_layer())
@@ -698,12 +653,12 @@ def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
                 source=source
             )
 
-        return _json_response(result, status)
+        return json_response(result, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Physiometrics update endpoint failed: %s",
                      exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 # ============================================================================
@@ -722,11 +677,11 @@ def get_agent_context(req: func.HttpRequest) -> func.HttpResponse:
         handler = AgentMemoryHandler(_get_storage())
         result, status = handler.get_context(athlete_id)
 
-        return _json_response(result, status)
+        return json_response(result, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Agent context endpoint failed: %s", exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 @app.route(route="agent/preferences", methods=["GET"])
@@ -738,11 +693,11 @@ def get_agent_preferences(req: func.HttpRequest) -> func.HttpResponse:
         handler = AgentMemoryHandler(_get_storage())
         result, status = handler.get_preferences(athlete_id)
 
-        return _json_response(result, status)
+        return json_response(result, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Agent preferences GET endpoint failed: %s", exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 @app.route(route="agent/preferences", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
@@ -752,7 +707,7 @@ def update_agent_preferences(req: func.HttpRequest) -> func.HttpResponse:
         try:
             req_body = req.get_json()
         except ValueError:
-            return _json_response({"error": ERR_INVALID_JSON}, 400)
+            return json_response({"error": ERR_INVALID_JSON}, 400)
 
         athlete_id = req_body.get("athlete_id", "rob")
         preferences = {k: v for k, v in req_body.items() if k != "athlete_id"}
@@ -760,11 +715,11 @@ def update_agent_preferences(req: func.HttpRequest) -> func.HttpResponse:
         handler = AgentMemoryHandler(_get_storage())
         result, status = handler.update_preferences(athlete_id, preferences)
 
-        return _json_response(result, status)
+        return json_response(result, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Agent preferences POST endpoint failed: %s", exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 @app.route(route="agent/observations", methods=["GET"])
@@ -778,11 +733,11 @@ def list_agent_observations(req: func.HttpRequest) -> func.HttpResponse:
         handler = AgentMemoryHandler(_get_storage())
         result, status = handler.list_observations(athlete_id, status_filter, limit)
 
-        return _json_response(result, status)
+        return json_response(result, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Agent observations list endpoint failed: %s", exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 @app.route(route="agent/observations", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
@@ -792,7 +747,7 @@ def add_agent_observation(req: func.HttpRequest) -> func.HttpResponse:
         try:
             req_body = req.get_json()
         except ValueError:
-            return _json_response({"error": ERR_INVALID_JSON}, 400)
+            return json_response({"error": ERR_INVALID_JSON}, 400)
 
         athlete_id = req_body.get("athlete_id", "rob")
         category = req_body.get("category")
@@ -813,11 +768,11 @@ def add_agent_observation(req: func.HttpRequest) -> func.HttpResponse:
             expires_days=expires_days
         )
 
-        return _json_response(result, status)
+        return json_response(result, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Agent observations POST endpoint failed: %s", exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 @app.route(route="agent/observations/{observation_id}", methods=["PATCH"],
@@ -827,12 +782,12 @@ def update_agent_observation(req: func.HttpRequest) -> func.HttpResponse:
     try:
         observation_id = req.route_params.get("observation_id")
         if not observation_id:
-            return _json_response({"error": "observation_id required in route"}, 400)
+            return json_response({"error": "observation_id required in route"}, 400)
 
         try:
             req_body = req.get_json()
         except ValueError:
-            return _json_response({"error": ERR_INVALID_JSON}, 400)
+            return json_response({"error": ERR_INVALID_JSON}, 400)
 
         athlete_id = req_body.get("athlete_id", "rob")
         status = req_body.get("status")
@@ -844,13 +799,13 @@ def update_agent_observation(req: func.HttpRequest) -> func.HttpResponse:
             status=status
         )
 
-        return _json_response(result, status_code)
+        return json_response(result, status_code)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error(
             "Agent observations PATCH endpoint failed: %s", exc, exc_info=True
         )
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 # ============================================================================
@@ -866,12 +821,12 @@ def withings_authorize(req: func.HttpRequest) -> func.HttpResponse:
         handler = WithingsHandler(_get_withings_client(), _get_storage())
         result, status = handler.get_authorization_url(athlete_id)
 
-        return _json_response(result, status)
+        return json_response(result, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Withings authorize endpoint failed: %s",
                      exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 @app.route(route="withings/callback", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
@@ -932,11 +887,11 @@ def reload_config(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disabl
         handler = ConfigHandler()
         result, status = handler.reload_config()
 
-        return _json_response(result, status)
+        return json_response(result, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Config reload endpoint failed: %s", exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 @app.route(route="config/update", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
@@ -946,16 +901,16 @@ def update_config(req: func.HttpRequest) -> func.HttpResponse:
         try:
             req_body = req.get_json()
         except ValueError:
-            return _json_response({"error": ERR_INVALID_JSON}, 400)
+            return json_response({"error": ERR_INVALID_JSON}, 400)
 
         handler = ConfigHandler()
         result, status = handler.update_config(req_body)
 
-        return _json_response(result, status)
+        return json_response(result, status)
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Config update endpoint failed: %s", exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 @app.route(route="config/history", methods=["GET"])
@@ -967,13 +922,13 @@ def config_history(req: func.HttpRequest) -> func.HttpResponse:
         handler = ConfigHandler()
         result, status = handler.get_history(limit)
 
-        return _json_response(result, status)
+        return json_response(result, status)
 
     except ValueError:
-        return _json_response({"error": "Invalid limit parameter"}, 400)
+        return json_response({"error": "Invalid limit parameter"}, 400)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Config history endpoint failed: %s", exc, exc_info=True)
-        return _json_response({"error": INTERNAL_SERVER_ERROR}, 500)
+        return json_response({"error": INTERNAL_SERVER_ERROR}, 500)
 
 
 # ============================================================================
