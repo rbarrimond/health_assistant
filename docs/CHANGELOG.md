@@ -2,6 +2,11 @@
 
 ## 2026-02-08
 
+- Fix OpenAPI nullability schema and markdown table pipes; refactor ingestion state preservation.
+- Align workout list endpoint filters and API specs with semantic layer.
+- Update ingestion schema requirements and documentation; bump ingest version to v2.3.1.
+- Expand OpenAPI workout fields and document plugin/asset endpoints.
+- Refresh Postman collection and API alignment report to include asset endpoints.
 - Remove file provenance fields from Workouts; keep source filename and drive ID in IngestionState.
 - Resolve workout names from FIT session_name, falling back to filename without extension.
 - Resolve Apple workout types from workout_name instead of source filenames.

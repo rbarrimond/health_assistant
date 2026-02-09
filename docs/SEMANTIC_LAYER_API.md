@@ -99,7 +99,7 @@ GET /api/planning/context?athlete_id=rob&days=45
 
 **Query Parameters:**
 
-- `athlete_id` (required): Athlete identifier
+- `athlete_id` (optional, defaults to `rob`): Athlete identifier
 - `days` (optional): Number of days to look back (default 45, max 365)
 
 **Response:**
@@ -118,8 +118,8 @@ GET /api/planning/context?athlete_id=rob&days=45
       "sport": "Cycling",
       "start_time_utc": "2026-01-15T10:00:00Z",
       "duration_sec": 3600,
-      "hr_z2_min": 50,
-      "intensity_min": 5,
+      "hr_z2_sec": 3000,
+      "intensity_sec": 300,
       "pwr_avg_watts": 220
     }
   ],
@@ -162,7 +162,7 @@ GET /api/agent/context?athlete_id=rob
 
 **Query Parameters:**
 
-- `athlete_id` (required): Athlete identifier
+- `athlete_id` (optional, defaults to `rob`): Athlete identifier
 
 **Response:**
 
@@ -206,6 +206,54 @@ POST /api/agent/preferences?code=<function_key>
 
 Manage user training preferences and goals. POST requires function authentication.
 
+**GET Response:**
+
+```json
+{
+  "athlete_id": "rob",
+  "preferences": {
+    "current_goal": "Build aerobic base for spring races",
+    "training_phase": "base-building",
+    "preferred_sports": ["cycling", "running"],
+    "ftp_test_frequency_weeks": 6,
+    "last_ftp_test_date": "2026-01-15",
+    "notes": "Prefer weekday morning rides"
+  },
+  "updated_at": "2026-02-05T12:10:00Z"
+}
+```
+
+**POST Request:**
+
+```json
+{
+  "athlete_id": "rob",
+  "current_goal": "Build aerobic base for spring races",
+  "training_phase": "base-building",
+  "preferred_sports": ["cycling", "running"],
+  "ftp_test_frequency_weeks": 6,
+  "last_ftp_test_date": "2026-01-15",
+  "notes": "Prefer weekday morning rides"
+}
+```
+
+**POST Response:**
+
+```json
+{
+  "athlete_id": "rob",
+  "preferences": {
+    "current_goal": "Build aerobic base for spring races",
+    "training_phase": "base-building",
+    "preferred_sports": ["cycling", "running"],
+    "ftp_test_frequency_weeks": 6,
+    "last_ftp_test_date": "2026-01-15",
+    "notes": "Prefer weekday morning rides"
+  },
+  "updated_at": "2026-02-05T12:10:00Z"
+}
+```
+
 ### Manage Observations
 
 ```http
@@ -215,6 +263,59 @@ PATCH /api/agent/observations/{observation_id}?code=<function_key>
 ```
 
 Track training patterns, flags, and insights. POST/PATCH require function authentication.
+
+**POST Request:**
+
+```json
+{
+  "athlete_id": "rob",
+  "category": "fatigue",
+  "summary": "Elevated resting heart rate detected",
+  "details": "Resting HR 58 vs baseline 52 over 3 days",
+  "workout_ids": ["abc123", "def456"],
+  "priority": "high",
+  "expires_days": 4
+}
+```
+
+**POST Response (201):**
+
+```json
+{
+  "observation_id": "uuid",
+  "observation": {
+    "observation_id": "uuid",
+    "athlete_id": "rob",
+    "category": "fatigue",
+    "summary": "Elevated resting heart rate detected",
+    "details": "Resting HR 58 vs baseline 52 over 3 days",
+    "referenced_workout_ids": ["abc123", "def456"],
+    "priority": "high",
+    "status": "active",
+    "created_at": "2026-02-05T12:20:00Z",
+    "expires_at": "2026-02-09T00:00:00Z"
+  }
+}
+```
+
+**PATCH Request:**
+
+```json
+{
+  "athlete_id": "rob",
+  "status": "resolved"
+}
+```
+
+**PATCH Response:**
+
+```json
+{
+  "observation_id": "uuid",
+  "status": "resolved",
+  "updated_at": "2026-02-06T08:15:00Z"
+}
+```
 
 ---
 
@@ -230,7 +331,7 @@ Retrieve current physiometric values for an athlete (weight, FTP, LTHR, cycling 
 
 **Query Parameters:**
 
-- `athlete_id` (required): Athlete identifier
+- `athlete_id` (optional, defaults to `rob`): Athlete identifier
 
 **Response:**
 
@@ -277,7 +378,7 @@ Retrieve time-series physiometric data for trend analysis.
 
 **Query Parameters:**
 
-- `athlete_id` (required): Athlete identifier
+- `athlete_id` (optional, defaults to `rob`): Athlete identifier
 - `days` (optional): Number of days to look back (default 90, max 365)
 - `metrics` (optional): Comma-separated list of metrics (default: all)
   - Available metrics: `weight_kg`, `fat_mass_kg`, `muscle_mass_kg`, `bone_mass_kg`, `body_fat_pct`, `visceral_fat_index`, `metabolic_age_years`, `cycling_vo2max_ml_kg_min`, `heart_rate_lthr_bpm`, `heart_rate_hr_max_bpm`, `power_ftp_watts`
@@ -609,7 +710,7 @@ Retrieve full workout data including time series records.
 
 **Query Parameters:**
 
-- `athlete_id` (required): Athlete identifier
+- `athlete_id` (optional, defaults to `rob`): Athlete identifier
 
 **Response:**
 
@@ -622,9 +723,9 @@ Retrieve full workout data including time series records.
   "duration_sec": 3600,
   "hr_avg_bpm": 145,
   "pwr_avg_watts": 220,
-  "hr_z2_min": 50,
-  "pwr_z2_min": 45,
-  "intensity_min": 8,
+  "hr_z2_sec": 3000,
+  "pwr_z2_sec": 2700,
+  "intensity_sec": 480,
   "decoupling_pct": 2.5,
   "ef_overall": 1.52,
   "intensity_factor": 0.85,
@@ -657,7 +758,7 @@ Get aggregated weekly training data.
 
 **Query Parameters:**
 
-- `athlete_id` (required): Athlete identifier
+- `athlete_id` (optional, defaults to `rob`): Athlete identifier
 - `weeks` (optional): Number of weeks to retrieve (default 16, max 52)
 
 **Response:**
@@ -699,7 +800,7 @@ Analyze time-in-zone distribution for training balance assessment.
 
 **Query Parameters:**
 
-- `athlete_id` (required): Athlete identifier
+- `athlete_id` (optional, defaults to `rob`): Athlete identifier
 - `days` (optional): Number of days to analyze (default 30, max 365)
 
 **Response:**
@@ -833,7 +934,7 @@ The semantic layer is designed to be consumed by ChatGPT via GPT Actions. Exampl
 
 ### Query Constraints
 
-- All endpoints require `athlete_id` for data isolation
+- Most endpoints accept `athlete_id` for data isolation (Phase 1 defaults to `rob` when omitted)
 - Maximum limits prevent unbounded queries:
   - Workouts: max 200
   - Days: max 365
@@ -872,43 +973,33 @@ These endpoints manage athlete physiometric configuration (FTP, LTHR, HR methods
 ### 11. Get Configuration History
 
 ```http
-GET /config/history?athlete_id=rob
+GET /api/config/history?limit=10
 ```
 
-Retrieve the history of configuration changes for an athlete (all FTP updates, LTHR changes, method changes).
+Retrieve the history of configuration changes (FTP, LTHR, zone basis).
 
 **Query Parameters:**
 
-- `athlete_id` (required): Athlete identifier
-- `limit` (optional): Max records to return (default 100, max 1000)
+- `limit` (optional): Max records to return (default 10, max 50)
 
 **Response:**
 
 ```json
 {
-  "athlete_id": "rob",
-  "total_changes": 12,
+  "status": "success",
+  "count": 2,
   "history": [
     {
-      "timestamp_utc": "2026-01-20T10:30:00Z",
-      "changed_by": "manual_api",
-      "changes": {
-        "power": {
-          "ftp_watts": { "old": 280, "new": 285 },
-          "reason": "FTP test completed"
-        }
+      "updated_at_utc": "2026-01-20T10:30:00Z",
+      "heart_rate": {
+        "basis": "LTHR",
+        "lthr_bpm": 175,
+        "hr_max_bpm": 195,
+        "resting_hr_bpm": 52
       },
-      "config_id": "cfg_abc123"
-    },
-    {
-      "timestamp_utc": "2026-01-15T08:00:00Z",
-      "changed_by": "withings_webhook",
-      "changes": {
-        "physiometrics": {
-          "weight_kg": { "old": 75.2, "new": 75.1 }
-        }
-      },
-      "config_id": "cfg_xyz789"
+      "power": {
+        "ftp_watts": 285
+      }
     }
   ]
 }
@@ -926,37 +1017,23 @@ Retrieve the history of configuration changes for an athlete (all FTP updates, L
 ### 12. Update Configuration
 
 ```http
-POST /api/physiometrics/update?athlete_id=rob
+POST /api/config/update
 ```
 
-Update physiometric configuration for an athlete (FTP, LTHR, HR/power zone methods, body composition).
-
-**Query Parameters:**
-
-- `athlete_id` (required): Athlete identifier
+Update physiometrics configuration (FTP, LTHR, HR/power zone basis).
 
 **Request Body:**
 
 ```json
 {
-  "power": {
-    "ftp_watts": 285,
-    "reason": "20-minute FTP test on 2026-01-20"
-  },
   "heart_rate": {
+    "basis": "LTHR",
     "lthr_bpm": 175,
     "hr_max_bpm": 195,
-    "resting_hr_bpm": 52,
-    "zone_basis": "LTHR",
-    "reason": "Updated from recent hard efforts"
+    "resting_hr_bpm": 52
   },
-  "body_composition": {
-    "weight_kg": 75.1,
-    "body_fat_pct": 12.5
-  },
-  "metadata": {
-    "notes": "Post-holiday FTP recovery block",
-    "sport": "cycling"
+  "power": {
+    "ftp_watts": 285
   }
 }
 ```
@@ -965,39 +1042,33 @@ Update physiometric configuration for an athlete (FTP, LTHR, HR/power zone metho
 
 ```json
 {
-  "athlete_id": "rob",
+  "status": "success",
+  "message": "Configuration saved to Azure Table Storage",
   "updated_at_utc": "2026-01-20T10:30:00Z",
-  "config_id": "cfg_abc123",
-  "previous_config_id": "cfg_xyz789",
-  "changes_applied": {
-    "power": { "ftp_watts": "280 → 285 W" },
-    "heart_rate": { "zone_basis": "HRmax → LTHR" }
+  "heart_rate": {
+    "basis": "LTHR",
+    "lthr_bpm": 175,
+    "hr_max_bpm": 195,
+    "resting_hr_bpm": 52
   },
-  "retroactive_recalculation_needed": true
+  "power": {
+    "ftp_watts": 285
+  }
 }
 ```
 
 **Status codes:**
 
 - `200 OK` - Configuration updated successfully
-- `400 Bad Request` - Invalid parameters (e.g., FTP < 50 or > 500)
-- `404 Not Found` - Athlete not found
-- `409 Conflict` - Configuration locked for recalculation
-
-**Validation rules:**
-
-- `ftp_watts`: 50-500 range (sanity check)
-- `lthr_bpm`: > `resting_hr_bpm`, < `hr_max_bpm`
-- `hr_max_bpm`: 120-220 range
-- `weight_kg`: 30-200 range
-- Zone method: One of `HRmax`, `LTHR`, `HRR`
+- `400 Bad Request` - Invalid payload
+- `500 Internal Server Error` - Failed to update configuration
 
 ---
 
 ### 13. Reload Configuration
 
 ```http
-POST /config/reload?athlete_id=rob
+POST /api/config/reload
 ```
 
 Force reload of athlete configuration from storage (useful after external updates or to clear cache).
@@ -1006,14 +1077,16 @@ Force reload of athlete configuration from storage (useful after external update
 
 ```json
 {
-  "athlete_id": "rob",
-  "reloaded_at_utc": "2026-01-20T10:31:00Z",
-  "config_id": "cfg_abc123",
-  "power": { "ftp_watts": 285 },
+  "status": "success",
+  "message": "Configuration reloaded from disk",
   "heart_rate": {
+    "basis": "LTHR",
     "lthr_bpm": 175,
     "hr_max_bpm": 195,
-    "zone_basis": "LTHR"
+    "resting_hr_bpm": 52
+  },
+  "power": {
+    "ftp_watts": 285
   }
 }
 ```
