@@ -11,10 +11,9 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, cast
 
 import azure.functions as func
-from azure.core.exceptions import AzureError
 
 from config.constants import (
     API_DOCS_DIR,
@@ -27,14 +26,8 @@ from config.constants import (
     TEXT_PLAIN_CONTENT_TYPE,
 )
 from FitParser.backup_exporter import BackupExporter
+from FitParser.dependencies import dependencies
 from FitParser.http_utils import json_response, public_base_url
-from FitParser.onedrive_sync import (
-    OneDrivePersonalSyncService,
-    OneDriveSyncConfig,
-)
-from FitParser.semantic_layer import SemanticLayer
-from FitParser.table_storage import WorkoutTableStorage
-from FitParser.withings_client import WithingsClient
 from FitParser.handlers import (
     FitPayloadIngestionHandler,
     OneDriveSyncHandler,
@@ -53,75 +46,11 @@ logger.setLevel(logging.INFO)
 
 app = func.FunctionApp()
 
+dependencies.warmup()
+
 # ============================================================================
-# Dependency Singletons
+# OneDrive OAuth Helpers (local to this module)
 # ============================================================================
-
-
-_storage_singleton: Optional[WorkoutTableStorage] = None
-_semantic_layer_singleton: Optional[SemanticLayer] = None
-_onedrive_service_singleton: Optional[OneDrivePersonalSyncService] = None
-
-try:
-    _storage_singleton = WorkoutTableStorage()
-    _semantic_layer_singleton = SemanticLayer(_storage_singleton)
-    logger.info("Storage and semantic layer initialized on startup")
-except (ValueError, AzureError, OSError) as exc:
-    logger.warning("Deferred initialization: %s", exc)
-
-
-def _get_storage() -> WorkoutTableStorage:
-    """Get storage singleton or create instance."""
-    global _storage_singleton  # pylint: disable=global-statement
-    if _storage_singleton is None:
-        _storage_singleton = WorkoutTableStorage()
-    return _storage_singleton
-
-
-def _get_semantic_layer() -> SemanticLayer:
-    """Get semantic layer singleton or create instance."""
-    global _semantic_layer_singleton  # pylint: disable=global-statement
-    if _semantic_layer_singleton is None:
-        _semantic_layer_singleton = SemanticLayer(_get_storage())
-    return _semantic_layer_singleton
-
-
-def _ingest_fit_payload(payload: Dict[str, Any]) -> tuple[Dict[str, Any], int]:
-    """
-    Ingest a FIT file payload from OneDrive sync.
-
-    Args:
-        payload: Dict with athlete_id, source_file_name, file_content_b64, etc.
-
-    Returns:
-        (response_dict, HTTP status_code)
-    """
-    # Payloads provide base64 content plus metadata; we reconstruct a temp FIT file
-    # and pass its metadata into the ingestion pipeline for deterministic idempotency.
-    handler = FitPayloadIngestionHandler(_get_storage())
-    return handler.handle(payload)
-
-
-def _get_onedrive_service() -> OneDrivePersonalSyncService:
-    """Get OneDrive service singleton or create instance."""
-    global _onedrive_service_singleton  # pylint: disable=global-statement
-    if _onedrive_service_singleton is None:
-        config = OneDriveSyncConfig.from_env()
-        storage = _get_storage()
-        _onedrive_service_singleton = OneDrivePersonalSyncService(
-            config=config,
-            storage=storage,
-            ingest_payload_fn=_ingest_fit_payload
-        )
-    return _onedrive_service_singleton
-
-
-def _get_withings_client() -> WithingsClient:
-    """Get Withings client instance."""
-    return WithingsClient()
-
-
-
 
 def _build_onedrive_state(athlete_id: str) -> str:
     """Build a lightweight OAuth state payload."""
@@ -133,7 +62,6 @@ def _get_athlete_id_from_state(state: str | None) -> str | None:
     if not state:
         return None
     return state.split("|", 1)[0] or None
-
 
 # ============================================================================
 # FIT File Upload Endpoints
@@ -162,7 +90,7 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
     """
     body = parse_ingest_payload(req)
 
-    handler = FitPayloadIngestionHandler(_get_storage())
+    handler = FitPayloadIngestionHandler(dependencies.storage)
     response, status = handler.handle(body)
     return json_response(cast(Dict[str, Any], response), status)
 
@@ -177,7 +105,7 @@ def onedrive_authorize(req: func.HttpRequest) -> func.HttpResponse:
     """Generate OneDrive OAuth authorization URL."""
     athlete_id = req.params.get("athlete_id", "rob")
     state = req.params.get("state") or _build_onedrive_state(athlete_id)
-    service = _get_onedrive_service()
+    service = dependencies.onedrive_service
 
     return json_response(
         {
@@ -209,7 +137,7 @@ def onedrive_callback(req: func.HttpRequest) -> func.HttpResponse:
         or "rob"
     )
 
-    service = _get_onedrive_service()
+    service = dependencies.onedrive_service
     service.complete_authorization(athlete_id=athlete_id, code=code)
 
     success_html = (
@@ -235,7 +163,7 @@ def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
         body = {}
 
     sync_req = OneDriveSyncRequest(body, dict(req.params))
-    handler = OneDriveSyncHandler(_get_onedrive_service())
+    handler = OneDriveSyncHandler(dependencies.onedrive_service)
     response, status = handler.handle(sync_req)
 
     return json_response(response, status)
@@ -249,7 +177,7 @@ def onedrive_sync_timer(timer: func.TimerRequest) -> None:
 
     try:
         athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
-        service = _get_onedrive_service()
+        service = dependencies.onedrive_service
 
         # Use handler with sync mode (async=False) to prevent thread leaks
         # Timer triggers must complete synchronously and return cleanly
@@ -281,7 +209,7 @@ def planning_context(req: func.HttpRequest) -> func.HttpResponse:
     days = int(req.params.get("days", "45"))
     days = max(1, min(days, 365))
 
-    handler = QueryHandler(_get_semantic_layer())
+    handler = QueryHandler(dependencies.semantic_layer)
     context, status = handler.query_planning_context(athlete_id, days)
 
     return json_response(context, status)
@@ -298,7 +226,7 @@ def list_workouts(req: func.HttpRequest) -> func.HttpResponse:
     limit = int(req.params.get("limit", "50"))
     limit = max(1, min(limit, 200))
 
-    handler = QueryHandler(_get_semantic_layer())
+    handler = QueryHandler(dependencies.semantic_layer)
     workouts, status = handler.query_athlete_workouts(
         athlete_id,
         limit=limit,
@@ -324,7 +252,7 @@ def get_workout_detail(req: func.HttpRequest) -> func.HttpResponse:
     if not workout_id:
         return json_response({"error": "workout_id required in route"}, 400)
 
-    handler = QueryHandler(_get_semantic_layer())
+    handler = QueryHandler(dependencies.semantic_layer)
     workout, status = handler.query_workout_detail(athlete_id, workout_id)
 
     return json_response(workout, status)
@@ -363,7 +291,7 @@ def zone_distribution(req: func.HttpRequest) -> func.HttpResponse:
     days = int(req.params.get("days", "30"))
     days = max(1, min(days, 365))
 
-    handler = QueryHandler(_get_semantic_layer())
+    handler = QueryHandler(dependencies.semantic_layer)
     zones, status = handler.query_training_zones(athlete_id, days)
 
     return json_response(zones, status)
@@ -377,7 +305,7 @@ def efficiency_trends(req: func.HttpRequest) -> func.HttpResponse:
     days = int(req.params.get("days", "90"))
     days = max(1, min(days, 365))
 
-    handler = QueryHandler(_get_semantic_layer())
+    handler = QueryHandler(dependencies.semantic_layer)
     trends, status = handler.query_efficiency_trends(athlete_id, days)
 
     return json_response(trends, status)
@@ -391,7 +319,7 @@ def weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
     weeks = int(req.params.get("weeks", "16"))
     weeks = max(1, min(weeks, 52))
 
-    handler = QueryHandler(_get_semantic_layer())
+    handler = QueryHandler(dependencies.semantic_layer)
     rollups, status = handler.query_weekly_rollups(athlete_id, weeks)
 
     return json_response(rollups, status)
@@ -409,7 +337,7 @@ def weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
 )
 def health_check(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable=unused-argument
     """Health check endpoint with dependency verification."""
-    handler = HealthHandler(_get_storage(), API_DOCS_DIR)
+    handler = HealthHandler(dependencies.storage, API_DOCS_DIR)
     result, status = handler.check_health()
 
     # Add timestamp
@@ -435,7 +363,7 @@ def serve_ai_plugin_manifest(req: func.HttpRequest) -> func.HttpResponse:
         }.items() if v is not None
     }
 
-    handler = HealthHandler(_get_storage(), API_DOCS_DIR)
+    handler = HealthHandler(dependencies.storage, API_DOCS_DIR)
     result, status = handler.get_plugin_manifest(base_url, env_overrides)
 
     return json_response(result, status)
@@ -450,7 +378,7 @@ def serve_openapi_spec(req: func.HttpRequest) -> func.HttpResponse:
     """Serve OpenAPI specification with dynamic server URL."""
     base_url = public_base_url(req)
 
-    handler = HealthHandler(_get_storage(), API_DOCS_DIR)
+    handler = HealthHandler(dependencies.storage, API_DOCS_DIR)
     spec_body, status = handler.get_openapi_spec(base_url)
 
     return func.HttpResponse(spec_body, status_code=status, mimetype="application/x-yaml")
@@ -463,7 +391,7 @@ def serve_openapi_spec(req: func.HttpRequest) -> func.HttpResponse:
 )
 def serve_logo(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable=unused-argument
     """Serve the Health Assistant logo."""
-    handler = HealthHandler(_get_storage(), API_DOCS_DIR)
+    handler = HealthHandler(dependencies.storage, API_DOCS_DIR)
     logo_body, status = handler.get_logo()
 
     return func.HttpResponse(logo_body, status_code=status, mimetype="image/svg+xml")
@@ -479,7 +407,7 @@ def get_current_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
     """Get current physiometric values for an athlete."""
     athlete_id = req.params.get("athlete_id", "rob")
 
-    handler = PhysiometricsHandler(_get_semantic_layer())
+    handler = PhysiometricsHandler(dependencies.semantic_layer)
     result, status = handler.get_current(athlete_id)
 
     return json_response(result, status)
@@ -495,7 +423,7 @@ def get_physiometrics_history(req: func.HttpRequest) -> func.HttpResponse:
     metrics_param = req.params.get("metrics")
     metrics = metrics_param.split(",") if metrics_param else None
 
-    handler = PhysiometricsHandler(_get_semantic_layer())
+    handler = PhysiometricsHandler(dependencies.semantic_layer)
     result, status = handler.get_history(athlete_id, days, metrics)
 
     return json_response(result, status)
@@ -518,7 +446,7 @@ def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
         return json_response(
             {"error": "Either 'metric'+'value' or 'metrics' dict required"}, 400)
 
-    handler = PhysiometricsHandler(_get_semantic_layer())
+    handler = PhysiometricsHandler(dependencies.semantic_layer)
     effective_date = req_body.get("effective_date")
     source = req_body.get("source", "chatgpt")
 
@@ -554,7 +482,7 @@ def get_agent_context(req: func.HttpRequest) -> func.HttpResponse:
     """
     athlete_id = req.params.get("athlete_id", "rob")
 
-    handler = AgentMemoryHandler(_get_storage())
+    handler = AgentMemoryHandler(dependencies.storage)
     result, status = handler.get_context(athlete_id)
 
     return json_response(result, status)
@@ -566,7 +494,7 @@ def get_agent_preferences(req: func.HttpRequest) -> func.HttpResponse:
     """Get user preferences for the agent."""
     athlete_id = req.params.get("athlete_id", "rob")
 
-    handler = AgentMemoryHandler(_get_storage())
+    handler = AgentMemoryHandler(dependencies.storage)
     result, status = handler.get_preferences(athlete_id)
 
     return json_response(result, status)
@@ -584,7 +512,7 @@ def update_agent_preferences(req: func.HttpRequest) -> func.HttpResponse:
     athlete_id = req_body.get("athlete_id", "rob")
     preferences = {k: v for k, v in req_body.items() if k != "athlete_id"}
 
-    handler = AgentMemoryHandler(_get_storage())
+    handler = AgentMemoryHandler(dependencies.storage)
     result, status = handler.update_preferences(athlete_id, preferences)
 
     return json_response(result, status)
@@ -598,7 +526,7 @@ def list_agent_observations(req: func.HttpRequest) -> func.HttpResponse:
     status_filter = req.params.get("status", "active")
     limit = int(req.params.get("limit", "20"))
 
-    handler = AgentMemoryHandler(_get_storage())
+    handler = AgentMemoryHandler(dependencies.storage)
     result, status = handler.list_observations(athlete_id, status_filter, limit)
 
     return json_response(result, status)
@@ -621,7 +549,7 @@ def add_agent_observation(req: func.HttpRequest) -> func.HttpResponse:
     priority = req_body.get("priority", "normal")
     expires_days = req_body.get("expires_days")
 
-    handler = AgentMemoryHandler(_get_storage())
+    handler = AgentMemoryHandler(dependencies.storage)
     result, status = handler.add_observation(
         athlete_id=athlete_id,
         category=category,
@@ -652,7 +580,7 @@ def update_agent_observation(req: func.HttpRequest) -> func.HttpResponse:
     athlete_id = req_body.get("athlete_id", "rob")
     status = req_body.get("status")
 
-    handler = AgentMemoryHandler(_get_storage())
+    handler = AgentMemoryHandler(dependencies.storage)
     result, status_code = handler.update_observation_status(
         athlete_id=athlete_id,
         observation_id=observation_id,
@@ -672,7 +600,7 @@ def withings_authorize(req: func.HttpRequest) -> func.HttpResponse:
     """Get Withings OAuth authorization URL."""
     athlete_id = req.params.get("athlete_id", "rob")
 
-    handler = WithingsHandler(_get_withings_client(), _get_storage())
+    handler = WithingsHandler(dependencies.withings_client, dependencies.storage)
     result, status = handler.get_authorization_url(athlete_id)
 
     return json_response(result, status)
@@ -694,7 +622,7 @@ def withings_callback(req: func.HttpRequest) -> func.HttpResponse:
     webhook_base_url = os.getenv("WITHINGS_WEBHOOK_URL",
                                  f"{req.url.split('/api/')[0]}/api/withings/webhook")
 
-    handler = WithingsHandler(_get_withings_client(), _get_storage())
+    handler = WithingsHandler(dependencies.withings_client, dependencies.storage)
     html, status, content_type = handler.handle_oauth_callback(
         code, state, webhook_base_url)
 
@@ -713,7 +641,7 @@ def withings_webhook(req: func.HttpRequest) -> func.HttpResponse:
     startdate = req.form.get("startdate", "")
     enddate = req.form.get("enddate", "")
 
-    handler = WithingsHandler(_get_withings_client(), _get_storage())
+    handler = WithingsHandler(dependencies.withings_client, dependencies.storage)
     result, status = handler.process_webhook(
         userid, appli, startdate, enddate)
 
@@ -778,7 +706,7 @@ def backup_export_timer(timer: func.TimerRequest) -> None:
         logger.info("Starting daily backup export at %s",
                     datetime.now(timezone.utc).isoformat())
 
-        storage = _get_storage()
+        storage = dependencies.storage
         if storage is None:
             logger.error("Storage not initialized")
             return
