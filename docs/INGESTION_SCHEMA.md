@@ -1,4 +1,4 @@
-# Ingestion Schema (v2.3.0)
+# Ingestion Schema (v2.3.1)
 
 This document defines the ingestion payloads and the IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -19,7 +19,8 @@ This document does **not** define the workout metrics schema. See WORKOUT_SCHEMA
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| athlete_id | string | Yes | Athlete identifier (default: `rob` if caller omits and endpoint provides fallback). |
+| athlete_id | string | Yes | Athlete identifier. |
+| source_file_name | string | Yes | Original filename (e.g., `2026-01-07-...fit`). |
 | file_content_b64 | string | Yes | Base64-encoded FIT file content. |
 
 ### Optional fields (source provenance)
@@ -27,7 +28,6 @@ This document does **not** define the workout metrics schema. See WORKOUT_SCHEMA
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | source_system | string | No | Source system name (e.g., `HealthFit`, `Local`). |
-| source_file_name | string | No | Original filename (e.g., `2026-01-07-...fit`). |
 | source_file_path | string | No | Full source path, if known. |
 | source_item_id | string | No | Stable source item ID (e.g., OneDrive item ID). |
 | source_drive_id | string | No | Drive ID (OneDrive). |
@@ -74,7 +74,7 @@ It is intentionally separate from Workouts to keep workout entities small and st
 | source_quickxor_hash | string | No | OneDrive quickXor hash for content. |
 | source_modified_at_utc | string | No | OneDrive last modified timestamp (ISO 8601 UTC). |
 | file_sha256 | string | No | SHA-256 hash of file content. |
-| ingest_version | string | Yes | Ingestion code version (e.g., `v2.3.0`). |
+| ingest_version | string | Yes | Ingestion code version (e.g., `v2.3.1`). |
 | ingested_at_utc | string | No | ISO 8601 UTC timestamp when status becomes `ingested`. |
 | error_message | string | No | Last error message (truncated). |
 

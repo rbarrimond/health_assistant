@@ -32,21 +32,22 @@ It assumes:
 
 ### Keying strategy (recommended)
 
-- `PartitionKey`: `athlete_id#YYYY-MM` (e.g., `rob#2026-01`)
-- `RowKey`: `YYYYMMDDTHHMMSSZ#workout_id` (e.g., `20260107T231500Z#b6d2c0a1e9b4`)
+- `PartitionKey`: `athlete_id|YYYY-MM` (e.g., `rob|2026-01`)
+- `RowKey`: `YYYYMMDDTHHMMSSZ|workout_id_prefix` (e.g., `20260107T231500Z|b6d2c0a1e9b4`)
 
 Why:
 
 - month partitions keep queries bounded and cheap
 - RowKey is sortable by time within partition
 - stable workout_id supports direct lookup
+- RowKey stores the first 12 characters of `workout_id` to keep keys short
 
 ### Core identity fields
 
 |Field|Type|Required|Description|
 |---|---:|:---:|---|
-|PartitionKey|string|✅|`athlete_id#YYYY-MM`|
-|RowKey|string|✅|`start_time_utc_compact#workout_id`|
+|PartitionKey|string|✅|`athlete_id\|YYYY-MM`|
+|RowKey|string|✅|`start_time_utc_compact\|workout_id_prefix`|
 |workout_id|string|✅|Stable unique id (see **workout_id generation**)|
 |athlete_id|string|✅|Short stable identifier for the athlete (e.g., `rob`)|
 |source_system|string|✅|`HealthFit` (or `Garmin`, `Strava`, etc. if expanded later)|
