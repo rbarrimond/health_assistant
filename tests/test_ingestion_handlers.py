@@ -6,10 +6,10 @@ import base64
 from unittest.mock import Mock, patch
 
 from FitParser.handlers.fit_payload_handler import FitPayloadIngestionHandler
-from FitParser.handlers.ingestion_base_handler import IngestionBaseHandler
+from FitParser.handlers.ingestion_base_handler import FitIngestionBaseHandler
 
 
-class _TestIngestionHandler(IngestionBaseHandler):
+class _TestIngestionHandler(FitIngestionBaseHandler):
     """Concrete handler for testing base behavior."""
 
     def handle(self, *args, **kwargs):  # type: ignore[override]
@@ -73,8 +73,8 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
 
         metrics, workout_id = handler._parse_and_store(
             "rob",
-            "/tmp/file.fit",
             {"source_file_name": "file.fit"},
+            file_path="/tmp/file.fit",
         )
 
     assert metrics["sport"] == "Cycling"
@@ -117,7 +117,6 @@ def test_fit_payload_handler_skips_unchanged() -> None:
     handler = FitPayloadIngestionHandler(Mock())
 
     with patch.object(handler, "_extract_payload_bytes", return_value=b"data"), \
-        patch.object(handler, "_write_temp_fit", return_value="/tmp/file.fit"), \
         patch.object(
             handler,
             "_build_payload_source_info",
@@ -141,8 +140,7 @@ def test_fit_payload_handler_success_calls_parse_and_store() -> None:
         "source_system": "HealthFit",
     }
 
-    with patch.object(handler, "_write_temp_fit", return_value="/tmp/file.fit"), \
-        patch("FitParser.handlers.fit_payload_handler.compute_file_hash", return_value="hash"), \
+    with patch("FitParser.handlers.fit_payload_handler.compute_bytes_hash", return_value="hash"), \
         patch.object(handler, "_skip_if_unchanged", return_value=(False, None)), \
         patch.object(
             handler,
@@ -157,5 +155,4 @@ def test_fit_payload_handler_success_calls_parse_and_store() -> None:
 
     parse_args = parse_and_store.call_args[0]
     assert parse_args[0] == "rob"
-    assert parse_args[1] == "/tmp/file.fit"
-    assert parse_args[2]["file_sha256"] == "hash"
+    assert parse_args[1]["file_sha256"] == "hash"
