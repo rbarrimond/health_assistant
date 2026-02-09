@@ -329,7 +329,36 @@ paths:
             application/json:
               schema:
                 type: object
-                additionalProperties: true
+                properties:
+                  name:
+                    type: string
+                    description: Name of the plugin
+                  description:
+                    type: string
+                    description: Description of the plugin
+                  version:
+                    type: string
+                    description: Version of the plugin
+                  endpoints:
+                    type: array
+                    description: List of available endpoints
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                          description: Endpoint path
+                        method:
+                          type: string
+                          description: HTTP method
+                        description:
+                          type: string
+                          description: Description of the endpoint
+                required:
+                  - name
+                  - description
+                  - version
+                  - endpoints
   /api/openapi.yaml:
     get:
       summary: Retrieve the OpenAPI specification
