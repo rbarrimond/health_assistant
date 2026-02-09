@@ -130,10 +130,12 @@ class TestListWorkoutsEndpoint:
         with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
             list_workouts(mock_request)
 
-        # Current implementation only passes athlete_id and limit
         mock_semantic_layer.get_workouts.assert_called_once_with(
             "rob",
+            since="2026-01-01",
+            until="2026-01-31",
             limit=50,
+            sport="Cycling",
         )
 
 

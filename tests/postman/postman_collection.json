@@ -289,6 +289,16 @@
             "description": "OpenAPI spec (local)."
           },
           "response": []
+        },
+        {
+          "name": "GET /logo.svg",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/logo.svg",
+            "description": "Plugin logo asset."
+          },
+          "response": []
         }
       ],
       "description": "Configuration management endpoints"
@@ -374,7 +384,7 @@
             "description": "Update user preferences (function key required).",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"athlete_id\": \"{{athlete_id}}\",\n  \"preferences\": {\n    \"training_goal\": \"Build aerobic base for century ride in June 2026\",\n    \"current_phase\": \"base\",\n    \"current_sports\": [\"cycling\", \"strength\"],\n    \"ftp_test_cadence\": \"every 6-8 weeks\"\n  }\n}"
+              "raw": "{\n  \"athlete_id\": \"{{athlete_id}}\",\n  \"current_goal\": \"Build aerobic base for century ride in June 2026\",\n  \"training_phase\": \"base\",\n  \"preferred_sports\": [\"cycling\", \"strength\"],\n  \"ftp_test_frequency_weeks\": 6\n}"
             }
           },
           "response": []
@@ -403,7 +413,7 @@
             "description": "Add new training observation (function key required).",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"athlete_id\": \"{{athlete_id}}\",\n  \"category\": \"fatigue\",\n  \"summary\": \"Elevated resting heart rate detected\",\n  \"details\": {\n    \"resting_hr\": 58,\n    \"baseline\": 52,\n    \"duration_days\": 3\n  },\n  \"priority\": \"high\",\n  \"expires_at\": \"2026-02-12T00:00:00Z\"\n}"
+              "raw": "{\n  \"athlete_id\": \"{{athlete_id}}\",\n  \"category\": \"fatigue\",\n  \"summary\": \"Elevated resting heart rate detected\",\n  \"details\": \"Resting HR 58 vs baseline 52 over 3 days\",\n  \"priority\": \"high\",\n  \"expires_days\": 4\n}"
             }
           },
           "response": []
@@ -418,7 +428,7 @@
                 "value": "application/json"
               }
             ],
-            "url": "{{base_url}}/api/agent/observations/REPLACE_WITH_OBSERVATION_ID?athlete_id={{athlete_id}}&code={{function_key}}",
+            "url": "{{base_url}}/api/agent/observations/REPLACE_WITH_OBSERVATION_ID?code={{function_key}}",
             "description": "Update observation status (active \u2192 resolved/archived). Function key required.",
             "body": {
               "mode": "raw",

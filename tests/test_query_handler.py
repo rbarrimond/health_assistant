@@ -95,7 +95,11 @@ class TestQueryHandler:
         assert status == 200
         assert result == expected_data
         mock_semantic_layer.get_workouts.assert_called_once_with(
-            "athlete1", limit=7
+            "athlete1",
+            since=None,
+            until=None,
+            limit=7,
+            sport=None,
         )
 
     def test_get_athlete_workouts_missing_athlete_id(self, handler, mock_semantic_layer):
@@ -121,7 +125,11 @@ class TestQueryHandler:
         # Assert
         assert status == 200
         mock_semantic_layer.get_workouts.assert_called_once_with(
-            "athlete1", limit=20  # Default limit
+            "athlete1",
+            since=None,
+            until=None,
+            limit=20,  # Default limit
+            sport=None,
         )
 
     def test_get_training_zones_success(self, handler, mock_semantic_layer):

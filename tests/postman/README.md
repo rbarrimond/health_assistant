@@ -16,11 +16,11 @@ The Postman collection provides organized testing for:
 - ✅ **Planning & Analysis** (8 requests) - Planning context, workouts, rollups, zones
 - ✅ **Real Data Tests** (3 requests) - Actual FIT files (small, medium, large)
 - ✅ **Physiometrics** (3 requests) - Body metrics CRUD operations
-- ✅ **Configuration** (3 requests) - Config management endpoints
+- ✅ **Configuration** (4 requests) - Config management and asset endpoints
 - ✅ **Backend Integration** (7 requests) - OneDrive and Withings OAuth flows
 - ✅ **System Health** (1 request) - Health check endpoint
 
-**Total**: 31 pre-configured requests ready to run
+**Total**: 32 pre-configured requests ready to run
 
 ## Import Collection
 

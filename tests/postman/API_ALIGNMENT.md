@@ -7,9 +7,9 @@
 
 The API is well-aligned across all three sources:
 
-- **function_app.py**: 29 routes defined
-- **openapi.yaml**: 28 documented paths  
-- **Postman collection**: 30+ test requests
+- **function_app.py**: 29+ routes defined
+- **openapi.yaml**: 30 documented paths
+- **Postman collection**: 31 test requests
 
 ## Detailed Comparison
 
@@ -45,36 +45,31 @@ All core endpoints are present in all three sources:
 /api/workouts/{workout_id}/recalculated ✓ func_app  ✓ openapi  ✓ postman
 ```
 
-### ⚠️ Asset Endpoints (Present in function_app but missing from OpenAPI)
-
-These are asset/documentation endpoints not typically included in API specs:
+### ✅ Asset Endpoints (Aligned)
 
 ``` text
-/api/.well-known/ai-plugin.json   ✓ func_app  ✗ openapi  ✓ postman
-/api/logo.svg                     ✓ func_app  ✗ openapi  ✗ postman
-/api/openapi.yaml                 ✓ func_app  ✗ openapi  ✓ postman
+/api/.well-known/ai-plugin.json   ✓ func_app  ✓ openapi  ✓ postman
+/api/logo.svg                     ✓ func_app  ✓ openapi  ✓ postman
+/api/openapi.yaml                 ✓ func_app  ✓ openapi  ✓ postman
 ```
-
-**Status**: ✅ Expected - These are metadata/asset endpoints, not API operations
 
 ### Summary by Source
 
-#### Function App (29 routes)
+#### Function App (29+ routes)
 
 - All 28 core API endpoints ✓
-- 1 asset endpoint missing from openapi (.well-known) - intentional
-- 2 asset endpoints (logo.svg, openapi.yaml) - intentional
+- Asset endpoints included ✓
 
-#### OpenAPI YAML (28 paths)
+#### OpenAPI YAML (30 paths)
 
-- All 28 core API endpoints documented ✓
-- Missing 3 asset endpoints - acceptable (not part of OpenAPI spec)
+- All core API endpoints documented ✓
+- Asset endpoints documented ✓
 - Includes 6 new agent memory endpoints (context, preferences, observations)
 
-#### Postman Collection (30+ requests)
+#### Postman Collection (31 requests)
 
-- All 28 core API endpoints tested ✓
-- All 3 asset endpoints tested ✓
+- All core API endpoints tested ✓
+- All asset endpoints tested ✓
 - Includes dedicated "Agent Memory" folder with 6 test requests
 - Multiple test payloads per endpoint for comprehensive coverage
 
@@ -91,7 +86,7 @@ These are asset/documentation endpoints not typically included in API specs:
 1. ✅ Postman collection is current and ready for testing
 2. ✅ OpenAPI spec is accurate and complete for API operations
 3. ✅ Function app implementation matches both spec and tests
-4. Consider: Document the 3 asset endpoints in openapi.yaml if they need formal spec coverage
+4. ✅ Asset endpoints are documented in openapi.yaml
 
 ## Testing Instructions
 
