@@ -6,9 +6,11 @@ interface with the semantic layer.
 # pylint: disable=redefined-outer-name  # pytest fixtures intentionally shadow
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
+import function_app
+from FitParser.dependencies import FunctionAppDependencies
 
 from function_app import (
     planning_context,
@@ -42,7 +44,7 @@ class TestPlanningContextEndpoint:
         """Test endpoint defaults to 'rob' when athlete_id not provided."""
         mock_semantic_layer.get_planning_context.return_value = {"athlete_id": "rob"}
 
-        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
             response = planning_context(mock_request)
 
         assert response.status_code == 200
@@ -62,7 +64,7 @@ class TestPlanningContextEndpoint:
         }
         mock_semantic_layer.get_planning_context.return_value = mock_context
 
-        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
             response = planning_context(mock_request)
 
         assert response.status_code == 200
@@ -76,7 +78,7 @@ class TestPlanningContextEndpoint:
 
         mock_semantic_layer.get_planning_context.return_value = {}
 
-        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
             planning_context(mock_request)
 
         # Should cap at 365
@@ -90,7 +92,7 @@ class TestListWorkoutsEndpoint:
         """Test endpoint defaults to 'rob' when athlete_id not provided."""
         mock_semantic_layer.get_workouts.return_value = []
 
-        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
             response = list_workouts(mock_request)
 
         assert response.status_code == 200
@@ -107,7 +109,7 @@ class TestListWorkoutsEndpoint:
         ]
         mock_semantic_layer.get_workouts.return_value = mock_workouts
 
-        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
             response = list_workouts(mock_request)
 
         assert response.status_code == 200
@@ -127,7 +129,7 @@ class TestListWorkoutsEndpoint:
 
         mock_semantic_layer.get_workouts.return_value = []
 
-        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
             list_workouts(mock_request)
 
         mock_semantic_layer.get_workouts.assert_called_once_with(
@@ -153,7 +155,7 @@ class TestGetWorkoutEndpoint:
         }
         mock_semantic_layer.get_workout_detail.return_value = mock_workout
 
-        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
             response = get_workout_detail(mock_request)
 
         assert response.status_code == 200
@@ -173,7 +175,7 @@ class TestGetWorkoutEndpoint:
         }
         mock_semantic_layer.get_workout_detail.return_value = mock_workout
 
-        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
             response = get_workout_detail(mock_request)
 
         assert response.status_code == 200
@@ -188,7 +190,7 @@ class TestGetWorkoutEndpoint:
 
         mock_semantic_layer.get_workout_detail.return_value = None
 
-        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
             response = get_workout_detail(mock_request)
 
         assert response.status_code == 404
@@ -203,7 +205,7 @@ class TestWeeklyRollupsEndpoint:
         """Test endpoint defaults to 'rob' when athlete_id not provided."""
         mock_semantic_layer.get_weekly_rollups.return_value = []
 
-        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
             response = weekly_rollups(mock_request)
 
         assert response.status_code == 200
@@ -218,7 +220,7 @@ class TestWeeklyRollupsEndpoint:
         ]
         mock_semantic_layer.get_weekly_rollups.return_value = mock_rollups
 
-        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
             response = weekly_rollups(mock_request)
 
         assert response.status_code == 200
@@ -232,7 +234,7 @@ class TestWeeklyRollupsEndpoint:
 
         mock_semantic_layer.get_weekly_rollups.return_value = []
 
-        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
             weekly_rollups(mock_request)
 
         # Should cap at 52
@@ -246,7 +248,7 @@ class TestZoneDistributionEndpoint:
         """Test endpoint defaults to 'rob' when athlete_id not provided."""
         mock_semantic_layer.get_zone_distribution.return_value = {"athlete_id": "rob"}
 
-        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
             response = zone_distribution(mock_request)
 
         assert response.status_code == 200
@@ -264,7 +266,7 @@ class TestZoneDistributionEndpoint:
         }
         mock_semantic_layer.get_zone_distribution.return_value = mock_distribution
 
-        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
             response = zone_distribution(mock_request)
 
         assert response.status_code == 200
@@ -281,7 +283,7 @@ class TestEfficiencyTrendsEndpoint:
         """Test endpoint defaults to 'rob' when athlete_id not provided."""
         mock_semantic_layer.get_efficiency_trends.return_value = {"athlete_id": "rob"}
 
-        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
             response = efficiency_trends(mock_request)
 
         assert response.status_code == 200
@@ -300,7 +302,7 @@ class TestEfficiencyTrendsEndpoint:
         }
         mock_semantic_layer.get_efficiency_trends.return_value = mock_trends
 
-        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
             response = efficiency_trends(mock_request)
 
         assert response.status_code == 200
@@ -315,7 +317,7 @@ class TestEfficiencyTrendsEndpoint:
 
         mock_semantic_layer.get_efficiency_trends.return_value = {}
 
-        with patch("function_app._semantic_layer_singleton", mock_semantic_layer):
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
             efficiency_trends(mock_request)
 
         # Should cap at 365

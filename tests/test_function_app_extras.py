@@ -6,11 +6,13 @@
 import base64
 import json
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, PropertyMock
 
 import azure.functions as func
 
 import function_app
+from FitParser.dependencies import FunctionAppDependencies
+from config.constants import ENV_PUBLIC_BASE_URL
 from FitParser.onedrive_sync import (
     ONEDRIVE_CLIENT_ID,
     ONEDRIVE_CLIENT_SECRET,
@@ -20,18 +22,22 @@ from FitParser.onedrive_sync import (
 )
 
 
+def _patch_dependency(attr, value):
+    return patch.object(FunctionAppDependencies, attr, new=PropertyMock(return_value=value))
+
+
 class TestPublicBaseUrlHelper:
     def test_public_base_url_env_override(self, monkeypatch):
-        monkeypatch.setenv(function_app.ENV_PUBLIC_BASE_URL, "https://example.com/base/")
+        monkeypatch.setenv(ENV_PUBLIC_BASE_URL, "https://example.com/base/")
         req = MagicMock(spec=func.HttpRequest)
         req.url = "https://ignored.example.com/path"
-        assert function_app._public_base_url(req) == "https://example.com/base"
+        assert function_app.public_base_url(req) == "https://example.com/base"
 
     def test_public_base_url_from_request(self, monkeypatch):
-        monkeypatch.delenv(function_app.ENV_PUBLIC_BASE_URL, raising=False)
+        monkeypatch.delenv(ENV_PUBLIC_BASE_URL, raising=False)
         req = MagicMock(spec=func.HttpRequest)
         req.url = "https://api.example.com/some/path?x=1"
-        assert function_app._public_base_url(req) == "https://api.example.com"
+        assert function_app.public_base_url(req) == "https://api.example.com"
 
 
 class TestDocsAssetEndpoints:
@@ -56,7 +62,7 @@ class TestDocsAssetEndpoints:
         mock_handler = MagicMock()
         mock_handler.get_plugin_manifest.return_value = (manifest, 200)
 
-        with patch("function_app._get_storage", return_value=MagicMock()):
+        with _patch_dependency("storage", MagicMock()):
             with patch("function_app.HealthHandler", return_value=mock_handler) as handler_cls:
                 response = function_app.serve_ai_plugin_manifest(req)
 
@@ -84,7 +90,7 @@ class TestDocsAssetEndpoints:
         mock_handler = MagicMock()
         mock_handler.get_openapi_spec.return_value = ("openapi: 3.0.1\n", 200)
 
-        with patch("function_app._get_storage", return_value=MagicMock()):
+        with _patch_dependency("storage", MagicMock()):
             with patch("function_app.HealthHandler", return_value=mock_handler):
                 response = function_app.serve_openapi_spec(req)
 
@@ -100,7 +106,7 @@ class TestDocsAssetEndpoints:
         mock_handler = MagicMock()
         mock_handler.get_logo.return_value = (svg_body, 200)
 
-        with patch("function_app._get_storage", return_value=MagicMock()):
+        with _patch_dependency("storage", MagicMock()):
             with patch("function_app.HealthHandler", return_value=mock_handler):
                 response = function_app.serve_logo(req)
 
@@ -117,7 +123,7 @@ class TestPhysiometricsEndpointHandlers:
         mock_handler = MagicMock()
         mock_handler.get_current.return_value = ({"athlete_id": "rob"}, 200)
 
-        with patch("function_app._get_semantic_layer", return_value=MagicMock()):
+        with _patch_dependency("semantic_layer", MagicMock()):
             with patch("function_app.PhysiometricsHandler", return_value=mock_handler):
                 response = function_app.get_current_physiometrics(req)
 
@@ -131,7 +137,7 @@ class TestPhysiometricsEndpointHandlers:
         mock_handler = MagicMock()
         mock_handler.get_current.return_value = ({"athlete_id": "rob"}, 200)
 
-        with patch("function_app._get_semantic_layer", return_value=MagicMock()):
+        with _patch_dependency("semantic_layer", MagicMock()):
             with patch("function_app.PhysiometricsHandler", return_value=mock_handler):
                 response = function_app.get_current_physiometrics(req)
 
@@ -151,7 +157,7 @@ class TestPhysiometricsEndpointHandlers:
         mock_handler = MagicMock()
         mock_handler.get_history.return_value = ({"athlete_id": "rob"}, 200)
 
-        with patch("function_app._get_semantic_layer", return_value=MagicMock()):
+        with _patch_dependency("semantic_layer", MagicMock()):
             with patch("function_app.PhysiometricsHandler", return_value=mock_handler):
                 function_app.get_physiometrics_history(req)
 
@@ -173,7 +179,7 @@ class TestPhysiometricsEndpointHandlers:
         mock_handler = MagicMock()
         mock_handler.update_metric.return_value = ({"status": "success"}, 200)
 
-        with patch("function_app._get_semantic_layer", return_value=MagicMock()):
+        with _patch_dependency("semantic_layer", MagicMock()):
             with patch("function_app.PhysiometricsHandler", return_value=mock_handler):
                 response = function_app.update_physiometrics(req)
 
@@ -197,7 +203,7 @@ class TestPhysiometricsEndpointHandlers:
         mock_handler = MagicMock()
         mock_handler.update_metrics.return_value = ({"status": "success"}, 200)
 
-        with patch("function_app._get_semantic_layer", return_value=MagicMock()):
+        with _patch_dependency("semantic_layer", MagicMock()):
             with patch("function_app.PhysiometricsHandler", return_value=mock_handler):
                 response = function_app.update_physiometrics(req)
 
@@ -213,8 +219,7 @@ class TestPhysiometricsEndpointHandlers:
         req = MagicMock(spec=func.HttpRequest)
         req.get_json.return_value = {"athlete_id": "rob"}
 
-        with patch("function_app.SemanticLayer"):
-            response = function_app.update_physiometrics(req)
+        response = function_app.update_physiometrics(req)
 
         assert response.status_code == 400
 
@@ -230,8 +235,8 @@ class TestWithingsEndpointHandlers:
             200,
         )
 
-        with patch("function_app._get_storage", return_value=MagicMock()):
-            with patch("function_app._get_withings_client", return_value=MagicMock()):
+        with _patch_dependency("storage", MagicMock()):
+            with _patch_dependency("withings_client", MagicMock()):
                 with patch("function_app.WithingsHandler", return_value=mock_handler):
                     response = function_app.withings_authorize(req)
 
@@ -248,8 +253,8 @@ class TestWithingsEndpointHandlers:
             200,
         )
 
-        with patch("function_app._get_storage", return_value=MagicMock()):
-            with patch("function_app._get_withings_client", return_value=MagicMock()):
+        with _patch_dependency("storage", MagicMock()):
+            with _patch_dependency("withings_client", MagicMock()):
                 with patch("function_app.WithingsHandler", return_value=mock_handler):
                     response = function_app.withings_authorize(req)
 
@@ -270,8 +275,8 @@ class TestWithingsEndpointHandlers:
             "text/html",
         )
 
-        with patch("function_app._get_storage", return_value=MagicMock()):
-            with patch("function_app._get_withings_client", return_value=MagicMock()):
+        with _patch_dependency("storage", MagicMock()):
+            with _patch_dependency("withings_client", MagicMock()):
                 with patch("function_app.WithingsHandler", return_value=mock_handler):
                     response = function_app.withings_callback(req)
 
@@ -290,8 +295,8 @@ class TestWithingsEndpointHandlers:
             "text/html",
         )
 
-        with patch("function_app._get_storage", return_value=MagicMock()):
-            with patch("function_app._get_withings_client", return_value=MagicMock()):
+        with _patch_dependency("storage", MagicMock()):
+            with _patch_dependency("withings_client", MagicMock()):
                 with patch("function_app.WithingsHandler", return_value=mock_handler):
                     response = function_app.withings_callback(req)
 
@@ -309,8 +314,8 @@ class TestWithingsEndpointHandlers:
         mock_handler = MagicMock()
         mock_handler.process_webhook.return_value = ("OK", 200)
 
-        with patch("function_app._get_storage", return_value=MagicMock()):
-            with patch("function_app._get_withings_client", return_value=MagicMock()):
+        with _patch_dependency("storage", MagicMock()):
+            with _patch_dependency("withings_client", MagicMock()):
                 with patch("function_app.WithingsHandler", return_value=mock_handler):
                     response = function_app.withings_webhook(req)
 
@@ -328,8 +333,8 @@ class TestWithingsEndpointHandlers:
         mock_handler = MagicMock()
         mock_handler.process_webhook.return_value = ("OK", 200)
 
-        with patch("function_app._get_storage", return_value=MagicMock()):
-            with patch("function_app._get_withings_client", return_value=MagicMock()):
+        with _patch_dependency("storage", MagicMock()):
+            with _patch_dependency("withings_client", MagicMock()):
                 with patch("function_app.WithingsHandler", return_value=mock_handler):
                     response = function_app.withings_webhook(req)
 
@@ -347,8 +352,8 @@ class TestWithingsEndpointHandlers:
         mock_handler = MagicMock()
         mock_handler.process_webhook.return_value = ("OK", 200)
 
-        with patch("function_app._get_storage", return_value=MagicMock()):
-            with patch("function_app._get_withings_client", return_value=MagicMock()):
+        with _patch_dependency("storage", MagicMock()):
+            with _patch_dependency("withings_client", MagicMock()):
                 with patch("function_app.WithingsHandler", return_value=mock_handler):
                     response = function_app.withings_webhook(req)
 
@@ -361,8 +366,8 @@ class TestIngestionHelpersAndFlow:
             "athlete_id": "rob",
         }
 
-        with patch("function_app._get_storage", return_value=MagicMock()):
-            body, status_code = function_app._ingest_fit_payload(payload)
+        with _patch_dependency("storage", MagicMock()):
+            body, status_code = function_app.dependencies.ingest_fit_payload(payload)
 
         assert status_code == 400
         assert body["error"] == "No file content"
@@ -392,9 +397,9 @@ class TestIngestionHelpersAndFlow:
         }
 
         with patch("FitParser.handlers.fit_payload_handler.compute_file_hash", return_value="hash"):
-            with patch("function_app._get_storage", return_value=mock_storage):
+            with _patch_dependency("storage", mock_storage):
                 with patch("FitParser.handlers.ingestion_base_handler.FitParser", return_value=mock_parser):
-                    body, status_code = function_app._ingest_fit_payload(payload)
+                    body, status_code = function_app.dependencies.ingest_fit_payload(payload)
 
         assert status_code == 200
         assert body["status"] == "success"
@@ -425,7 +430,7 @@ class TestOneDriveHelpersAndEndpoints:
         mock_handler = MagicMock()
         mock_handler.handle.return_value = ({"status": "success"}, 200)
 
-        with patch("function_app._get_onedrive_service", return_value=MagicMock()):
+        with _patch_dependency("onedrive_service", MagicMock()):
             with patch("function_app.OneDriveSyncHandler", return_value=mock_handler) as handler_cls:
                 response = function_app.onedrive_sync_http(req)
 
@@ -444,7 +449,7 @@ class TestOneDriveHelpersAndEndpoints:
         mock_handler = MagicMock()
         mock_handler.handle.return_value = ({"status": "success"}, 200)
 
-        with patch("function_app._get_onedrive_service", return_value=MagicMock()):
+        with _patch_dependency("onedrive_service", MagicMock()):
             with patch("function_app.OneDriveSyncHandler", return_value=mock_handler):
                 response = function_app.onedrive_sync_http(req)
 
@@ -462,7 +467,7 @@ class TestOneDriveHelpersAndEndpoints:
         mock_handler = MagicMock()
         mock_handler.handle.return_value = ({"status": "queued"}, 202)
 
-        with patch("function_app._get_onedrive_service", return_value=MagicMock()):
+        with _patch_dependency("onedrive_service", MagicMock()):
             with patch("function_app.OneDriveSyncHandler", return_value=mock_handler):
                 response = function_app.onedrive_sync_http(req)
 
@@ -476,7 +481,7 @@ class TestOneDriveHelpersAndEndpoints:
         mock_service = MagicMock()
         mock_service.build_authorize_url.return_value = "https://login.example.com/auth"
 
-        with patch("function_app._get_onedrive_service", return_value=mock_service):
+        with _patch_dependency("onedrive_service", mock_service):
             response = function_app.onedrive_authorize(req)
 
         assert response.status_code == 200
@@ -498,7 +503,7 @@ class TestOneDriveHelpersAndEndpoints:
 
         mock_service = MagicMock()
 
-        with patch("function_app._get_onedrive_service", return_value=mock_service):
+        with _patch_dependency("onedrive_service", mock_service):
             response = function_app.onedrive_callback(req)
 
         assert response.status_code == 200

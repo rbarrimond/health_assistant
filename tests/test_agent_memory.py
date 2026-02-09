@@ -6,12 +6,17 @@ Run this to verify the agent memory endpoints are working correctly.
 import json
 import os
 import requests
+import pytest
 
 # Configuration
 BASE_URL = os.getenv("FUNCTION_APP_URL", "http://localhost:7071/api")
 FUNCTION_KEY = os.getenv("FUNCTION_APP_KEY", "")
 ATHLETE_ID = "rob"
 REQUEST_TIMEOUT = 30  # seconds
+
+# Skip integration tests unless FUNCTION_APP_URL is explicitly set.
+if not os.getenv("FUNCTION_APP_URL"):
+    pytest.skip("Set FUNCTION_APP_URL to run integration tests", allow_module_level=True)
 
 
 def test_get_context():

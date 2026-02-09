@@ -4,9 +4,10 @@
 # pylint: disable=import-outside-toplevel
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, PropertyMock
 
 import azure.functions as func
+from FitParser.dependencies import FunctionAppDependencies
 
 # Import endpoints (these are module-level functions in function_app.py)
 # We'll test them by importing the app module
@@ -19,10 +20,9 @@ class TestHealthCheckEndpoint:
         """Verify health check returns 200 OK."""
         from function_app import health_check
 
-        with patch("function_app._get_storage") as mock_storage_fn:
-            mock_storage = MagicMock()
-            mock_storage.service_client.list_tables.return_value = []
-            mock_storage_fn.return_value = mock_storage
+        mock_storage = MagicMock()
+        mock_storage.service_client.list_tables.return_value = []
+        with patch.object(FunctionAppDependencies, "storage", new=PropertyMock(return_value=mock_storage)):
 
             req = MagicMock(spec=func.HttpRequest)
             response = health_check(req)
@@ -35,10 +35,9 @@ class TestHealthCheckEndpoint:
         """Verify health check returns JSON."""
         from function_app import health_check
 
-        with patch("function_app._get_storage") as mock_storage_fn:
-            mock_storage = MagicMock()
-            mock_storage.service_client.list_tables.return_value = []
-            mock_storage_fn.return_value = mock_storage
+        mock_storage = MagicMock()
+        mock_storage.service_client.list_tables.return_value = []
+        with patch.object(FunctionAppDependencies, "storage", new=PropertyMock(return_value=mock_storage)):
 
             req = MagicMock(spec=func.HttpRequest)
             response = health_check(req)
