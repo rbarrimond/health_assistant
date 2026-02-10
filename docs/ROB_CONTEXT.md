@@ -1,5 +1,13 @@
 # Athlete Context – Robert Barrimond
 
+Version 1.1.1
+
+**Semantic Versioning Policy:**
+
+- MAJOR: Change in training philosophy or decision priorities
+- MINOR: Clarification or extension of interpretation rules
+- PATCH: Wording, examples, or formatting only
+
 ## Identity & Orientation
 
 Robert is an endurance-focused cyclist who prioritizes longevity, structural integrity, and consistency over short-term performance peaks.
@@ -95,13 +103,3 @@ Stability and tolerance must precede load or intensity.
 - Clarity and accuracy are valued more than reassurance.
 
 The goal is informed judgment, not compliance.
-
----
-
-## ROB_CONTEXT — Version 1.1.0
-
-Semantic Versioning:
-
-- MAJOR: Change in training philosophy or decision priorities
-- MINOR: Clarification or extension of interpretation rules
-- PATCH: Wording, examples, or formatting only
