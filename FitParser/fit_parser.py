@@ -13,6 +13,11 @@ from .apple_workout_types import AppleWorkoutTypeResolver
 from .config import Config
 from .exceptions import FitAdapterError, WorkoutTypeResolutionError
 from .models import Workout
+from .timezone_utils import (
+    infer_timezone_from_activity,
+    infer_timezone_from_session,
+    resolve_timezone,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -258,6 +263,14 @@ class FitParser:
                 return value
         return None
 
+    def _get_raw_field_from_msg(self, msg, field_name: str) -> Optional[Any]:
+        """Return raw field value (no timezone coercion)."""
+        if msg:
+            field = msg.get(field_name)
+            if field:
+                return field.value
+        return None
+
     def _get_sport(self) -> Optional[str]:
         """Get sport type from file messages."""
         file_msg = self.file_id_msg
@@ -354,16 +367,15 @@ class FitParser:
                 return "UTC"
 
             tz_name = self._get_time_zone_name()
-            if tz_name:
-                return tz_name
-
             offset_minutes = self._get_device_utc_offset_minutes()
-            if offset_minutes is not None:
-                return self._format_utc_offset(offset_minutes)
-
-            inferred = self._infer_timezone_from_session_times()
-            if inferred:
-                return inferred
+            inferred_activity = self._infer_timezone_from_activity_times()
+            inferred_session = self._infer_timezone_from_session_times()
+            return resolve_timezone(
+                tz_name,
+                offset_minutes,
+                inferred_activity,
+                inferred_session,
+            )
         except (AttributeError, TypeError, ValueError):
             # Be defensive; timezone is non-critical
             pass
@@ -393,56 +405,43 @@ class FitParser:
                 return int(round(offset / 60))
         return None
 
-    def _format_utc_offset(self, minutes: int) -> str:
-        """Format minutes offset as 'UTC±HH:MM'."""
-        sign = "+" if minutes >= 0 else "-"
-        minutes = abs(minutes)
-        hours, mins = divmod(minutes, 60)
-        return f"UTC{sign}{hours:02d}:{mins:02d}"
-
     def _infer_timezone_from_session_times(self) -> Optional[str]:
         """Infer timezone from session timestamp vs local start time."""
         session = self.session_msg
         if not session:
             return None
 
-        start_time = self._get_field_from_msg(session, "start_time")
+        start_time = self._get_raw_field_from_msg(session, "start_time")
         timestamp = self._get_field_from_msg(session, "timestamp")
         duration = self._get_field_from_msg(session, "total_elapsed_time")
-
-        if not isinstance(start_time, datetime):
-            return None
-        if not isinstance(timestamp, datetime):
-            return None
-        if duration is None:
-            return None
 
         try:
             duration_sec = int(duration)
         except (TypeError, ValueError):
             return None
-
-        utc_start = timestamp - timedelta(seconds=duration_sec)
-        start_dt = (
-            start_time.astimezone(timezone.utc).replace(tzinfo=None)
-            if start_time.tzinfo is not None
-            else start_time
-        )
-        utc_start_dt = (
-            utc_start.astimezone(timezone.utc).replace(tzinfo=None)
-            if utc_start.tzinfo is not None
-            else utc_start
+        return infer_timezone_from_session(
+            start_time,
+            timestamp,
+            duration_sec,
         )
 
-        offset_minutes = (start_dt - utc_start_dt).total_seconds() / 60
-        rounded_minutes = round(offset_minutes / 15) * 15
-        if abs(offset_minutes - rounded_minutes) > 3:
+    def _infer_timezone_from_activity_times(self) -> Optional[str]:
+        """Infer timezone from activity local_time vs UTC timestamp."""
+        if not self.fit:
             return None
-        if rounded_minutes < -14 * 60 or rounded_minutes > 14 * 60:
+        activity_msg = None
+        for msg in self.fit.get_messages("activity"):
+            activity_msg = msg
+            break
+        if not activity_msg:
             return None
-        if rounded_minutes == 0:
-            return "UTC"
-        return self._format_utc_offset(int(rounded_minutes))
+
+        local_time = (
+            self._get_raw_field_from_msg(activity_msg, "local_time")
+            or self._get_raw_field_from_msg(activity_msg, "local_timestamp")
+        )
+        timestamp = self._get_field_from_msg(activity_msg, "timestamp")
+        return infer_timezone_from_activity(local_time, timestamp)
 
     def _get_duration(self) -> Optional[int]:
         """Get total elapsed time in seconds."""

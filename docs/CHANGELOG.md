@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-10
+
+- Prefer Activity local time vs UTC timestamp when inferring FIT timezones; keep raw local values for inference.
+- Bump ingest version to v3.0.7.
+
 ## 2026-02-09
 
 - Normalize FIT timestamps to UTC and infer timezone offsets; bump ingest version to v3.0.6.
