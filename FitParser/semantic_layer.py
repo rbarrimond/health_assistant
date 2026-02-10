@@ -440,6 +440,7 @@ class SemanticLayer:
             "is_indoor": is_indoor,
             "start_time_utc": metrics.get("start_time_utc"),
             "end_time_utc": metrics.get("end_time_utc"),
+            "timezone": metrics.get("timezone"),
             "duration_sec": metrics.get("duration_sec"),
             "moving_time_sec": metrics.get("moving_time_sec"),
             "distance_m": metrics.get("distance_m"),
