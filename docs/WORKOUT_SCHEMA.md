@@ -71,7 +71,7 @@ Preferred order:
 |---|---:|:---:|---|
 |start_time_utc|datetime (ISO string)|✅|Workout start time UTC, e.g. `2026-01-07T23:15:00Z`|
 |end_time_utc|datetime (ISO string)|⛔️|Derived end time UTC|
-|timezone|string|⛔️|Source timezone if available (`America/New_York`)|
+|timezone|string|⛔️|Source timezone if available (UTC offset like `UTC-05:00`)|
 |duration_sec|int|✅|Total elapsed duration (seconds)|
 |moving_time_sec|int|⛔️|Moving time if derivable (cycling often equals duration)|
 |sport|string|✅|Generic FIT sport (`cycling`, `running`, `strength_training`, etc.)|
