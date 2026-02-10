@@ -113,7 +113,10 @@ def test_parse_ingest_payload_invalid_json() -> None:
 # ============================================================================
 def test_storage_instantiation() -> None:
     """WorkoutTableStorage should instantiate without errors."""
-    with patch.object(WorkoutTableStorage, "_ensure_tables_exist"):
+    with (
+        patch.object(WorkoutTableStorage, "_ensure_tables_exist"),
+        patch.object(WorkoutTableStorage, "_ensure_blob_container"),
+    ):
         storage = WorkoutTableStorage(
             connection_string=(
                 "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake;"
@@ -125,7 +128,10 @@ def test_storage_instantiation() -> None:
 
 def test_semantic_layer_instantiation() -> None:
     """SemanticLayer should instantiate with WorkoutTableStorage."""
-    with patch.object(WorkoutTableStorage, "_ensure_tables_exist"):
+    with (
+        patch.object(WorkoutTableStorage, "_ensure_tables_exist"),
+        patch.object(WorkoutTableStorage, "_ensure_blob_container"),
+    ):
         storage = WorkoutTableStorage(
             connection_string=(
                 "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake;"
@@ -164,7 +170,10 @@ def test_config_handler_instantiation() -> None:
 
 def test_health_handler_instantiation() -> None:
     """HealthHandler should instantiate successfully."""
-    with patch.object(WorkoutTableStorage, "_ensure_tables_exist"):
+    with (
+        patch.object(WorkoutTableStorage, "_ensure_tables_exist"),
+        patch.object(WorkoutTableStorage, "_ensure_blob_container"),
+    ):
         storage = WorkoutTableStorage(
             connection_string=(
                 "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake;"

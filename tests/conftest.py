@@ -1,6 +1,7 @@
 """Pytest configuration and fixtures."""
 
 import json
+import os
 import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -10,6 +11,30 @@ from unittest.mock import MagicMock, Mock, patch
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+
+
+def _env_enabled(name: str) -> bool:
+    value = os.getenv(name, "").lower()
+    return value in {"1", "true", "yes"}
+
+
+def pytest_collection_modifyitems(config, items):  # noqa: ARG001 - pytest hook signature  # pylint: disable=unused-argument
+    """Skip certain tests based on environment variables."""
+    if not _env_enabled("RUN_INTEGRATION"):
+        skip_integration = pytest.mark.skip(
+            reason="Set RUN_INTEGRATION=1 to run integration tests"
+        )
+        for item in items:
+            if "integration" in item.keywords:
+                item.add_marker(skip_integration)
+
+    if not _env_enabled("RUN_AZURE_INTEGRATION"):
+        skip_azure = pytest.mark.skip(
+            reason="Set RUN_AZURE_INTEGRATION=1 to run Azure integration tests"
+        )
+        for item in items:
+            if "azure_integration" in item.keywords:
+                item.add_marker(skip_azure)
 
 
 class _SimpleMocker:

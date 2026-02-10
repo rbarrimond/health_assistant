@@ -45,7 +45,8 @@ logger.setLevel(logging.INFO)
 
 app = func.FunctionApp()
 
-dependencies.warmup()
+if "PYTEST_CURRENT_TEST" not in os.environ and os.getenv("SKIP_FUNCTION_APP_WARMUP") != "1":
+    dependencies.warmup()
 
 # ============================================================================
 # OneDrive OAuth Helpers (local to this module)

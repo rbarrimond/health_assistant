@@ -761,6 +761,16 @@ pip install -e ".[dev]"
 3. **Endpoint Tests**: HTTP request/response integration
 4. **Integration Tests**: Real FIT file parsing end-to-end
 
+**Integration gating**:
+
+```bash
+# Run integration tests
+RUN_INTEGRATION=1 pytest
+
+# Run Azure/Azurite integration tests (if any are marked)
+RUN_AZURE_INTEGRATION=1 pytest
+```
+
 ## Continuous Integration
 
 **Pre-commit checklist**:

@@ -17,7 +17,10 @@ class TestPhysiometricsTimeSeries:
     @pytest.fixture
     def storage(self):
         """Create storage instance with mocked table client."""
-        with patch.object(WorkoutTableStorage, "_ensure_tables_exist"):
+        with (
+            patch.object(WorkoutTableStorage, "_ensure_tables_exist"),
+            patch.object(WorkoutTableStorage, "_ensure_blob_container"),
+        ):
             return WorkoutTableStorage(
                 connection_string=(
                     "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake;"

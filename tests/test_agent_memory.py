@@ -8,6 +8,9 @@ import os
 import requests
 import pytest
 
+
+pytestmark = pytest.mark.integration
+
 # Configuration
 BASE_URL = os.getenv("FUNCTION_APP_URL", "http://localhost:7071/api")
 FUNCTION_KEY = os.getenv("FUNCTION_APP_KEY", "")

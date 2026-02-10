@@ -7,6 +7,9 @@ import pytest
 from FitParser.fit_parser import FitParser
 
 
+pytestmark = pytest.mark.integration
+
+
 class TestFitParserRealFiles:
     """Integration tests using real FIT files."""
 
