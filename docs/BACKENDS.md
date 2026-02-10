@@ -285,7 +285,7 @@ Measurements are stored in the `Physiometrics` table with the following schema:
   "visceral_fat_index": 5,
   "metabolic_age_years": 28,
   "data_source": "withings",
-  "Timestamp": "2026-01-25T08:30:00Z"
+    "Timestamp": "2026-01-25T08:30:00+00:00"
 }
 ```
 

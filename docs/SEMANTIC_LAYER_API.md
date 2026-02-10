@@ -1,6 +1,6 @@
 # Semantic Access Layer API
 
-Version: 2.1.0
+Version: 2.1.1
 
 The Semantic Access Layer is the **Read API** that sits between the raw metrics database and the ChatGPT UI. It exposes meaningful, human-centric questions about training data rather than raw table access.
 
@@ -110,15 +110,15 @@ GET /api/planning/context?athlete_id=rob&days=45
 {
   "athlete_id": "rob",
   "query_window": {
-    "start_date": "2025-12-01T00:00:00Z",
-    "end_date": "2026-01-15T00:00:00Z",
+    "start_date": "2025-12-01T00:00:00+00:00",
+    "end_date": "2026-01-15T00:00:00+00:00",
     "days": 45
   },
   "recent_workouts": [
     {
       "workout_id": "abc123...",
       "sport": "Cycling",
-      "start_time_utc": "2026-01-15T10:00:00Z",
+      "start_time_utc": "2026-01-15T10:00:00+00:00",
       "duration_sec": 3600,
       "hr_z2_sec": 3000,
       "intensity_sec": 300,
@@ -127,8 +127,8 @@ GET /api/planning/context?athlete_id=rob&days=45
   ],
   "weekly_rollups": [...],
   "summary": {
-    "last_hard_day": "2026-01-15T10:00:00Z",
-    "last_long_day": "2026-01-13T08:00:00Z",
+    "last_hard_day": "2026-01-15T10:00:00+00:00",
+    "last_long_day": "2026-01-13T08:00:00+00:00",
     "cumulative_z2_minutes": 450,
     "cumulative_intensity_minutes": 85,
     "total_workouts": 12
@@ -188,7 +188,7 @@ GET /api/agent/context?athlete_id=rob
     }
   ],
   "instruction_addendum": "User's current goal: Build aerobic base for spring races | Training phase: base-building | Active observations: Low decoupling trend since Jan",
-  "retrieved_at": "2026-02-05T12:00:00Z"
+  "retrieved_at": "2026-02-05T12:00:00+00:00"
 }
 ```
 
@@ -221,7 +221,7 @@ Manage user training preferences and goals. POST requires function authenticatio
     "last_ftp_test_date": "2026-01-15",
     "notes": "Prefer weekday morning rides"
   },
-  "updated_at": "2026-02-05T12:10:00Z"
+  "updated_at": "2026-02-05T12:10:00+00:00"
 }
 ```
 
@@ -252,7 +252,7 @@ Manage user training preferences and goals. POST requires function authenticatio
     "last_ftp_test_date": "2026-01-15",
     "notes": "Prefer weekday morning rides"
   },
-  "updated_at": "2026-02-05T12:10:00Z"
+  "updated_at": "2026-02-05T12:10:00+00:00"
 }
 ```
 
@@ -294,8 +294,8 @@ Track training patterns, flags, and insights. POST/PATCH require function authen
     "referenced_workout_ids": ["abc123", "def456"],
     "priority": "high",
     "status": "active",
-    "created_at": "2026-02-05T12:20:00Z",
-    "expires_at": "2026-02-09T00:00:00Z"
+    "created_at": "2026-02-05T12:20:00+00:00",
+    "expires_at": "2026-02-09T00:00:00+00:00"
   }
 }
 ```
@@ -315,7 +315,7 @@ Track training patterns, flags, and insights. POST/PATCH require function authen
 {
   "observation_id": "uuid",
   "status": "resolved",
-  "updated_at": "2026-02-06T08:15:00Z"
+  "updated_at": "2026-02-06T08:15:00+00:00"
 }
 ```
 
@@ -399,14 +399,14 @@ Retrieve time-series physiometric data for trend analysis.
   "data_points": [
     {
       "effective_date": "2025-10-21",
-      "updated_at_utc": "2025-10-21T08:15:32Z",
+      "updated_at_utc": "2025-10-21T08:15:32+00:00",
       "data_source": "withings",
       "weight_kg": 76.8,
       "cycling_vo2max_ml_kg_min": 51.2
     },
     {
       "effective_date": "2025-10-22",
-      "updated_at_utc": "2025-10-22T07:45:12Z",
+      "updated_at_utc": "2025-10-22T07:45:12+00:00",
       "data_source": "withings",
       "weight_kg": 76.5,
       "cycling_vo2max_ml_kg_min": 51.2
@@ -478,7 +478,7 @@ Update physiometric values (single metric or bulk partial update).
   "value": 52.3,
   "effective_date": "2026-01-19",
   "source": "chatgpt",
-  "updated_at_utc": "2026-01-19T14:32:15Z"
+  "updated_at_utc": "2026-01-19T14:32:15+00:00"
 }
 ```
 
@@ -680,7 +680,7 @@ GET /api/workouts?athlete_id=rob&since=2026-01-01&limit=50&sport=Cycling
     {
       "workout_id": "abc123",
       "sport": "Cycling",
-      "start_time_utc": "2026-01-15T10:00:00Z",
+      "start_time_utc": "2026-01-15T10:00:00+00:00",
       "duration_sec": 3600,
       "distance_m": 45000,
       "hr_avg_bpm": 145,
@@ -723,7 +723,7 @@ Retrieve full workout data including time series records.
   "workout_id": "abc123",
   "athlete_id": "rob",
   "sport": "Cycling",
-  "start_time_utc": "2026-01-15T10:00:00Z",
+  "start_time_utc": "2026-01-15T10:00:00+00:00",
   "duration_sec": 3600,
   "hr_avg_bpm": 145,
   "pwr_avg_watts": 220,
@@ -817,8 +817,8 @@ Analyze time-in-zone distribution for training balance assessment.
 {
   "athlete_id": "rob",
   "query_window": {
-    "start_date": "2025-12-16T00:00:00Z",
-    "end_date": "2026-01-15T00:00:00Z",
+    "start_date": "2025-12-16T00:00:00+00:00",
+    "end_date": "2026-01-15T00:00:00+00:00",
     "days": 30
   },
   "total_minutes": 600,
@@ -866,13 +866,13 @@ Track aerobic efficiency and power-HR decoupling over time.
 {
   "athlete_id": "rob",
   "query_window": {
-    "start_date": "2025-10-17T00:00:00Z",
-    "end_date": "2026-01-15T00:00:00Z",
+    "start_date": "2025-10-17T00:00:00+00:00",
+    "end_date": "2026-01-15T00:00:00+00:00",
     "days": 90
   },
   "samples": [
     {
-      "date": "2026-01-15T10:00:00Z",
+      "date": "2026-01-15T10:00:00+00:00",
       "sport": "Cycling",
       "decoupling_pct": 2.5,
       "ef_overall": 1.52,
@@ -936,7 +936,7 @@ The semantic layer is designed to be consumed by ChatGPT via GPT Actions. Exampl
 
 ### Date Handling
 
-- All dates use **ISO 8601 format with UTC timezone** (`2026-01-15T10:00:00Z`)
+- All dates use **ISO 8601 format with explicit UTC offsets** (`2026-01-15T10:00:00+00:00`)
 - Date ranges are **inclusive** on both ends
 - Default lookback periods are conservative (30-90 days) to protect performance
 
@@ -998,7 +998,7 @@ Retrieve the history of configuration changes (FTP, LTHR, zone basis).
   "count": 2,
   "history": [
     {
-      "updated_at_utc": "2026-01-20T10:30:00Z",
+      "updated_at_utc": "2026-01-20T10:30:00+00:00",
       "heart_rate": {
         "basis": "LTHR",
         "lthr_bpm": 175,
@@ -1052,7 +1052,7 @@ Update physiometrics configuration (FTP, LTHR, HR/power zone basis).
 {
   "status": "success",
   "message": "Configuration saved to Azure Table Storage",
-  "updated_at_utc": "2026-01-20T10:30:00Z",
+  "updated_at_utc": "2026-01-20T10:30:00+00:00",
   "heart_rate": {
     "basis": "LTHR",
     "lthr_bpm": 175,

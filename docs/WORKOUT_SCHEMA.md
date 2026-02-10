@@ -1,6 +1,6 @@
 # Workout Metrics Schema — Azure Table Storage
 
-Version: 6.0.1
+Version: 6.0.2
 
 This schema is designed to support:
 
@@ -35,7 +35,7 @@ It assumes:
 ### Keying strategy (recommended)
 
 - `PartitionKey`: `athlete_id|YYYY-MM` (e.g., `rob|2026-01`)
-- `RowKey`: `YYYYMMDDTHHMMSSZ|workout_id_prefix` (e.g., `20260107T231500Z|b6d2c0a1e9b4`)
+- `RowKey`: `YYYYMMDDTHHMMSS0000|workout_id_prefix` (e.g., `20260107T2315000000|b6d2c0a1e9b4`)
 
 Why:
 
@@ -71,7 +71,7 @@ Preferred order:
 
 |Field|Type|Required|Description|
 |---|---:|:---:|---|
-|start_time_utc|datetime (ISO string)|✅|Workout start time UTC, e.g. `2026-01-07T23:15:00Z`|
+|start_time_utc|datetime (ISO string)|✅|Workout start time UTC, e.g. `2026-01-07T23:15:00+00:00`|
 |end_time_utc|datetime (ISO string)|⛔️|Derived end time UTC|
 |timezone|string|⛔️|Source timezone if available (UTC offset like `UTC-05:00`)|
 |duration_sec|int|✅|Total elapsed duration (seconds)|
@@ -340,7 +340,7 @@ Auth for Azure Functions:
 - Power: watts
 - HR: bpm
 - Times in zones: seconds
-- Datetimes: ISO 8601 UTC strings (e.g., `2026-01-07T23:15:00Z`)
+- Datetimes: ISO 8601 UTC offsets (e.g., `2026-01-07T23:15:00+00:00`)
 
 ---
 

@@ -1,6 +1,6 @@
 # Agent Memory System
 
-Version: 1.0.1
+Version: 1.0.2
 
 ## Overview
 
@@ -104,7 +104,7 @@ Returns:
     }
   ],
   "instruction_addendum": "User's current goal: Build aerobic base for spring races | Training phase: base-building | Active observations: Low decoupling trend since Jan",
-  "retrieved_at": "2026-02-05T12:00:00Z"
+  "retrieved_at": "2026-02-05T12:00:00+00:00"
 }
 ```
 
