@@ -119,7 +119,7 @@ class TestUpdateConfigEndpoint:
             "power": {"ftp_watts": 300}
         }
 
-        with patch.object(Config, "save_physiometrics", return_value="2026-01-18T10:30:00Z"):
+        with patch.object(Config, "save_physiometrics", return_value="2026-01-18T10:30:00+00:00"):
             with patch.object(Config, "hr_config") as mock_hr:
                 with patch.object(Config, "power_config") as mock_pwr:
                     mock_hr.return_value = MagicMock(
@@ -134,7 +134,7 @@ class TestUpdateConfigEndpoint:
         assert response.status_code == 200
         body = json.loads(response.get_body())
         assert body["status"] == "success"
-        assert body["updated_at_utc"] == "2026-01-18T10:30:00Z"
+        assert body["updated_at_utc"] == "2026-01-18T10:30:00+00:00"
 
     def test_update_config_invalid_json(self) -> None:
         """Verify 400 on invalid JSON."""
@@ -187,13 +187,13 @@ class TestConfigHistoryEndpoint:
 
         mock_entries = [
             {
-                "RowKey": "2026-01-18T10:30:00Z",
+                "RowKey": "2026-01-18T10:30:00+00:00",
                 "heart_rate_basis": "HRmax",
                 "heart_rate_hr_max_bpm": 195,
                 "power_ftp_watts": 285,
             },
             {
-                "RowKey": "2026-01-18T09:30:00Z",
+                "RowKey": "2026-01-18T09:30:00+00:00",
                 "heart_rate_basis": "LTHR",
                 "heart_rate_lthr_bpm": 170,
                 "power_ftp_watts": 250,
@@ -216,7 +216,7 @@ class TestConfigHistoryEndpoint:
         from FitParser.config import Config
         from function_app import config_history
 
-        mock_entries = [{"RowKey": "2026-01-18T10:30:00Z"}]
+        mock_entries = [{"RowKey": "2026-01-18T10:30:00+00:00"}]
 
         with patch.object(
             Config, "get_physiometrics_history", return_value=mock_entries

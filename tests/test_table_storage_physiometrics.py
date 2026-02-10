@@ -105,7 +105,7 @@ class TestGetPhysiometrics:
         })
         mock_entity = {
             "PartitionKey": "rob",
-            "RowKey": "2026-01-18T10:30:00Z",
+            "RowKey": "2026-01-18T10:30:00+00:00",
             "full_config_json": config_json,
             "heart_rate_basis": "HRmax",
         }
@@ -126,7 +126,7 @@ class TestGetPhysiometrics:
 
         mock_entity = {
             "PartitionKey": "rob",
-            "RowKey": "2026-01-18T10:30:00Z",
+            "RowKey": "2026-01-18T10:30:00+00:00",
             "full_config_json": None,
             "heart_rate_basis": "LTHR",
             "heart_rate_lthr_bpm": 170,
@@ -177,9 +177,9 @@ class TestListPhysiometricsHistory:
         mock_table_client = MagicMock()
 
         mock_entities = [
-            {"RowKey": "2026-01-18T09:30:00Z", "heart_rate_basis": "HRmax"},
-            {"RowKey": "2026-01-18T10:30:00Z", "heart_rate_basis": "LTHR"},
-            {"RowKey": "2026-01-18T08:30:00Z", "heart_rate_basis": "HRR"},
+            {"RowKey": "2026-01-18T09:30:00+00:00", "heart_rate_basis": "HRmax"},
+            {"RowKey": "2026-01-18T10:30:00+00:00", "heart_rate_basis": "LTHR"},
+            {"RowKey": "2026-01-18T08:30:00+00:00", "heart_rate_basis": "HRR"},
         ]
 
         mock_table_client.query_entities.return_value = mock_entities
@@ -188,9 +188,9 @@ class TestListPhysiometricsHistory:
         result = storage.list_physiometrics_history("rob", limit=10)
 
         # Should be sorted by RowKey descending
-        assert result[0]["RowKey"] == "2026-01-18T10:30:00Z"
-        assert result[1]["RowKey"] == "2026-01-18T09:30:00Z"
-        assert result[2]["RowKey"] == "2026-01-18T08:30:00Z"
+        assert result[0]["RowKey"] == "2026-01-18T10:30:00+00:00"
+        assert result[1]["RowKey"] == "2026-01-18T09:30:00+00:00"
+        assert result[2]["RowKey"] == "2026-01-18T08:30:00+00:00"
 
     def test_list_physiometrics_history_limit(self) -> None:
         """Verify limit is respected."""
@@ -198,7 +198,7 @@ class TestListPhysiometricsHistory:
         mock_table_client = MagicMock()
 
         mock_entities = [
-            {"RowKey": f"2026-01-18T{i:02d}:30:00Z"} for i in range(10)
+            {"RowKey": f"2026-01-18T{i:02d}:30:00+00:00"} for i in range(10)
         ]
 
         mock_table_client.query_entities.return_value = mock_entities

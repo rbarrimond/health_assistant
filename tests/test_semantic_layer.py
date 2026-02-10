@@ -150,7 +150,7 @@ class TestPlanningContext:
             "workout_id": "workout-004",
             "athlete_id": "rob",
             "sport": "Cycling",
-            "start_time_utc": "2026-01-14T10:00:00Z",
+            "start_time_utc": "2026-01-14T10:00:00+00:00",
             "duration_sec": 3600,
             # No hr_avg_bpm
         })
@@ -383,13 +383,13 @@ class TestHelperMethods:
         long_workouts = [
             {
                 "workout_id": "long-1",
-                "start_time_utc": "2026-01-15T10:00:00Z",
+                "start_time_utc": "2026-01-15T10:00:00+00:00",
                 "hr_z2_min": 90,
             }
         ]
 
         last_long = semantic_layer._find_last_long_day(long_workouts)
-        assert last_long == "2026-01-15T10:00:00Z"
+        assert last_long == "2026-01-15T10:00:00+00:00"
 
     def test_sum_zone_time(self, semantic_layer, sample_workouts):
         """Test zone time summation."""

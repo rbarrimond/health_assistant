@@ -274,7 +274,7 @@ class TestConfigSavePhysiometrics:
     def test_save_physiometrics_clears_cache(self) -> None:
         """Verify cache is cleared after save."""
         mock_storage = MagicMock()
-        mock_storage.store_physiometrics.return_value = "2026-01-18T10:30:00Z"
+        mock_storage.store_physiometrics.return_value = "2026-01-18T10:30:00+00:00"
 
         with patch.object(Config, "_get_table_storage", return_value=mock_storage):
             Config._physiometrics_cache = {"cached": "data"}
@@ -287,7 +287,7 @@ class TestConfigSavePhysiometrics:
     def test_save_physiometrics_returns_timestamp(self) -> None:
         """Verify timestamp is returned on success."""
         mock_storage = MagicMock()
-        expected_timestamp = "2026-01-18T10:30:00Z"
+        expected_timestamp = "2026-01-18T10:30:00+00:00"
         mock_storage.store_physiometrics.return_value = expected_timestamp
 
         with patch.object(Config, "_get_table_storage", return_value=mock_storage):
@@ -312,8 +312,8 @@ class TestConfigHistory:
         """Verify history is retrieved from storage."""
         mock_storage = MagicMock()
         mock_entries = [
-            {"RowKey": "2026-01-18T10:30:00Z", "heart_rate_basis": "HRmax"},
-            {"RowKey": "2026-01-18T09:30:00Z", "heart_rate_basis": "LTHR"},
+            {"RowKey": "2026-01-18T10:30:00+00:00", "heart_rate_basis": "HRmax"},
+            {"RowKey": "2026-01-18T09:30:00+00:00", "heart_rate_basis": "LTHR"},
         ]
         mock_storage.list_physiometrics_history.return_value = mock_entries
 

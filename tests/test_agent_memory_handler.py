@@ -46,7 +46,7 @@ class TestAgentMemoryHandler:
             "ftp_test_frequency_weeks": 6,
             "last_ftp_test_date": "2026-01-15",
             "notes": "Focus on Z2",
-            "updated_at": "2026-02-01T00:00:00Z"
+            "updated_at": "2026-02-01T00:00:00+00:00"
         }
 
         # Mock observations
@@ -60,7 +60,7 @@ class TestAgentMemoryHandler:
                 "referenced_workout_ids": "w1,w2",
                 "priority": "normal",
                 "status": "active",
-                "created_at": "2026-02-01T00:00:00Z",
+                "created_at": "2026-02-01T00:00:00+00:00",
                 "expires_at": None
             }
         ]
@@ -119,7 +119,7 @@ class TestAgentMemoryHandler:
             "ftp_test_frequency_weeks": 6,
             "last_ftp_test_date": None,
             "notes": None,
-            "updated_at": "2026-02-01T00:00:00Z"
+            "updated_at": "2026-02-01T00:00:00+00:00"
         }
 
         mock_client.get_entity.return_value = prefs_entity
@@ -268,7 +268,7 @@ class TestAgentMemoryHandler:
                 "referenced_workout_ids": "",
                 "priority": "high",
                 "status": "active",
-                "created_at": "2026-02-01T00:00:00Z",
+                "created_at": "2026-02-01T00:00:00+00:00",
                 "expires_at": None
             },
             {
@@ -280,7 +280,7 @@ class TestAgentMemoryHandler:
                 "referenced_workout_ids": "w1",
                 "priority": "normal",
                 "status": "active",
-                "created_at": "2026-02-02T00:00:00Z",
+                "created_at": "2026-02-02T00:00:00+00:00",
                 "expires_at": None
             }
         ]

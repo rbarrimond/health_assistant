@@ -74,7 +74,7 @@ class TestPhysiometricsTimeSeries:
             mock_table.query_entities.return_value = [
                 {
                     "PartitionKey": "rob",
-                    "RowKey": "2026-01-18T10:00:00Z",
+                    "RowKey": "2026-01-18T10:00:00+00:00",
                     "full_config_json": json.dumps({
                         "heart_rate": {"lthr_bpm": 175, "hr_max_bpm": 195},
                         "power": {"ftp_watts": 285},
@@ -234,7 +234,7 @@ class TestSemanticLayerPhysiometrics:
     def test_update_physiometric_value(self, layer):
         """Test updating a single physiometric value."""
         layer.storage.update_single_metric = MagicMock(
-            return_value="2026-01-19T14:32:15Z"
+            return_value="2026-01-19T14:32:15+00:00"
         )
 
         result = layer.update_physiometric_value(

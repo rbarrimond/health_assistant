@@ -63,7 +63,7 @@ def test_sync_calls_ingestion_handler(monkeypatch):
     tokens = {
         "access_token": "access",
         "refresh_token": "refresh",
-        "expires_at_utc": future.isoformat().replace("+00:00", "Z"),
+        "expires_at_utc": future.isoformat(),
         "drive_id": "drive-id",
     }
     storage.get_onedrive_tokens.return_value = tokens
@@ -109,7 +109,7 @@ def test_sync_filters_by_filename_date(monkeypatch):
     tokens = {
         "access_token": "access",
         "refresh_token": "refresh",
-        "expires_at_utc": future.isoformat().replace("+00:00", "Z"),
+        "expires_at_utc": future.isoformat(),
         "drive_id": "drive-id",
     }
     storage.get_onedrive_tokens.return_value = tokens
@@ -163,7 +163,7 @@ def test_sync_falls_back_to_modified_date(monkeypatch):
     tokens = {
         "access_token": "access",
         "refresh_token": "refresh",
-        "expires_at_utc": future.isoformat().replace("+00:00", "Z"),
+        "expires_at_utc": future.isoformat(),
         "drive_id": "drive-id",
     }
     storage.get_onedrive_tokens.return_value = tokens

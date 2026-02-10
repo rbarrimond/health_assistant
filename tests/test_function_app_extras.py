@@ -391,7 +391,7 @@ class TestIngestionHelpersAndFlow:
         mock_parser.parse.return_value = {
             "sport": "Cycling",
             "duration_sec": 3600,
-            "start_time_utc": "2026-01-01T10:00:00Z",
+            "start_time_utc": "2026-01-01T10:00:00+00:00",
             "pwr_avg_watts": 220,
             "hr_avg_bpm": 150,
         }

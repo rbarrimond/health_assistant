@@ -108,7 +108,7 @@ class TestConfigHandler:
         """Test successful config update."""
         # Arrange
         mock_save = mocker.patch('FitParser.handlers.config_handler.Config.save_physiometrics')
-        mock_save.return_value = "2026-02-01T12:00:00Z"
+        mock_save.return_value = "2026-02-01T12:00:00+00:00"
 
         mock_hr_config = Mock()
         mock_hr_config.basis = "percentage"
@@ -129,7 +129,7 @@ class TestConfigHandler:
         assert status == 200
         assert result["status"] == "success"
         assert "updated_at_utc" in result
-        assert result["updated_at_utc"] == "2026-02-01T12:00:00Z"
+        assert result["updated_at_utc"] == "2026-02-01T12:00:00+00:00"
         assert result["heart_rate"]["lthr_bpm"] == 166
         assert result["power"]["ftp_watts"] == 285
         mock_save.assert_called_once_with(sample_config_data)
@@ -180,7 +180,7 @@ class TestConfigHandler:
         # Arrange
         mock_history_data = [
             {
-                "RowKey": "2026-02-01T12:00:00Z",
+                "RowKey": "2026-02-01T12:00:00+00:00",
                 "heart_rate_basis": "percentage",
                 "heart_rate_lthr_bpm": 165,
                 "heart_rate_hr_max_bpm": 190,
@@ -188,7 +188,7 @@ class TestConfigHandler:
                 "power_ftp_watts": 280
             },
             {
-                "RowKey": "2026-01-15T10:00:00Z",
+                "RowKey": "2026-01-15T10:00:00+00:00",
                 "heart_rate_basis": "percentage",
                 "heart_rate_lthr_bpm": 164,
                 "heart_rate_hr_max_bpm": 190,
@@ -207,7 +207,7 @@ class TestConfigHandler:
         assert result["status"] == "success"
         assert result["count"] == 2
         assert len(result["history"]) == 2
-        assert result["history"][0]["updated_at_utc"] == "2026-02-01T12:00:00Z"
+        assert result["history"][0]["updated_at_utc"] == "2026-02-01T12:00:00+00:00"
         assert result["history"][0]["heart_rate"]["lthr_bpm"] == 165
         assert result["history"][1]["power"]["ftp_watts"] == 275
         mock_get_history.assert_called_once_with(limit=10)
