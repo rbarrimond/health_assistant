@@ -99,6 +99,13 @@ class FitIngestionBaseHandler(ABC):
         workout_id = self.storage.store_workout(
             athlete_id, metrics, source_info
         )
+        lap_records = parser.extract_lap_records()
+        if lap_records:
+            self.storage.store_workout_laps(
+                athlete_id,
+                workout_id,
+                lap_records,
+            )
         self.storage.record_ingestion_state(
             athlete_id,
             source_info,

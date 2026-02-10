@@ -3,8 +3,8 @@
 This layer sits between the raw metrics DB and the ChatGPT UI.
 It shapes data for reasoning, constrains scope, and encodes how humans think about training.
 """
+# pylint: disable=too-many-lines
 
-import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
@@ -65,7 +65,7 @@ class SemanticLayer:
 
         # Get recent workouts
         workouts = self._get_workouts_in_range(
-            athlete_id, start_date, end_date, summary_only=True
+            athlete_id, start_date, end_date
         )
 
         # Analyze patterns
@@ -139,7 +139,7 @@ class SemanticLayer:
         )
 
         workouts = self._get_workouts_in_range(
-            athlete_id, start_date, end_date, summary_only=True
+            athlete_id, start_date, end_date
         )
 
         # Filter by sport if specified
@@ -153,11 +153,10 @@ class SemanticLayer:
         self,
         athlete_id: str,
         workout_id: str,
-        include_records: bool = False,
         include_laps: bool = False,
     ) -> Optional[Dict]:
         """
-        Get detailed workout data including time series.
+        Get detailed workout data with optional lap summaries.
 
         GET /api/workouts/{workout_id}
 
@@ -166,7 +165,7 @@ class SemanticLayer:
             workout_id: Unique workout identifier
 
         Returns:
-            Full workout data including records/samples, or None if not found
+            Full workout data, or None if not found
         """
         try:
             table_client = self.storage._get_table_client("Workouts")  # pylint: disable=protected-access
@@ -184,21 +183,22 @@ class SemanticLayer:
             if entity.get("athlete_id") != athlete_id:
                 return None
 
-            workout = self._entity_to_workout_dict(
-                entity, include_records=include_records
-            )
+            workout = self._entity_to_workout_dict(entity)
 
-            if include_records or include_laps:
-                records, laps, errors = self._load_fit_timeseries(
-                    athlete_id,
-                    entity,
-                    include_records=include_records,
-                    include_laps=include_laps,
-                )
-                if include_records and records is not None:
-                    workout["records"] = records
-                    workout["records_count"] = len(records)
-                if include_laps and laps is not None:
+            if include_laps:
+                laps = self._load_stored_laps(workout_id)
+                errors: Dict[str, str] = {}
+                if laps is None:
+                    _, fit_laps, fit_errors = self._load_fit_timeseries(
+                        athlete_id,
+                        entity,
+                        include_records=False,
+                        include_laps=True,
+                    )
+                    laps = fit_laps
+                    errors.update(fit_errors)
+
+                if laps is not None:
                     workout["laps"] = laps
                     workout["laps_count"] = len(laps)
                 if errors:
@@ -254,7 +254,7 @@ class SemanticLayer:
         start_date = end_date - timedelta(days=days)
 
         workouts = self._get_workouts_in_range(
-            athlete_id, start_date, end_date, summary_only=True
+            athlete_id, start_date, end_date
         )
 
         # Aggregate zone minutes (use HR zones as primary, fallback to power)
@@ -311,7 +311,7 @@ class SemanticLayer:
         start_date = end_date - timedelta(days=days)
 
         workouts = self._get_workouts_in_range(
-            athlete_id, start_date, end_date, summary_only=True
+            athlete_id, start_date, end_date
         )
 
         # Filter for workouts with efficiency data
@@ -356,7 +356,6 @@ class SemanticLayer:
         athlete_id: str,
         start_date: datetime,
         end_date: datetime,
-        summary_only: bool = True,
     ) -> List[Dict]:
         """
         Retrieve workouts within a date range.
@@ -365,8 +364,6 @@ class SemanticLayer:
             athlete_id: Athlete identifier
             start_date: Start of range (inclusive)
             end_date: End of range (inclusive)
-            summary_only: If True, exclude time series data
-
         Returns:
             List of workout dicts
         """
@@ -392,11 +389,7 @@ class SemanticLayer:
                         ).astimezone(timezone.utc)
 
                         if start_date <= workout_date <= end_date:
-                            workouts.append(
-                                self._entity_to_workout_dict(
-                                    entity, include_records=not summary_only
-                                )
-                            )
+                            workouts.append(self._entity_to_workout_dict(entity))
 
             # Sort by date descending (newest first)
             workouts.sort(
@@ -438,15 +431,12 @@ class SemanticLayer:
 
         return partitions
 
-    def _entity_to_workout_dict(
-        self, entity: Dict, include_records: bool = False
-    ) -> Dict:
+    def _entity_to_workout_dict(self, entity: Dict) -> Dict:
         """
         Convert Azure Table entity to workout dict.
 
         Args:
             entity: Raw table entity
-            include_records: Whether to include time series data
 
         Returns:
             Cleaned workout dict
@@ -523,16 +513,70 @@ class SemanticLayer:
             "source_system": workout_entity.source_system,
         })
 
-        # Include time series only if requested
-        if include_records and metrics.get("records_json"):
-            try:
-                records_data = metrics.get("records_json")
-                if records_data:
-                    workout["records"] = json.loads(records_data)
-            except (json.JSONDecodeError, TypeError):
-                pass
-
         return workout
+
+    def _load_stored_laps(self, workout_id: str) -> Optional[List[Dict]]:
+        laps = self.storage.get_workout_laps(workout_id)
+        if not laps:
+            return None
+
+        cleaned = []
+        for lap in laps:
+            cleaned.append(self._clean_lap_entity(lap))
+        return cleaned
+
+    def get_workout_lap_detail(
+        self,
+        athlete_id: str,
+        workout_id: str,
+        lap_index: int,
+    ) -> Optional[Dict]:
+        """Get detailed lap data for a specific workout lap."""
+        try:
+            table_client = self.storage._get_table_client("Workouts")  # pylint: disable=protected-access
+            query = f"workout_id eq '{workout_id}'"
+            entities = list(table_client.query_entities(query, top=1))
+            if not entities:
+                return None
+
+            entity = entities[0]
+            if entity.get("athlete_id") != athlete_id:
+                return None
+
+            lap_entity = self.storage.get_workout_lap(workout_id, lap_index)
+            if not lap_entity:
+                return None
+
+            lap_payload = self._clean_lap_entity(lap_entity)
+            blob_name = lap_entity.get("blob_name") or ""
+            records = self.storage.load_lap_records(blob_name)
+
+            return {
+                "workout_id": workout_id,
+                "athlete_id": athlete_id,
+                "lap_index": lap_index,
+                **lap_payload,
+                "record_count": len(records),
+                "records": records,
+            }
+
+        except HttpResponseError as e:
+            logger.error("Error retrieving lap %s for workout %s: %s", lap_index, workout_id, e)
+            return None
+
+    @staticmethod
+    def _clean_lap_entity(entity: Dict) -> Dict:
+        ignore = {
+            "PartitionKey",
+            "RowKey",
+            "Timestamp",
+            "etag",
+            "odata.etag",
+            "workout_id",
+            "athlete_id",
+            "blob_name",
+        }
+        return {k: v for k, v in entity.items() if k not in ignore}
 
     def _load_fit_timeseries(
         self,

@@ -452,7 +452,7 @@ class TestHelperMethods:
             "timezone": "UTC-05:00",
         }
 
-        workout = semantic_layer._entity_to_workout_dict(entity, include_records=False)
+        workout = semantic_layer._entity_to_workout_dict(entity)
 
         assert workout["workout_id"] == "workout-001"
         assert workout["sport"] == "Cycling"
@@ -460,20 +460,13 @@ class TestHelperMethods:
         assert workout["timezone"] == "UTC-05:00"
 
     def test_entity_to_workout_dict_with_records(self, semantic_layer):
-        """Test entity conversion including time series."""
-        records_data = [
-            {"heart_rate": 145, "power": 200},
-            {"heart_rate": 150, "power": 210},
-        ]
-
+        """Test entity conversion ignores time series when not stored."""
         entity = {
             "workout_id": "workout-001",
             "athlete_id": "rob",
-            "records_json": json.dumps(records_data),
+            "records_json": json.dumps([{"heart_rate": 145}]),
         }
 
-        workout = semantic_layer._entity_to_workout_dict(entity, include_records=True)
+        workout = semantic_layer._entity_to_workout_dict(entity)
 
-        assert "records" in workout
-        assert len(workout["records"]) == 2
-        assert workout["records"][0]["heart_rate"] == 145
+        assert "records" not in workout

@@ -15,6 +15,7 @@ from function_app import (
     planning_context,
     list_workouts,
     get_workout_detail,
+    get_workout_lap_detail,
     weekly_rollups,
     zone_distribution,
     efficiency_trends,
@@ -163,7 +164,6 @@ class TestGetWorkoutEndpoint:
         mock_semantic_layer.get_workout_detail.assert_called_once_with(
             "rob",
             "abc123",
-            include_records=False,
             include_laps=False,
         )
 
@@ -188,7 +188,6 @@ class TestGetWorkoutEndpoint:
         mock_semantic_layer.get_workout_detail.assert_called_once_with(
             "alice",
             "xyz789",
-            include_records=False,
             include_laps=False,
         )
 
@@ -206,11 +205,10 @@ class TestGetWorkoutEndpoint:
         data = json.loads(response.get_body())
         assert "not found" in data["error"].lower()
 
-    def test_workout_detail_with_records_and_laps(self, mock_request, mock_semantic_layer):
-        """Test workout detail request with records and laps flags enabled."""
+    def test_workout_detail_with_laps(self, mock_request, mock_semantic_layer):
+        """Test workout detail request with laps flag enabled."""
         mock_request.params = {
             "athlete_id": "rob",
-            "records": "true",
             "laps": "true",
         }
         mock_request.route_params = {"workout_id": "abc123"}
@@ -229,9 +227,44 @@ class TestGetWorkoutEndpoint:
         mock_semantic_layer.get_workout_detail.assert_called_once_with(
             "rob",
             "abc123",
-            include_records=True,
             include_laps=True,
         )
+
+
+class TestGetWorkoutLapEndpoint:
+    """Tests for /api/workouts/{workout_id}/laps/{lap_index} endpoint."""
+
+    def test_workout_lap_detail_success(self, mock_request, mock_semantic_layer):
+        """Test successful lap detail retrieval."""
+        mock_request.params = {"athlete_id": "rob"}
+        mock_request.route_params = {"workout_id": "abc123", "lap_index": "2"}
+
+        mock_lap = {
+            "workout_id": "abc123",
+            "lap_index": 2,
+            "records": [],
+        }
+        mock_semantic_layer.get_workout_lap_detail.return_value = mock_lap
+
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+            response = get_workout_lap_detail(mock_request)
+
+        assert response.status_code == 200
+        mock_semantic_layer.get_workout_lap_detail.assert_called_once_with(
+            "rob",
+            "abc123",
+            2,
+        )
+
+    def test_workout_lap_detail_invalid_index(self, mock_request, mock_semantic_layer):
+        """Test lap detail with invalid lap index."""
+        mock_request.params = {"athlete_id": "rob"}
+        mock_request.route_params = {"workout_id": "abc123", "lap_index": "abc"}
+
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+            response = get_workout_lap_detail(mock_request)
+
+        assert response.status_code == 400
 
 
 class TestWeeklyRollupsEndpoint:

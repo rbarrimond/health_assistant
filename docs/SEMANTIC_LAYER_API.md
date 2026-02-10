@@ -701,10 +701,10 @@ GET /api/workouts?athlete_id=rob&since=2026-01-01&limit=50&sport=Cycling
 ### 3. Get Workout Detail
 
 ```http
-GET /api/workouts/{workout_id}?athlete_id=rob&records=true&laps=true
+GET /api/workouts/{workout_id}?athlete_id=rob&laps=true
 ```
 
-Retrieve full workout data including time series records.
+Retrieve full workout data with optional lap summaries.
 
 **Route Parameters:**
 
@@ -713,7 +713,6 @@ Retrieve full workout data including time series records.
 **Query Parameters:**
 
 - `athlete_id` (optional, defaults to `rob`): Athlete identifier
-- `records` (optional, default `false`): Include per-sample record data (time series)
 - `laps` (optional, default `false`): Include lap summary data
 
 **Response:**
@@ -734,25 +733,62 @@ Retrieve full workout data including time series records.
   "ef_overall": 1.52,
   "intensity_factor": 0.85,
   "tss": 65,
-  "records_count": 1200,
   "laps_count": 3,
-  "records": [
-    {
-      "heart_rate": 145,
-      "power": 220,
-      "cadence": 90
-    }
-  ]
+  "laps": []
 }
 ```
 
 **Use cases:**
 
 - Deep dive into specific workout
-- Examining time series data
-- Analyzing workout quality
+- Fetching lap summaries before requesting lap detail
 
 **Transport note:** If the client sends `Accept-Encoding: gzip`, the response will be gzip-compressed.
+
+---
+
+### 3a. Get Workout Lap Detail
+
+```http
+GET /api/workouts/{workout_id}/laps/{lap_index}?athlete_id=rob
+```
+
+Retrieve lap summary and per-lap record payload for a single lap.
+
+**Route Parameters:**
+
+- `workout_id` (required): Unique workout identifier
+- `lap_index` (required): Zero-based lap index
+
+**Query Parameters:**
+
+- `athlete_id` (optional, defaults to `rob`)
+
+**Response:**
+
+```json
+{
+  "workout_id": "abc123",
+  "athlete_id": "rob",
+  "lap_index": 0,
+  "record_count": 300,
+  "start_time": "2026-01-15T10:00:00+00:00",
+  "total_elapsed_time": 300,
+  "total_distance": 1500.5,
+  "avg_heart_rate": 145,
+  "avg_power": 220,
+  "records": [
+    {
+      "record_index": 0,
+      "heart_rate": 145,
+      "power": 220,
+      "cadence": 90,
+      "position_lat": 384217123.0,
+      "position_long": -120123456.0
+    }
+  ]
+}
+```
 
 ---
 

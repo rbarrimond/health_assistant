@@ -1,6 +1,6 @@
 # Workout Metrics Schema — Azure Table Storage
 
-Version: 6.0.2
+Version: 6.1.0
 
 This schema is designed to support:
 
@@ -20,11 +20,12 @@ It assumes:
 ## Tables
 
 1. `Workouts` — **one entity per workout** (primary fact table)
-2. `WeeklyRollups` — **one entity per week** (optional but recommended)
-3. `IngestionState` — **idempotency + operational tracking** (recommended)
-4. `Physiometrics` — **body and fitness metrics** (FTP, weight, LTHR, etc.)
-5. `AgentPreferences` — **user training preferences and goals** (agent memory)
-6. `AgentObservations` — **training patterns and observations** (agent memory)
+2. `WorkoutLaps` — **one entity per lap** (summary + blob pointer)
+3. `WeeklyRollups` — **one entity per week** (optional but recommended)
+4. `IngestionState` — **idempotency + operational tracking** (recommended)
+5. `Physiometrics` — **body and fitness metrics** (FTP, weight, LTHR, etc.)
+6. `AgentPreferences` — **user training preferences and goals** (agent memory)
+7. `AgentObservations` — **training patterns and observations** (agent memory)
 
 > **Note:** Tables 5-6 are part of the Agent Memory System. See [AGENT_MEMORY.md](./AGENT_MEMORY.md) for details.
 
@@ -83,6 +84,52 @@ Preferred order:
 |device_name|string|⛔️|Device model if present|
 |is_indoor|bool|⛔️|Indoor flag if derivable|
 |has_gps|bool|⛔️|Whether GPS track exists|
+
+---
+
+## 2) WorkoutLaps Table
+
+Stores lap summaries and the blob pointer for per-lap record payloads.
+
+### Keying strategy
+
+- `PartitionKey`: `workout_id`
+- `RowKey`: zero-padded lap index (e.g., `0000`, `0001`)
+
+### Core fields
+
+|Field|Type|Required|Description|
+|---|---:|:---:|---|
+|PartitionKey|string|✅|`workout_id`|
+|RowKey|string|✅|Zero-padded lap index|
+|workout_id|string|✅|Workout id|
+|athlete_id|string|✅|Athlete identifier|
+|lap_index|int|✅|Lap sequence index|
+|record_count|int|✅|Number of records in lap blob|
+|blob_name|string|⛔️|Blob name for lap record payload|
+
+### Lap summary fields
+
+|Field|Type|Required|Description|
+|---|---:|:---:|---|
+|start_time|datetime|⛔️|Lap start time UTC|
+|total_elapsed_time|float|⛔️|Lap elapsed time (sec)|
+|total_timer_time|float|⛔️|Lap moving time (sec)|
+|total_distance|float|⛔️|Lap distance (meters)|
+|total_calories|float|⛔️|Lap calories|
+|avg_heart_rate|float|⛔️|Average HR|
+|max_heart_rate|float|⛔️|Max HR|
+|avg_power|float|⛔️|Average power|
+|max_power|float|⛔️|Max power|
+|avg_cadence|float|⛔️|Average cadence|
+|max_cadence|float|⛔️|Max cadence|
+
+### Lap record blobs
+
+- Container: `lap-records`
+- Blob name: `{workout_id}/lap-XXXX.json`
+- Payload: array of records with minimal fields and `record_index`
+- Record fields: `record_index`, `heart_rate`, `power`, `cadence`, `position_lat`, `position_long`
 
 ---
 

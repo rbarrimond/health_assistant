@@ -789,13 +789,6 @@ paths:
           description: Athlete identifier
           schema:
             type: string
-        - name: records
-          in: query
-          required: false
-          description: Include per-sample records (time series) if available
-          schema:
-            type: boolean
-            default: false
         - name: laps
           in: query
           required: false
@@ -818,6 +811,42 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/workouts/{workout_id}/laps/{lap_index}:
+    get:
+      summary: Get lap summary and records
+      operationId: getWorkoutLap
+      security:
+        - FunctionKey: []
+      parameters:
+        - name: workout_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: lap_index
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: athlete_id
+          in: query
+          required: true
+          description: Athlete identifier
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lap detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkoutLapDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalError'
   /api/rollups/weekly:
@@ -1593,26 +1622,57 @@ components:
     WorkoutDetail:
       allOf:
         - $ref: '#/components/schemas/WorkoutSummary'
-        - type: object
-          properties:
-            records:
-              type: array
-              description: Optional per-sample record data
-              items:
-                type: object
-                additionalProperties: true
-            records_count:
-              type: integer
-              description: Number of record samples returned
-            laps:
-              type: array
-              description: Optional lap summary data
-              items:
-                type: object
-                additionalProperties: true
-            laps_count:
-              type: integer
-              description: Number of laps returned
+    WorkoutLapDetail:
+      type: object
+      properties:
+        workout_id:
+          type: string
+        athlete_id:
+          type: string
+        lap_index:
+          type: integer
+        record_count:
+          type: integer
+        start_time:
+          type: string
+          format: date-time
+        total_elapsed_time:
+          type: number
+        total_timer_time:
+          type: number
+        total_distance:
+          type: number
+        total_calories:
+          type: number
+        avg_heart_rate:
+          type: number
+        max_heart_rate:
+          type: number
+        avg_power:
+          type: number
+        max_power:
+          type: number
+        avg_cadence:
+          type: number
+        max_cadence:
+          type: number
+        records:
+          type: array
+          items:
+            type: object
+            properties:
+              record_index:
+                type: integer
+              heart_rate:
+                type: integer
+              power:
+                type: integer
+              cadence:
+                type: integer
+              position_lat:
+                type: number
+              position_long:
+                type: number
     WeeklyRollups:
       type: object
       properties:

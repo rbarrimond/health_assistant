@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 3.0.8
+Version: 3.1.0
 
 This document defines the ingestion payloads and the IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -143,3 +143,16 @@ and should be reused for reprocessing via IngestionState lookup.
 Duplicate resolution for recordings that share the same `start_time_utc`
 is deferred to a later data hygiene pass. The ingestion pipeline does not
 currently enforce a single winner for these cases.
+
+---
+
+## Lap Record Storage
+
+When FIT lap messages are present, ingestion persists per-lap summaries and
+per-lap record payloads:
+
+- Lap summaries are stored in the `WorkoutLaps` table keyed by `workout_id`
+  and `lap_index`.
+- Per-lap record payloads are stored as JSON blobs in the `lap-records`
+  container using `{workout_id}/lap-XXXX.json` naming.
+- Each record includes a monotonic `record_index` for stable ordering.

@@ -243,10 +243,9 @@ def list_workouts(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="workouts/{workout_id}", methods=["GET"])
 @endpoint
 def get_workout_detail(req: func.HttpRequest) -> func.HttpResponse:
-    """Get detailed workout data including time series."""
+    """Get detailed workout data with optional lap summaries."""
     athlete_id = req.params.get("athlete_id", "rob")
     workout_id = req.route_params.get("workout_id")
-    include_records = req.params.get("records", "false").lower() in {"1", "true", "yes", "y"}
     include_laps = req.params.get("laps", "false").lower() in {"1", "true", "yes", "y"}
 
     if not workout_id:
@@ -256,11 +255,36 @@ def get_workout_detail(req: func.HttpRequest) -> func.HttpResponse:
     workout, status = handler.query_workout_detail(
         athlete_id,
         workout_id,
-        include_records=include_records,
         include_laps=include_laps,
     )
 
     return json_response(workout, status, req=req)
+
+
+@app.route(route="workouts/{workout_id}/laps/{lap_index}", methods=["GET"])
+@endpoint
+def get_workout_lap_detail(req: func.HttpRequest) -> func.HttpResponse:
+    """Get lap summary and records for a specific workout lap."""
+    athlete_id = req.params.get("athlete_id", "rob")
+    workout_id = req.route_params.get("workout_id")
+    lap_index = req.route_params.get("lap_index")
+
+    if not workout_id:
+        return json_response({"error": "workout_id required in route"}, 400)
+
+    try:
+        lap_index_int = int(lap_index)
+    except (TypeError, ValueError):
+        return json_response({"error": "lap_index must be an integer"}, 400)
+
+    handler = QueryHandler(dependencies.semantic_layer)
+    lap, status = handler.query_workout_lap_detail(
+        athlete_id,
+        workout_id,
+        lap_index_int,
+    )
+
+    return json_response(lap, status, req=req)
 
 
 @app.route(

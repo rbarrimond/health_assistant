@@ -1,4 +1,5 @@
 """Parse FIT files and extract workout metrics."""
+# pylint: disable=too-many-lines
 
 import hashlib
 import logging
@@ -263,6 +264,135 @@ class FitParser:
                 return value
         return None
 
+    def _extract_record_payload(self, record) -> Optional[Dict[str, Any]]:
+        """Extract a minimal record payload from a FIT record message."""
+        payload = {
+            "heart_rate": self._get_field_from_msg(record, "heart_rate"),
+            "power": self._get_field_from_msg(record, "power"),
+            "cadence": self._get_field_from_msg(record, "cadence"),
+            "position_lat": self._get_field_from_msg(record, "position_lat"),
+            "position_long": self._get_field_from_msg(record, "position_long"),
+        }
+        trimmed = {k: v for k, v in payload.items() if v is not None}
+        return trimmed or None
+
+    def extract_lap_records(self) -> List[Dict[str, Any]]:
+        """Extract lap summaries and per-lap record payloads.
+
+        Returns:
+            List of dicts: {"lap_index": int, "summary": {...}, "records": [...]}
+        """
+        if not self.fit:
+            self._load_fit_sources()
+
+        laps = list(self.fit.get_messages("lap")) if self.fit else []
+        if not laps:
+            return []
+
+        lap_windows = self._build_lap_windows(laps)
+        self._assign_records_to_laps(lap_windows)
+        return self._finalize_lap_records(lap_windows)
+
+    def _build_lap_windows(self, laps: List) -> List[Dict[str, Any]]:
+        summary_fields = [
+            "start_time",
+            "total_elapsed_time",
+            "total_timer_time",
+            "total_distance",
+            "total_calories",
+            "avg_heart_rate",
+            "max_heart_rate",
+            "avg_power",
+            "max_power",
+            "avg_cadence",
+            "max_cadence",
+        ]
+
+        lap_windows: List[Dict[str, Any]] = []
+        for idx, msg in enumerate(laps):
+            summary: Dict[str, Any] = {}
+            start_time = self._get_field_from_msg(msg, "start_time")
+            end_time = None
+            total_elapsed = self._get_field_from_msg(msg, "total_elapsed_time")
+            if isinstance(start_time, datetime) and total_elapsed is not None:
+                end_time = start_time + timedelta(seconds=float(total_elapsed))
+
+            for field in summary_fields:
+                value = self._get_field_from_msg(msg, field)
+                if isinstance(value, datetime):
+                    value = value.astimezone(timezone.utc).isoformat()
+                if value is not None:
+                    summary[field] = value
+
+            lap_windows.append({
+                "lap_index": idx,
+                "start_time": start_time,
+                "end_time": end_time,
+                "summary": summary,
+                "records": [],
+                "record_index": 0,
+            })
+
+        return lap_windows
+
+    def _assign_records_to_laps(self, lap_windows: List[Dict[str, Any]]) -> None:
+        if not self.fit:
+            return
+
+        current_idx = 0
+        for record in self.fit.get_messages("record"):
+            timestamp = self._normalize_record_timestamp(
+                self._get_field_from_msg(record, "timestamp")
+            )
+            current_idx = self._advance_lap_index(
+                timestamp,
+                lap_windows,
+                current_idx,
+            )
+
+            payload = self._extract_record_payload(record)
+            if not payload:
+                continue
+
+            payload["record_index"] = lap_windows[current_idx]["record_index"]
+            lap_windows[current_idx]["record_index"] += 1
+            lap_windows[current_idx]["records"].append(payload)
+
+    def _advance_lap_index(
+        self,
+        timestamp: Optional[datetime],
+        lap_windows: List[Dict[str, Any]],
+        current_idx: int,
+    ) -> int:
+        while timestamp and current_idx < len(lap_windows) - 1:
+            end_time = lap_windows[current_idx].get("end_time")
+            if end_time and timestamp >= end_time:
+                current_idx += 1
+                continue
+            break
+        return current_idx
+
+    @staticmethod
+    def _normalize_record_timestamp(
+        timestamp: Optional[datetime],
+    ) -> Optional[datetime]:
+        if isinstance(timestamp, datetime):
+            return timestamp.astimezone(timezone.utc)
+        return timestamp
+
+    @staticmethod
+    def _finalize_lap_records(
+        lap_windows: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        lap_records: List[Dict[str, Any]] = []
+        for lap in lap_windows:
+            lap_records.append({
+                "lap_index": lap["lap_index"],
+                "summary": lap["summary"],
+                "records": lap["records"],
+            })
+        return lap_records
+
     def _get_raw_field_from_msg(self, msg, field_name: str) -> Optional[Any]:
         """Return raw field value (no timezone coercion)."""
         if msg:
@@ -413,6 +543,9 @@ class FitParser:
         start_time = self._get_raw_field_from_msg(session, "start_time")
         timestamp = self._get_field_from_msg(session, "timestamp")
         duration = self._get_field_from_msg(session, "total_elapsed_time")
+
+        if duration is None:
+            return None
 
         try:
             duration_sec = int(duration)

@@ -40,7 +40,8 @@ class BackupExporter:
             }
 
             # Export each table
-            for table_name in ["Workouts", "WeeklyRollups", "IngestionState", "Physiometrics"]:
+            for table_name in ["Workouts", "WorkoutLaps", "WeeklyRollups",
+                                "IngestionState", "Physiometrics"]:
                 try:
                     rows = self._export_table(table_name)
                     export_data["tables"][table_name] = rows

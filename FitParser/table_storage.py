@@ -6,15 +6,19 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 from azure.data.tables import TableClient, TableServiceClient
 from azure.identity import DefaultAzureCredential
+from azure.storage.blob import BlobServiceClient
 
 from FitParser.fit_parser import compute_workout_id
 
-INGEST_VERSION = "v3.0.8"
+INGEST_VERSION = "v3.1.0"
+
+LAP_RECORDS_CONTAINER = "lap-records"
+WORKOUT_LAPS_TABLE = "WorkoutLaps"
 
 logger = logging.getLogger(__name__)
 
@@ -372,7 +376,33 @@ class WorkoutTableStorage:
                 connection_verify=True,
             )
 
+        self._blob_service_client = self._build_blob_service_client(conn)
         self._ensure_tables_exist()
+        self._ensure_blob_container()
+
+    def _build_blob_service_client(
+        self, table_connection_string: Optional[str]
+    ) -> BlobServiceClient:
+        blob_conn = (
+            os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+            or os.getenv("AzureWebJobsStorage")
+            or table_connection_string
+        )
+        if blob_conn:
+            return BlobServiceClient.from_connection_string(blob_conn)
+
+        account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
+        if not account_url:
+            msg = (
+                "No storage connection available for blobs. Provide "
+                "AZURE_STORAGE_CONNECTION_STRING, AzureWebJobsStorage, "
+                "or AZURE_STORAGE_ACCOUNT_URL."
+            )
+            raise ValueError(msg)
+        return BlobServiceClient(
+            account_url=account_url,
+            credential=DefaultAzureCredential(),
+        )
 
     def _ensure_tables_exist(self):
         """Create tables if they don't exist."""
@@ -386,6 +416,7 @@ class WorkoutTableStorage:
             "WebhookDeduplication",
             "AgentPreferences",
             "AgentObservations",
+            WORKOUT_LAPS_TABLE,
         ]
         for table_name in table_names:
             try:
@@ -395,9 +426,97 @@ class WorkoutTableStorage:
                 logger.error("Error creating table %s: %s", table_name, e)
                 raise
 
+    def _ensure_blob_container(self) -> None:
+        try:
+            container_client = self._blob_service_client.get_container_client(
+                LAP_RECORDS_CONTAINER
+            )
+            container_client.create_container()
+            logger.info("Blob container %s ready", LAP_RECORDS_CONTAINER)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            if "ContainerAlreadyExists" in str(exc):
+                return
+            logger.error("Error creating blob container %s: %s", LAP_RECORDS_CONTAINER, exc)
+            raise
+
     def _get_table_client(self, table_name: str) -> TableClient:
         """Get table client for specified table."""
         return self.service_client.get_table_client(table_name)
+
+    def _lap_blob_name(self, workout_id: str, lap_index: int) -> str:
+        return f"{workout_id}/lap-{lap_index:04d}.json"
+
+    def store_workout_laps(
+        self,
+        athlete_id: str,
+        workout_id: str,
+        laps: List[Dict],
+    ) -> None:
+        """Store lap summaries in tables and per-lap record blobs."""
+        if not laps:
+            return
+
+        table_client = self._get_table_client(WORKOUT_LAPS_TABLE)
+        for lap in laps:
+            lap_index = int(lap.get("lap_index", 0))
+            records = lap.get("records", [])
+            blob_name = None
+
+            if records:
+                blob_name = self._lap_blob_name(workout_id, lap_index)
+                json_payload = json.dumps(records, separators=(",", ":"))
+                blob_client = self._blob_service_client.get_blob_client(
+                    container=LAP_RECORDS_CONTAINER,
+                    blob=blob_name,
+                )
+                blob_client.upload_blob(json_payload, overwrite=True)
+
+            summary = lap.get("summary", {})
+            entity = {
+                "PartitionKey": workout_id,
+                "RowKey": f"{lap_index:04d}",
+                "workout_id": workout_id,
+                "athlete_id": athlete_id,
+                "lap_index": lap_index,
+                "record_count": len(records),
+                "blob_name": blob_name,
+            }
+            entity.update({k: v for k, v in summary.items() if v is not None})
+            table_client.upsert_entity(entity)
+
+    def get_workout_laps(self, workout_id: str) -> List[Dict]:
+        """Return all lap summaries for a workout."""
+        table_client = self._get_table_client(WORKOUT_LAPS_TABLE)
+        query = f"PartitionKey eq '{workout_id}'"
+        entities = list(table_client.query_entities(query))
+        laps = []
+        for entity in entities:
+            laps.append(dict(entity))
+        laps.sort(key=lambda e: e.get("lap_index", 0))
+        return laps
+
+    def get_workout_lap(self, workout_id: str, lap_index: int) -> Optional[Dict]:
+        """Return a single lap summary for a workout."""
+        table_client = self._get_table_client(WORKOUT_LAPS_TABLE)
+        row_key = f"{lap_index:04d}"
+        try:
+            return table_client.get_entity(partition_key=workout_id, row_key=row_key)
+        except ResourceNotFoundError:
+            return None
+        except HttpResponseError as e:
+            logger.warning("Error fetching lap %s for workout %s: %s", lap_index, workout_id, e)
+            return None
+
+    def load_lap_records(self, blob_name: str) -> List[Dict]:
+        """Load lap records payload from blob storage."""
+        if not blob_name:
+            return []
+        blob_client = self._blob_service_client.get_blob_client(
+            container=LAP_RECORDS_CONTAINER,
+            blob=blob_name,
+        )
+        payload = blob_client.download_blob().readall()
+        return json.loads(payload)
 
     def get_ingestion_context(
         self,

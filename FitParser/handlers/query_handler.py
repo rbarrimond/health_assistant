@@ -55,7 +55,6 @@ class QueryHandler:
         self,
         athlete_id: str,
         workout_id: str,
-        include_records: bool = False,
         include_laps: bool = False,
     ) -> Tuple[Dict[str, Any], int]:
         """
@@ -72,7 +71,6 @@ class QueryHandler:
             workout = self.semantic_layer.get_workout_detail(
                 athlete_id,
                 workout_id,
-                include_records=include_records,
                 include_laps=include_laps,
             )
             if workout is None:
@@ -83,6 +81,29 @@ class QueryHandler:
             return {"error": str(exc)}, 400
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Workout detail query failed: %s", exc, exc_info=True)
+            return {"error": "Internal server error"}, 500
+
+    def query_workout_lap_detail(
+        self,
+        athlete_id: str,
+        workout_id: str,
+        lap_index: int,
+    ) -> Tuple[Dict[str, Any], int]:
+        """Get lap summary and records for a specific workout lap."""
+        try:
+            lap = self.semantic_layer.get_workout_lap_detail(
+                athlete_id,
+                workout_id,
+                lap_index,
+            )
+            if lap is None:
+                return {"error": "Lap not found"}, 404
+            return lap, 200
+        except ValueError as exc:
+            logger.warning("Workout lap validation failed: %s", exc)
+            return {"error": str(exc)}, 400
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.error("Workout lap query failed: %s", exc, exc_info=True)
             return {"error": "Internal server error"}, 500
 
     def query_planning_context(self, athlete_id: str, days: int = 45) -> Tuple[Dict[str, Any], int]:
