@@ -14,9 +14,7 @@ from azure.identity import DefaultAzureCredential
 
 from FitParser.fit_parser import compute_workout_id
 
-# Constant for UTC timezone suffix replacement
-UTC_SUFFIX = "+00:00"
-INGEST_VERSION = "v3.0.7"
+INGEST_VERSION = "v3.0.8"
 
 logger = logging.getLogger(__name__)
 
@@ -277,7 +275,7 @@ class IngestionContext:
         """
         if self.existing_state and self.existing_state.get("first_seen_at_utc"):
             return self.existing_state["first_seen_at_utc"]
-        return datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z")
+        return datetime.now(timezone.utc).isoformat()
 
     def build_state_entity(
         self,
@@ -294,7 +292,7 @@ class IngestionContext:
         Returns:
             IngestionStateEntity: The constructed ingestion state entity.
         """
-        now_utc = datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z")
+        now_utc = datetime.now(timezone.utc).isoformat()
         state_fields = {
             "source_etag": self.file_info.get("source_etag"),
             "source_ctag": self.file_info.get("source_ctag"),
@@ -556,7 +554,7 @@ class WorkoutTableStorage:
         entity = {
             "PartitionKey": f"{athlete_id}#{year}",
             "RowKey": f"{year}-{week:0>2}",
-            "last_updated_at_utc": datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z"),
+            "last_updated_at_utc": datetime.now(timezone.utc).isoformat(),
         }
         entity.update(rollup_data)
 
@@ -584,7 +582,7 @@ class WorkoutTableStorage:
         Returns:
             Timestamp of update (ISO format)
         """
-        timestamp = datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z")
+        timestamp = datetime.now(timezone.utc).isoformat()
 
         # Default effective_date to today if not provided
         if effective_date is None:
@@ -899,9 +897,9 @@ class WorkoutTableStorage:
             "RowKey": withings_userid,
             "access_token": access_token,
             "refresh_token": refresh_token,
-            "expires_at_utc": expires_at.isoformat().replace(UTC_SUFFIX, "Z"),
+            "expires_at_utc": expires_at.isoformat(),
             "scope": scope,
-            "updated_at_utc": datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z"),
+            "updated_at_utc": datetime.now(timezone.utc).isoformat(),
         }
 
         try:
@@ -996,10 +994,10 @@ class WorkoutTableStorage:
             "RowKey": "onedrive",
             "access_token": access_token,
             "refresh_token": refresh_token,
-            "expires_at_utc": expires_at.isoformat().replace(UTC_SUFFIX, "Z"),
+            "expires_at_utc": expires_at.isoformat(),
             "scope": scope,
             "drive_id": drive_id or "",
-            "updated_at_utc": datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z"),
+            "updated_at_utc": datetime.now(timezone.utc).isoformat(),
         }
 
         try:
@@ -1118,7 +1116,7 @@ class WorkoutTableStorage:
             entity = {
                 "PartitionKey": athlete_id,
                 "RowKey": row_key,
-                "processed_at_utc": datetime.now(timezone.utc).isoformat().replace(UTC_SUFFIX, "Z"),
+                "processed_at_utc": datetime.now(timezone.utc).isoformat(),
                 "withings_userid": withings_userid,
                 "enddate": enddate,
             }

@@ -19,6 +19,7 @@ from FitParser.onedrive_client import OneDriveGraphClient, OneDriveGraphError
 from FitParser.table_storage import WorkoutEntity, WorkoutTableStorage
 
 logger = logging.getLogger(__name__)
+UTC_OFFSET = "+00:00"
 
 
 class SemanticLayer:
@@ -125,14 +126,14 @@ class SemanticLayer:
         """
         # Parse date range
         end_date = (
-            datetime.fromisoformat(until.replace("Z", ""))
+            datetime.fromisoformat(until.replace("Z", UTC_OFFSET))
             if until
             else datetime.now(timezone.utc)
         )
 
         # Default to 90 days if no start date
         start_date = (
-            datetime.fromisoformat(since.replace("Z", ""))
+            datetime.fromisoformat(since.replace("Z", UTC_OFFSET))
             if since
             else end_date - timedelta(days=90)
         )
@@ -387,8 +388,8 @@ class SemanticLayer:
                     if workout_start:
                         # Parse workout date and filter
                         workout_date = datetime.fromisoformat(
-                            workout_start.replace("Z", "")
-                        ).replace(tzinfo=timezone.utc)
+                            workout_start.replace("Z", UTC_OFFSET)
+                        ).astimezone(timezone.utc)
 
                         if start_date <= workout_date <= end_date:
                             workouts.append(
@@ -685,9 +686,7 @@ class SemanticLayer:
             for field in fields:
                 value = adapter._get_field_value(msg, field)  # pylint: disable=protected-access
                 if isinstance(value, datetime):
-                    value = value.astimezone(timezone.utc).isoformat().replace(
-                        "+00:00", "Z"
-                    )
+                    value = value.astimezone(timezone.utc).isoformat()
                 if value is not None:
                     lap[field] = value
             if lap:
@@ -736,7 +735,9 @@ class SemanticLayer:
         start_time = metrics.get("start_time_utc")
         if start_time:
             try:
-                parsed = datetime.fromisoformat(str(start_time).replace("Z", ""))
+                parsed = datetime.fromisoformat(
+                    str(start_time).replace("Z", UTC_OFFSET)
+                )
                 return f"{sport.title()} - {parsed.strftime('%b %d, %Y')}"
             except (ValueError, AttributeError):
                 return f"{sport.title()} Workout"

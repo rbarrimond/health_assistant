@@ -92,7 +92,7 @@ class FitParser:
         # Capture physiometrics snapshot timestamp (before zone computation)
         # This links the workout to the exact config used
         self.metrics["physiometrics_snapshot_timestamp"] = (
-            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            datetime.now(timezone.utc).isoformat()
         )
 
         # Compute zones if data available
@@ -341,8 +341,7 @@ class FitParser:
             dt = timestamp
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            dt_utc = dt.astimezone(timezone.utc).replace(tzinfo=None)
-            return dt_utc.isoformat() + "Z"
+            return dt.astimezone(timezone.utc).isoformat()
         return None
 
     def _get_end_time(self) -> Optional[str]:
@@ -352,7 +351,7 @@ class FitParser:
         if start and duration:
             dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
             end_dt = dt + timedelta(seconds=duration)
-            return end_dt.isoformat() + "Z"
+            return end_dt.isoformat()
         return None
 
     def _get_timezone(self) -> Optional[str]:

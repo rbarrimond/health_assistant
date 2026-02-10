@@ -2,6 +2,7 @@
 
 # pylint: disable=line-too-long
 
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -41,12 +42,19 @@ class WorkoutSession(BaseModel):
     @field_validator("start_time_utc", mode="before")
     @classmethod
     def ensure_utc_suffix(cls, v: Optional[str]) -> Optional[str]:
-        """Guarantee ISO timestamps are suffixed with Z for UTC."""
+        """Normalize ISO timestamps to use UTC offsets instead of Z."""
         if v is None:
             return v
-        if not v.endswith("Z"):
-            return f"{v}Z"
-        return v
+        value = str(v)
+        if value.endswith("Z"):
+            return f"{value[:-1]}+00:00"
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return value
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc).isoformat()
+        return value
 
 
 class RecordSample(BaseModel):

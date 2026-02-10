@@ -105,14 +105,13 @@ class FitAdapter:
         return file_id_msg, session_msg
 
     @staticmethod
-    def _to_iso_z(dt: datetime | None) -> str | None:
-        """Convert a datetime to an ISO8601 string with trailing Z."""
+    def _to_iso_offset(dt: datetime | None) -> str | None:
+        """Convert a datetime to an ISO8601 string with UTC offset."""
         if not dt:
             return None
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        dt_utc = dt.astimezone(timezone.utc).replace(tzinfo=None)
-        return dt_utc.isoformat() + "Z"
+        return dt.astimezone(timezone.utc).isoformat()
 
     def _extract_sport_names(self, session_msg):
         """Extract sport and sub_sport enum names."""
@@ -141,7 +140,7 @@ class FitAdapter:
         """Extract start, end, and duration times."""
         start_time = self._get_field_value(session_msg, "start_time")
         start_iso = (
-            self._to_iso_z(start_time)
+            self._to_iso_offset(start_time)
             if isinstance(start_time, datetime)
             else None
         )
@@ -153,7 +152,7 @@ class FitAdapter:
         if start_iso and duration_sec:
             dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
             end_dt = dt + timedelta(seconds=duration_sec)
-            end_iso = end_dt.isoformat() + "Z"
+            end_iso = end_dt.isoformat()
 
         return start_iso, end_iso, duration_sec
 
