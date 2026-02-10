@@ -22,7 +22,8 @@ class TestHealthCheckEndpoint:
 
         mock_storage = MagicMock()
         mock_storage.service_client.list_tables.return_value = []
-        with patch.object(FunctionAppDependencies, "storage", new=PropertyMock(return_value=mock_storage)):
+        with patch.object(FunctionAppDependencies, "storage",
+                          new=PropertyMock(return_value=mock_storage)):
 
             req = MagicMock(spec=func.HttpRequest)
             response = health_check(req)
@@ -37,7 +38,8 @@ class TestHealthCheckEndpoint:
 
         mock_storage = MagicMock()
         mock_storage.service_client.list_tables.return_value = []
-        with patch.object(FunctionAppDependencies, "storage", new=PropertyMock(return_value=mock_storage)):
+        with patch.object(FunctionAppDependencies, "storage",
+                          new=PropertyMock(return_value=mock_storage)):
 
             req = MagicMock(spec=func.HttpRequest)
             response = health_check(req)
