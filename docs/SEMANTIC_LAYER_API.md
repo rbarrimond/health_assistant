@@ -1,5 +1,7 @@
 # Semantic Access Layer API
 
+Version: 2.1.0
+
 The Semantic Access Layer is the **Read API** that sits between the raw metrics database and the ChatGPT UI. It exposes meaningful, human-centric questions about training data rather than raw table access.
 
 > **Phase 1 Note:** This system is currently deployed for single-athlete use. Most endpoints default `athlete_id` to `"rob"` when not provided. The multi-athlete architecture is implemented but enforcement is deferred to Phase 2.

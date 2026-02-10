@@ -1,5 +1,7 @@
 # GPT Actions Guide — Workout Intelligence Agent
 
+Version: 1.1.1
+
 This guide defines how a custom GPT should use the Health Assistant Semantic Access Layer.
 It is the operational companion to:
 

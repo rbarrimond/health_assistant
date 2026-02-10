@@ -1,4 +1,6 @@
-# Workout Metrics Schema (v1) — Azure Table Storage
+# Workout Metrics Schema — Azure Table Storage
+
+Version: 6.0.1
 
 This schema is designed to support:
 

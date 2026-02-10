@@ -1,5 +1,21 @@
 # Cycling Context – Endurance & Longevity Framework
 
+Version: 1.0.0
+
+**Semantic Versioning Policy:**
+
+- MAJOR: Changes that alter the fundamental role of cycling in the system
+         (e.g., cycling no longer primary, durability no longer prioritized,
+         intensity-first models, different governing principle)
+
+- MINOR: Additive or clarifying changes that refine interpretation without
+         changing core priorities
+         (e.g., new fatigue signals, clarified integration rules,
+         expanded interpretation guidance, additional examples)
+
+- PATCH: Non-substantive edits only
+         (e.g., wording, formatting, reordering sections, clarity improvements)
+
 ## Role of Cycling
 
 Cycling is the primary training modality and the dominant source of training load.

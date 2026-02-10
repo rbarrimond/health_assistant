@@ -1,10 +1,22 @@
 # - Workout Intelligence Agent — Vision & Operating Model
 
+Version: 1.5.0
+
 This document describes the **intentional design** of the Workout Intelligence Agent:  
 what it is, what it is *not*, how it behaves, and why it stays usable in ad hoc, real-world use.
 
 This is **not** an AI toy.  
 It is a **deterministic data system with a conversational UI**.
+
+**Semantic Versioning Policy:**
+
+- MAJOR: Changes to the agent’s core mission, operating model, or governing principles
+         (e.g., shifting from deterministic to probabilistic reasoning, changing primary goals,
+         removing safety constraints, altering the interaction model in a way that changes how the system should be built)
+- MINOR: Additive or clarifying content that refines the vision without changing its fundamentals
+         (e.g., new sections, expanded examples, clearer rationale, additional non-breaking guidance)
+- PATCH: Non-substantive edits only
+         (e.g., wording, formatting, reordering, typo fixes)
 
 ---
 

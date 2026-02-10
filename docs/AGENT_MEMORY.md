@@ -1,5 +1,7 @@
 # Agent Memory System
 
+Version: 1.0.1
+
 ## Overview
 
 The Agent Memory System provides lightweight external memory for the GPT Workout Intelligence Agent using Azure Table Storage. It implements **Option 3 (Hybrid)** from the design: persistent facts in Table Storage + GPT's native memory for conversational continuity.
