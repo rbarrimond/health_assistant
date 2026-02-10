@@ -2,6 +2,8 @@
 
 ## 2026-02-09
 
+- Normalize FIT timestamps to UTC and infer timezone offsets; bump ingest version to v3.0.6.
+- Include the config package in Azure Functions deployments to resolve missing module errors.
 - Move OneDrive sync orchestration into `OneDriveSyncHandler` and slim the ingestion handler to single-file work.
 - Rename ingestion base and OneDrive sync classes for clearer hierarchy.
 - Make OneDrive sync a concrete ingestion handler; bump ingest version to v3.0.5.

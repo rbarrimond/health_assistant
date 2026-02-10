@@ -16,7 +16,7 @@ from FitParser.fit_parser import compute_workout_id
 
 # Constant for UTC timezone suffix replacement
 UTC_SUFFIX = "+00:00"
-INGEST_VERSION = "v3.0.5"
+INGEST_VERSION = "v3.0.6"
 
 logger = logging.getLogger(__name__)
 

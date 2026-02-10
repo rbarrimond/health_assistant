@@ -1,4 +1,4 @@
-# Ingestion Schema (v2.3.1)
+# Ingestion Schema (v3.0.6)
 
 This document defines the ingestion payloads and the IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -74,7 +74,7 @@ It is intentionally separate from Workouts to keep workout entities small and st
 | source_quickxor_hash | string | No | OneDrive quickXor hash for content. |
 | source_modified_at_utc | string | No | OneDrive last modified timestamp (ISO 8601 UTC). |
 | file_sha256 | string | No | SHA-256 hash of file content. |
-| ingest_version | string | Yes | Ingestion code version (e.g., `v2.3.1`). |
+| ingest_version | string | Yes | Ingestion code version (e.g., `v3.0.6`). |
 | ingested_at_utc | string | No | ISO 8601 UTC timestamp when status becomes `ingested`. |
 | error_message | string | No | Last error message (truncated). |
 
