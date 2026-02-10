@@ -87,3 +87,13 @@ Stability and tolerance must precede load or intensity.
 - Clarity and accuracy are valued more than reassurance.
 
 The goal is informed judgment, not compliance.
+
+---
+
+## ROB_CONTEXT — Version 1.0.0
+
+Semantic Versioning:
+
+- MAJOR: Change in training philosophy or decision priorities
+- MINOR: Clarification or extension of interpretation rules
+- PATCH: Wording, examples, or formatting only
