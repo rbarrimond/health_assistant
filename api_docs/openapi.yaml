@@ -789,6 +789,20 @@ paths:
           description: Athlete identifier
           schema:
             type: string
+        - name: records
+          in: query
+          required: false
+          description: Include per-sample records (time series) if available
+          schema:
+            type: boolean
+            default: false
+        - name: laps
+          in: query
+          required: false
+          description: Include lap summaries if available
+          schema:
+            type: boolean
+            default: false
       responses:
         '200':
           description: Workout detail
@@ -1587,6 +1601,18 @@ components:
               items:
                 type: object
                 additionalProperties: true
+            records_count:
+              type: integer
+              description: Number of record samples returned
+            laps:
+              type: array
+              description: Optional lap summary data
+              items:
+                type: object
+                additionalProperties: true
+            laps_count:
+              type: integer
+              description: Number of laps returned
     WeeklyRollups:
       type: object
       properties:

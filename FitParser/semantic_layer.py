@@ -7,10 +7,15 @@ It shapes data for reasoning, constrains scope, and encodes how humans think abo
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
+
+import gzip
 
 from azure.core.exceptions import HttpResponseError
 
+from FitParser.adapter import FitAdapter
+from FitParser.handlers.onedrive_sync_handler import OneDriveSyncConfig
+from FitParser.onedrive_client import OneDriveGraphClient, OneDriveGraphError
 from FitParser.table_storage import WorkoutEntity, WorkoutTableStorage
 
 logger = logging.getLogger(__name__)
@@ -144,7 +149,11 @@ class SemanticLayer:
         return workouts[:limit]
 
     def get_workout_detail(
-        self, athlete_id: str, workout_id: str
+        self,
+        athlete_id: str,
+        workout_id: str,
+        include_records: bool = False,
+        include_laps: bool = False,
     ) -> Optional[Dict]:
         """
         Get detailed workout data including time series.
@@ -174,7 +183,27 @@ class SemanticLayer:
             if entity.get("athlete_id") != athlete_id:
                 return None
 
-            return self._entity_to_workout_dict(entity, include_records=True)
+            workout = self._entity_to_workout_dict(
+                entity, include_records=include_records
+            )
+
+            if include_records or include_laps:
+                records, laps, errors = self._load_fit_timeseries(
+                    athlete_id,
+                    entity,
+                    include_records=include_records,
+                    include_laps=include_laps,
+                )
+                if include_records and records is not None:
+                    workout["records"] = records
+                    workout["records_count"] = len(records)
+                if include_laps and laps is not None:
+                    workout["laps"] = laps
+                    workout["laps_count"] = len(laps)
+                if errors:
+                    workout.update(errors)
+
+            return workout
 
         except HttpResponseError as e:
             logger.error("Error retrieving workout %s: %s", workout_id, e)
@@ -503,6 +532,168 @@ class SemanticLayer:
                 pass
 
         return workout
+
+    def _load_fit_timeseries(
+        self,
+        athlete_id: str,
+        entity: Dict,
+        *,
+        include_records: bool,
+        include_laps: bool,
+    ) -> Tuple[Optional[List[Dict]], Optional[List[Dict]], Dict[str, str]]:
+        records: Optional[List[Dict]] = None
+        laps: Optional[List[Dict]] = None
+        errors: Dict[str, str] = {}
+
+        source_system = entity.get("source_system")
+        source_item_id = entity.get("source_item_id")
+        if not source_item_id:
+            errors["records_error"] = "No source item id available"
+            errors["laps_error"] = "No source item id available"
+            return records, laps, errors
+
+        try:
+            file_bytes = self._download_fit_bytes(
+                athlete_id=athlete_id,
+                source_system=source_system,
+                source_item_id=source_item_id,
+            )
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            if include_records:
+                errors["records_error"] = str(exc)
+            if include_laps:
+                errors["laps_error"] = str(exc)
+            return records, laps, errors
+
+        if not file_bytes:
+            if include_records:
+                errors["records_error"] = "Failed to load source file"
+            if include_laps:
+                errors["laps_error"] = "Failed to load source file"
+            return records, laps, errors
+
+        adapter = FitAdapter(
+            file_path="in-memory.fit",
+            file_bytes=file_bytes,
+        )
+
+        if include_records:
+            workout = adapter.load_workout()
+            records = [
+                rec.model_dump(exclude_none=True)
+                for rec in workout.records
+            ]
+
+        if include_laps:
+            laps = self._extract_laps(adapter)
+
+        return records, laps, errors
+
+    def _download_fit_bytes(
+        self,
+        *,
+        athlete_id: str,
+        source_system: Optional[str],
+        source_item_id: str,
+    ) -> Optional[bytes]:
+        if source_system and source_system.lower() != "healthfit":
+            raise ValueError("Unsupported source system for records lookup")
+
+        config = OneDriveSyncConfig.from_env()
+        client = OneDriveGraphClient(
+            client_id=config.client_id,
+            client_secret=config.client_secret,
+            redirect_uri=config.redirect_uri,
+            scopes=config.scopes,
+        )
+
+        access_token = self._get_onedrive_access_token(
+            athlete_id=athlete_id,
+            client=client,
+        )
+
+        item_id = source_item_id
+        if item_id.startswith("onedrive:"):
+            item_id = item_id.split("onedrive:", 1)[1]
+
+        try:
+            content = client.download_file(
+                access_token=access_token,
+                item_id=item_id,
+            )
+        except OneDriveGraphError as exc:
+            raise ValueError("Failed to download source FIT file") from exc
+
+        if _looks_like_gzip(content):
+            return gzip.decompress(content)
+        return content
+
+    def _get_onedrive_access_token(
+        self,
+        *,
+        athlete_id: str,
+        client: OneDriveGraphClient,
+    ) -> str:
+        tokens = self.storage.get_onedrive_tokens(athlete_id)
+        if not tokens:
+            raise ValueError("No OneDrive tokens stored")
+
+        expires_at = tokens.get("expires_at_utc")
+        if expires_at:
+            try:
+                expires_at_dt = datetime.fromisoformat(
+                    str(expires_at).replace("Z", "+00:00")
+                ).astimezone(timezone.utc)
+                if datetime.now(timezone.utc) >= (
+                    expires_at_dt - timedelta(minutes=5)
+                ):
+                    token_data = client.refresh_access_token(
+                        tokens["refresh_token"]
+                    )
+                    self.storage.refresh_onedrive_token(
+                        athlete_id=athlete_id,
+                        new_access_token=token_data["access_token"],
+                        new_refresh_token=token_data.get(
+                            "refresh_token", tokens["refresh_token"]
+                        ),
+                        expires_in=int(token_data.get("expires_in", 3600)),
+                        scope=token_data.get("scope"),
+                    )
+                    return token_data["access_token"]
+            except ValueError:
+                pass
+
+        return str(tokens["access_token"])
+
+    def _extract_laps(self, adapter: FitAdapter) -> List[Dict]:
+        laps: List[Dict] = []
+        fields = [
+            "start_time",
+            "total_elapsed_time",
+            "total_timer_time",
+            "total_distance",
+            "total_calories",
+            "avg_heart_rate",
+            "max_heart_rate",
+            "avg_power",
+            "max_power",
+            "avg_cadence",
+            "max_cadence",
+        ]
+        for msg in adapter.fit.get_messages("lap"):
+            lap: Dict[str, Optional[object]] = {}
+            for field in fields:
+                value = adapter._get_field_value(msg, field)  # pylint: disable=protected-access
+                if isinstance(value, datetime):
+                    value = value.astimezone(timezone.utc).isoformat().replace(
+                        "+00:00", "Z"
+                    )
+                if value is not None:
+                    lap[field] = value
+            if lap:
+                laps.append(lap)
+        return laps
+
 
     @staticmethod
     def _select_fields(source: Dict, fields: set[str]) -> Dict:
@@ -875,3 +1066,7 @@ class SemanticLayer:
             "workout_id": workout_id,
             "override": physiometrics_override,
         }
+
+
+def _looks_like_gzip(content: bytes) -> bool:
+    return len(content) >= 2 and content[0] == 0x1F and content[1] == 0x8B

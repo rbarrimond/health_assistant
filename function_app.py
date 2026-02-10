@@ -246,14 +246,21 @@ def get_workout_detail(req: func.HttpRequest) -> func.HttpResponse:
     """Get detailed workout data including time series."""
     athlete_id = req.params.get("athlete_id", "rob")
     workout_id = req.route_params.get("workout_id")
+    include_records = req.params.get("records", "false").lower() in {"1", "true", "yes", "y"}
+    include_laps = req.params.get("laps", "false").lower() in {"1", "true", "yes", "y"}
 
     if not workout_id:
         return json_response({"error": "workout_id required in route"}, 400)
 
     handler = QueryHandler(dependencies.semantic_layer)
-    workout, status = handler.query_workout_detail(athlete_id, workout_id)
+    workout, status = handler.query_workout_detail(
+        athlete_id,
+        workout_id,
+        include_records=include_records,
+        include_laps=include_laps,
+    )
 
-    return json_response(workout, status)
+    return json_response(workout, status, req=req)
 
 
 @app.route(

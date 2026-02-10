@@ -3,13 +3,12 @@
 These tests verify that the Azure Functions HTTP routes correctly
 interface with the semantic layer.
 """
-# pylint: disable=redefined-outer-name  # pytest fixtures intentionally shadow
+# pylint: disable=redefined-outer-name, line-too-long  # pytest fixtures intentionally shadow
 
 import json
 from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
-import function_app
 from FitParser.dependencies import FunctionAppDependencies
 
 from function_app import (
@@ -161,7 +160,12 @@ class TestGetWorkoutEndpoint:
         assert response.status_code == 200
         data = json.loads(response.get_body())
         assert data["workout_id"] == "abc123"
-        mock_semantic_layer.get_workout_detail.assert_called_once_with("rob", "abc123")
+        mock_semantic_layer.get_workout_detail.assert_called_once_with(
+            "rob",
+            "abc123",
+            include_records=False,
+            include_laps=False,
+        )
 
     def test_workout_found(self, mock_request, mock_semantic_layer):
         """Test successful workout detail retrieval."""
@@ -181,7 +185,12 @@ class TestGetWorkoutEndpoint:
         assert response.status_code == 200
         data = json.loads(response.get_body())
         assert data["workout_id"] == "xyz789"
-        mock_semantic_layer.get_workout_detail.assert_called_once_with("alice", "xyz789")
+        mock_semantic_layer.get_workout_detail.assert_called_once_with(
+            "alice",
+            "xyz789",
+            include_records=False,
+            include_laps=False,
+        )
 
     def test_workout_not_found(self, mock_request, mock_semantic_layer):
         """Test workout detail when workout doesn't exist."""
@@ -196,6 +205,33 @@ class TestGetWorkoutEndpoint:
         assert response.status_code == 404
         data = json.loads(response.get_body())
         assert "not found" in data["error"].lower()
+
+    def test_workout_detail_with_records_and_laps(self, mock_request, mock_semantic_layer):
+        """Test workout detail request with records and laps flags enabled."""
+        mock_request.params = {
+            "athlete_id": "rob",
+            "records": "true",
+            "laps": "true",
+        }
+        mock_request.route_params = {"workout_id": "abc123"}
+
+        mock_workout = {
+            "workout_id": "abc123",
+            "records": [],
+            "laps": [],
+        }
+        mock_semantic_layer.get_workout_detail.return_value = mock_workout
+
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+            response = get_workout_detail(mock_request)
+
+        assert response.status_code == 200
+        mock_semantic_layer.get_workout_detail.assert_called_once_with(
+            "rob",
+            "abc123",
+            include_records=True,
+            include_laps=True,
+        )
 
 
 class TestWeeklyRollupsEndpoint:

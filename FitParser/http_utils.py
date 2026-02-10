@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+import gzip
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
 import azure.functions as func
@@ -12,12 +13,31 @@ import azure.functions as func
 from config.constants import ENV_PUBLIC_BASE_URL, JSON_CONTENT_TYPE
 
 
-def json_response(data: Dict[str, Any], status_code: int = 200) -> func.HttpResponse:
-    """Create JSON HTTP response."""
+def json_response(
+    data: Dict[str, Any],
+    status_code: int = 200,
+    *,
+    req: Optional[func.HttpRequest] = None,
+) -> func.HttpResponse:
+    """Create JSON HTTP response, optionally gzip-compressed."""
+    payload = json.dumps(data, default=str).encode("utf-8")
+    headers: Dict[str, str] = {}
+
+    accept_encoding = (
+        req.headers.get("Accept-Encoding", "")
+        if req is not None
+        else ""
+    )
+    if "gzip" in accept_encoding.lower():
+        payload = gzip.compress(payload)
+        headers["Content-Encoding"] = "gzip"
+        headers["Vary"] = "Accept-Encoding"
+
     return func.HttpResponse(
-        json.dumps(data, default=str),
+        body=payload,
         status_code=status_code,
         mimetype=JSON_CONTENT_TYPE,
+        headers=headers,
     )
 
 

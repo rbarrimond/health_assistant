@@ -41,8 +41,8 @@ It only interprets facts returned by the Read API.
    - Use for recent pattern detection or filtering by sport.
 
 3. **Workout detail**
-   - `GET /api/workouts/{workout_id}`
-   - Use for deep dives into a specific session.
+   - `GET /api/workouts/{workout_id}?records=true&laps=true`
+   - Use for deep dives into a specific session. Add `records=true` and/or `laps=true` when you need time series or lap data.
 
 4. **Weekly rollups**
    - `GET /api/rollups/weekly?weeks=12`

@@ -570,9 +570,15 @@
           "name": "GET /api/workouts/{workout_id}",
           "request": {
             "method": "GET",
-            "header": [],
-            "url": "{{base_url}}/api/workouts/{{workout_id}}?athlete_id={{athlete_id}}&code={{function_key}}",
-            "description": "Retrieve a specific workout (update workout_id after ingestion)."
+            "header": [
+              {
+                "key": "Accept-Encoding",
+                "value": "gzip",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/workouts/{{workout_id}}?athlete_id={{athlete_id}}&records=true&laps=true&code={{function_key}}",
+            "description": "Retrieve a specific workout, optionally including records/laps (requires source file access)."
           },
           "response": []
         },

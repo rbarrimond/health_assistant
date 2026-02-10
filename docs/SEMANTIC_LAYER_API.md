@@ -699,7 +699,7 @@ GET /api/workouts?athlete_id=rob&since=2026-01-01&limit=50&sport=Cycling
 ### 3. Get Workout Detail
 
 ```http
-GET /api/workouts/{workout_id}?athlete_id=rob
+GET /api/workouts/{workout_id}?athlete_id=rob&records=true&laps=true
 ```
 
 Retrieve full workout data including time series records.
@@ -711,6 +711,8 @@ Retrieve full workout data including time series records.
 **Query Parameters:**
 
 - `athlete_id` (optional, defaults to `rob`): Athlete identifier
+- `records` (optional, default `false`): Include per-sample record data (time series)
+- `laps` (optional, default `false`): Include lap summary data
 
 **Response:**
 
@@ -730,6 +732,8 @@ Retrieve full workout data including time series records.
   "ef_overall": 1.52,
   "intensity_factor": 0.85,
   "tss": 65,
+  "records_count": 1200,
+  "laps_count": 3,
   "records": [
     {
       "heart_rate": 145,
@@ -745,6 +749,8 @@ Retrieve full workout data including time series records.
 - Deep dive into specific workout
 - Examining time series data
 - Analyzing workout quality
+
+**Transport note:** If the client sends `Accept-Encoding: gzip`, the response will be gzip-compressed.
 
 ---
 

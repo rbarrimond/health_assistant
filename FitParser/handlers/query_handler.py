@@ -51,7 +51,13 @@ class QueryHandler:
             logger.error("Query failed: %s", exc, exc_info=True)
             return [], 500
 
-    def query_workout_detail(self, athlete_id: str, workout_id: str) -> Tuple[Dict[str, Any], int]:
+    def query_workout_detail(
+        self,
+        athlete_id: str,
+        workout_id: str,
+        include_records: bool = False,
+        include_laps: bool = False,
+    ) -> Tuple[Dict[str, Any], int]:
         """
         Get detailed workout data including time series.
 
@@ -63,7 +69,12 @@ class QueryHandler:
             (workout detail dict, HTTP status code)
         """
         try:
-            workout = self.semantic_layer.get_workout_detail(athlete_id, workout_id)
+            workout = self.semantic_layer.get_workout_detail(
+                athlete_id,
+                workout_id,
+                include_records=include_records,
+                include_laps=include_laps,
+            )
             if workout is None:
                 return {"error": "Workout not found"}, 404
             return workout, 200
