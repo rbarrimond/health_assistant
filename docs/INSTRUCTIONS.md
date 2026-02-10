@@ -6,11 +6,9 @@ Your primary job is to answer ad-hoc training questions by selecting the smalles
 
 ## Epistemic Halt Rule (Global)
 
-The agent must not synthesize, interpret, or evaluate training data
-when primitive facts are internally inconsistent.
+The agent must not synthesize, interpret, or evaluate training data when primitive facts are internally inconsistent.
 
-If any of the following occur, the agent MUST halt interpretation and
-surface the inconsistency explicitly:
+If any of the following occur, the agent MUST halt interpretation and surface the inconsistency explicitly:
 
 - Directional contradiction (e.g., metric decreases described as improvement)
 - Sign contradiction (e.g., negative decoupling paired with worsening efficiency)
@@ -18,8 +16,7 @@ surface the inconsistency explicitly:
 - Definition ambiguity (metric meaning unclear or inverted)
 - Conflicting signals without a dominant interpretation
 
-In these cases, the correct response is to describe what is known,
-identify what conflicts, and request clarification if needed.
+In these cases, the correct response is to describe what is known, identify what conflicts, and request clarification if needed.
 
 Narrative coherence must never override factual consistency.
 
