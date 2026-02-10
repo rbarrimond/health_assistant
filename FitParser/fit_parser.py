@@ -252,7 +252,10 @@ class FitParser:
         if msg:
             field = msg.get(field_name)
             if field:
-                return field.value
+                value = field.value
+                if isinstance(value, datetime) and value.tzinfo is None:
+                    return value.replace(tzinfo=timezone.utc)
+                return value
         return None
 
     def _get_sport(self) -> Optional[str]:
@@ -324,8 +327,9 @@ class FitParser:
         if timestamp and isinstance(timestamp, datetime):
             dt = timestamp
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=None)
-            return dt.isoformat() + "Z"
+                dt = dt.replace(tzinfo=timezone.utc)
+            dt_utc = dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt_utc.isoformat() + "Z"
         return None
 
     def _get_end_time(self) -> Optional[str]:
@@ -333,7 +337,7 @@ class FitParser:
         start = self._get_start_time()
         duration = self._get_duration()
         if start and duration:
-            dt = datetime.fromisoformat(start.replace("Z", ""))
+            dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
             end_dt = dt + timedelta(seconds=duration)
             return end_dt.isoformat() + "Z"
         return None
@@ -356,6 +360,10 @@ class FitParser:
             offset_minutes = self._get_device_utc_offset_minutes()
             if offset_minutes is not None:
                 return self._format_utc_offset(offset_minutes)
+
+            inferred = self._infer_timezone_from_session_times()
+            if inferred:
+                return inferred
         except (AttributeError, TypeError, ValueError):
             # Be defensive; timezone is non-critical
             pass
@@ -391,6 +399,50 @@ class FitParser:
         minutes = abs(minutes)
         hours, mins = divmod(minutes, 60)
         return f"UTC{sign}{hours:02d}:{mins:02d}"
+
+    def _infer_timezone_from_session_times(self) -> Optional[str]:
+        """Infer timezone from session timestamp vs local start time."""
+        session = self.session_msg
+        if not session:
+            return None
+
+        start_time = self._get_field_from_msg(session, "start_time")
+        timestamp = self._get_field_from_msg(session, "timestamp")
+        duration = self._get_field_from_msg(session, "total_elapsed_time")
+
+        if not isinstance(start_time, datetime):
+            return None
+        if not isinstance(timestamp, datetime):
+            return None
+        if duration is None:
+            return None
+
+        try:
+            duration_sec = int(duration)
+        except (TypeError, ValueError):
+            return None
+
+        utc_start = timestamp - timedelta(seconds=duration_sec)
+        start_dt = (
+            start_time.astimezone(timezone.utc).replace(tzinfo=None)
+            if start_time.tzinfo is not None
+            else start_time
+        )
+        utc_start_dt = (
+            utc_start.astimezone(timezone.utc).replace(tzinfo=None)
+            if utc_start.tzinfo is not None
+            else utc_start
+        )
+
+        offset_minutes = (start_dt - utc_start_dt).total_seconds() / 60
+        rounded_minutes = round(offset_minutes / 15) * 15
+        if abs(offset_minutes - rounded_minutes) > 3:
+            return None
+        if rounded_minutes < -14 * 60 or rounded_minutes > 14 * 60:
+            return None
+        if rounded_minutes == 0:
+            return "UTC"
+        return self._format_utc_offset(int(rounded_minutes))
 
     def _get_duration(self) -> Optional[int]:
         """Get total elapsed time in seconds."""

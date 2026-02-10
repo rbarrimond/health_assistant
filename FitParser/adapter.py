@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import io
 from pathlib import Path
 from typing import Optional
@@ -74,7 +74,12 @@ class FitAdapter:
         if not msg:
             return None
         field = msg.get(field_name)
-        return field.value if field else None
+        if not field:
+            return None
+        value = field.value
+        if isinstance(value, datetime) and value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
 
     def _cache_core_messages(self):
         """Cache the first file_id and session messages for reuse."""
@@ -92,8 +97,9 @@ class FitAdapter:
         if not dt:
             return None
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=None)
-        return dt.isoformat() + "Z"
+            dt = dt.replace(tzinfo=timezone.utc)
+        dt_utc = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt_utc.isoformat() + "Z"
 
     def _extract_sport_names(self, session_msg):
         """Extract sport and sub_sport enum names."""
@@ -132,7 +138,7 @@ class FitAdapter:
 
         end_iso = None
         if start_iso and duration_sec:
-            dt = datetime.fromisoformat(start_iso.replace("Z", ""))
+            dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
             end_dt = dt + timedelta(seconds=duration_sec)
             end_iso = end_dt.isoformat() + "Z"
 
@@ -151,6 +157,10 @@ class FitAdapter:
         offset_minutes = self._get_device_utc_offset_minutes()
         if offset_minutes is not None:
             return self._format_utc_offset(offset_minutes)
+
+        inferred = self._infer_timezone_from_session_times(self.session_msg)
+        if inferred:
+            return inferred
 
         return "UTC"
 
@@ -180,6 +190,54 @@ class FitAdapter:
         minutes = abs(minutes)
         hours, mins = divmod(minutes, 60)
         return f"UTC{sign}{hours:02d}:{mins:02d}"
+
+    def _infer_timezone_from_session_times(self, session_msg) -> Optional[str]:
+        """Infer timezone from session timestamp vs local start time.
+
+        Some exporters (e.g., HealthFit) may encode start_time as local time
+        while keeping timestamp in UTC. We can infer the offset by comparing
+        start_time to (timestamp - duration).
+        """
+        if not session_msg:
+            return None
+
+        start_time = self._get_field_value(session_msg, "start_time")
+        timestamp = self._get_field_value(session_msg, "timestamp")
+        duration = self._get_field_value(session_msg, "total_elapsed_time")
+
+        if not isinstance(start_time, datetime):
+            return None
+        if not isinstance(timestamp, datetime):
+            return None
+        if duration is None:
+            return None
+
+        try:
+            duration_sec = int(duration)
+        except (TypeError, ValueError):
+            return None
+
+        utc_start = timestamp - timedelta(seconds=duration_sec)
+        start_dt = (
+            start_time.astimezone(timezone.utc).replace(tzinfo=None)
+            if start_time.tzinfo is not None
+            else start_time
+        )
+        utc_start_dt = (
+            utc_start.astimezone(timezone.utc).replace(tzinfo=None)
+            if utc_start.tzinfo is not None
+            else utc_start
+        )
+
+        offset_minutes = (start_dt - utc_start_dt).total_seconds() / 60
+        rounded_minutes = round(offset_minutes / 15) * 15
+        if abs(offset_minutes - rounded_minutes) > 3:
+            return None
+        if rounded_minutes < -14 * 60 or rounded_minutes > 14 * 60:
+            return None
+        if rounded_minutes == 0:
+            return "UTC"
+        return self._format_utc_offset(int(rounded_minutes))
 
     def _extract_session_metrics(self, session_msg):
         """Extract distance, elevation, and speed metrics."""
