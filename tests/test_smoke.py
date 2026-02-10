@@ -21,7 +21,7 @@ from function_app import parse_ingest_payload  # pylint: disable=unused-import
 # Ensure all references to MagicMock and patch are valid and properly used.
 WorkoutTableStorage = MagicMock()
 from FitParser.handlers import (ConfigHandler, HealthHandler,
-                                OneDriveSyncHandler)
+                                OneDriveSyncHandler, OneDriveSyncConfig)
 from FitParser.semantic_layer import SemanticLayer
 
 # Ensure all references to these classes and functions are valid.
@@ -139,8 +139,20 @@ def test_semantic_layer_instantiation() -> None:
 
 def test_onedrive_sync_handler_instantiation() -> None:
     """OneDriveSyncHandler should instantiate with OneDrive service."""
-    service = MagicMock()
-    handler = OneDriveSyncHandler(service)
+    config = OneDriveSyncConfig(
+        client_id="client-id",
+        client_secret="client-secret",
+        redirect_uri="https://example.com/callback",
+        scopes="Files.ReadWrite offline_access",
+        folder_path="/Apps/HealthFit",
+        lookback_days=30,
+    )
+    handler = OneDriveSyncHandler(
+        config,
+        MagicMock(),
+        client=MagicMock(),
+        ingestion_handler=MagicMock(),
+    )
     assert handler is not None
 
 

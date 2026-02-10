@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import pytest
 
 from FitParser.handlers.onedrive_sync_handler import (
+    OneDriveSyncConfig,
     OneDriveSyncHandler,
     OneDriveSyncRequest,
 )
@@ -64,19 +65,30 @@ def test_sync_request_detects_async_mode():
 # OneDriveSyncHandler Tests
 # ==============================================================================
 
+def _config(lookback_days: int = 7) -> OneDriveSyncConfig:
+    return OneDriveSyncConfig(
+        client_id="client-id",
+        client_secret="client-secret",
+        redirect_uri="https://example.com/callback",
+        scopes="Files.ReadWrite offline_access",
+        folder_path="/Apps/HealthFit",
+        lookback_days=lookback_days,
+    )
+
+
 def test_sync_handler_executes_sync_mode():
     """Test synchronous sync execution."""
-    # Mock service
-    service = Mock()
-    service.config.lookback_days = 7
-    service.sync.return_value = {
+    handler = OneDriveSyncHandler(
+        _config(lookback_days=7),
+        Mock(),
+        client=Mock(),
+        ingestion_handler=Mock(),
+    )
+    handler.sync = Mock(return_value={
         "status": "success",
         "synced": 5,
         "skipped": 2
-    }
-
-    # Create handler and request
-    handler = OneDriveSyncHandler(service)
+    })
     request = OneDriveSyncRequest({"athlete_id": "rob"}, {})
 
     # Execute
@@ -86,18 +98,19 @@ def test_sync_handler_executes_sync_mode():
     assert status == 200
     assert response["status"] == "success"
     assert response["synced"] == 5
-    service.sync.assert_called_once_with(athlete_id="rob", lookback_days=7)
+    handler.sync.assert_called_once_with(athlete_id="rob", lookback_days=7)
 
 
 def test_sync_handler_executes_async_mode():
     """Test asynchronous sync execution."""
-    # Mock service
-    service = Mock()
-    service.config = Mock()
-    service.config.folder_path = "/Apps/HealthFit"
+    handler = OneDriveSyncHandler(
+        _config(),
+        Mock(),
+        client=Mock(),
+        ingestion_handler=Mock(),
+    )
+    handler.sync = Mock(return_value={"status": "success"})
 
-    # Create handler and request
-    handler = OneDriveSyncHandler(service)
     request = OneDriveSyncRequest({"async": "true", "athlete_id": "rob"}, {})
 
     # Execute
@@ -112,13 +125,14 @@ def test_sync_handler_executes_async_mode():
 
 def test_sync_handler_handles_errors():
     """Test error handling in sync mode."""
-    # Mock service that raises error
-    service = Mock()
-    service.config.lookback_days = 7
-    service.sync.side_effect = ValueError("Invalid config")
+    handler = OneDriveSyncHandler(
+        _config(lookback_days=7),
+        Mock(),
+        client=Mock(),
+        ingestion_handler=Mock(),
+    )
+    handler.sync = Mock(side_effect=ValueError("Invalid config"))
 
-    # Create handler and request
-    handler = OneDriveSyncHandler(service)
     request = OneDriveSyncRequest({"athlete_id": "rob"}, {})
 
     # Execute
@@ -198,9 +212,13 @@ def test_query_handler_handles_semantic_layer_errors():
 
 def test_sync_and_query_workflow():
     """Test a workflow using multiple handlers."""
-    # Setup mocks
-    service = Mock()
-    service.sync.return_value = {"status": "success", "synced": 3}
+    handler = OneDriveSyncHandler(
+        _config(),
+        Mock(),
+        client=Mock(),
+        ingestion_handler=Mock(),
+    )
+    handler.sync = Mock(return_value={"status": "success", "synced": 3})
 
     semantic_layer = Mock()
     semantic_layer.get_workouts.return_value = [
@@ -210,9 +228,8 @@ def test_sync_and_query_workflow():
     ]
 
     # Execute sync
-    sync_handler = OneDriveSyncHandler(service)
     sync_req = OneDriveSyncRequest({"athlete_id": "rob"}, {})
-    sync_response, sync_status = sync_handler.handle(sync_req)
+    sync_response, sync_status = handler.handle(sync_req)
 
     assert sync_status == 200
     assert sync_response["synced"] == 3
