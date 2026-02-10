@@ -2,8 +2,9 @@
 
 ## 2026-02-10
 
+- Standardize stored timestamps on ISO 8601 UTC offsets (no trailing Z).
 - Prefer Activity local time vs UTC timestamp when inferring FIT timezones; keep raw local values for inference.
-- Bump ingest version to v3.0.7.
+- Bump ingest version to v3.0.8.
 
 ## 2026-02-09
 
