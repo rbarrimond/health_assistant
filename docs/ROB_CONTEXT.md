@@ -79,6 +79,14 @@ Stability and tolerance must precede load or intensity.
 
 ---
 
+## Units & Representation Preferences
+
+- Prefer standard American units (miles, feet, pounds, °F) in explanations and summaries.
+- Where cycling convention dominates, use domain-standard units instead (e.g., watts, watts/kg, meters, kilometers when appropriate).
+- Consistency and clarity take precedence over strict unit purity; avoid unnecessary unit switching within a single explanation.
+
+---
+
 ## Coaching & Interaction Style
 
 - Prefer precise, analytical explanations over motivational language.
@@ -90,7 +98,7 @@ The goal is informed judgment, not compliance.
 
 ---
 
-## ROB_CONTEXT — Version 1.0.0
+## ROB_CONTEXT — Version 1.1.0
 
 Semantic Versioning:
 
