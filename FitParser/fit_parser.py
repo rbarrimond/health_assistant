@@ -812,11 +812,22 @@ class FitParser:
         if not zones:
             return
 
-        # Calculate time in each zone
+        # Calculate time in each zone with a single vectorized pass
         total_sec = 0
-        hrs_array = np.array(hrs)
+        hrs_array = np.asarray(hrs)
+        zone_bounds = list(zones.values())
+        lows = np.array([low for low, _ in zone_bounds], dtype=float)
+        highs = np.array([high for _, high in zone_bounds], dtype=float)
+        in_range = (hrs_array >= lows[0]) & (hrs_array <= highs[-1])
+        hrs_valid = hrs_array[in_range]
+        if hrs_valid.size:
+            bin_indices = np.digitize(hrs_valid, highs, right=True)
+            counts = np.bincount(bin_indices, minlength=len(highs))[:len(highs)]
+        else:
+            counts = np.zeros(len(highs), dtype=int)
+
         for i, (zone_name, (low, high)) in enumerate(zones.items(), 1):
-            count = int(np.sum((hrs_array >= low) & (hrs_array <= high)))
+            count = int(counts[i - 1])
             self.metrics[f"{zone_name}_sec"] = count
             self.metrics[f"hr_z{i}_low_bpm"] = float(low)
             self.metrics[f"hr_z{i}_high_bpm"] = float(high)
@@ -857,9 +868,20 @@ class FitParser:
         }
 
         total_sec = 0
-        powers_array = np.array(powers)
+        powers_array = np.asarray(powers)
+        zone_bounds = list(zones.values())
+        lows = np.array([low for low, _ in zone_bounds], dtype=float)
+        highs = np.array([high for _, high in zone_bounds], dtype=float)
+        in_range = (powers_array >= lows[0]) & (powers_array <= highs[-1])
+        powers_valid = powers_array[in_range]
+        if powers_valid.size:
+            bin_indices = np.digitize(powers_valid, highs, right=False)
+            counts = np.bincount(bin_indices, minlength=len(highs))[:len(highs)]
+        else:
+            counts = np.zeros(len(highs), dtype=int)
+
         for i, (zone_name, (low, high)) in enumerate(zones.items(), 1):
-            count = int(np.sum((powers_array >= low) & (powers_array < high)))
+            count = int(counts[i - 1])
             self.metrics[f"{zone_name}_sec"] = count
             # Store zone boundaries for Power BI interpretability
             self.metrics[f"pwr_z{i}_low_w"] = float(low)
@@ -924,15 +946,15 @@ class FitParser:
 
         # Ensure equal lengths
         min_len = min(len(hrs), len(powers))
-        hrs = hrs[:min_len]
-        powers = powers[:min_len]
+        hrs_array = np.asarray(hrs[:min_len])
+        powers_array = np.asarray(powers[:min_len])
 
         # Split into halves
         mid_point = min_len // 2
-        hrs_first = np.array(hrs[:mid_point])
-        powers_first = np.array(powers[:mid_point])
-        hrs_second = np.array(hrs[mid_point:])
-        powers_second = np.array(powers[mid_point:])
+        hrs_first = hrs_array[:mid_point]
+        powers_first = powers_array[:mid_point]
+        hrs_second = hrs_array[mid_point:]
+        powers_second = powers_array[mid_point:]
 
         # Compute average HR and power for each half
         avg_hr_first = float(np.mean(hrs_first))
