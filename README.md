@@ -218,7 +218,7 @@ health_assistant/
 │   ├── BACKENDS.md               # OneDrive/Withings/Garmin integration
 │   ├── DEPLOYMENT.md             # Azure deployment procedures
 │   ├── MONITORING.md             # Power BI dashboards & monitoring
-│   ├── SEMANTIC_LAYER_API.md     # Complete API reference (29 endpoints)
+│   ├── SEMANTIC_LAYER_API.md     # Complete API reference (31 endpoints)
 │   ├── WORKOUT_SCHEMA.md         # Data model specification (100+ fields)
 │   ├── WORKOUT_INTELLIGENCE_AGENT_VISION.md  # System design philosophy
 │   ├── GPT_ACTIONS_GUIDE.md      # ChatGPT integration guide
@@ -229,7 +229,9 @@ health_assistant/
 │
 ├── api_docs/                     # ChatGPT plugin specification
 │   ├── ai-plugin.json            # Plugin manifest
-│   └── openapi.yaml              # OpenAPI 3.0 specification
+│   ├── openapi.yaml              # OpenAPI 3.0 spec (semantic/read endpoints)
+│   ├── openapi.operations.yaml   # OpenAPI 3.0 spec (full operations)
+│   └── README.md                 # API specification documentation
 │
 ├── tests/                        # Comprehensive test suite (330 tests)
 │   ├── test_config.py            # Configuration tests (24)
@@ -385,7 +387,7 @@ health_assistant/
 - Enables GPT to maintain long-term training awareness
 - Separates ephemeral conversation from persistent facts
 
-### 📈 Semantic Layer API (29 HTTP Endpoints + 2 Timers)
+### 📈 Semantic Layer API (31 HTTP Endpoints + 2 Timers)
 
 **Agent Memory** (6 endpoints):
 
@@ -396,11 +398,12 @@ health_assistant/
 - `POST /api/agent/observations` - Add new observation
 - `PATCH /api/agent/observations/{id}` - Update observation status
 
-**Planning & Analysis** (8 endpoints):
+**Planning & Analysis** (9 endpoints):
 
 - `GET /api/planning/context` - **Primary planning endpoint** (recent workouts, rollups, flags)
 - `GET /api/workouts` - Query workouts (filters: date, sport, limit)
 - `GET /api/workouts/{id}` - Full workout detail
+- `GET /api/workouts/{id}/laps/{lap_index}` - Lap detail with records
 - `GET /api/workouts/{id}/recalculated` - Recalculate with current config
 - `GET /api/rollups/weekly` - Weekly aggregated summaries
 - `GET /api/analysis/zones` - Time-in-zone distribution
@@ -419,7 +422,7 @@ health_assistant/
 - `POST /api/config/update` - Update physiometrics configuration
 - `GET /api/config/history` - Configuration audit trail
 
-**Backend Integration** (6 endpoints):
+**Backend Integration** (7 endpoints):
 
 - `POST /api/process_fit` - Direct FIT file upload (admin)
 - `GET /api/onedrive/authorize` - OneDrive OAuth flow (admin)
@@ -1019,7 +1022,7 @@ See [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md#scaling-and-performance) for scali
 |-|-|-|
 |[DEPLOYMENT.md](./docs/DEPLOYMENT.md)|Azure deployment procedures|DevOps, Infrastructure|
 |[BACKENDS.md](./docs/BACKENDS.md)|OneDrive, Withings, Garmin integration|Developers, Users|
-|[SEMANTIC_LAYER_API.md](./docs/SEMANTIC_LAYER_API.md)|Complete API reference (29 endpoints)|Developers, GPT Config|
+|[SEMANTIC_LAYER_API.md](./docs/SEMANTIC_LAYER_API.md)|Complete API reference (31 endpoints)|Developers, GPT Config|
 |[WORKOUT_SCHEMA.md](./docs/WORKOUT_SCHEMA.md)|Data model (100+ fields)|Developers, Data Analysts|
 |[AGENT_MEMORY.md](./docs/AGENT_MEMORY.md)|GPT memory system architecture|GPT Developers|
 |[MONITORING.md](./docs/MONITORING.md)|Power BI dashboards & monitoring|Athletes, Analysts|

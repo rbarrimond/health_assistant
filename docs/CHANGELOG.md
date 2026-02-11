@@ -2,6 +2,7 @@
 
 ## 2026-02-10
 
+- Split OpenAPI spec into semantic (read) and operations (admin/write) to stay under 30-operation ChatGPT Actions limit.
 - Skip dependency warmup during pytest, avoid blob container creation in tests that instantiate storage, and keep integration tests opt-in via env flags.
 - Store lap summaries in a WorkoutLaps table and per-lap record blobs with ordered record indices; bump ingest version to v3.1.0.
 - Standardize stored timestamps on ISO 8601 UTC offsets (no trailing Z).

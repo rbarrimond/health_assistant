@@ -1,6 +1,6 @@
 # Postman Testing Guide for Health Assistant Function App
 
-**Quick Reference**: Ready-to-use API testing collection with 30+ requests covering all endpoints.
+**Quick Reference**: Ready-to-use API testing collection with 31 requests covering all endpoints.
 
 ## Quick Links
 

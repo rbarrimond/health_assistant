@@ -1,6 +1,6 @@
 # Semantic Access Layer API
 
-Version: 2.1.1
+Version: 2.2.0
 
 The Semantic Access Layer is the **Read API** that sits between the raw metrics database and the ChatGPT UI. It exposes meaningful, human-centric questions about training data rather than raw table access.
 
@@ -57,8 +57,13 @@ These support ingestion and infrastructure but are not part of the ChatGPT-facin
 - `/api/onedrive/callback` - OneDrive OAuth redirect (internal)
 - `/api/onedrive/sync` - Manual sync trigger (admin)
 - `/api/.well-known/ai-plugin.json` - ChatGPT plugin manifest
-- `/api/openapi.yaml` - API specification
+- `/api/openapi.yaml` - API specification (semantic/read endpoints only)
 - `/api/logo.svg` - Plugin logo
+
+**Note:** The OpenAPI specification is split into two files:
+
+- `openapi.yaml` - Semantic/read endpoints (10 operations) for ChatGPT Actions
+- `openapi.operations.yaml` - Full operations spec including admin/write endpoints
 
 ### 🛡️ Built-in Protections
 

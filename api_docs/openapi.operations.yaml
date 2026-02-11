@@ -1,22 +1,35 @@
 openapi: 3.1.0
 info:
-  title: Health Assistant API (Semantic/Read)
+  title: Health Assistant API (Operations)
   version: "1.0.0"
   description: |
-    Deterministic workout and physiometric API consumed by ChatGPT Actions.
-    Returns stored metrics only; no model-generated values.
-    
-    This spec contains read-only endpoints optimized for the 30-operation limit.
-    For operational endpoints (config, ingestion, webhooks), see openapi.operations.yaml.
+    Operational and admin endpoints for Health Assistant.
+    Includes ingestion, config, integrations, and plugin assets.
 servers:
   - url: https://health.azure.barrimond.net
     description: Azure Functions host
 paths:
-  /api/agent/context:
+  /api/health:
     get:
-      summary: Get agent memory context (preferences + active observations)
-      operationId: getAgentContext
-      description: Primary agent memory endpoint. Call at conversation start to load user preferences and active observations.
+      summary: Health check with dependency status
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '503':
+          description: Service is degraded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+  /api/agent/preferences:
+    get:
+      summary: Get user preferences for agent
+      operationId: getAgentPreferences
       parameters:
         - name: athlete_id
           in: query
@@ -27,53 +40,41 @@ paths:
             default: rob
       responses:
         '200':
-          description: Agent context with preferences and observations
+          description: User preferences
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AgentContext'
+                $ref: '#/components/schemas/AgentPreferencesResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/planning/context:
-    get:
-      summary: Get planning context for training decisions
-      operationId: planningContext
+    post:
+      summary: Update user preferences
+      operationId: updateAgentPreferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePreferencesRequest'
       security:
         - FunctionKey: []
-      parameters:
-        - name: athlete_id
-          in: query
-          required: false
-          description: Athlete identifier (defaults to 'rob')
-          schema:
-            type: string
-            default: rob
-        - name: days
-          in: query
-          required: false
-          schema:
-            type: integer
-            default: 45
-            maximum: 365
       responses:
         '200':
-          description: Planning context payload
+          description: Preferences updated successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PlanningContext'
+                $ref: '#/components/schemas/AgentPreferencesResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/workouts:
+  /api/agent/observations:
     get:
-      summary: Query workouts with filters
-      operationId: listWorkouts
-      security:
-        - FunctionKey: []
+      summary: List training observations
+      operationId: listAgentObservations
       parameters:
         - name: athlete_id
           in: query
@@ -82,125 +83,204 @@ paths:
           schema:
             type: string
             default: rob
-        - name: since
+        - name: status
           in: query
           required: false
+          description: Filter by status
           schema:
             type: string
-            format: date
-        - name: until
-          in: query
-          required: false
-          schema:
-            type: string
-            format: date
+            enum: [active, resolved, archived, all]
+            default: active
         - name: limit
           in: query
           required: false
+          description: Maximum number of observations
           schema:
             type: integer
-            default: 50
-            maximum: 200
-        - name: sport
-          in: query
-          required: false
-          schema:
-            type: string
+            default: 20
+            maximum: 100
       responses:
         '200':
-          description: List of workouts
+          description: List of observations
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WorkoutsList'
+                $ref: '#/components/schemas/ObservationsList'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/workouts/{workout_id}:
-    get:
-      summary: Get detailed workout data
-      operationId: getWorkout
+    post:
+      summary: Add new training observation
+      operationId: addAgentObservation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateObservationRequest'
       security:
         - FunctionKey: []
-      parameters:
-        - name: workout_id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: athlete_id
-          in: query
-          required: true
-          description: Athlete identifier
-          schema:
-            type: string
-        - name: laps
-          in: query
-          required: false
-          description: Include lap summaries if available
-          schema:
-            type: boolean
-            default: false
       responses:
-        '200':
-          description: Workout detail
+        '201':
+          description: Observation created successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WorkoutDetail'
+                $ref: '#/components/schemas/ObservationCreateResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
-        '404':
-          description: Workout not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/workouts/{workout_id}/laps/{lap_index}:
-    get:
-      summary: Get lap summary and records
-      operationId: getWorkoutLap
+  /api/agent/observations/{observation_id}:
+    patch:
+      summary: Update observation status
+      operationId: updateAgentObservation
+      parameters:
+        - name: observation_id
+          in: path
+          required: true
+          description: Observation UUID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                athlete_id:
+                  type: string
+                status:
+                  type: string
+                  enum: [active, resolved, archived]
       security:
         - FunctionKey: []
-      parameters:
-        - name: workout_id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: lap_index
-          in: path
-          required: true
-          schema:
-            type: integer
-        - name: athlete_id
-          in: query
-          required: true
-          description: Athlete identifier
-          schema:
-            type: string
       responses:
         '200':
-          description: Lap detail
+          description: Observation updated
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WorkoutLapDetail'
+                $ref: '#/components/schemas/ObservationStatusResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/rollups/weekly:
-    get:
-      summary: Get weekly rollup data
-      operationId: weeklyRollups
+  /api/physiometrics/update:
+    post:
+      summary: Update physiometric values
+      operationId: updatePhysiometrics
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePhysiometricRequest'
+            examples:
+              singleMetric:
+                summary: Single metric update
+                value:
+                  athlete_id: rob
+                  metric: cycling_vo2max_ml_kg_min
+                  value: 52.3
+                  effective_date: 2026-01-19
+                  source: chatgpt
+              bulkUpdate:
+                summary: Bulk metric update
+                value:
+                  athlete_id: rob
+                  metrics:
+                    weight_kg: 75.2
+                    cycling_vo2max_ml_kg_min: 52.3
+                  effective_date: 2026-01-19
+                  source: chatgpt
       security:
         - FunctionKey: []
+      responses:
+        '200':
+          description: Update accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdatePhysiometricResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/logo.svg:
+    get:
+      summary: Retrieve the Health Assistant logo
+      operationId: getLogo
+      responses:
+        '200':
+          description: SVG logo asset
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+  /api/.well-known/ai-plugin.json:
+    get:
+      summary: Retrieve the ChatGPT plugin manifest
+      operationId: getPluginManifest
+      responses:
+        '200':
+          description: Plugin manifest JSON
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: Name of the plugin
+                  description:
+                    type: string
+                    description: Description of the plugin
+                  version:
+                    type: string
+                    description: Version of the plugin
+                  endpoints:
+                    type: array
+                    description: List of available endpoints
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                          description: Endpoint path
+                        method:
+                          type: string
+                          description: HTTP method
+                        description:
+                          type: string
+                          description: Description of the endpoint
+                required:
+                  - name
+                  - description
+                  - version
+                  - endpoints
+  /api/openapi.yaml:
+    get:
+      summary: Retrieve the OpenAPI specification
+      operationId: getOpenApiSpec
+      responses:
+        '200':
+          description: OpenAPI YAML document
+          content:
+            application/x-yaml:
+              schema:
+                type: string
+  /api/withings/authorize:
+    get:
+      summary: Get Withings authorization URL
+      operationId: withingsAuthorize
       parameters:
         - name: athlete_id
           in: query
@@ -209,90 +289,209 @@ paths:
           schema:
             type: string
             default: rob
-        - name: weeks
-          in: query
-          required: false
-          schema:
-            type: integer
-            default: 16
-            maximum: 52
+      security:
+        - FunctionKey: []
       responses:
         '200':
-          description: Weekly rollups
+          description: Authorization URL to open in browser
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WeeklyRollups'
+                $ref: '#/components/schemas/WithingsAuthorizeResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/analysis/zones:
+  /api/withings/callback:
     get:
-      summary: Get time-in-zone distribution
-      operationId: zoneDistribution
-      security:
-        - FunctionKey: []
+      summary: Handle Withings OAuth callback
+      operationId: withingsCallback
       parameters:
-        - name: athlete_id
+        - name: code
           in: query
           required: true
-          description: Athlete identifier
           schema:
             type: string
-        - name: days
-          in: query
-          required: false
-          schema:
-            type: integer
-            default: 30
-            maximum: 365
-      responses:
-        '200':
-          description: Zone distribution data
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ZoneDistribution'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/analysis/efficiency:
-    get:
-      summary: Get aerobic efficiency and decoupling trends
-      operationId: efficiencyTrends
-      security:
-        - FunctionKey: []
-      parameters:
-        - name: athlete_id
+        - name: state
           in: query
           required: true
-          description: Athlete identifier
           schema:
             type: string
-        - name: days
+      responses:
+        '200':
+          description: Success HTML message
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid code/state
+          content:
+            text/html:
+              schema:
+                type: string
+        '500':
+          description: Server error completing OAuth
+          content:
+            text/html:
+              schema:
+                type: string
+  /api/withings/webhook:
+    post:
+      summary: Receive Withings webhook notifications
+      operationId: withingsWebhook
+      security:
+        - FunctionKey: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WithingsWebhookPayload'
+      responses:
+        '200':
+          description: Acknowledged (weight notifications only processed)
+          content:
+            text/plain:
+              schema:
+                type: string
+        '400':
+          description: Missing required fields
+          content:
+            text/plain:
+              schema:
+                type: string
+  /api/workouts/{workout_id}/recalculated:
+    get:
+      summary: Get recalculated workout zones (read-only)
+      operationId: getWorkoutRecalculated
+      security:
+        - FunctionKey: []
+      parameters:
+        - name: workout_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: ftp_watts
           in: query
           required: false
           schema:
-            type: integer
-            default: 90
-            maximum: 365
+            type: number
+            format: float
+        - name: lthr_bpm
+          in: query
+          required: false
+          schema:
+            type: number
+            format: float
       responses:
-        '200':
-          description: Efficiency trend data
+        '501':
+          description: Placeholder response for recalculated zones
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EfficiencyTrends'
+                $ref: '#/components/schemas/RecalculatedWorkoutResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/physiometrics/current:
+  /api/config/reload:
+    post:
+      summary: Reload physiometrics configuration from disk
+      operationId: reloadConfig
+      security:
+        - FunctionKey: []
+      responses:
+        '200':
+          description: Configuration reloaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigSnapshot'
+        '404':
+          description: Physiometrics file not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/config/update:
+    post:
+      summary: Update physiometrics configuration
+      operationId: updateConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigUpdateRequest'
+      security:
+        - FunctionKey: []
+      responses:
+        '200':
+          description: Configuration saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigUpdateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/config/history:
     get:
-      summary: Get current physiometric values
-      operationId: getCurrentPhysiometrics
+      summary: Get physiometrics configuration change history
+      operationId: configHistory
+      security:
+        - FunctionKey: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 10
+            maximum: 50
+      responses:
+        '200':
+          description: Configuration history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigHistoryResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/process_fit:
+    post:
+      summary: Ingest a FIT file payload from OneDrive or other sources
+      operationId: processFit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProcessFitRequest'
+      security:
+        - FunctionKey: []
+      responses:
+        '201':
+          description: Workout ingested
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessFitResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/onedrive/authorize:
+    get:
+      summary: Generate OneDrive OAuth authorization URL
+      operationId: onedriveAuthorize
       parameters:
         - name: athlete_id
           in: query
@@ -305,57 +504,97 @@ paths:
         - FunctionKey: []
       responses:
         '200':
-          description: Current snapshot of metrics
+          description: Authorization URL payload
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PhysiometricSnapshot'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+                type: object
+                properties:
+                  authorization_url:
+                    type: string
+                  athlete_id:
+                    type: string
+                  state:
+                    type: string
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/physiometrics/history:
+  /api/onedrive/callback:
     get:
-      summary: Get physiometric time series
-      operationId: getPhysiometricsHistory
-      parameters:
-        - name: athlete_id
-          in: query
-          required: false
-          description: Athlete identifier (defaults to 'rob')
-          schema:
-            type: string
-            default: rob
-        - name: days
-          in: query
-          required: false
-          description: Days to look back (default 90, max 365)
-          schema:
-            type: integer
-            format: int32
-            default: 90
-            maximum: 365
-        - name: metrics
-          in: query
-          required: false
-          description: Comma-separated list of metric identifiers
-          style: form
-          explode: false
-          schema:
-            type: array
-            items:
-              type: string
-      security:
-        - FunctionKey: []
+      summary: OneDrive OAuth callback
+      operationId: onedriveCallback
       responses:
         '200':
-          description: Time-series data for requested metrics
+          description: Authorization success
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: Missing authorization code
+          content:
+            text/plain:
+              schema:
+                type: string
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/onedrive/sync:
+    post:
+      summary: Sync OneDrive folder and ingest FIT files
+      operationId: onedriveSync
+      security:
+        - FunctionKey: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                athlete_id:
+                  type: string
+                days:
+                  type: integer
+                async:
+                  type: boolean
+      responses:
+        '202':
+          description: Sync queued (async)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PhysiometricHistory'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+                type: object
+                properties:
+                  status:
+                    type: string
+                  athlete_id:
+                    type: string
+                  lookback_days:
+                    type: integer
+                  folder_path:
+                    type: string
+                  mode:
+                    type: string
+                  queued_at_utc:
+                    type: string
+        '200':
+          description: Sync results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  athlete_id:
+                    type: string
+                  scanned:
+                    type: integer
+                  ingested:
+                    type: integer
+                  skipped:
+                    type: integer
+                  failed:
+                    type: integer
         '500':
           $ref: '#/components/responses/InternalError'
 components:
