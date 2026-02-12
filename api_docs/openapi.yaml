@@ -7,6 +7,7 @@ info:
     Returns stored metrics only; no model-generated values.
 
     This spec contains GPT-facing endpoints, including preference and observation updates.
+    At conversation start, call /api/agent/context and /api/planning/context to load live preferences, observations, workload, and readiness signals.
     For broader operational endpoints (config, ingestion, webhooks), see openapi.operations.yaml.
 servers:
   - url: https://health.azure.barrimond.net

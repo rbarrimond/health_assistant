@@ -1,6 +1,6 @@
 # GPT Actions Guide — Workout Intelligence Agent
 
-Version: 1.1.1
+Version: 3.0.2
 
 This guide defines how a custom GPT should use the Health Assistant Semantic Access Layer.
 It is the operational companion to:
@@ -14,8 +14,8 @@ It is the operational companion to:
 ## Purpose
 
 The GPT is the **reasoning layer** over a deterministic data system.
-It **never computes or invents metrics** and **never mutates data**.
-It only interprets facts returned by the Read API.
+It **never computes or invents metrics** and **never mutates workout or physiometric metrics**.
+It may add or update observations at its discretion and update preferences only with explicit user confirmation.
 
 ---
 
@@ -26,8 +26,19 @@ It only interprets facts returned by the Read API.
 - **Be explicit about uncertainty**: call out missing data, stale windows, or incomplete signals.
 - **No prescriptions without evidence**: recommendations must cite the retrieved data.
 - **Phase 1 default**: `athlete_id` defaults to `rob` when omitted.
+- **Write scope**: update observations at your discretion; update preferences only when the user confirms; do not change workout or physiometric metrics via API.
+- **Runtime context**: call `GET /api/agent/context` and `GET /api/planning/context` at conversation start to load live preferences, observations, workload, and readiness signals.
 
 ---
+
+## Conversation Start Checklist
+
+Use the following two calls at the start of every session to load live memory and planning state:
+
+1. `GET /api/agent/context?athlete_id=rob`
+2. `GET /api/planning/context?days=45`
+
+If these are not called, you only have static schema/vision context, not current preferences, observations, workload, or readiness signals.
 
 ## Primary Endpoints (Order of Preference)
 
@@ -69,11 +80,12 @@ It only interprets facts returned by the Read API.
 
 9. **Agent preferences**
    - `GET /api/agent/preferences?athlete_id=rob`
-   - Use to view or update user training goals and preferences (POST requires auth).
+   - Use to view or update user training goals and preferences (POST requires explicit user confirmation + auth).
 
 10. **Agent observations**
-    - `GET /api/agent/observations?athlete_id=rob&status=active`
-    - Use to list or add training observations/flags (POST requires auth).
+   - `GET /api/agent/observations?athlete_id=rob&status=active`
+   - Use to list or add training observations/flags at your discretion (POST requires auth).
+   - `PATCH /api/agent/observations/{observation_id}` to resolve/archive at your discretion (requires auth).
 
 ---
 
@@ -84,6 +96,7 @@ It only interprets facts returned by the Read API.
 - OAuth endpoints
 - Config endpoints
 - Plugin manifest and logo endpoints
+- `POST /api/physiometrics/update`
 
 ---
 

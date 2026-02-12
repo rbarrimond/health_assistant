@@ -4,6 +4,10 @@
 
 - Validate `lap_index` route param before casting to int in workout lap detail endpoint.
 - Add healthcheck and agent write endpoints to the GPT-facing OpenAPI spec.
+- Allow preference/observation updates in GPT docs; bump instruction and actions guide versions.
+- Clarify observation discretion vs preference confirmation in GPT docs; bump versions.
+- Clarify that runtime context requires calling agent/planning endpoints at conversation start.
+- Add a conversation-start checklist to GPT Actions guide and mirror runtime context note in GPT OpenAPI spec.
 
 ## 2026-02-10
 
