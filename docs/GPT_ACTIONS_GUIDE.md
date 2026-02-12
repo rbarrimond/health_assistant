@@ -1,6 +1,6 @@
 # GPT Actions Guide — Workout Intelligence Agent
 
-Version: 3.0.2
+Version: 3.0.4
 
 This guide defines how a custom GPT should use the Health Assistant Semantic Access Layer.
 It is the operational companion to:
@@ -42,50 +42,65 @@ If these are not called, you only have static schema/vision context, not current
 
 ## Primary Endpoints (Order of Preference)
 
-0. **Agent context (CALL FIRST)**
-   - `GET /api/agent/context?athlete_id=rob`
-   - **Always call at conversation start** to load user preferences, goals, and active observations.
-1. **Planning context**
-   - `GET /api/planning/context?days=45`
-   - Use for readiness, “what should I do tomorrow?”, or overall context.
+<!-- markdownlint-disable MD029 -->
+1. **Agent context (CALL FIRST)**
 
-2. **Workout list**
-   - `GET /api/workouts?since=YYYY-MM-DD&limit=N&sport=...`
-   - Use for recent pattern detection or filtering by sport.
+- `GET /api/agent/context?athlete_id=rob`
+- **Always call at conversation start** to load user preferences, goals, and active observations.
 
-3. **Workout detail**
-   - `GET /api/workouts/{workout_id}?laps=true`
-   - Use for deep dives into a specific session. Add `laps=true` when you need lap summaries.
-   - For per-lap records, call `GET /api/workouts/{workout_id}/laps/{lap_index}`.
+2. **Planning context**
 
-4. **Weekly rollups**
-   - `GET /api/rollups/weekly?weeks=12`
-   - Use for week-over-week trends.
+- `GET /api/planning/context?days=45`
+- Use for readiness, “what should I do tomorrow?”, or overall context.
 
-5. **Zone distribution**
-   - `GET /api/analysis/zones?days=30`
-   - Use for Z2 vs intensity balance.
+3. **Workout list**
 
-6. **Efficiency trends**
-   - `GET /api/analysis/efficiency?days=90`
-   - Use for drift/efficiency changes.
+- `GET /api/workouts?since=YYYY-MM-DD&limit=N&sport=...`
+- Use for recent pattern detection or filtering by sport.
 
-7. **Current physiometrics**
-   - `GET /api/physiometrics/current`
-   - Use for FTP/HR context in interpretation.
+4. **Workout detail**
 
-8. **Physiometrics history**
-   - `GET /api/physiometrics/history?days=90&metrics=...`
-   - Use for body/fitness trends.
+- `GET /api/workouts/{workout_id}?laps=true`
+- Use for deep dives into a specific session. Add `laps=true` when you need lap summaries.
+- For per-lap records, call `GET /api/workouts/{workout_id}/laps/{lap_index}`.
 
-9. **Agent preferences**
-   - `GET /api/agent/preferences?athlete_id=rob`
-   - Use to view or update user training goals and preferences (POST requires explicit user confirmation + auth).
+5. **Weekly rollups**
 
-10. **Agent observations**
-   - `GET /api/agent/observations?athlete_id=rob&status=active`
-   - Use to list or add training observations/flags at your discretion (POST requires auth).
-   - `PATCH /api/agent/observations/{observation_id}` to resolve/archive at your discretion (requires auth).
+- `GET /api/rollups/weekly?weeks=12`
+- Use for week-over-week trends.
+
+6. **Zone distribution**
+
+- `GET /api/analysis/zones?days=30`
+- Use for Z2 vs intensity balance.
+
+7. **Efficiency trends**
+
+- `GET /api/analysis/efficiency?days=90`
+- Use for drift/efficiency changes.
+
+8. **Current physiometrics**
+
+- `GET /api/physiometrics/current`
+- Use for FTP/HR context in interpretation.
+
+9. **Physiometrics history**
+
+- `GET /api/physiometrics/history?days=90&metrics=...`
+- Use for body/fitness trends.
+
+10. **Agent preferences**
+
+- `GET /api/agent/preferences?athlete_id=rob`
+- Use to view or update user training goals and preferences (POST requires explicit user confirmation + auth).
+
+11. **Agent observations**
+
+- `GET /api/agent/observations?athlete_id=rob&status=active`
+- Use to list or add training observations/flags at your discretion (POST requires auth).
+- `PATCH /api/agent/observations/{observation_id}` to resolve/archive at your discretion (requires auth).
+
+<!-- markdownlint-enable MD029 -->
 
 ---
 

@@ -8,6 +8,8 @@
 - Clarify observation discretion vs preference confirmation in GPT docs; bump versions.
 - Clarify that runtime context requires calling agent/planning endpoints at conversation start.
 - Add a conversation-start checklist to GPT Actions guide and mirror runtime context note in GPT OpenAPI spec.
+- Fix GPT Actions guide list formatting and bump version.
+- Fix GPT Actions guide ordered list numbering and bump version.
 
 ## 2026-02-10
 
