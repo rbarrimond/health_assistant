@@ -19,6 +19,7 @@
 - Merge usage pattern into integration examples in GPT Actions guide to remove duplication; bump version.
 - Remove duplicate memory contract walkthrough from WORKOUT_INTELLIGENCE_AGENT_VISION; replace with pointer to GPT Actions guide and Agent Memory; bump version to 1.5.1.
 - Remove duplicate usage pattern and example flow from AGENT_MEMORY; add reference to GPT Actions guide for operational usage; bump version to 1.2.0.
+- Add docs/README.md to provide file organization overview and usage notes for Custom GPTs and developers; maintain flat structure for GPT compatibility.
 
 ## 2026-02-10
 
