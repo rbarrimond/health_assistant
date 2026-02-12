@@ -169,7 +169,7 @@ def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     return json_response(response, status)
 
 
-@app.timer_trigger(arg_name="timer", schedule="0 0 * * * *")  # hourly
+@app.timer_trigger(arg_name="timer", schedule="0 */10 * * * *")  # every 10 minutes
 def onedrive_sync_timer(timer: func.TimerRequest) -> None:
     """Timer-triggered OneDrive sync."""
     if timer.past_due:
@@ -273,9 +273,12 @@ def get_workout_lap_detail(req: func.HttpRequest) -> func.HttpResponse:
     if not workout_id:
         return json_response({"error": "workout_id required in route"}, 400)
 
+    if lap_index is None:
+        return json_response({"error": "lap_index required in route"}, 400)
+
     try:
         lap_index_int = int(lap_index)
-    except (TypeError, ValueError):
+    except ValueError:
         return json_response({"error": "lap_index must be an integer"}, 400)
 
     handler = QueryHandler(dependencies.semantic_layer)

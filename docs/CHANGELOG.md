@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-12
+
+- Validate `lap_index` route param before casting to int in workout lap detail endpoint.
+
 ## 2026-02-10
 
 - Split OpenAPI spec into semantic (read) and operations (admin/write) to stay under 30-operation ChatGPT Actions limit.
