@@ -3,6 +3,7 @@
 ## 2026-02-12
 
 - Validate `lap_index` route param before casting to int in workout lap detail endpoint.
+- Add healthcheck and agent write endpoints to the GPT-facing OpenAPI spec.
 
 ## 2026-02-10
 
