@@ -506,7 +506,7 @@ def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
 # Agent Memory Endpoints
 # ============================================================================
 
-@app.route(route="agent/context", methods=["GET"])
+@app.route(route="agent/context", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
 @endpoint
 def get_agent_context(req: func.HttpRequest) -> func.HttpResponse:
     """Get complete agent context (preferences + active observations).
@@ -521,14 +521,16 @@ def get_agent_context(req: func.HttpRequest) -> func.HttpResponse:
     return json_response(result, status)
 
 
-@app.route(route="agent/preferences", methods=["GET"])
+@app.route(route="agent/preferences", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
 @endpoint
 def get_agent_preferences(req: func.HttpRequest) -> func.HttpResponse:
     """Get user preferences for the agent."""
     athlete_id = req.params.get("athlete_id", "rob")
+    status_filter = req.params.get("status", "active")
+    limit = int(req.params.get("limit", "20"))
 
     handler = AgentMemoryHandler(dependencies.storage)
-    result, status = handler.get_preferences(athlete_id)
+    result, status = handler.get_preferences(athlete_id, status_filter, limit)
 
     return json_response(result, status)
 
@@ -543,15 +545,52 @@ def update_agent_preferences(req: func.HttpRequest) -> func.HttpResponse:
         return json_response({"error": ERR_INVALID_JSON}, 400)
 
     athlete_id = req_body.get("athlete_id", "rob")
-    preferences = {k: v for k, v in req_body.items() if k != "athlete_id"}
+    category = req_body.get("category")
+    summary = req_body.get("summary")
+    details = req_body.get("details")
+    priority = req_body.get("priority", "normal")
+    status = req_body.get("status", "active")
 
     handler = AgentMemoryHandler(dependencies.storage)
-    result, status = handler.update_preferences(athlete_id, preferences)
+    result, status = handler.add_preference(
+        athlete_id=athlete_id,
+        category=category,
+        summary=summary,
+        details=details,
+        priority=priority,
+        status=status
+    )
 
     return json_response(result, status)
 
 
-@app.route(route="agent/observations", methods=["GET"])
+@app.route(route="agent/preferences/{preference_id}", methods=["PATCH"],
+           auth_level=func.AuthLevel.FUNCTION)
+@endpoint
+def update_agent_preference(req: func.HttpRequest) -> func.HttpResponse:
+    """Update a preference (status, summary, details, etc.)."""
+    preference_id = req.route_params.get("preference_id")
+    if not preference_id:
+        return json_response({"error": "preference_id required in route"}, 400)
+
+    try:
+        req_body = req.get_json()
+    except ValueError:
+        return json_response({"error": ERR_INVALID_JSON}, 400)
+
+    athlete_id = req_body.get("athlete_id", "rob")
+
+    handler = AgentMemoryHandler(dependencies.storage)
+    result, status_code = handler.update_preference(
+        athlete_id=athlete_id,
+        preference_id=preference_id,
+        updates=req_body
+    )
+
+    return json_response(result, status_code)
+
+
+@app.route(route="agent/observations", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
 @endpoint
 def list_agent_observations(req: func.HttpRequest) -> func.HttpResponse:
     """List observations for an athlete."""

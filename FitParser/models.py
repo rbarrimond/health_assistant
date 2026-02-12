@@ -7,6 +7,10 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+ATHLETE_ID_DESC = "Athlete identifier"
+ISO_8601_UTC_DESC = "ISO 8601 UTC timestamp"
+LAST_UPDATE_DESC = "ISO 8601 UTC timestamp of last update"
+
 
 class DeviceInfo(BaseModel):
     """Device/manufacturer metadata."""
@@ -179,7 +183,7 @@ class PowerZonesModel(BaseModel):
 class WorkoutMetricsModel(BaseModel):
     """Complete workout metrics output."""
 
-    physiometrics_snapshot_timestamp: str = Field(description="ISO 8601 UTC timestamp")
+    physiometrics_snapshot_timestamp: str = Field(description=ISO_8601_UTC_DESC)
     session: SessionMetricsModel
     samples: SampleMetricsModel
     distance: DistanceMetricsModel
@@ -195,9 +199,9 @@ class WorkoutMetricsModel(BaseModel):
 
 
 class AgentPreferences(BaseModel):
-    """User preferences and training context for the agent."""
+    """Legacy single-record preferences for the agent."""
 
-    athlete_id: str = Field(description="Athlete identifier")
+    athlete_id: str = Field(description=ATHLETE_ID_DESC)
     current_goal: Optional[str] = Field(
         None, description="Current training goal or race target"
     )
@@ -216,15 +220,31 @@ class AgentPreferences(BaseModel):
     notes: Optional[str] = Field(
         None, description="Free-form context notes"
     )
-    updated_at: Optional[str] = Field(
-        None, description="ISO 8601 UTC timestamp of last update"
+    updated_at: Optional[str] = Field(None, description=LAST_UPDATE_DESC)
+
+
+class AgentPreference(BaseModel):
+    """Preference item for agent memory."""
+
+    athlete_id: str = Field(description=ATHLETE_ID_DESC)
+    preference_id: str = Field(description="Unique preference identifier")
+    category: str = Field(description="Preference category (goal, constraint, routine, etc.)")
+    summary: str = Field(description="Brief preference summary")
+    details: Optional[str] = Field(None, description="Detailed preference context")
+    priority: str = Field(
+        default="normal", description="Priority level: low, normal, high"
     )
+    status: str = Field(
+        default="active", description="Status: active, resolved, archived"
+    )
+    created_at: str = Field(description=ISO_8601_UTC_DESC)
+    updated_at: Optional[str] = Field(None, description=LAST_UPDATE_DESC)
 
 
 class AgentObservation(BaseModel):
     """Agent observations and flags for future reference."""
 
-    athlete_id: str = Field(description="Athlete identifier")
+    athlete_id: str = Field(description=ATHLETE_ID_DESC)
     observation_id: str = Field(description="Unique observation identifier")
     category: str = Field(
         description="Observation category (e.g., 'pattern', 'flag', 'insight')"
@@ -240,7 +260,7 @@ class AgentObservation(BaseModel):
     status: str = Field(
         default="active", description="Status: active, resolved, archived"
     )
-    created_at: str = Field(description="ISO 8601 UTC timestamp")
+    created_at: str = Field(description=ISO_8601_UTC_DESC)
     expires_at: Optional[str] = Field(
         None, description="ISO 8601 UTC timestamp when observation expires"
     )

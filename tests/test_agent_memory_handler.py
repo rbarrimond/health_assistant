@@ -33,8 +33,15 @@ class TestAgentMemoryHandler:
     def test_get_context_success(self, handler, mock_table_storage):
         """Test successful retrieval of complete agent context."""
         # Arrange
-        mock_client = MagicMock()
-        mock_table_storage._get_table_client.return_value = mock_client
+        mock_prefs_client = MagicMock()
+        mock_obs_client = MagicMock()
+
+        def get_table_client(table_name):
+            if table_name == "AgentPreferences":
+                return mock_prefs_client
+            return mock_obs_client
+
+        mock_table_storage._get_table_client.side_effect = get_table_client
 
         # Mock preferences entity
         prefs_entity = {
@@ -65,8 +72,8 @@ class TestAgentMemoryHandler:
             }
         ]
 
-        mock_client.get_entity.return_value = prefs_entity
-        mock_client.query_entities.return_value = obs_entities
+        mock_prefs_client.query_entities.return_value = [prefs_entity]
+        mock_obs_client.query_entities.return_value = obs_entities
 
         # Act
         result, status = handler.get_context("rob")
@@ -75,7 +82,11 @@ class TestAgentMemoryHandler:
         assert status == 200
         assert result["athlete_id"] == "rob"
         assert "preferences" in result
-        assert result["preferences"]["current_goal"] == "Build base"
+        assert any(
+            pref["category"] == "current_goal"
+            and pref["summary"] == "Build base"
+            for pref in result["preferences"]
+        )
         assert "active_observations" in result
         assert len(result["active_observations"]) == 1
         assert "instruction_addendum" in result
@@ -122,7 +133,7 @@ class TestAgentMemoryHandler:
             "updated_at": "2026-02-01T00:00:00+00:00"
         }
 
-        mock_client.get_entity.return_value = prefs_entity
+        mock_client.query_entities.return_value = [prefs_entity]
 
         # Act
         result, status = handler.get_preferences("rob")
@@ -131,14 +142,18 @@ class TestAgentMemoryHandler:
         assert status == 200
         assert result["athlete_id"] == "rob"
         assert "preferences" in result
-        assert result["preferences"]["current_goal"] == "Build base"
+        assert any(
+            pref["category"] == "current_goal"
+            and pref["summary"] == "Build base"
+            for pref in result["preferences"]
+        )
 
     def test_get_preferences_not_found(self, handler, mock_table_storage):
         """Test get_preferences when no preferences exist."""
         # Arrange
         mock_client = MagicMock()
         mock_table_storage._get_table_client.return_value = mock_client
-        mock_client.get_entity.side_effect = Exception("Not found")
+        mock_client.query_entities.return_value = []
 
         # Act
         result, status = handler.get_preferences("rob")
@@ -146,7 +161,7 @@ class TestAgentMemoryHandler:
         # Assert
         assert status == 200
         assert result["athlete_id"] == "rob"
-        assert result["preferences"] == {}
+        assert result["preferences"] == []
 
     def test_get_preferences_missing_athlete_id(self, handler, mock_table_storage):
         """Test get_preferences with missing athlete_id."""
