@@ -1,10 +1,19 @@
 # Agent Memory System
 
-Version: 1.0.2
+Version: 1.1.0
 
 ## Overview
 
 The Agent Memory System provides lightweight external memory for the GPT Workout Intelligence Agent using Azure Table Storage. It implements **Option 3 (Hybrid)** from the design: persistent facts in Table Storage + GPT's native memory for conversational continuity.
+
+## Behavioral Alignment
+
+This document describes memory storage and API mechanics. Agent behavior rules live in:
+
+- `INSTRUCTIONS.md` for reasoning and safety rules
+- `GPT_ACTIONS_GUIDE.md` for operational API usage
+
+At conversation start, always call `GET /api/agent/context` and `GET /api/planning/context` to avoid stale context.
 
 ## Architecture
 

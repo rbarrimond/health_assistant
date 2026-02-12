@@ -10,6 +10,9 @@
 - Add a conversation-start checklist to GPT Actions guide and mirror runtime context note in GPT OpenAPI spec.
 - Fix GPT Actions guide list formatting and bump version.
 - Fix GPT Actions guide ordered list numbering and bump version.
+- Align agent memory, instructions, and actions guide; add epistemic/temporal rules to actions guide; standardize ordered list numbering style; bump doc versions.
+- Deduplicate behavioral rules into INSTRUCTIONS and keep GPT Actions guide focused on operational API usage; bump doc versions.
+- Streamline INSTRUCTIONS to remove operational checklists and endpoint ordering in favor of GPT Actions guide; bump version.
 
 ## 2026-02-10
 

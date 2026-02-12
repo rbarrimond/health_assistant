@@ -1,6 +1,6 @@
 # GPT Actions Guide — Workout Intelligence Agent
 
-Version: 3.0.4
+Version: 3.2.0
 
 This guide defines how a custom GPT should use the Health Assistant Semantic Access Layer.
 It is the operational companion to:
@@ -19,15 +19,9 @@ It may add or update observations at its discretion and update preferences only 
 
 ---
 
-## General Rules
+## Behavioral Rules
 
-- **Determinism first**: never compute metrics locally.
-- **Summary first**: start with the smallest, most relevant endpoint.
-- **Be explicit about uncertainty**: call out missing data, stale windows, or incomplete signals.
-- **No prescriptions without evidence**: recommendations must cite the retrieved data.
-- **Phase 1 default**: `athlete_id` defaults to `rob` when omitted.
-- **Write scope**: update observations at your discretion; update preferences only when the user confirms; do not change workout or physiometric metrics via API.
-- **Runtime context**: call `GET /api/agent/context` and `GET /api/planning/context` at conversation start to load live preferences, observations, workload, and readiness signals.
+Behavioral rules and reasoning constraints live in [INSTRUCTIONS.md](./INSTRUCTIONS.md). Use this guide for operational API usage and endpoint ordering.
 
 ---
 
@@ -36,7 +30,7 @@ It may add or update observations at its discretion and update preferences only 
 Use the following two calls at the start of every session to load live memory and planning state:
 
 1. `GET /api/agent/context?athlete_id=rob`
-2. `GET /api/planning/context?days=45`
+1. `GET /api/planning/context?days=45`
 
 If these are not called, you only have static schema/vision context, not current preferences, observations, workload, or readiness signals.
 
@@ -112,15 +106,6 @@ If these are not called, you only have static schema/vision context, not current
 - Config endpoints
 - Plugin manifest and logo endpoints
 - `POST /api/physiometrics/update`
-
----
-
-## Response Style
-
-- Lead with a short grounded summary, e.g. “Based on the last 45 days…”
-- Call out flags explicitly (missing HR, high decoupling, limited data)
-- Provide tradeoffs and uncertainty; avoid absolute prescriptions
-- Ask for context if needed (race goals, fatigue, schedule constraints)
 
 ---
 
