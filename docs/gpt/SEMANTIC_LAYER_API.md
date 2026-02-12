@@ -1,0 +1,562 @@
+# Semantic Access Layer API (GPT)
+
+Version: 3.0.0
+
+The Semantic Access Layer is the **Read API** for ChatGPT Actions. It exposes meaningful, human-centric questions about training data rather than raw table access.
+
+> **Note:** This document mirrors [`openapi.yaml`](../../api_docs/openapi.yaml). For admin/operations endpoints, see [`../devops/OPERATIONS_API.md`](../devops/OPERATIONS_API.md).
+>
+> **Phase 1 Note:** This system is currently deployed for single-athlete use. Most endpoints default `athlete_id` to `"rob"` when not provided. The multi-athlete architecture is implemented but enforcement is deferred to Phase 2.
+
+---
+
+## Quick Reference
+
+### 🎯 Core Concept
+
+The semantic layer answers **meaningful questions** about training, not raw database queries.
+
+### 🔑 Most Important Endpoint
+
+```http
+GET /api/planning/context?athlete_id=rob&days=45
+```
+
+**Answers:** *"Given what I've actually done, what does tomorrow look like?"*
+
+**Returns:** Recent workouts, weekly rollups, last hard day, Z2 volume, intensity minutes, data flags
+
+### 📋 GPT-Facing Endpoints
+
+| Endpoint | Purpose | Example |
+| -------- | ------- | ------- |
+| `/api/health` | Health check | Returns 200 when healthy, 503 when degraded |
+| `/api/agent/context` | **Agent memory context** | `?athlete_id=rob` |
+| `/api/agent/preferences` | User preferences | GET/POST `?athlete_id=rob` |
+| `/api/agent/observations` | Training observations | GET/POST/PATCH |
+| `/api/planning/context` | Planning decisions | `?athlete_id=rob&days=45` |
+| `/api/workouts` | List workouts | `?athlete_id=rob&since=2026-01-01` |
+| `/api/workouts/{workout_id}` | Workout detail | `/{workout_id}?athlete_id=rob&laps=true` |
+| `/api/workouts/{workout_id}/laps/{lap_index}` | Lap detail | Per-lap records |
+| `/api/rollups/weekly` | Weekly summaries | `?athlete_id=rob&weeks=16` |
+| `/api/analysis/zones` | Zone distribution | `?athlete_id=rob&days=30` |
+| `/api/analysis/efficiency` | Efficiency trends | `?athlete_id=rob&days=90` |
+| `/api/physiometrics/current` | Current metrics | `?athlete_id=rob` |
+| `/api/physiometrics/history` | Body metrics trends | `?athlete_id=rob&days=90` |
+
+**Operational usage:** See [GPT_ACTIONS_GUIDE.md](./GPT_ACTIONS_GUIDE.md) for call order and integration examples.
+
+### 🛡️ Built-in Protections
+
+- ✓ `athlete_id` parameter (Phase 1: defaults to "rob")
+- ✓ Workout queries: max 200
+- ✓ Days lookback: max 365
+- ✓ Weeks: max 52
+- ✓ Summary-first (time series on demand only)
+
+---
+
+## Philosophy
+
+This layer:
+
+- **Shapes data for reasoning** - returns small, coherent payloads optimized for LLM consumption
+- **Constrains scope** - protects against unbounded queries and performance issues
+- **Encodes domain knowledge** - understands how humans think about training
+- **Stays stable** - provides a consistent interface for GPT Actions
+
+---
+
+## Core Endpoints
+
+### 1. Planning Context (Most Important)
+
+```http
+GET /api/planning/context?athlete_id=rob&days=45
+```
+
+**The single most important endpoint.** Answers: *"Given what I've actually done, what does tomorrow look like?"*
+
+**Query Parameters:**
+
+- `athlete_id` (optional, defaults to `rob`): Athlete identifier
+- `days` (optional): Number of days to look back (default 45, max 365)
+
+**Response:**
+
+```json
+{
+  "athlete_id": "rob",
+  "query_window": {
+    "start_date": "2025-12-01T00:00:00+00:00",
+    "end_date": "2026-01-15T00:00:00+00:00",
+    "days": 45
+  },
+  "recent_workouts": [...],
+  "weekly_rollups": [...],
+  "summary": {
+    "last_hard_day": "2026-01-15T10:00:00+00:00",
+    "last_long_day": "2026-01-13T08:00:00+00:00",
+    "cumulative_z2_minutes": 450,
+    "cumulative_intensity_minutes": 85,
+    "total_workouts": 12
+  },
+  "notable_flags": [
+    "2 workout(s) missing heart rate data",
+    "1 workout(s) with high decoupling (>5%)"
+  ]
+}
+```
+
+**Use cases:**
+
+- Daily training decision making
+- Assessing readiness for intensity
+- Identifying fatigue or recovery needs
+- Detecting data quality issues
+
+---
+
+## Agent Memory System
+
+> **New in v2.0:** External memory for persistent user context, training goals, and observations.  
+> **See:** [AGENT_MEMORY.md](./AGENT_MEMORY.md) for complete documentation.
+
+This section describes how memory data is stored and retrieved. Full API mechanics and payloads live in [AGENT_MEMORY.md](./AGENT_MEMORY.md). Operational call order lives in [GPT_ACTIONS_GUIDE.md](./GPT_ACTIONS_GUIDE.md).
+
+---
+
+## Workout Endpoints
+
+### 2. List Workouts
+
+```http
+GET /api/workouts?athlete_id=rob&since=2026-01-01&limit=50&sport=Cycling
+```
+
+Get workout summaries with optional filtering.
+
+**Query Parameters:**
+
+- `athlete_id` (optional, defaults to `rob`): Athlete identifier
+- `since` (optional): ISO date to filter workouts after
+- `limit` (optional): Max workouts to return (default 50, max 200)
+- `sport` (optional): Filter by sport type
+
+**Response:**
+
+```json
+{
+  "athlete_id": "rob",
+  "count": 15,
+  "workouts": [
+    {
+      "workout_id": "abc123",
+      "sport": "Cycling",
+      "start_time_utc": "2026-01-15T10:00:00+00:00",
+      "duration_sec": 3600,
+      "distance_m": 45000,
+      "hr_avg_bpm": 145,
+      "pwr_avg_watts": 220
+    }
+  ]
+}
+```
+
+**Use cases:**
+
+- Recent activity overview
+- Sport-specific analysis
+- Training log queries
+
+---
+
+### 3. Get Workout Detail
+
+```http
+GET /api/workouts/{workout_id}?athlete_id=rob&laps=true
+```
+
+Retrieve full workout data with optional lap summaries.
+
+**Route Parameters:**
+
+- `workout_id` (required): Unique workout identifier
+
+**Query Parameters:**
+
+- `athlete_id` (optional, defaults to `rob`): Athlete identifier
+- `laps` (optional, default `false`): Include lap summary data
+
+**Response:**
+
+```json
+{
+  "workout_id": "abc123",
+  "athlete_id": "rob",
+  "sport": "Cycling",
+  "start_time_utc": "2026-01-15T10:00:00+00:00",
+  "duration_sec": 3600,
+  "hr_avg_bpm": 145,
+  "pwr_avg_watts": 220,
+  "hr_z2_sec": 3000,
+  "pwr_z2_sec": 2700,
+  "intensity_sec": 480,
+  "decoupling_pct": 2.5,
+  "ef_overall": 1.52,
+  "intensity_factor": 0.85,
+  "tss": 65,
+  "laps_count": 3,
+  "laps": []
+}
+```
+
+**Use cases:**
+
+- Deep dive into specific workout
+- Fetching lap summaries before requesting lap detail
+
+**Transport note:** If the client sends `Accept-Encoding: gzip`, the response will be gzip-compressed.
+
+---
+
+### 3a. Get Workout Lap Detail
+
+```http
+GET /api/workouts/{workout_id}/laps/{lap_index}?athlete_id=rob
+```
+
+Retrieve lap summary and per-lap record payload for a single lap.
+
+**Route Parameters:**
+
+- `workout_id` (required): Unique workout identifier
+- `lap_index` (required): Zero-based lap index
+
+**Query Parameters:**
+
+- `athlete_id` (optional, defaults to `rob`)
+
+**Response:**
+
+```json
+{
+  "workout_id": "abc123",
+  "athlete_id": "rob",
+  "lap_index": 0,
+  "record_count": 300,
+  "start_time": "2026-01-15T10:00:00+00:00",
+  "total_elapsed_time": 300,
+  "total_distance": 1500.5,
+  "avg_heart_rate": 145,
+  "avg_power": 220,
+  "records": [
+    {
+      "record_index": 0,
+      "heart_rate": 145,
+      "power": 220,
+      "cadence": 90,
+      "position_lat": 384217123.0,
+      "position_long": -120123456.0
+    }
+  ]
+}
+```
+
+---
+
+## Analysis Endpoints
+
+### 4. Weekly Rollups
+
+```http
+GET /api/rollups/weekly?athlete_id=rob&weeks=16
+```
+
+Get aggregated weekly training data.
+
+**Query Parameters:**
+
+- `athlete_id` (optional, defaults to `rob`): Athlete identifier
+- `weeks` (optional): Number of weeks to retrieve (default 16, max 52)
+
+**Response:**
+
+```json
+{
+  "athlete_id": "rob",
+  "weeks": 16,
+  "count": 16,
+  "rollups": [
+    {
+      "PartitionKey": "rob#2026",
+      "RowKey": "2026-03",
+      "total_duration_sec": 14400,
+      "total_distance_m": 180000,
+      "total_hr_z2_min": 200,
+      "total_pwr_z2_min": 180,
+      "total_intensity_min": 45
+    }
+  ]
+}
+```
+
+**Use cases:**
+
+- Training volume trends
+- Week-over-week comparison
+- Load management
+
+---
+
+### 5. Zone Distribution
+
+```http
+GET /api/analysis/zones?athlete_id=rob&days=30
+```
+
+Analyze time-in-zone distribution for training balance assessment.
+
+**Query Parameters:**
+
+- `athlete_id` (optional, defaults to `rob`): Athlete identifier
+- `days` (optional): Number of days to analyze (default 30, max 365)
+
+**Response:**
+
+```json
+{
+  "athlete_id": "rob",
+  "query_window": {
+    "start_date": "2025-12-16T00:00:00+00:00",
+    "end_date": "2026-01-15T00:00:00+00:00",
+    "days": 30
+  },
+  "total_minutes": 600,
+  "zones": {
+    "z1": 50,
+    "z2": 400,
+    "z3": 80,
+    "z4": 50,
+    "z5": 20
+  },
+  "percentages": {
+    "z1": 8.3,
+    "z2": 66.7,
+    "z3": 13.3,
+    "z4": 8.3,
+    "z5": 3.3
+  }
+}
+```
+
+**Use cases:**
+
+- Assessing training polarization
+- Checking Z2 base building
+- Identifying intensity imbalance
+
+---
+
+### 6. Efficiency Trends
+
+```http
+GET /api/analysis/efficiency?athlete_id=rob&days=90
+```
+
+Track aerobic efficiency and power-HR decoupling over time.
+
+**Query Parameters:**
+
+- `athlete_id` (required): Athlete identifier
+- `days` (optional): Number of days to analyze (default 90, max 365)
+
+**Response:**
+
+```json
+{
+  "athlete_id": "rob",
+  "query_window": {
+    "start_date": "2025-10-17T00:00:00+00:00",
+    "end_date": "2026-01-15T00:00:00+00:00",
+    "days": 90
+  },
+  "samples": [
+    {
+      "date": "2026-01-15T10:00:00+00:00",
+      "sport": "Cycling",
+      "decoupling_pct": 2.5,
+      "ef_overall": 1.52,
+      "hr_drift_bpm": 3.2
+    }
+  ],
+  "summary": {
+    "total_samples": 15,
+    "avg_decoupling": 3.2
+  }
+}
+```
+
+**Use cases:**
+
+- Tracking aerobic fitness improvements
+- Identifying fatigue or overtraining
+- Assessing workout quality
+
+---
+
+## Physiometrics Endpoints
+
+### 7. Get Current Physiometrics
+
+```http
+GET /api/physiometrics/current?athlete_id=rob
+```
+
+Retrieve current physiometric values for an athlete (weight, FTP, LTHR, cycling VO2Max, body composition).
+
+**Query Parameters:**
+
+- `athlete_id` (optional, defaults to `rob`): Athlete identifier
+
+**Response:**
+
+```json
+{
+  "athlete_id": "rob",
+  "heart_rate": {
+    "basis": "HRmax",
+    "lthr_bpm": 175,
+    "hr_max_bpm": 195,
+    "resting_hr_bpm": 52
+  },
+  "power": {
+    "ftp_watts": 285
+  },
+  "weight_kg": 75.2,
+  "fat_mass_kg": 12.5,
+  "muscle_mass_kg": 38.2,
+  "bone_mass_kg": 3.1,
+  "body_fat_pct": 16.6,
+  "visceral_fat_index": 8,
+  "metabolic_age_years": 32,
+  "cycling_vo2max_ml_kg_min": 52.3,
+  "effective_date": "2026-01-19",
+  "data_source": "withings"
+}
+```
+
+**Use cases:**
+
+- Display current athlete profile
+- Show training zones based on current FTP/LTHR
+- Track body composition changes
+
+---
+
+### 8. Get Physiometrics History
+
+```http
+GET /api/physiometrics/history?athlete_id=rob&metrics=weight_kg,cycling_vo2max_ml_kg_min&days=90
+```
+
+Retrieve time-series physiometric data for trend analysis.
+
+**Query Parameters:**
+
+- `athlete_id` (optional, defaults to `rob`): Athlete identifier
+- `days` (optional): Number of days to look back (default 90, max 365)
+- `metrics` (optional): Comma-separated list of metrics (default: all)
+  - Available metrics: `weight_kg`, `fat_mass_kg`, `muscle_mass_kg`, `bone_mass_kg`, `body_fat_pct`, `visceral_fat_index`, `metabolic_age_years`, `cycling_vo2max_ml_kg_min`, `heart_rate_lthr_bpm`, `heart_rate_hr_max_bpm`, `power_ftp_watts`
+
+**Response:**
+
+```json
+{
+  "athlete_id": "rob",
+  "query_window": {
+    "start_date": "2025-10-21",
+    "end_date": "2026-01-19",
+    "days": 90
+  },
+  "count": 85,
+  "data_points": [
+    {
+      "effective_date": "2025-10-21",
+      "updated_at_utc": "2025-10-21T08:15:32+00:00",
+      "data_source": "withings",
+      "weight_kg": 76.8,
+      "cycling_vo2max_ml_kg_min": 51.2
+    }
+  ]
+}
+```
+
+**Use cases:**
+
+- Weight trend charting
+- FTP progression tracking
+- Body composition analysis over time
+- VO2Max improvement tracking
+
+---
+
+## Design Principles
+
+### ✅ What This Layer Does
+
+- Returns **small, bounded payloads** suitable for LLM reasoning
+- Answers **semantic questions** humans actually ask
+- Protects against **unbounded queries** and performance issues
+- Provides **summary-first** data with detail on demand
+- Encodes **training domain knowledge** in its structure
+
+### ❌ What This Layer Does NOT Do
+
+- Expose raw database tables directly
+- Return unlimited time series by default
+- Make training recommendations or judgments
+- Store transient interpretations
+- Depend on specific UI assumptions
+
+---
+
+## Implementation Details
+
+### Date Handling
+
+- All dates use **ISO 8601 format with explicit UTC offsets** (`2026-01-15T10:00:00+00:00`)
+- Date ranges are **inclusive** on both ends
+- Default lookback periods are conservative (30-90 days) to protect performance
+
+### Query Constraints
+
+- Most endpoints accept `athlete_id` for data isolation (Phase 1 defaults to `rob` when omitted)
+- Maximum limits prevent unbounded queries:
+  - Workouts: max 200
+  - Days: max 365
+  - Weeks: max 52
+- Queries span multiple month partitions automatically
+
+### Performance Optimizations
+
+- Summary-only queries exclude time series data by default
+- Partition key strategy enables efficient month-based queries
+- Result sets sorted by date (newest first) for relevance
+
+### Error Handling
+
+All endpoints return consistent error responses:
+
+```json
+{
+  "error": "Error description"
+}
+```
+
+**Status codes:**
+
+- `200 OK` - Success
+- `400 Bad Request` - Invalid parameters
+- `404 Not Found` - Resource doesn't exist
+- `500 Internal Server Error` - Server-side failure

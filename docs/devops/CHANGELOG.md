@@ -20,6 +20,9 @@
 - Remove duplicate memory contract walkthrough from WORKOUT_INTELLIGENCE_AGENT_VISION; replace with pointer to GPT Actions guide and Agent Memory; bump version to 1.5.1.
 - Remove duplicate usage pattern and example flow from AGENT_MEMORY; add reference to GPT Actions guide for operational usage; bump version to 1.2.0.
 - Add docs/README.md to provide file organization overview and usage notes for Custom GPTs and developers; maintain flat structure for GPT compatibility.
+- Remove redundant Knowledge References sections from GPT_ACTIONS_GUIDE and INSTRUCTIONS; bump versions to 3.4.3 and 4.1.4.
+- **Reorganize documentation into gpt/ and devops/ folders; split SEMANTIC_LAYER_API.md into GPT version (3.0.0) and OPERATIONS_API.md (1.0.0) to mirror openapi.yaml vs openapi.operations.yaml split; move context files to gpt/context/ subfolder; update README.md with new structure.**
+- Fix cross-references in DEPLOYMENT.md to reference gpt/ folder files; add version 1.0.1 to DEPLOYMENT.md.
 
 ## 2026-02-10
 

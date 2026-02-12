@@ -1,6 +1,8 @@
 # Azure Functions Deployment Guide
 
-> **Source of Truth**: See [WORKOUT_SCHEMA.md](./WORKOUT_SCHEMA.md) and [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./WORKOUT_INTELLIGENCE_AGENT_VISION.md) for system design. This document describes deployment procedures only.
+Version: 1.0.1
+
+> **Source of Truth**: See [WORKOUT_SCHEMA.md](../gpt/WORKOUT_SCHEMA.md) and [WORKOUT_INTELLIGENCE_AGENT_VISION.md](../gpt/WORKOUT_INTELLIGENCE_AGENT_VISION.md) for system design. This document describes deployment procedures only.
 >
 > **For Monitoring & Analytics**: See [MONITORING.md](./MONITORING.md) for comprehensive monitoring strategy including Power BI dashboards and athlete guide.
 
