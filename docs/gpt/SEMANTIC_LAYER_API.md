@@ -1,8 +1,8 @@
 # Semantic Access Layer API (GPT)
 
-Version: 3.0.0
+Version: 3.0.3
 
-The Semantic Access Layer is the **Read API** for ChatGPT Actions. It exposes meaningful, human-centric questions about training data rather than raw table access.
+The Semantic Access Layer is the **read + agent-memory write API** for ChatGPT Actions. It exposes meaningful, human-centric questions about training data rather than raw table access.
 
 > **Note:** This document mirrors [`openapi.yaml`](../../api_docs/openapi.yaml). For admin/operations endpoints, see [`../devops/OPERATIONS_API.md`](../devops/OPERATIONS_API.md).
 >
@@ -123,6 +123,258 @@ GET /api/planning/context?athlete_id=rob&days=45
 > **See:** [AGENT_MEMORY.md](./AGENT_MEMORY.md) for complete documentation.
 
 This section describes how memory data is stored and retrieved. Full API mechanics and payloads live in [AGENT_MEMORY.md](./AGENT_MEMORY.md). Operational call order lives in [GPT_ACTIONS_GUIDE.md](./GPT_ACTIONS_GUIDE.md).
+
+### 1a. Get Agent Context
+
+```http
+GET /api/agent/context?athlete_id=rob
+```
+
+Retrieve preferences and active observations for conversation start.
+
+**Query Parameters:**
+
+- `athlete_id` (optional, defaults to `rob`): Athlete identifier
+
+**Response:**
+
+```json
+{
+  "athlete_id": "rob",
+  "preferences": {
+    "current_goal": "Build Z2 base"
+  },
+  "active_observations": [
+    {
+      "observation_id": "obs_123",
+      "category": "fatigue",
+      "summary": "Slept poorly this week",
+      "priority": "normal",
+      "status": "active",
+      "created_at": "2026-02-10T08:00:00+00:00"
+    }
+  ],
+  "instruction_addendum": null,
+  "retrieved_at": "2026-02-12T12:05:00+00:00"
+}
+```
+
+**Use cases:**
+
+- Load memory at conversation start
+- Detect constraints before planning
+
+---
+
+### 1b. Get Agent Preferences
+
+```http
+GET /api/agent/preferences?athlete_id=rob
+```
+
+Fetch persisted preferences.
+
+**Query Parameters:**
+
+- `athlete_id` (optional, defaults to `rob`): Athlete identifier
+
+**Response:**
+
+```json
+{
+  "athlete_id": "rob",
+  "preferences": {
+    "current_goal": "Build Z2 base",
+    "training_phase": "base",
+    "preferred_sports": ["Cycling"],
+    "ftp_test_frequency_weeks": 8,
+    "last_ftp_test_date": "2025-12-15",
+    "notes": "Prefer morning sessions"
+  },
+  "updated_at": "2026-02-12T12:05:00+00:00"
+}
+```
+
+**Use cases:**
+
+- Confirm goals before advice
+- Keep recommendations consistent
+
+---
+
+### 1c. Update Agent Preferences
+
+```http
+POST /api/agent/preferences?athlete_id=rob
+```
+
+Update preferences with a fully specified payload.
+
+**Query Parameters:**
+
+- `athlete_id` (optional, defaults to `rob`): Athlete identifier
+
+**Request Body:**
+
+```json
+{
+  "athlete_id": "rob",
+  "current_goal": "Build Z2 base",
+  "training_phase": "base",
+  "preferred_sports": ["Cycling"],
+  "ftp_test_frequency_weeks": 8,
+  "last_ftp_test_date": "2025-12-15",
+  "notes": "Prefer morning sessions"
+}
+```
+
+**Response:**
+
+```json
+{
+  "athlete_id": "rob",
+  "preferences": {
+    "current_goal": "Build Z2 base",
+    "training_phase": "base",
+    "preferred_sports": ["Cycling"],
+    "ftp_test_frequency_weeks": 8,
+    "last_ftp_test_date": "2025-12-15",
+    "notes": "Prefer morning sessions"
+  },
+  "updated_at": "2026-02-12T12:06:00+00:00"
+}
+```
+
+**Use cases:**
+
+- Persist new goals or constraints
+- Sync updates from user conversation
+
+---
+
+### 1d. List Agent Observations
+
+```http
+GET /api/agent/observations?athlete_id=rob&status=active&limit=50
+```
+
+List observations with optional filtering.
+
+**Query Parameters:**
+
+- `athlete_id` (optional, defaults to `rob`): Athlete identifier
+- `status` (optional): Observation status filter
+- `limit` (optional): Max observations to return
+
+**Response:**
+
+```json
+{
+  "athlete_id": "rob",
+  "count": 1,
+  "observations": [
+    {
+      "observation_id": "obs_123",
+      "category": "fatigue",
+      "summary": "Slept poorly this week",
+      "priority": "normal",
+      "status": "active",
+      "created_at": "2026-02-10T08:00:00+00:00"
+    }
+  ]
+}
+```
+
+**Use cases:**
+
+- See active constraints
+- Audit memory items
+
+---
+
+### 1e. Add Agent Observation
+
+```http
+POST /api/agent/observations?athlete_id=rob
+```
+
+Create a new observation (e.g., soreness, schedule constraints).
+
+**Query Parameters:**
+
+- `athlete_id` (optional, defaults to `rob`): Athlete identifier
+
+**Request Body:**
+
+```json
+{
+  "athlete_id": "rob",
+  "category": "soreness",
+  "summary": "Right knee is tender after intervals",
+  "priority": "normal",
+  "expires_days": 7
+}
+```
+
+**Response:**
+
+```json
+{
+  "observation_id": "obs_456",
+  "observation": {
+    "observation_id": "obs_456",
+    "athlete_id": "rob",
+    "category": "soreness",
+    "summary": "Right knee is tender after intervals",
+    "priority": "normal",
+    "status": "active",
+    "created_at": "2026-02-12T10:30:00+00:00"
+  }
+}
+```
+
+**Use cases:**
+
+- Capture new constraints mid-cycle
+- Record recovery or readiness notes
+
+---
+
+### 1f. Update Agent Observation
+
+```http
+PATCH /api/agent/observations/{observation_id}
+```
+
+Update observation status (e.g., `active`, `resolved`, `archived`).
+
+**Route Parameters:**
+
+- `observation_id` (required): Observation identifier
+
+**Request Body:**
+
+```json
+{
+  "athlete_id": "rob",
+  "status": "resolved"
+}
+```
+
+**Response:**
+
+```json
+{
+  "observation_id": "obs_456",
+  "status": "resolved",
+  "updated_at": "2026-02-12T12:00:00+00:00"
+}
+```
+
+**Use cases:**
+
+- Mark issues resolved
+- Keep memory clean
 
 ---
 

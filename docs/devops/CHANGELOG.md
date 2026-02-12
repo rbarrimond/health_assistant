@@ -23,6 +23,9 @@
 - Remove redundant Knowledge References sections from GPT_ACTIONS_GUIDE and INSTRUCTIONS; bump versions to 3.4.3 and 4.1.4.
 - **Reorganize documentation into gpt/ and devops/ folders; split SEMANTIC_LAYER_API.md into GPT version (3.0.0) and OPERATIONS_API.md (1.0.0) to mirror openapi.yaml vs openapi.operations.yaml split; move context files to gpt/context/ subfolder; update README.md with new structure.**
 - Fix cross-references in DEPLOYMENT.md to reference gpt/ folder files; add version 1.0.1 to DEPLOYMENT.md.
+- Align SEMANTIC_LAYER_API.md with agent memory POST/PATCH endpoints; bump version to 3.0.1.
+- Format agent memory endpoints in SEMANTIC_LAYER_API.md to match workout example structure; bump version to 3.0.2.
+- Align agent memory examples in SEMANTIC_LAYER_API.md with OpenAPI schemas; bump version to 3.0.3.
 
 ## 2026-02-10
 
