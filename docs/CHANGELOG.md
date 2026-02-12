@@ -13,6 +13,12 @@
 - Align agent memory, instructions, and actions guide; add epistemic/temporal rules to actions guide; standardize ordered list numbering style; bump doc versions.
 - Deduplicate behavioral rules into INSTRUCTIONS and keep GPT Actions guide focused on operational API usage; bump doc versions.
 - Streamline INSTRUCTIONS to remove operational checklists and endpoint ordering in favor of GPT Actions guide; bump version.
+- Clarify ChatGPT-facing vs admin endpoints in semantic layer API and move parameter defaults to the API contract; bump versions.
+- Remove duplicated agent memory API details from semantic layer API, move usage example to GPT Actions guide, and align memory call-order references; bump doc versions.
+- Move ChatGPT integration examples out of semantic layer API into GPT Actions guide; add references and bump doc versions.
+- Merge usage pattern into integration examples in GPT Actions guide to remove duplication; bump version.
+- Remove duplicate memory contract walkthrough from WORKOUT_INTELLIGENCE_AGENT_VISION; replace with pointer to GPT Actions guide and Agent Memory; bump version to 1.5.1.
+- Remove duplicate usage pattern and example flow from AGENT_MEMORY; add reference to GPT Actions guide for operational usage; bump version to 1.2.0.
 
 ## 2026-02-10
 

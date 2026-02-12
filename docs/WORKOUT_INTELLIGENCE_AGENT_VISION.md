@@ -1,6 +1,6 @@
 # - Workout Intelligence Agent — Vision & Operating Model
 
-Version: 1.5.0
+Version: 1.5.1
 
 This document describes the **intentional design** of the Workout Intelligence Agent:  
 what it is, what it is *not*, how it behaves, and why it stays usable in ad hoc, real-world use.
@@ -219,59 +219,14 @@ The agent exists because dashboards plateau.
 
 ## 5. The Memory + Context Contract (Key Insight)
 
-The two most important endpoints work together:
+The agent loads runtime context from two endpoints:
 
-### 1. Agent Memory (Priority 0)
+1. **Agent memory** (`GET /api/agent/context`) — preferences, goals, and active observations
+2. **Planning context** (`GET /api/planning/context`) — recent workouts, rollups, flags
 
-```text
-GET /api/agent/context?athlete_id=rob
-```
+Together, these provide **who** you are, **what** you've done, and **where** you're going. Everything else is secondary.
 
-Returns:
-
-- **preferences**: training goal, current phase, active sports, FTP test cadence
-- **observations**: active injury/fatigue/performance notes with priority and expiration
-
-This payload answers:
-> "Who am I, what am I working toward, and what should I be aware of?"
-
-See [AGENT_MEMORY.md](AGENT_MEMORY.md) for full details.
-
-Memory exists to uphold the contract: it gives the agent durable context that makes every downstream question more accurate, more consistent, and more useful. The memory layer does not change how metrics are computed; it changes how the agent interprets and prioritizes them.
-
-What this means in practice:
-
-- Better defaults without guessing (goal, phase, sport mix, cadence)
-- Clearer tradeoffs because history and intent are explicit
-- Fewer repeated questions because the system already knows the stable truths
-- Safer responses because constraints (injury, fatigue, flags) are part of the contract
-
-### 2. Planning Context (Priority 1)
-
-```text
-GET /api/planning/context?days=N
-```
-
-Returns:
-
-- recent workouts (summaries only)
-- weekly rollups covering the window
-- last hard day
-- last long day
-- cumulative Z2
-- cumulative intensity
-- notable flags (missing HR, excessive drift, etc.)
-
-This payload answers:
-> "Given what I've actually done, what does tomorrow look like?"
-
-**Together**, these endpoints provide:
-
-- **who** you are (memory)
-- **what** you've done (planning context)
-- **where** you're going (goal + phase)
-
-Everything else is secondary.
+Operational call order and checklist live in [GPT_ACTIONS_GUIDE.md](./GPT_ACTIONS_GUIDE.md). Memory storage details live in [AGENT_MEMORY.md](./AGENT_MEMORY.md).
 
 ---
 

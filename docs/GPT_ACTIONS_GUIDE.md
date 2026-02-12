@@ -1,6 +1,6 @@
 # GPT Actions Guide — Workout Intelligence Agent
 
-Version: 3.2.0
+Version: 3.4.2
 
 This guide defines how a custom GPT should use the Health Assistant Semantic Access Layer.
 It is the operational companion to:
@@ -8,16 +8,6 @@ It is the operational companion to:
 - [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./WORKOUT_INTELLIGENCE_AGENT_VISION.md)
 - [SEMANTIC_LAYER_API.md](./SEMANTIC_LAYER_API.md)
 - [WORKOUT_SCHEMA.md](./WORKOUT_SCHEMA.md)
-
----
-
-## Purpose
-
-The GPT is the **reasoning layer** over a deterministic data system.
-It **never computes or invents metrics** and **never mutates workout or physiometric metrics**.
-It may add or update observations at its discretion and update preferences only with explicit user confirmation.
-
----
 
 ## Behavioral Rules
 
@@ -33,6 +23,75 @@ Use the following two calls at the start of every session to load live memory an
 1. `GET /api/planning/context?days=45`
 
 If these are not called, you only have static schema/vision context, not current preferences, observations, workload, or readiness signals.
+
+## ChatGPT Integration Examples
+
+"What should I do tomorrow?"
+
+```text
+-> GET /api/agent/context?athlete_id=rob
+-> GET /api/planning/context?athlete_id=rob&days=45
+-> Returns: Last hard day, Z2 volume, intensity load, flags
+```
+
+Update Cycling VO2Max
+
+User: "My new cycling VO2Max is 52.3"
+
+ChatGPT calls:
+
+```json
+POST /api/physiometrics/update
+{
+ "athlete_id": "rob",
+ "metric": "cycling_vo2max_ml_kg_min",
+ "value": 52.3,
+ "source": "chatgpt"
+}
+```
+
+Connect Withings Account
+
+User: "Connect my Withings scale"
+
+ChatGPT calls:
+
+```bash
+GET /api/withings/authorize?athlete_id=rob
+```
+
+ChatGPT responds: "Please open this URL to authorize access to your Withings account: [link]"
+
+Check Weight Trend
+
+User: "Show my weight trend for the last 30 days"
+
+ChatGPT calls:
+
+```bash
+GET /api/physiometrics/history?athlete_id=rob&metrics=weight_kg&days=30
+```
+
+ChatGPT responds: "Your weight has ranged from 74.8 kg to 76.2 kg over the last 30 days, with an average of 75.4 kg. You're trending downward at about 0.2 kg per week."
+
+Update Multiple Metrics
+
+User: "I did a threshold test today. My new FTP is 295 and LTHR is 178"
+
+ChatGPT calls:
+
+```json
+POST /api/physiometrics/update
+{
+ "athlete_id": "rob",
+ "metrics": {
+  "power_ftp_watts": 295,
+  "heart_rate_lthr_bpm": 178
+ },
+ "effective_date": "2026-01-19",
+ "source": "chatgpt"
+}
+```
 
 ## Primary Endpoints (Order of Preference)
 

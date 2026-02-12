@@ -1,6 +1,6 @@
 # Semantic Access Layer API
 
-Version: 2.2.0
+Version: 2.5.0
 
 The Semantic Access Layer is the **Read API** that sits between the raw metrics database and the ChatGPT UI. It exposes meaningful, human-centric questions about training data rather than raw table access.
 
@@ -26,7 +26,7 @@ GET /api/planning/context?athlete_id=rob&days=45
 
 ### 📋 Core Semantic Layer Endpoints (20)
 
-**ChatGPT-Facing Endpoints:**
+**ChatGPT-Facing Endpoints (Operational rules in GPT Actions Guide):**
 
 | Endpoint | Purpose | Example |
 | -------- | ------- | ------- |
@@ -42,10 +42,6 @@ GET /api/planning/context?athlete_id=rob&days=45
 | `/api/analysis/efficiency` | Efficiency trends | `?athlete_id=rob&days=90` |
 | `/api/physiometrics/current` | Current metrics | `?athlete_id=rob` |
 | `/api/physiometrics/history` | Body metrics trends | `?athlete_id=rob&days=90` |
-| `/api/physiometrics/update` | Update a metric | POST with metric + value |
-| `/api/config/reload` | Reload configuration | POST (admin) |
-| `/api/config/update` | Update configuration | POST (admin) |
-| `/api/config/history` | Config audit trail | `?limit=10` |
 | `/api/withings/webhook` | Withings OAuth callback | POST (Withings) |
 
 **Internal/Admin Endpoints:**
@@ -56,6 +52,10 @@ These support ingestion and infrastructure but are not part of the ChatGPT-facin
 - `/api/onedrive/authorize` - OneDrive OAuth flow (admin)
 - `/api/onedrive/callback` - OneDrive OAuth redirect (internal)
 - `/api/onedrive/sync` - Manual sync trigger (admin)
+- `/api/config/reload` - Reload configuration (admin)
+- `/api/config/update` - Update configuration (admin)
+- `/api/config/history` - Config audit trail (admin)
+- `/api/physiometrics/update` - Update a metric (admin)
 - `/api/.well-known/ai-plugin.json` - ChatGPT plugin manifest
 - `/api/openapi.yaml` - API specification (semantic/read endpoints only)
 - `/api/logo.svg` - Plugin logo
@@ -64,6 +64,8 @@ These support ingestion and infrastructure but are not part of the ChatGPT-facin
 
 - `openapi.yaml` - Semantic/read endpoints (10 operations) for ChatGPT Actions
 - `openapi.operations.yaml` - Full operations spec including admin/write endpoints
+
+**Access note:** Follow the operational allow/deny list in [GPT_ACTIONS_GUIDE.md](./GPT_ACTIONS_GUIDE.md) when invoking endpoints from GPT.
 
 ### 🛡️ Built-in Protections
 
@@ -75,13 +77,7 @@ These support ingestion and infrastructure but are not part of the ChatGPT-facin
 
 ### 🤖 ChatGPT Usage Patterns
 
-#### "What should I do tomorrow?"
-
-```text
-→ GET /api/agent/context?athlete_id=rob  # Load preferences & observations first
-→ GET /api/planning/context?athlete_id=rob&days=45
-→ Returns: Last hard day, Z2 volume, intensity load, flags
-```
+Usage patterns and call order are defined in [GPT_ACTIONS_GUIDE.md](./GPT_ACTIONS_GUIDE.md).
 
 ---
 
@@ -159,170 +155,7 @@ GET /api/planning/context?athlete_id=rob&days=45
 > **New in v2.0:** External memory for persistent user context, training goals, and observations.  
 > **See:** [AGENT_MEMORY.md](./AGENT_MEMORY.md) for complete documentation.
 
-### 0. Get Agent Context (Call First)
-
-```http
-GET /api/agent/context?athlete_id=rob
-```
-
-**Primary agent memory endpoint.** Call at conversation start to load user preferences, training goals, and active observations into GPT context.
-
-**Query Parameters:**
-
-- `athlete_id` (optional, defaults to `rob`): Athlete identifier
-
-**Response:**
-
-```json
-{
-  "athlete_id": "rob",
-  "preferences": {
-    "current_goal": "Build aerobic base for spring races",
-    "training_phase": "base-building",
-    "preferred_sports": ["cycling", "running"],
-    "ftp_test_frequency_weeks": 6,
-    "last_ftp_test_date": "2026-01-15"
-  },
-  "active_observations": [
-    {
-      "observation_id": "uuid",
-      "category": "pattern",
-      "summary": "Low decoupling trend since Jan",
-      "priority": "normal",
-      "status": "active"
-    }
-  ],
-  "instruction_addendum": "User's current goal: Build aerobic base for spring races | Training phase: base-building | Active observations: Low decoupling trend since Jan",
-  "retrieved_at": "2026-02-05T12:00:00+00:00"
-}
-```
-
-**Use cases:**
-
-- Load user preferences at conversation start
-- Tailor advice based on current training goals
-- Reference active observations and patterns
-- Provide contextually aware recommendations
-
-### Get/Update Preferences
-
-```http
-GET /api/agent/preferences?athlete_id=rob
-POST /api/agent/preferences?code=<function_key>
-```
-
-Manage user training preferences and goals. POST requires function authentication.
-
-**GET Response:**
-
-```json
-{
-  "athlete_id": "rob",
-  "preferences": {
-    "current_goal": "Build aerobic base for spring races",
-    "training_phase": "base-building",
-    "preferred_sports": ["cycling", "running"],
-    "ftp_test_frequency_weeks": 6,
-    "last_ftp_test_date": "2026-01-15",
-    "notes": "Prefer weekday morning rides"
-  },
-  "updated_at": "2026-02-05T12:10:00+00:00"
-}
-```
-
-**POST Request:**
-
-```json
-{
-  "athlete_id": "rob",
-  "current_goal": "Build aerobic base for spring races",
-  "training_phase": "base-building",
-  "preferred_sports": ["cycling", "running"],
-  "ftp_test_frequency_weeks": 6,
-  "last_ftp_test_date": "2026-01-15",
-  "notes": "Prefer weekday morning rides"
-}
-```
-
-**POST Response:**
-
-```json
-{
-  "athlete_id": "rob",
-  "preferences": {
-    "current_goal": "Build aerobic base for spring races",
-    "training_phase": "base-building",
-    "preferred_sports": ["cycling", "running"],
-    "ftp_test_frequency_weeks": 6,
-    "last_ftp_test_date": "2026-01-15",
-    "notes": "Prefer weekday morning rides"
-  },
-  "updated_at": "2026-02-05T12:10:00+00:00"
-}
-```
-
-### Manage Observations
-
-```http
-GET /api/agent/observations?athlete_id=rob&status=active&limit=20
-POST /api/agent/observations?code=<function_key>
-PATCH /api/agent/observations/{observation_id}?code=<function_key>
-```
-
-Track training patterns, flags, and insights. POST/PATCH require function authentication.
-
-**POST Request:**
-
-```json
-{
-  "athlete_id": "rob",
-  "category": "fatigue",
-  "summary": "Elevated resting heart rate detected",
-  "details": "Resting HR 58 vs baseline 52 over 3 days",
-  "workout_ids": ["abc123", "def456"],
-  "priority": "high",
-  "expires_days": 4
-}
-```
-
-**POST Response (201):**
-
-```json
-{
-  "observation_id": "uuid",
-  "observation": {
-    "observation_id": "uuid",
-    "athlete_id": "rob",
-    "category": "fatigue",
-    "summary": "Elevated resting heart rate detected",
-    "details": "Resting HR 58 vs baseline 52 over 3 days",
-    "referenced_workout_ids": ["abc123", "def456"],
-    "priority": "high",
-    "status": "active",
-    "created_at": "2026-02-05T12:20:00+00:00",
-    "expires_at": "2026-02-09T00:00:00+00:00"
-  }
-}
-```
-
-**PATCH Request:**
-
-```json
-{
-  "athlete_id": "rob",
-  "status": "resolved"
-}
-```
-
-**PATCH Response:**
-
-```json
-{
-  "observation_id": "uuid",
-  "status": "resolved",
-  "updated_at": "2026-02-06T08:15:00+00:00"
-}
-```
+This section describes how memory data is stored and retrieved. Full API mechanics and payloads live in [AGENT_MEMORY.md](./AGENT_MEMORY.md). Operational call order lives in [GPT_ACTIONS_GUIDE.md](./GPT_ACTIONS_GUIDE.md).
 
 ---
 
@@ -957,19 +790,7 @@ Track aerobic efficiency and power-HR decoupling over time.
 
 ## Usage with ChatGPT
 
-The semantic layer is designed to be consumed by ChatGPT via GPT Actions. Example prompts:
-
-**"What should I do tomorrow?"**
-→ Calls `/api/planning/context` to get recent training load, last hard day, Z2 volume, flags
-
-**"Show me my cycling workouts from January"**
-→ Calls `/api/workouts?sport=Cycling&since=2026-01-01`
-
-**"How is my aerobic efficiency trending?"**
-→ Calls `/api/analysis/efficiency?days=90`
-
-**"Am I getting enough base training?"**
-→ Calls `/api/analysis/zones?days=30` to check Z2 percentage
+Operational examples and call sequencing live in [GPT_ACTIONS_GUIDE.md](./GPT_ACTIONS_GUIDE.md).
 
 ---
 
@@ -1179,25 +1000,3 @@ curl "http://localhost:7071/api/analysis/zones?athlete_id=rob&days=30"
 ```
 
 ---
-
-## Future Enhancements
-
-### Phase 2 (Planned)
-
-- Precomputed rollup aggregations for faster queries
-- Comparison windows ("best 6-week block")
-- Fatigue/readiness heuristics (still deterministic)
-
-### Phase 3 (Optional)
-
-- Multi-athlete support (same schema, different partition keys)
-- Longitudinal modeling and trend detection
-- Export capabilities (CSV, JSON, email summaries)
-
----
-
-## Related Documentation
-
-- [Workout Intelligence Agent Vision](./WORKOUT_INTELLIGENCE_AGENT_VISION.md) - Overall system architecture
-- [Workout Schema](./WORKOUT_SCHEMA.md) - Database schema and metrics
-- [Testing Guide](../tests/README.md) - Test strategy and execution

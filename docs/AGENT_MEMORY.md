@@ -1,6 +1,6 @@
 # Agent Memory System
 
-Version: 1.1.0
+Version: 1.2.0
 
 ## Overview
 
@@ -13,7 +13,7 @@ This document describes memory storage and API mechanics. Agent behavior rules l
 - `INSTRUCTIONS.md` for reasoning and safety rules
 - `GPT_ACTIONS_GUIDE.md` for operational API usage
 
-At conversation start, always call `GET /api/agent/context` and `GET /api/planning/context` to avoid stale context.
+Conversation-start checklist and call order live in `GPT_ACTIONS_GUIDE.md`.
 
 ## Architecture
 
@@ -179,38 +179,6 @@ Content-Type: application/json
 }
 ```
 
-## Usage Pattern
-
-### 1. Conversation Start
-
-```text
-Agent calls: GET /api/agent/context
-→ Loads user preferences and active observations into context
-→ Uses instruction_addendum to inform responses
-```
-
-### 2. During Conversation
-
-- Agent uses preferences to tailor advice
-- Agent references active observations
-- Agent relies on GPT's native memory for conversation flow
-
-### 3. Update Preferences (Manual or Agent-Triggered)
-
-```text
-User says: "My goal is to build base for spring marathon"
-→ Agent or system calls: POST /api/agent/preferences
-→ Update stored for future sessions
-```
-
-### 4. Add Observations (Manual or Agent-Triggered)
-
-```text
-Agent notices pattern: "User has consistent low decoupling"
-→ System calls: POST /api/agent/observations
-→ Flagged for future reference
-```
-
 ## Benefits
 
 ✅ **Persistent context** - Training goals survive across sessions  
@@ -220,22 +188,7 @@ Agent notices pattern: "User has consistent low decoupling"
 ✅ **GPT-compatible** - Works with ChatGPT's native memory  
 ✅ **Deterministic** - Facts, not interpretations
 
-## Example Flow
-
-```text
-User: "What should I do today?"
-
-Agent:
-1. GET /api/agent/context
-   → Loads: goal="build base", phase="base-building", obs="low decoupling"
-   
-2. GET /api/planning/context?days=45
-   → Gets workout data
-   
-3. Synthesizes response:
-   "Based on your goal (building aerobic base) and recent low decoupling,
-   suggest Z2 ride focusing on steady output..."
-```
+For operational usage patterns, call order, and integration examples, see [GPT_ACTIONS_GUIDE.md](./GPT_ACTIONS_GUIDE.md).
 
 ## Future Enhancements (Post-MVP)
 
