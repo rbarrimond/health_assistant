@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Operations)
-  version: "1.0.0"
+  version: "2.0.0"
   description: |
     Operational and admin endpoints for Health Assistant.
     Includes ingestion, config, integrations, and plugin assets.
@@ -28,7 +28,7 @@ paths:
                 $ref: '#/components/schemas/HealthStatus'
   /api/agent/preferences:
     get:
-      summary: Get user preferences for agent
+      summary: List agent preferences
       operationId: getAgentPreferences
       parameters:
         - name: athlete_id
@@ -38,9 +38,27 @@ paths:
           schema:
             type: string
             default: rob
+        - name: status
+          in: query
+          required: false
+          description: Filter by status
+          schema:
+            type: string
+            enum: [active, resolved, archived, all]
+            default: active
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of preferences
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      security:
+        - FunctionKey: []
       responses:
         '200':
-          description: User preferences
+          description: List of preferences
           content:
             application/json:
               schema:
@@ -50,25 +68,74 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
     post:
-      summary: Update user preferences
-      operationId: updateAgentPreferences
+      summary: Create new preference
+      operationId: createAgentPreference
+      description: Add a new preference item for the agent
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdatePreferencesRequest'
+              $ref: '#/components/schemas/CreatePreferenceRequest'
+      security:
+        - FunctionKey: []
+      responses:
+        '201':
+          description: Preference created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreferenceCreateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/agent/preferences/{preference_id}:
+    patch:
+      summary: Update a preference
+      operationId: updateAgentPreference
+      parameters:
+        - name: preference_id
+          in: path
+          required: true
+          description: Preference UUID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                athlete_id:
+                  type: string
+                category:
+                  type: string
+                summary:
+                  type: string
+                details:
+                  type: string
+                priority:
+                  type: string
+                  enum: [low, normal, high]
+                status:
+                  type: string
+                  enum: [active, resolved, archived]
       security:
         - FunctionKey: []
       responses:
         '200':
-          description: Preferences updated successfully
+          description: Preference updated
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AgentPreferencesResponse'
+                $ref: '#/components/schemas/PreferenceUpdateResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalError'
   /api/agent/observations:
@@ -99,6 +166,8 @@ paths:
             type: integer
             default: 20
             maximum: 100
+      security:
+        - FunctionKey: []
       responses:
         '200':
           description: List of observations
@@ -663,8 +732,9 @@ components:
         athlete_id:
           type: string
         preferences:
-          type: object
-          additionalProperties: true
+          type: array
+          items:
+            $ref: '#/components/schemas/Preference'
         active_observations:
           type: array
           items:
@@ -681,6 +751,7 @@ components:
         - preferences
         - active_observations
     AgentPreferences:
+      description: Legacy single-record preferences schema (deprecated)
       type: object
       properties:
         current_goal:
@@ -707,21 +778,99 @@ components:
         updated_at:
           type: string
           format: date-time
+    Preference:
+      type: object
+      properties:
+        preference_id:
+          type: string
+          format: uuid
+        category:
+          type: string
+        summary:
+          type: string
+        details:
+          type: string
+        priority:
+          type: string
+          enum: [low, normal, high]
+        status:
+          type: string
+          enum: [active, resolved, archived]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - preference_id
+        - category
+        - summary
+        - priority
+        - status
+        - created_at
     AgentPreferencesResponse:
       type: object
       properties:
         athlete_id:
           type: string
         preferences:
-          type: object
-          additionalProperties: true
-        updated_at:
-          type: string
-          format: date-time
+          type: array
+          items:
+            $ref: '#/components/schemas/Preference'
+        count:
+          type: integer
       required:
         - athlete_id
         - preferences
+        - count
+    CreatePreferenceRequest:
+      type: object
+      required:
+        - category
+        - summary
+      properties:
+        athlete_id:
+          type: string
+          default: rob
+        category:
+          type: string
+        summary:
+          type: string
+        details:
+          type: string
+        priority:
+          type: string
+          enum: [low, normal, high]
+          default: normal
+        status:
+          type: string
+          enum: [active, resolved, archived]
+          default: active
+    PreferenceCreateResponse:
+      type: object
+      properties:
+        preference_id:
+          type: string
+          format: uuid
+        preference:
+          $ref: '#/components/schemas/Preference'
+      required:
+        - preference_id
+        - preference
+    PreferenceUpdateResponse:
+      type: object
+      properties:
+        preference_id:
+          type: string
+          format: uuid
+        preference:
+          $ref: '#/components/schemas/Preference'
+      required:
+        - preference_id
+        - preference
     UpdatePreferencesRequest:
+      description: Legacy request schema (deprecated)
       type: object
       properties:
         athlete_id:
