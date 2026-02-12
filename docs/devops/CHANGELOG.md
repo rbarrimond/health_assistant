@@ -2,6 +2,9 @@
 
 ## 2026-02-12
 
+- **Secure agent memory read endpoints (GET /api/agent/{context,preferences,observations}) with function key requirement for data protection.**
+- **Refactor agent preferences to multi-item list with stable IDs and PATCH updates (parity with observations); bump OpenAPI v2.0.0, SEMANTIC_LAYER_API v4.0.0, AGENT_MEMORY v2.0.0.**
+- Bump operations OpenAPI spec version to v2.0.0 to reflect breaking agent memory changes.
 - Validate `lap_index` route param before casting to int in workout lap detail endpoint.
 - Add healthcheck and agent write endpoints to the GPT-facing OpenAPI spec.
 - Allow preference/observation updates in GPT docs; bump instruction and actions guide versions.

@@ -1,6 +1,6 @@
 # Semantic Access Layer API (GPT)
 
-Version: 3.0.3
+Version: 4.1.0
 
 The Semantic Access Layer is the **read + agent-memory write API** for ChatGPT Actions. It exposes meaningful, human-centric questions about training data rather than raw table access.
 
@@ -127,7 +127,7 @@ This section describes how memory data is stored and retrieved. Full API mechani
 ### 1a. Get Agent Context
 
 ```http
-GET /api/agent/context?athlete_id=rob
+GET /api/agent/context?athlete_id=rob&code=<function_key>
 ```
 
 Retrieve preferences and active observations for conversation start.
@@ -135,15 +135,23 @@ Retrieve preferences and active observations for conversation start.
 **Query Parameters:**
 
 - `athlete_id` (optional, defaults to `rob`): Athlete identifier
+- `code` (required): Function key for authentication
 
 **Response:**
 
 ```json
 {
   "athlete_id": "rob",
-  "preferences": {
-    "current_goal": "Build Z2 base"
-  },
+  "preferences": [
+    {
+      "preference_id": "pref_abc123",
+      "category": "goal",
+      "summary": "Build Z2 base",
+      "priority": "high",
+      "status": "active",
+      "created_at": "2026-01-15T08:00:00+00:00"
+    }
+  ],
   "active_observations": [
     {
       "observation_id": "obs_123",
@@ -154,7 +162,7 @@ Retrieve preferences and active observations for conversation start.
       "created_at": "2026-02-10T08:00:00+00:00"
     }
   ],
-  "instruction_addendum": null,
+  "instruction_addendum": "User's current goal: Build Z2 base",
   "retrieved_at": "2026-02-12T12:05:00+00:00"
 }
 ```
@@ -166,65 +174,72 @@ Retrieve preferences and active observations for conversation start.
 
 ---
 
-### 1b. Get Agent Preferences
+### 1b. List Agent Preferences
 
 ```http
-GET /api/agent/preferences?athlete_id=rob
+GET /api/agent/preferences?athlete_id=rob&status=active&limit=20&code=<function_key>
 ```
 
-Fetch persisted preferences.
+List user preferences with filtering.
 
 **Query Parameters:**
 
 - `athlete_id` (optional, defaults to `rob`): Athlete identifier
+- `status` (optional, defaults to `active`): Preference status filter
+- `limit` (optional): Max preferences to return
+- `code` (required): Function key for authentication
 
 **Response:**
 
 ```json
 {
   "athlete_id": "rob",
-  "preferences": {
-    "current_goal": "Build Z2 base",
-    "training_phase": "base",
-    "preferred_sports": ["Cycling"],
-    "ftp_test_frequency_weeks": 8,
-    "last_ftp_test_date": "2025-12-15",
-    "notes": "Prefer morning sessions"
-  },
-  "updated_at": "2026-02-12T12:05:00+00:00"
+  "count": 2,
+  "preferences": [
+    {
+      "preference_id": "pref_abc123",
+      "category": "goal",
+      "summary": "Build Z2 base",
+      "priority": "high",
+      "status": "active",
+      "created_at": "2026-01-15T08:00:00+00:00"
+    },
+    {
+      "preference_id": "pref_def456",
+      "category": "training_phase",
+      "summary": "base",
+      "priority": "normal",
+      "status": "active",
+      "created_at": "2026-01-15T08:00:00+00:00"
+    }
+  ]
 }
 ```
 
 **Use cases:**
 
-- Confirm goals before advice
-- Keep recommendations consistent
+- Confirm active preferences before advice
+- Audit user context
 
 ---
 
-### 1c. Update Agent Preferences
+### 1c. Add Agent Preference
 
 ```http
-POST /api/agent/preferences?athlete_id=rob
+POST /api/agent/preferences
 ```
 
-Update preferences with a fully specified payload.
-
-**Query Parameters:**
-
-- `athlete_id` (optional, defaults to `rob`): Athlete identifier
+Create a new preference item.
 
 **Request Body:**
 
 ```json
 {
   "athlete_id": "rob",
-  "current_goal": "Build Z2 base",
-  "training_phase": "base",
-  "preferred_sports": ["Cycling"],
-  "ftp_test_frequency_weeks": 8,
-  "last_ftp_test_date": "2025-12-15",
-  "notes": "Prefer morning sessions"
+  "category": "goal",
+  "summary": "Build Z2 base",
+  "details": "Focus on aerobic endurance for spring races",
+  "priority": "high"
 }
 ```
 
@@ -232,16 +247,17 @@ Update preferences with a fully specified payload.
 
 ```json
 {
-  "athlete_id": "rob",
-  "preferences": {
-    "current_goal": "Build Z2 base",
-    "training_phase": "base",
-    "preferred_sports": ["Cycling"],
-    "ftp_test_frequency_weeks": 8,
-    "last_ftp_test_date": "2025-12-15",
-    "notes": "Prefer morning sessions"
-  },
-  "updated_at": "2026-02-12T12:06:00+00:00"
+  "preference_id": "pref_abc123",
+  "preference": {
+    "preference_id": "pref_abc123",
+    "athlete_id": "rob",
+    "category": "goal",
+    "summary": "Build Z2 base",
+    "details": "Focus on aerobic endurance for spring races",
+    "priority": "high",
+    "status": "active",
+    "created_at": "2026-02-12T12:06:00+00:00"
+  }
 }
 ```
 
@@ -252,10 +268,51 @@ Update preferences with a fully specified payload.
 
 ---
 
-### 1d. List Agent Observations
+### 1d. Update Agent Preference
 
 ```http
-GET /api/agent/observations?athlete_id=rob&status=active&limit=50
+PATCH /api/agent/preferences/{preference_id}
+```
+
+Update a preference (status, summary, details, etc.).
+
+**Route Parameters:**
+
+- `preference_id` (required): Preference identifier
+
+**Request Body:**
+
+```json
+{
+  "athlete_id": "rob",
+  "status": "resolved"
+}
+```
+
+**Response:**
+
+```json
+{
+  "preference_id": "pref_abc123",
+  "preference": {
+    "preference_id": "pref_abc123",
+    "status": "resolved",
+    "updated_at": "2026-02-12T12:07:00+00:00"
+  }
+}
+```
+
+**Use cases:**
+
+- Archive resolved goals
+- Update preference details
+
+---
+
+### 1e. List Agent Observations
+
+```http
+GET /api/agent/observations?athlete_id=rob&status=active&limit=50&code=<function_key>
 ```
 
 List observations with optional filtering.
@@ -265,6 +322,7 @@ List observations with optional filtering.
 - `athlete_id` (optional, defaults to `rob`): Athlete identifier
 - `status` (optional): Observation status filter
 - `limit` (optional): Max observations to return
+- `code` (required): Function key for authentication
 
 **Response:**
 
@@ -292,7 +350,7 @@ List observations with optional filtering.
 
 ---
 
-### 1e. Add Agent Observation
+### 1f. Add Agent Observation
 
 ```http
 POST /api/agent/observations?athlete_id=rob
@@ -338,9 +396,7 @@ Create a new observation (e.g., soreness, schedule constraints).
 - Capture new constraints mid-cycle
 - Record recovery or readiness notes
 
----
-
-### 1f. Update Agent Observation
+### 1g. Update Agent Observation
 
 ```http
 PATCH /api/agent/observations/{observation_id}
@@ -367,14 +423,14 @@ Update observation status (e.g., `active`, `resolved`, `archived`).
 {
   "observation_id": "obs_456",
   "status": "resolved",
-  "updated_at": "2026-02-12T12:00:00+00:00"
+  "updated_at": "2026-02-12T10:35:00+00:00"
 }
 ```
 
 **Use cases:**
 
-- Mark issues resolved
-- Keep memory clean
+- Mark observations as resolved
+- Archive old observations
 
 ---
 

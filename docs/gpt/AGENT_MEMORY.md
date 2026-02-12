@@ -1,6 +1,6 @@
 # Agent Memory System
 
-Version: 1.2.0
+Version: 2.1.0
 
 ## Overview
 
@@ -96,13 +96,24 @@ Returns:
 ```json
 {
   "athlete_id": "rob",
-  "preferences": {
-    "current_goal": "Build aerobic base for spring races",
-    "training_phase": "base-building",
-    "preferred_sports": ["cycling", "running"],
-    "ftp_test_frequency_weeks": 6,
-    "last_ftp_test_date": "2026-01-15"
-  },
+  "preferences": [
+    {
+      "preference_id": "pref_abc123",
+      "category": "goal",
+      "summary": "Build aerobic base for spring races",
+      "priority": "high",
+      "status": "active",
+      "created_at": "2026-01-15T08:00:00+00:00"
+    },
+    {
+      "preference_id": "pref_def456",
+      "category": "training_phase",
+      "summary": "base-building",
+      "priority": "normal",
+      "status": "active",
+      "created_at": "2026-01-15T08:00:00+00:00"
+    }
+  ],
   "active_observations": [
     {
       "observation_id": "uuid",
@@ -117,17 +128,19 @@ Returns:
 }
 ```
 
-**Usage:** Call this **FIRST** at conversation start to load context.
+**Usage:** Call this **FIRST** at conversation start to load context (requires function key).
 
 ### Manage Preferences
 
-#### Get Preferences
+Preferences are now **multi-item** with stable IDs, similar to observations. Legacy single-record preferences are automatically converted to list format for backward compatibility.
+
+#### List Preferences (requires function key)
 
 ```http
-GET /api/agent/preferences?athlete_id=rob
+GET /api/agent/preferences?athlete_id=rob&status=active&limit=20&code=<function_key>
 ```
 
-#### Update Preferences (requires function key)
+#### Add Preference (requires function key)
 
 ```http
 POST /api/agent/preferences?code=<function_key>
@@ -135,19 +148,31 @@ Content-Type: application/json
 
 {
   "athlete_id": "rob",
-  "current_goal": "Build aerobic base for spring races",
-  "training_phase": "base-building",
-  "preferred_sports": ["cycling", "running"],
-  "ftp_test_frequency_weeks": 6
+  "category": "goal",
+  "summary": "Build aerobic base for spring races",
+  "details": "Focus on Z2 volume and consistency",
+  "priority": "high"
+}
+```
+
+#### Update Preference (requires function key)
+
+```http
+PATCH /api/agent/preferences/{preference_id}?code=<function_key>
+Content-Type: application/json
+
+{
+  "athlete_id": "rob",
+  "status": "resolved"
 }
 ```
 
 ### Manage Observations
 
-#### List Observations
+#### List Observations (requires function key)
 
 ```http
-GET /api/agent/observations?athlete_id=rob&status=active&limit=20
+GET /api/agent/observations?athlete_id=rob&status=active&limit=20&code=<function_key>
 ```
 
 #### Add Observation (requires function key)
