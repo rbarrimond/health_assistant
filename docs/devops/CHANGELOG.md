@@ -2,6 +2,7 @@
 
 ## 2026-02-12
 
+- Add physiometrics API walkthrough and update examples to semantic layer docs; bump SEMANTIC_LAYER_API to 4.1.2.
 - **Secure agent memory read endpoints (GET /api/agent/{context,preferences,observations}) with function key requirement for data protection.**
 - **Refactor agent preferences to multi-item list with stable IDs and PATCH updates (parity with observations); bump OpenAPI v2.0.0, SEMANTIC_LAYER_API v4.0.0, AGENT_MEMORY v2.0.0.**
 - Bump operations OpenAPI spec version to v2.0.0 to reflect breaking agent memory changes.

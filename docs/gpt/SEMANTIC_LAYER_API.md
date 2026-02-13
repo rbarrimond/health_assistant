@@ -1,6 +1,6 @@
 # Semantic Access Layer API (GPT)
 
-Version: 4.1.0
+Version: 4.1.2
 
 The Semantic Access Layer is the **read + agent-memory write API** for ChatGPT Actions. It exposes meaningful, human-centric questions about training data rather than raw table access.
 
@@ -806,6 +806,56 @@ Retrieve time-series physiometric data for trend analysis.
 - FTP progression tracking
 - Body composition analysis over time
 - VO2Max improvement tracking
+
+---
+
+## Physiometrics API Walkthrough
+
+### Data Sources and Precedence
+
+Physiometrics are stored as snapshots. Reads prefer the most recent stored snapshot for the athlete. If no stored snapshots exist, the semantic layer falls back to config defaults, then to environment defaults.
+
+### Current Physiometrics (Read)
+
+`GET /api/physiometrics/current` returns the latest snapshot with normalized metric fields plus metadata (`effective_date`, `data_source`). Use this for profile displays, training-zone context, and chat summaries.
+
+### Physiometrics History (Read)
+
+`GET /api/physiometrics/history` returns a time series over a bounded date window. If `metrics` is provided, only those fields plus metadata are returned per data point; otherwise the full snapshot is returned. Use this for trends and charts.
+
+### Physiometrics Update (Write, Admin)
+
+`POST /api/physiometrics/update` lives in the operations API. It accepts either a single `metric` + `value` or a `metrics` map for bulk updates. The request can include an `effective_date` and `source` to set `data_source` for the stored snapshot.
+
+**Single-metric example:**
+
+```http
+POST /api/physiometrics/update
+```
+
+```json
+{
+  "athlete_id": "rob",
+  "metric": "power_ftp_watts",
+  "value": 290,
+  "effective_date": "2026-02-01",
+  "source": "manual"
+}
+```
+
+**Bulk example:**
+
+```json
+{
+  "athlete_id": "rob",
+  "metrics": {
+    "weight_kg": 75.0,
+    "body_fat_pct": 16.2
+  },
+  "effective_date": "2026-02-01",
+  "source": "withings"
+}
+```
 
 ---
 
