@@ -1,0 +1,91 @@
+<svg width="1200" height="760" viewBox="0 0 1200 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Health Assistant dark ops console mockup">
+  <defs>
+    <linearGradient id="opsbg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1220"/>
+      <stop offset="100%" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="opsbrand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#1f2937"/>
+    </linearGradient>
+    <filter id="opsShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="5" stdDeviation="9" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="760" fill="url(#opsbg)"/>
+
+  <rect x="20" y="18" width="1160" height="80" rx="14" fill="#0f172a" stroke="#1f2937"/>
+  <rect x="34" y="32" width="40" height="40" rx="10" fill="url(#opsbrand)"/>
+  <text x="90" y="54" fill="#e5e7eb" font-family="Arial, sans-serif" font-size="24" font-weight="700">Health Assistant Ops</text>
+  <text x="90" y="74" fill="#9ca3af" font-family="Arial, sans-serif" font-size="12">Runbook-focused dashboard for workout analysis pipelines</text>
+  <rect x="1020" y="34" width="140" height="32" rx="8" fill="#1f2937"/>
+  <text x="1057" y="55" fill="#d1d5db" font-family="Arial, sans-serif" font-size="13">On-call: ROB</text>
+
+  <rect x="20" y="114" width="240" height="626" rx="14" fill="#0f172a" stroke="#1f2937" filter="url(#opsShadow)"/>
+  <text x="38" y="146" fill="#e5e7eb" font-family="Arial, sans-serif" font-size="16" font-weight="700">Navigation</text>
+  <rect x="36" y="164" width="208" height="34" rx="8" fill="url(#opsbrand)"/>
+  <text x="50" y="186" fill="#ffffff" font-family="Arial, sans-serif" font-size="13">Workout Analysis</text>
+  <rect x="36" y="208" width="208" height="34" rx="8" fill="#111827" stroke="#374151"/>
+  <text x="50" y="230" fill="#d1d5db" font-family="Arial, sans-serif" font-size="13">Prompt Health</text>
+  <rect x="36" y="252" width="208" height="34" rx="8" fill="#111827" stroke="#374151"/>
+  <text x="50" y="274" fill="#d1d5db" font-family="Arial, sans-serif" font-size="13">Retrieval Trace</text>
+  <rect x="36" y="296" width="208" height="34" rx="8" fill="#111827" stroke="#374151"/>
+  <text x="50" y="318" fill="#d1d5db" font-family="Arial, sans-serif" font-size="13">Fallback Events</text>
+
+  <text x="38" y="374" fill="#e5e7eb" font-family="Arial, sans-serif" font-size="16" font-weight="700">System Health</text>
+  <text x="38" y="402" fill="#9ca3af" font-family="Arial, sans-serif" font-size="12">API latency p95</text>
+  <text x="156" y="402" fill="#10b981" font-family="Arial, sans-serif" font-size="12" font-weight="700">2.9s</text>
+  <text x="38" y="424" fill="#9ca3af" font-family="Arial, sans-serif" font-size="12">Validation fail rate</text>
+  <text x="156" y="424" fill="#f59e0b" font-family="Arial, sans-serif" font-size="12" font-weight="700">1.8%</text>
+  <text x="38" y="446" fill="#9ca3af" font-family="Arial, sans-serif" font-size="12">RAG null answers</text>
+  <text x="156" y="446" fill="#10b981" font-family="Arial, sans-serif" font-size="12" font-weight="700">0.7%</text>
+
+  <rect x="280" y="114" width="900" height="142" rx="14" fill="#0f172a" stroke="#1f2937" filter="url(#opsShadow)"/>
+  <text x="304" y="146" fill="#e5e7eb" font-family="Arial, sans-serif" font-size="20" font-weight="700">Current Run</text>
+  <rect x="304" y="162" width="210" height="34" rx="8" fill="#111827" stroke="#374151"/>
+  <text x="316" y="184" fill="#9ca3af" font-family="Arial, sans-serif" font-size="12">workout.fit</text>
+  <rect x="530" y="162" width="152" height="34" rx="8" fill="url(#opsbrand)"/>
+  <text x="575" y="184" fill="#ffffff" font-family="Arial, sans-serif" font-size="12" font-weight="700">Run</text>
+
+  <text x="304" y="224" fill="#9ca3af" font-family="Arial, sans-serif" font-size="13">Req ID</text>
+  <text x="372" y="224" fill="#e5e7eb" font-family="Arial, sans-serif" font-size="13">8f1c-42ac-99de</text>
+  <text x="560" y="224" fill="#9ca3af" font-family="Arial, sans-serif" font-size="13">Prompt</text>
+  <text x="620" y="224" fill="#e5e7eb" font-family="Arial, sans-serif" font-size="13">workout_v12</text>
+  <text x="760" y="224" fill="#9ca3af" font-family="Arial, sans-serif" font-size="13">Latency</text>
+  <text x="828" y="224" fill="#10b981" font-family="Arial, sans-serif" font-size="13" font-weight="700">2.8s</text>
+
+  <rect x="280" y="274" width="430" height="220" rx="14" fill="#0f172a" stroke="#1f2937" filter="url(#opsShadow)"/>
+  <text x="304" y="306" fill="#e5e7eb" font-family="Arial, sans-serif" font-size="18" font-weight="700">Deterministic Metrics</text>
+  <text x="304" y="336" fill="#9ca3af" font-family="Arial, sans-serif" font-size="13">Duration: 1h 42m</text>
+  <text x="304" y="360" fill="#9ca3af" font-family="Arial, sans-serif" font-size="13">Avg Power: 214W</text>
+  <text x="304" y="384" fill="#9ca3af" font-family="Arial, sans-serif" font-size="13">NP: 238W</text>
+  <text x="304" y="408" fill="#9ca3af" font-family="Arial, sans-serif" font-size="13">IF: 0.82</text>
+  <text x="304" y="432" fill="#9ca3af" font-family="Arial, sans-serif" font-size="13">TSS: 122</text>
+  <rect x="304" y="452" width="180" height="28" rx="7" fill="#052e2b" stroke="#0f766e"/>
+  <text x="322" y="471" fill="#34d399" font-family="Arial, sans-serif" font-size="12">Parser confidence: high</text>
+
+  <rect x="730" y="274" width="450" height="220" rx="14" fill="#0f172a" stroke="#1f2937" filter="url(#opsShadow)"/>
+  <text x="754" y="306" fill="#e5e7eb" font-family="Arial, sans-serif" font-size="18" font-weight="700">Alerts &amp; Flags</text>
+  <circle cx="758" cy="336" r="5" fill="#f59e0b"/>
+  <text x="772" y="340" fill="#d1d5db" font-family="Arial, sans-serif" font-size="13">HR drift over threshold (Block 2)</text>
+  <circle cx="758" cy="364" r="5" fill="#f59e0b"/>
+  <text x="772" y="368" fill="#d1d5db" font-family="Arial, sans-serif" font-size="13">Cadence drop final 15 min</text>
+  <circle cx="758" cy="392" r="5" fill="#10b981"/>
+  <text x="772" y="396" fill="#d1d5db" font-family="Arial, sans-serif" font-size="13">No data gap anomalies</text>
+  <rect x="754" y="420" width="190" height="30" rx="8" fill="#3f1d1d" stroke="#7f1d1d"/>
+  <text x="770" y="439" fill="#fca5a5" font-family="Arial, sans-serif" font-size="12">Escalation policy: not triggered</text>
+
+  <rect x="280" y="512" width="900" height="228" rx="14" fill="#0f172a" stroke="#1f2937" filter="url(#opsShadow)"/>
+  <text x="304" y="544" fill="#e5e7eb" font-family="Arial, sans-serif" font-size="18" font-weight="700">Grounded LLM Output</text>
+  <text x="304" y="572" fill="#9ca3af" font-family="Arial, sans-serif" font-size="13">- Keep tomorrow easy Z2 to absorb this load.</text>
+  <text x="304" y="594" fill="#9ca3af" font-family="Arial, sans-serif" font-size="13">- Increase fueling consistency beyond 90 minutes.</text>
+  <text x="304" y="616" fill="#9ca3af" font-family="Arial, sans-serif" font-size="13">- Progress to 3x12 sweet spot with cadence stability target.</text>
+  <text x="304" y="646" fill="#6ee7b7" font-family="Arial, sans-serif" font-size="12">Sources: workout_doc_12, fatigue_guidelines_v3</text>
+  <rect x="304" y="668" width="140" height="34" rx="8" fill="url(#opsbrand)"/>
+  <text x="350" y="690" fill="#ffffff" font-family="Arial, sans-serif" font-size="12" font-weight="700">Approve</text>
+  <rect x="458" y="668" width="140" height="34" rx="8" fill="#111827" stroke="#374151"/>
+  <text x="495" y="690" fill="#d1d5db" font-family="Arial, sans-serif" font-size="12" font-weight="700">Regenerate</text>
+  <rect x="612" y="668" width="140" height="34" rx="8" fill="#111827" stroke="#374151"/>
+  <text x="660" y="690" fill="#d1d5db" font-family="Arial, sans-serif" font-size="12" font-weight="700">Open Trace</text>
+</svg>

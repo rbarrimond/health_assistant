@@ -1,0 +1,82 @@
+<svg width="1100" height="760" viewBox="0 0 1100 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Health Assistant workout analysis UI mockup">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f4f7f7"/>
+      <stop offset="100%" stop-color="#e6ecef"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#1f2937"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#0f172a" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <rect width="1100" height="760" fill="url(#bg)"/>
+
+  <rect x="24" y="20" width="1052" height="84" rx="16" fill="url(#brand)" filter="url(#shadow)"/>
+  <rect x="48" y="38" width="48" height="48" rx="12" fill="#fff" opacity="0.15"/>
+  <path d="M81 49h-18a4 4 0 0 0-4 4v12H47a4 4 0 0 0-4 4v18a4 4 0 0 0 4 4h12v12a4 4 0 0 0 4 4h18a4 4 0 0 0 4-4V91h12a4 4 0 0 0 4-4V69a4 4 0 0 0-4-4H85V53a4 4 0 0 0-4-4z" fill="#fff" transform="scale(0.62) translate(35 32)"/>
+  <text x="112" y="66" fill="#fff" font-family="Arial, sans-serif" font-size="26" font-weight="700">Health Assistant</text>
+  <text x="112" y="88" fill="#d1fae5" font-family="Arial, sans-serif" font-size="13">Workout Analysis Console</text>
+  <rect x="930" y="42" width="126" height="40" rx="10" fill="#ffffff" opacity="0.16"/>
+  <text x="955" y="67" fill="#ffffff" font-family="Arial, sans-serif" font-size="14">Profile</text>
+
+  <rect x="24" y="124" width="500" height="250" rx="14" fill="#ffffff" filter="url(#shadow)"/>
+  <text x="48" y="156" fill="#0f172a" font-family="Arial, sans-serif" font-size="22" font-weight="700">Upload &amp; Run</text>
+  <text x="48" y="184" fill="#475569" font-family="Arial, sans-serif" font-size="13">FIT file input and deterministic analysis trigger</text>
+  <text x="48" y="225" fill="#334155" font-family="Arial, sans-serif" font-size="14">FIT File</text>
+  <rect x="48" y="236" width="452" height="42" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text x="64" y="262" fill="#64748b" font-family="Arial, sans-serif" font-size="13">2026-02-13-endurance-ride.fit</text>
+  <text x="48" y="302" fill="#334155" font-family="Arial, sans-serif" font-size="14">Athlete</text>
+  <rect x="48" y="313" width="220" height="42" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text x="64" y="339" fill="#0f172a" font-family="Arial, sans-serif" font-size="13">Rob</text>
+  <rect x="314" y="313" width="186" height="42" rx="10" fill="url(#brand)"/>
+  <text x="364" y="339" fill="#ffffff" font-family="Arial, sans-serif" font-size="14" font-weight="700">Run Analysis</text>
+
+  <rect x="548" y="124" width="528" height="250" rx="14" fill="#ffffff" filter="url(#shadow)"/>
+  <text x="572" y="156" fill="#0f172a" font-family="Arial, sans-serif" font-size="22" font-weight="700">Run Status</text>
+  <text x="572" y="198" fill="#475569" font-family="Arial, sans-serif" font-size="14">Request ID</text>
+  <text x="742" y="198" fill="#0f172a" font-family="Arial, sans-serif" font-size="14" font-weight="700">8f1c-42ac-99de</text>
+  <text x="572" y="228" fill="#475569" font-family="Arial, sans-serif" font-size="14">Prompt Version</text>
+  <text x="742" y="228" fill="#0f172a" font-family="Arial, sans-serif" font-size="14" font-weight="700">workout_v12</text>
+  <text x="572" y="258" fill="#475569" font-family="Arial, sans-serif" font-size="14">Retrieved Docs</text>
+  <text x="742" y="258" fill="#0f172a" font-family="Arial, sans-serif" font-size="14" font-weight="700">4 (reranked)</text>
+  <text x="572" y="288" fill="#475569" font-family="Arial, sans-serif" font-size="14">Token Usage</text>
+  <text x="742" y="288" fill="#0f172a" font-family="Arial, sans-serif" font-size="14" font-weight="700">3242 in / 612 out</text>
+  <text x="572" y="318" fill="#475569" font-family="Arial, sans-serif" font-size="14">Latency</text>
+  <text x="742" y="318" fill="#0f172a" font-family="Arial, sans-serif" font-size="14" font-weight="700">2.8s</text>
+
+  <rect x="24" y="398" width="1052" height="122" rx="14" fill="#ffffff" filter="url(#shadow)"/>
+  <text x="48" y="432" fill="#0f172a" font-family="Arial, sans-serif" font-size="22" font-weight="700">Session Summary</text>
+  <text x="48" y="460" fill="#334155" font-family="Arial, sans-serif" font-size="15">Strong aerobic session with controlled tempo blocks and stable power delivery.</text>
+  <text x="48" y="484" fill="#334155" font-family="Arial, sans-serif" font-size="15">Mild heart-rate drift in block two; recovery in final segment suggests good durability.</text>
+
+  <rect x="24" y="544" width="340" height="192" rx="14" fill="#ffffff" filter="url(#shadow)"/>
+  <text x="48" y="576" fill="#0f172a" font-family="Arial, sans-serif" font-size="20" font-weight="700">Key Metrics</text>
+  <text x="48" y="606" fill="#334155" font-family="Arial, sans-serif" font-size="14">Duration: 1h 42m</text>
+  <text x="48" y="630" fill="#334155" font-family="Arial, sans-serif" font-size="14">Avg Power: 214 W</text>
+  <text x="48" y="654" fill="#334155" font-family="Arial, sans-serif" font-size="14">NP: 238 W</text>
+  <text x="48" y="678" fill="#334155" font-family="Arial, sans-serif" font-size="14">IF: 0.82</text>
+  <text x="48" y="702" fill="#334155" font-family="Arial, sans-serif" font-size="14">TSS: 122</text>
+
+  <rect x="384" y="544" width="340" height="192" rx="14" fill="#ffffff" filter="url(#shadow)"/>
+  <text x="408" y="576" fill="#0f172a" font-family="Arial, sans-serif" font-size="20" font-weight="700">Deterministic Flags</text>
+  <circle cx="415" cy="606" r="5" fill="#f59e0b"/>
+  <text x="430" y="611" fill="#334155" font-family="Arial, sans-serif" font-size="14">HR drift over threshold (Block 2)</text>
+  <circle cx="415" cy="636" r="5" fill="#f59e0b"/>
+  <text x="430" y="641" fill="#334155" font-family="Arial, sans-serif" font-size="14">Cadence drop in final 15 min</text>
+  <circle cx="415" cy="666" r="5" fill="#10b981"/>
+  <text x="430" y="671" fill="#334155" font-family="Arial, sans-serif" font-size="14">No missing sensor segments</text>
+
+  <rect x="736" y="544" width="340" height="192" rx="14" fill="#ffffff" filter="url(#shadow)"/>
+  <text x="760" y="576" fill="#0f172a" font-family="Arial, sans-serif" font-size="20" font-weight="700">LLM Coaching Draft</text>
+  <text x="760" y="606" fill="#334155" font-family="Arial, sans-serif" font-size="14">- Keep Saturday ride strict Z2.</text>
+  <text x="760" y="630" fill="#334155" font-family="Arial, sans-serif" font-size="14">- Fuel 60-75g carbs/hr over 90m.</text>
+  <text x="760" y="654" fill="#334155" font-family="Arial, sans-serif" font-size="14">- Next key set: 3x12 sweet spot.</text>
+  <rect x="760" y="680" width="118" height="34" rx="8" fill="url(#brand)"/>
+  <text x="789" y="702" fill="#fff" font-family="Arial, sans-serif" font-size="13" font-weight="700">Accept</text>
+  <rect x="890" y="680" width="118" height="34" rx="8" fill="#f1f5f9" stroke="#cbd5e1"/>
+  <text x="918" y="702" fill="#334155" font-family="Arial, sans-serif" font-size="13" font-weight="700">Regenerate</text>
+</svg>
