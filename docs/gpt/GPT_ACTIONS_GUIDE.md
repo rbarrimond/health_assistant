@@ -1,6 +1,6 @@
 # GPT Actions Guide — Workout Intelligence Agent
 
-Version: 3.5.1
+Version: 3.7.0
 
 This guide defines how a custom GPT should use the Health Assistant Semantic Access Layer.
 It is the operational companion to:
@@ -17,12 +17,12 @@ Behavioral rules and reasoning constraints live in [INSTRUCTIONS.md](./INSTRUCTI
 
 ## Conversation Start Checklist
 
-Use the following two calls at the start of every session to load live memory and planning state:
+Before the first natural-language response in every session, the agent must automatically make the following two calls to load live memory and planning state:
 
 1. `GET /api/agent/context?athlete_id=rob`
 2. `GET /api/planning/context?days=45`
 
-If these are not called, you only have static schema/vision context, not current preferences, observations, workload, or readiness signals.
+If these are not called, you only have static schema/vision context, not current preferences, observations, workload, or readiness signals. The first user-facing response must wait until both calls complete.
 
 ## ChatGPT Integration Examples
 
@@ -40,7 +40,7 @@ User: "Show my weight trend for the last 30 days"
 
 ChatGPT calls:
 
-```bash
+```http
 GET /api/physiometrics/history?athlete_id=rob&metrics=weight_kg&days=30
 ```
 
@@ -52,7 +52,7 @@ User: "What are my current FTP and LTHR?"
 
 ChatGPT calls:
 
-```bash
+```http
 GET /api/physiometrics/current?athlete_id=rob
 ```
 
@@ -119,17 +119,6 @@ ChatGPT responds: "Your current FTP is 295 W and LTHR is 178 bpm (per the latest
 - `PATCH /api/agent/observations/{observation_id}` to resolve/archive at your discretion (requires auth).
 
 <!-- markdownlint-enable MD029 -->
-
----
-
-## Do Not Call (Internal/Admin)
-
-- `POST /api/process_fit`
-- `POST /api/onedrive/sync`
-- OAuth endpoints
-- Config endpoints
-- Plugin manifest and logo endpoints
-- `POST /api/physiometrics/update` (operations-only)
 
 ---
 

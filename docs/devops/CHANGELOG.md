@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-02-14
+
+- Align GPT Actions guide with read-only scope by removing physiometrics update examples, adding current physiometrics read example, and clarifying weight trend response; bump GPT Actions guide version to 3.5.0.
+- Remove Withings auth example and clarify weight trend phrasing in GPT Actions guide; bump version to 3.5.1.
+- Remove physiometrics update write details from GPT-facing semantic layer API doc; bump version to 4.1.3.
+- Document operations-spec endpoints in Operations API (healthcheck, agent memory, Withings auth/callback, workout recalculated); bump Operations API version to 1.1.0.
+- Remove agent memory endpoints from operations OpenAPI and Operations API docs so only healthcheck overlaps with GPT endpoints; bump Operations API version to 1.2.0.
+- Tighten GPT Actions guide to require the initial context calls before any natural-language response; bump version to 3.6.0.
+- Change HTTP request code blocks from bash to http language in GPT Actions guide examples; bump version to 3.6.1.
+- Remove redundant "Do Not Call" section from GPT Actions guide (spec is authoritative boundary); bump version to 3.7.0.
+- Clarify that context calls must be made automatically by the agent as needed (not passively).
+
 ## 2026-02-12
 
 - Add physiometrics API walkthrough and update examples to semantic layer docs; bump SEMANTIC_LAYER_API to 4.1.2.
