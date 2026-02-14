@@ -1,6 +1,6 @@
 # GPT Actions Guide — Workout Intelligence Agent
 
-Version: 3.4.3
+Version: 3.5.1
 
 This guide defines how a custom GPT should use the Health Assistant Semantic Access Layer.
 It is the operational companion to:
@@ -20,7 +20,7 @@ Behavioral rules and reasoning constraints live in [INSTRUCTIONS.md](./INSTRUCTI
 Use the following two calls at the start of every session to load live memory and planning state:
 
 1. `GET /api/agent/context?athlete_id=rob`
-1. `GET /api/planning/context?days=45`
+2. `GET /api/planning/context?days=45`
 
 If these are not called, you only have static schema/vision context, not current preferences, observations, workload, or readiness signals.
 
@@ -34,34 +34,6 @@ If these are not called, you only have static schema/vision context, not current
 -> Returns: Last hard day, Z2 volume, intensity load, flags
 ```
 
-Update Cycling VO2Max
-
-User: "My new cycling VO2Max is 52.3"
-
-ChatGPT calls:
-
-```json
-POST /api/physiometrics/update
-{
- "athlete_id": "rob",
- "metric": "cycling_vo2max_ml_kg_min",
- "value": 52.3,
- "source": "chatgpt"
-}
-```
-
-Connect Withings Account
-
-User: "Connect my Withings scale"
-
-ChatGPT calls:
-
-```bash
-GET /api/withings/authorize?athlete_id=rob
-```
-
-ChatGPT responds: "Please open this URL to authorize access to your Withings account: [link]"
-
 Check Weight Trend
 
 User: "Show my weight trend for the last 30 days"
@@ -72,26 +44,19 @@ ChatGPT calls:
 GET /api/physiometrics/history?athlete_id=rob&metrics=weight_kg&days=30
 ```
 
-ChatGPT responds: "Your weight has ranged from 74.8 kg to 76.2 kg over the last 30 days, with an average of 75.4 kg. You're trending downward at about 0.2 kg per week."
+ChatGPT responds: "Here are your weight entries from the last 30 days (most recent first). If you'd like, I can summarize the trend from the returned data."
 
-Update Multiple Metrics
+Check Current Physiometrics
 
-User: "I did a threshold test today. My new FTP is 295 and LTHR is 178"
+User: "What are my current FTP and LTHR?"
 
 ChatGPT calls:
 
-```json
-POST /api/physiometrics/update
-{
- "athlete_id": "rob",
- "metrics": {
-  "power_ftp_watts": 295,
-  "heart_rate_lthr_bpm": 178
- },
- "effective_date": "2026-01-19",
- "source": "chatgpt"
-}
+```bash
+GET /api/physiometrics/current?athlete_id=rob
 ```
+
+ChatGPT responds: "Your current FTP is 295 W and LTHR is 178 bpm (per the latest physiometrics)."
 
 ## Primary Endpoints (Order of Preference)
 
@@ -164,7 +129,7 @@ POST /api/physiometrics/update
 - OAuth endpoints
 - Config endpoints
 - Plugin manifest and logo endpoints
-- `POST /api/physiometrics/update`
+- `POST /api/physiometrics/update` (operations-only)
 
 ---
 

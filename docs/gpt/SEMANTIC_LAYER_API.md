@@ -1,6 +1,6 @@
 # Semantic Access Layer API (GPT)
 
-Version: 4.1.2
+Version: 4.1.3
 
 The Semantic Access Layer is the **read + agent-memory write API** for ChatGPT Actions. It exposes meaningful, human-centric questions about training data rather than raw table access.
 
@@ -822,40 +822,6 @@ Physiometrics are stored as snapshots. Reads prefer the most recent stored snaps
 ### Physiometrics History (Read)
 
 `GET /api/physiometrics/history` returns a time series over a bounded date window. If `metrics` is provided, only those fields plus metadata are returned per data point; otherwise the full snapshot is returned. Use this for trends and charts.
-
-### Physiometrics Update (Write, Admin)
-
-`POST /api/physiometrics/update` lives in the operations API. It accepts either a single `metric` + `value` or a `metrics` map for bulk updates. The request can include an `effective_date` and `source` to set `data_source` for the stored snapshot.
-
-**Single-metric example:**
-
-```http
-POST /api/physiometrics/update
-```
-
-```json
-{
-  "athlete_id": "rob",
-  "metric": "power_ftp_watts",
-  "value": 290,
-  "effective_date": "2026-02-01",
-  "source": "manual"
-}
-```
-
-**Bulk example:**
-
-```json
-{
-  "athlete_id": "rob",
-  "metrics": {
-    "weight_kg": 75.0,
-    "body_fat_pct": 16.2
-  },
-  "effective_date": "2026-02-01",
-  "source": "withings"
-}
-```
 
 ---
 

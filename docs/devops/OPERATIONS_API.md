@@ -1,10 +1,30 @@
 # Operations API
 
-Version: 1.0.0
+Version: 1.2.0
 
 This document describes admin, ingestion, and infrastructure endpoints for the Health Assistant system.
 
 > **Note:** This document mirrors [`openapi.operations.yaml`](../../api_docs/openapi.operations.yaml). For GPT-facing endpoints, see [`../gpt/SEMANTIC_LAYER_API.md`](../gpt/SEMANTIC_LAYER_API.md).
+
+---
+
+## Healthcheck
+
+```http
+GET /api/health
+```
+
+Health check with dependency status.
+
+**Response (200 OK):**
+
+```json
+{
+  "status": "healthy",
+  "timestamp": "2026-02-14T10:30:00+00:00",
+  "storage": "connected"
+}
+```
 
 ---
 
@@ -254,7 +274,33 @@ Update physiometric values (single metric or bulk partial update).
 
 ---
 
+## Workout Utilities
+
+### Recalculated Workout Zones (Read-only)
+
+```http
+GET /api/workouts/{workout_id}/recalculated?ftp_watts=285&lthr_bpm=175
+```
+
+Returns a placeholder response today. Intended for future recalculated zone summaries.
+
 ## Withings Integration (Internal)
+
+### Authorize Withings
+
+```http
+GET /api/withings/authorize?athlete_id=rob
+```
+
+Generate Withings OAuth authorization URL.
+
+### Withings Callback
+
+```http
+GET /api/withings/callback?code=...&state=...
+```
+
+OAuth callback endpoint (handled automatically by Azure).
 
 ### Withings Webhook
 
