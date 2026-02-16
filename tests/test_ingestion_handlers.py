@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 from FitParser.handlers.fit_payload_handler import FitPayloadIngestionHandler
 from FitParser.handlers.ingestion_base_handler import FitIngestionBaseHandler
+from FitParser.table_storage import IngestionContext
 
 
 class _TestIngestionHandler(FitIngestionBaseHandler):
@@ -156,3 +157,53 @@ def test_fit_payload_handler_success_calls_parse_and_store() -> None:
     parse_args = parse_and_store.call_args[0]
     assert parse_args[0] == "rob"
     assert parse_args[1]["file_sha256"] == "hash"
+
+
+def test_ingestion_context_skipped_unchanged_is_terminal() -> None:
+    """Skipped unchanged records should remain terminal and skip reingest."""
+    storage = Mock()
+    file_info = {
+        "source_etag": "etag-1",
+    }
+    existing_state = {
+        "status": "skipped",
+        "source_etag": "etag-1",
+    }
+
+    context = IngestionContext(
+        athlete_id="rob",
+        file_info=file_info,
+        workout_id=None,
+        storage=storage,
+        existing_state=existing_state,
+        ingestion_key="ingestion-key",
+    )
+
+    assert context.is_unchanged() is True
+    assert context.should_skip() is True
+
+
+def test_ingestion_context_preserves_ingested_at_on_skip() -> None:
+    """Skipped state should preserve prior ingested_at_utc when present."""
+    storage = Mock()
+    file_info = {
+        "source_etag": "etag-1",
+    }
+    existing_state = {
+        "status": "ingested",
+        "source_etag": "etag-1",
+        "ingested_at_utc": "2026-02-10T12:00:00+00:00",
+    }
+
+    context = IngestionContext(
+        athlete_id="rob",
+        file_info=file_info,
+        workout_id=None,
+        storage=storage,
+        existing_state=existing_state,
+        ingestion_key="ingestion-key",
+    )
+
+    entity = context.build_state_entity(status="skipped").to_entity()
+
+    assert entity.get("ingested_at_utc") == "2026-02-10T12:00:00+00:00"

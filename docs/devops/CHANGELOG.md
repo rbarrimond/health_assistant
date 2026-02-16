@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-15
+
+- Treat unchanged skipped ingestions as terminal to prevent reingestion and preserve `ingested_at_utc`; bump ingest version to v3.1.1 and ingestion schema to 3.1.1.
+
 ## 2026-02-14
 
 - Align GPT Actions guide with read-only scope by removing physiometrics update examples, adding current physiometrics read example, and clarifying weight trend response; bump GPT Actions guide version to 3.5.0.

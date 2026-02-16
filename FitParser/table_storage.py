@@ -15,7 +15,7 @@ from azure.storage.blob import BlobServiceClient
 
 from FitParser.fit_parser import compute_workout_id
 
-INGEST_VERSION = "v3.1.0"
+INGEST_VERSION = "v3.1.1"
 
 LAP_RECORDS_CONTAINER = "lap-records"
 WORKOUT_LAPS_TABLE = "WorkoutLaps"
@@ -216,6 +216,14 @@ class IngestionContext:
         return bool(self.existing_state and self.existing_state.get("status") == "ingested")
 
     @property
+    def is_terminal(self) -> bool:
+        """Check if the ingestion state represents a terminal (non-reingest) outcome."""
+        return bool(
+            self.existing_state
+            and self.existing_state.get("status") in {"ingested", "skipped"}
+        )
+
+    @property
     def retry_count(self) -> int:
         """Get the current retry count stored in the ingestion state."""
         if not self.existing_state:
@@ -267,7 +275,7 @@ class IngestionContext:
 
     def should_skip(self) -> bool:
         """Return True when an already-ingested file is unchanged and should be skipped."""
-        return self.is_ingested and self.is_unchanged()
+        return self.is_terminal and self.is_unchanged()
 
     @property
     def first_seen_at_utc(self) -> str:
@@ -312,6 +320,12 @@ class IngestionContext:
                 if existing_value is not None:
                     state_fields[key] = existing_value
 
+        ingested_at_utc = None
+        if status == "ingested":
+            ingested_at_utc = now_utc
+        elif status == "skipped" and self.existing_state:
+            ingested_at_utc = self.existing_state.get("ingested_at_utc")
+
         return IngestionStateEntity(
             partition_key=self.athlete_id,
             row_key=self.ingestion_key,
@@ -328,7 +342,7 @@ class IngestionContext:
             source_modified_at_utc=state_fields["source_modified_at_utc"],
             file_sha256=state_fields["file_sha256"],
             ingest_version=INGEST_VERSION,
-            ingested_at_utc=now_utc if status == "ingested" else None,
+            ingested_at_utc=ingested_at_utc,
             error_message=error,
         )
 

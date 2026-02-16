@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 3.1.0
+Version: 3.1.1
 
 This document defines the ingestion payloads and the IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -85,6 +85,7 @@ It is intentionally separate from Workouts to keep workout entities small and st
 - A file is considered **unchanged** when any of the following match previous state:
   `source_ctag`, `source_quickxor_hash`, `file_sha256`, `source_etag`, or
   `source_modified_at_utc` (in that order of preference).
+- Unchanged files with a prior status of `ingested` or `skipped` are skipped.
 - Skipped ingestions preserve prior provenance values.
 - `workout_id` should be reused from existing ingestion state if present.
 
