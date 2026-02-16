@@ -4,6 +4,12 @@
 
 - Treat unchanged skipped ingestions as terminal to prevent reingestion and preserve `ingested_at_utc`; bump ingest version to v3.1.1 and ingestion schema to 3.1.1.
 
+## 2026-02-16
+
+- Add canonical FIT parquet substrate + lap parquet storage, store canonical pointers in Workouts, compute derived metrics from canonical records in semantic layer, and bump ingestion/workout schema versions to 4.0.0 and 7.0.0.
+- Store activity local timestamps without UTC conversion and rename field to `activity_local_time`; keep workout schema at 7.0.0 for this commit.
+- Remove redundant metadata fields (`file_type`, `event_count`, `event_types`, `end_time_utc`) - end_time_utc is derivable from start_time_utc + duration_sec, others provide no discriminatory value.
+
 ## 2026-02-14
 
 - Align GPT Actions guide with read-only scope by removing physiometrics update examples, adding current physiometrics read example, and clarifying weight trend response; bump GPT Actions guide version to 3.5.0.

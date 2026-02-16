@@ -10,10 +10,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
 import gzip
+import numpy as np
+import pandas as pd
 
 from azure.core.exceptions import HttpResponseError
 
 from FitParser.adapter import FitAdapter
+from FitParser.config import Config
 from FitParser.handlers.onedrive_sync_handler import OneDriveSyncConfig
 from FitParser.onedrive_client import OneDriveGraphClient, OneDriveGraphError
 from FitParser.table_storage import WorkoutEntity, WorkoutTableStorage
@@ -183,10 +186,11 @@ class SemanticLayer:
             if entity.get("athlete_id") != athlete_id:
                 return None
 
+            workout_entity = WorkoutEntity.from_table_entity(entity)
             workout = self._entity_to_workout_dict(entity)
 
             if include_laps:
-                laps = self._load_stored_laps(workout_id)
+                laps = self._load_stored_laps(workout_entity)
                 errors: Dict[str, str] = {}
                 if laps is None:
                     _, fit_laps, fit_errors = self._load_fit_timeseries(
@@ -443,6 +447,7 @@ class SemanticLayer:
         """
         workout_entity = WorkoutEntity.from_table_entity(entity)
         metrics = workout_entity.metrics
+        metrics = self._apply_canonical_metrics(workout_entity, metrics)
 
         sport = self._infer_sport(metrics)
         is_indoor = self._infer_is_indoor(metrics)
@@ -459,7 +464,6 @@ class SemanticLayer:
             "workout_name": workout_name,
             "is_indoor": is_indoor,
             "start_time_utc": metrics.get("start_time_utc"),
-            "end_time_utc": metrics.get("end_time_utc"),
             "timezone": metrics.get("timezone"),
             "duration_sec": metrics.get("duration_sec"),
             "moving_time_sec": metrics.get("moving_time_sec"),
@@ -515,8 +519,376 @@ class SemanticLayer:
 
         return workout
 
-    def _load_stored_laps(self, workout_id: str) -> Optional[List[Dict]]:
-        laps = self.storage.get_workout_laps(workout_id)
+    def _apply_canonical_metrics(
+        self,
+        workout_entity: WorkoutEntity,
+        metrics: Dict,
+    ) -> Dict:
+        """Derive metrics from canonical parquet when table metrics are missing."""
+        if metrics.get("hr_avg_bpm") or metrics.get("pwr_avg_watts"):
+            return metrics
+
+        blob_name = workout_entity.canonical_records_blob or metrics.get(
+            "canonical_records_blob"
+        )
+        if not blob_name:
+            return metrics
+
+        try:
+            df = self.storage.load_canonical_records(blob_name)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.warning("Failed to load canonical records %s: %s", blob_name, exc)
+            return metrics
+
+        if df.empty:
+            return metrics
+
+        enriched = dict(metrics)
+        enriched.update(self._compute_metrics_from_canonical(df, enriched))
+        return enriched
+
+    def _compute_metrics_from_canonical(
+        self,
+        df: pd.DataFrame,
+        metadata: Dict,
+    ) -> Dict:
+        """Compute derived metrics from canonical records and metadata."""
+        metrics: Dict[str, Optional[float | int | str]] = {}
+        metrics.update(self._compute_time_bounds(df, metadata))
+
+        duration_sec = metrics.get("duration_sec") or metadata.get("duration_sec")
+        metrics.update(self._compute_distance_metrics(df, metadata))
+        metrics.update(self._compute_speed_metrics(df))
+
+        hr = pd.to_numeric(df.get("heart_rate_bpm"), errors="coerce").dropna()
+        power = pd.to_numeric(df.get("power_watts"), errors="coerce").dropna()
+        cadence = pd.to_numeric(df.get("cadence_rpm"), errors="coerce").dropna()
+
+        metrics.update(self._compute_hr_metrics(hr))
+        metrics.update(self._compute_power_metrics(power))
+        metrics.update(self._compute_cadence_metrics(cadence))
+        metrics.update(self._compute_missing_pct(metrics, duration_sec))
+
+        if not hr.empty:
+            metrics.update(self._compute_hr_zones_from_series(hr))
+        if not power.empty:
+            metrics.update(self._compute_power_zones_from_series(power))
+            metrics.update(self._compute_training_load(metrics, duration_sec))
+            metrics.update(self._compute_aerobic_efficiency(hr, power, duration_sec))
+
+        return {k: v for k, v in metrics.items() if v is not None}
+
+    @staticmethod
+    def _compute_time_bounds(df: pd.DataFrame, metadata: Dict) -> Dict[str, float | str]:
+        metrics: Dict[str, float | str] = {}
+        timestamps = pd.to_datetime(df.get("timestamp_utc"), errors="coerce", utc=True)
+        timestamps = timestamps.dropna()
+
+        if "start_time_utc" not in metadata and not timestamps.empty:
+            metrics["start_time_utc"] = timestamps.min().isoformat()
+
+        elapsed = pd.to_numeric(df.get("elapsed_sec"), errors="coerce").dropna()
+        duration_sec = metadata.get("duration_sec")
+        if duration_sec is None:
+            if not elapsed.empty:
+                duration_sec = float(elapsed.max())
+            elif len(timestamps) >= 2:
+                duration_sec = float((timestamps.max() - timestamps.min()).total_seconds())
+        if duration_sec is not None:
+            metrics["duration_sec"] = duration_sec
+            if metadata.get("moving_time_sec") is None:
+                metrics["moving_time_sec"] = duration_sec
+
+        return metrics
+
+    @staticmethod
+    def _compute_distance_metrics(df: pd.DataFrame, metadata: Dict) -> Dict[str, float]:
+        metrics: Dict[str, float] = {}
+        distance = pd.to_numeric(df.get("distance_m"), errors="coerce").dropna()
+        if metadata.get("distance_m") is None and not distance.empty:
+            metrics["distance_m"] = float(distance.max())
+
+        elevation = pd.to_numeric(df.get("elevation_m"), errors="coerce").dropna()
+        if elevation.size >= 2:
+            diffs = np.diff(elevation.to_numpy())
+            metrics["elevation_gain_m"] = float(np.sum(diffs[diffs > 0]))
+            metrics["elevation_loss_m"] = float(abs(np.sum(diffs[diffs < 0])))
+
+        return metrics
+
+    @staticmethod
+    def _compute_speed_metrics(df: pd.DataFrame) -> Dict[str, float]:
+        metrics: Dict[str, float] = {}
+        speed = pd.to_numeric(df.get("speed_mps"), errors="coerce").dropna()
+        if not speed.empty:
+            metrics["avg_speed_mps"] = float(np.round(speed.mean(), 2))
+            metrics["max_speed_mps"] = float(speed.max())
+        return metrics
+
+    @staticmethod
+    def _compute_hr_metrics(hr: pd.Series) -> Dict[str, float | int]:
+        if hr.empty:
+            return {}
+        return {
+            "hr_avg_bpm": float(np.round(hr.mean(), 1)),
+            "hr_max_bpm": float(hr.max()),
+            "hr_min_bpm": float(hr.min()),
+            "hr_samples_count": int(hr.size),
+        }
+
+    @staticmethod
+    def _compute_power_metrics(power: pd.Series) -> Dict[str, float | int]:
+        if power.empty:
+            return {}
+
+        metrics: Dict[str, float | int] = {
+            "pwr_avg_watts": float(np.round(power.mean(), 1)),
+            "pwr_max_watts": float(power.max()),
+            "pwr_samples_count": int(power.size),
+        }
+
+        if power.size >= 30:
+            np_sum = np.mean(np.power(power.to_numpy(), 4))
+            if np_sum > 0:
+                metrics["pwr_normalized_watts"] = float(np.round(np_sum ** 0.25, 1))
+
+        if metrics.get("pwr_normalized_watts") and metrics.get("pwr_avg_watts"):
+            avg_power = metrics["pwr_avg_watts"]
+            if avg_power and avg_power > 0:
+                metrics["pwr_variability_index"] = round(
+                    metrics["pwr_normalized_watts"] / avg_power, 2
+                )
+
+        return metrics
+
+    @staticmethod
+    def _compute_cadence_metrics(cadence: pd.Series) -> Dict[str, float | int]:
+        if cadence.empty:
+            return {}
+        return {
+            "cad_avg_rpm": float(np.round(cadence.mean(), 1)),
+            "cad_max_rpm": float(cadence.max()),
+            "cad_samples_count": int(cadence.size),
+        }
+
+    @staticmethod
+    def _compute_missing_pct(metrics: Dict, duration_sec: Optional[float]) -> Dict[str, float]:
+        if not duration_sec:
+            return {}
+        expected = duration_sec
+        if expected <= 0:
+            return {}
+
+        missing: Dict[str, float] = {}
+        hr_samples = metrics.get("hr_samples_count")
+        pwr_samples = metrics.get("pwr_samples_count")
+        if hr_samples:
+            missing["hr_missing_pct"] = round((1 - hr_samples / expected) * 100, 1)
+        if pwr_samples:
+            missing["pwr_missing_pct"] = round((1 - pwr_samples / expected) * 100, 1)
+        return missing
+
+    def _compute_hr_zones_from_series(self, hr: pd.Series) -> Dict[str, float]:
+        hr_cfg = Config.hr_config()
+        zone_basis = hr_cfg.basis
+        hr_rest = hr_cfg.resting_hr_bpm
+
+        if zone_basis == "LTHR":
+            ref_bpm = hr_cfg.lthr_bpm
+        elif zone_basis == "HRR":
+            ref_bpm = hr_cfg.hr_max_bpm
+        else:
+            ref_bpm = hr_cfg.hr_max_bpm
+
+        if not ref_bpm:
+            ref_bpm = float(hr.max()) if not hr.empty else None
+        if not ref_bpm:
+            return {}
+
+        zones = self._get_hr_zones(zone_basis, ref_bpm, hr_rest)
+        if not zones:
+            return {}
+
+        hrs_array = hr.to_numpy(dtype=float)
+        zone_bounds = list(zones.values())
+        lows = np.array([low for low, _ in zone_bounds], dtype=float)
+        highs = np.array([high for _, high in zone_bounds], dtype=float)
+        in_range = (hrs_array >= lows[0]) & (hrs_array <= highs[-1])
+        hrs_valid = hrs_array[in_range]
+        if hrs_valid.size:
+            bin_indices = np.digitize(hrs_valid, highs, right=True)
+            counts = np.bincount(bin_indices, minlength=len(highs))[:len(highs)]
+        else:
+            counts = np.zeros(len(highs), dtype=int)
+
+        metrics: Dict[str, float] = {}
+        total_sec = 0
+        for i, (zone_name, (low, high)) in enumerate(zones.items(), 1):
+            count = int(counts[i - 1])
+            metrics[f"{zone_name}_sec"] = count
+            metrics[f"hr_z{i}_low_bpm"] = float(low)
+            metrics[f"hr_z{i}_high_bpm"] = float(high)
+            total_sec += count
+
+        metrics["hr_zone_total_sec"] = total_sec
+        metrics["hr_zone_basis"] = zone_basis
+        metrics["hr_zone_reference_bpm"] = float(ref_bpm)
+        metrics["hr_zone_model"] = "coggan" if zone_basis == "LTHR" else "karvonen"
+        return metrics
+
+    def _get_hr_zones(
+        self,
+        zone_basis: str,
+        reference_bpm: float,
+        hr_rest: Optional[float] = None,
+    ) -> Dict[str, tuple]:
+        if zone_basis == "HRmax":
+            return {
+                "hr_z1": (int(reference_bpm * 0.50), int(reference_bpm * 0.60)),
+                "hr_z2": (int(reference_bpm * 0.60), int(reference_bpm * 0.70)),
+                "hr_z3": (int(reference_bpm * 0.70), int(reference_bpm * 0.80)),
+                "hr_z4": (int(reference_bpm * 0.80), int(reference_bpm * 0.90)),
+                "hr_z5": (int(reference_bpm * 0.90), int(reference_bpm * 1.00)),
+            }
+        if zone_basis == "LTHR":
+            return {
+                "hr_z1": (int(reference_bpm * 0.65), int(reference_bpm * 0.81)),
+                "hr_z2": (int(reference_bpm * 0.81), int(reference_bpm * 0.90)),
+                "hr_z3": (int(reference_bpm * 0.90), int(reference_bpm * 0.94)),
+                "hr_z4": (int(reference_bpm * 0.94), int(reference_bpm * 1.00)),
+                "hr_z5": (int(reference_bpm * 1.00), int(reference_bpm * 1.06)),
+            }
+        if zone_basis == "HRR":
+            rest_hr = hr_rest if hr_rest else 60
+            hr_reserve = reference_bpm - rest_hr
+            return {
+                "hr_z1": (int(hr_reserve * 0.50 + rest_hr), int(hr_reserve * 0.60 + rest_hr)),
+                "hr_z2": (int(hr_reserve * 0.60 + rest_hr), int(hr_reserve * 0.70 + rest_hr)),
+                "hr_z3": (int(hr_reserve * 0.70 + rest_hr), int(hr_reserve * 0.80 + rest_hr)),
+                "hr_z4": (int(hr_reserve * 0.80 + rest_hr), int(hr_reserve * 0.90 + rest_hr)),
+                "hr_z5": (int(hr_reserve * 0.90 + rest_hr), int(hr_reserve * 1.00 + rest_hr)),
+            }
+        return {}
+
+    def _compute_power_zones_from_series(
+        self,
+        power: pd.Series,
+    ) -> Dict[str, float]:
+        pwr_cfg = Config.power_config()
+        ftp = pwr_cfg.ftp_watts or 250
+        zones = {
+            "pwr_z1": (0, int(ftp * 0.55)),
+            "pwr_z2": (int(ftp * 0.55), int(ftp * 0.75)),
+            "pwr_z3": (int(ftp * 0.75), int(ftp * 0.90)),
+            "pwr_z4": (int(ftp * 0.90), int(ftp * 1.05)),
+            "pwr_z5": (int(ftp * 1.05), int(ftp * 1.20)),
+            "pwr_z6": (int(ftp * 1.20), int(ftp * 1.50)),
+            "pwr_z7": (int(ftp * 1.50), 99999),
+        }
+
+        powers_array = power.to_numpy(dtype=float)
+        zone_bounds = list(zones.values())
+        lows = np.array([low for low, _ in zone_bounds], dtype=float)
+        highs = np.array([high for _, high in zone_bounds], dtype=float)
+        in_range = (powers_array >= lows[0]) & (powers_array <= highs[-1])
+        powers_valid = powers_array[in_range]
+        if powers_valid.size:
+            bin_indices = np.digitize(powers_valid, highs, right=False)
+            counts = np.bincount(bin_indices, minlength=len(highs))[:len(highs)]
+        else:
+            counts = np.zeros(len(highs), dtype=int)
+
+        metrics: Dict[str, float] = {}
+        total_sec = 0
+        for i, (zone_name, (low, high)) in enumerate(zones.items(), 1):
+            count = int(counts[i - 1])
+            metrics[f"{zone_name}_sec"] = count
+            metrics[f"pwr_z{i}_low_w"] = float(low)
+            metrics[f"pwr_z{i}_high_w"] = float(high if high != 99999 else ftp * 2)
+            total_sec += count
+
+        metrics["pwr_zone_total_sec"] = total_sec
+        metrics["low_aerobic_sec"] = metrics.get("pwr_z1_sec", 0) + metrics.get("pwr_z2_sec", 0)
+        metrics["intensity_sec"] = sum(
+            metrics.get(f"pwr_z{i}_sec", 0) for i in range(4, 8)
+        )
+        metrics["pwr_zone_model"] = "coggan_7"
+        metrics["ftp_watts"] = ftp
+        return metrics
+
+    @staticmethod
+    def _compute_training_load(metrics: Dict, duration_sec: Optional[float]) -> Dict[str, float]:
+        normalized_power = metrics.get("pwr_normalized_watts")
+        ftp = metrics.get("ftp_watts")
+
+        if not normalized_power or not duration_sec or not ftp or ftp <= 0:
+            return {}
+
+        intensity_factor = normalized_power / ftp
+        duration_hours = duration_sec / 3600
+        tss = (duration_hours * normalized_power * intensity_factor * 100) / ftp
+
+        return {
+            "intensity_factor": round(intensity_factor, 3),
+            "tss": round(tss, 1),
+        }
+
+    @staticmethod
+    def _compute_aerobic_efficiency(
+        hr: pd.Series,
+        power: pd.Series,
+        duration_sec: Optional[float],
+    ) -> Dict[str, float]:
+        if not duration_sec or duration_sec < 1800:
+            return {}
+
+        if hr.empty or power.empty or len(hr) < 30 or len(power) < 30:
+            return {}
+
+        min_len = min(len(hr), len(power))
+        hrs_array = hr.to_numpy(dtype=float)[:min_len]
+        powers_array = power.to_numpy(dtype=float)[:min_len]
+
+        mid_point = min_len // 2
+        hrs_first = hrs_array[:mid_point]
+        powers_first = powers_array[:mid_point]
+        hrs_second = hrs_array[mid_point:]
+        powers_second = powers_array[mid_point:]
+
+        avg_hr_first = float(np.mean(hrs_first))
+        avg_pwr_first = float(np.mean(powers_first))
+        avg_hr_second = float(np.mean(hrs_second))
+        avg_pwr_second = float(np.mean(powers_second))
+
+        if avg_hr_first <= 0 or avg_hr_second <= 0:
+            return {}
+
+        ef_first = avg_pwr_first / avg_hr_first
+        ef_second = avg_pwr_second / avg_hr_second
+        ef_overall = (avg_pwr_first + avg_pwr_second) / (avg_hr_first + avg_hr_second)
+        hr_drift = avg_hr_second - avg_hr_first
+
+        metrics = {
+            "ef_first_half": round(ef_first, 3),
+            "ef_second_half": round(ef_second, 3),
+            "ef_overall": round(ef_overall, 3),
+            "hr_drift_bpm": round(hr_drift, 1),
+        }
+        if ef_first > 0:
+            metrics["decoupling_pct"] = round(((ef_second / ef_first) - 1) * 100, 2)
+        return metrics
+
+    def _load_stored_laps(self, workout_entity: WorkoutEntity) -> Optional[List[Dict]]:
+        if workout_entity.canonical_laps_blob:
+            try:
+                df = self.storage.load_canonical_laps(workout_entity.canonical_laps_blob)
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                logger.warning("Failed to load canonical laps %s: %s", workout_entity.canonical_laps_blob, exc)
+                df = pd.DataFrame()
+            if not df.empty:
+                return df.to_dict(orient="records")
+
+        laps = self.storage.get_workout_laps(workout_entity.workout_id)
         if not laps:
             return None
 
@@ -542,6 +914,32 @@ class SemanticLayer:
             entity = entities[0]
             if entity.get("athlete_id") != athlete_id:
                 return None
+
+            workout_entity = WorkoutEntity.from_table_entity(entity)
+
+            if workout_entity.canonical_laps_blob:
+                laps_df = self.storage.load_canonical_laps(workout_entity.canonical_laps_blob)
+                if laps_df.empty:
+                    return None
+                lap_rows = laps_df[laps_df["lap_index"] == lap_index]
+                if lap_rows.empty:
+                    return None
+                lap_payload = lap_rows.iloc[0].to_dict()
+
+                records = []
+                if workout_entity.canonical_records_blob:
+                    records_df = self.storage.load_canonical_records(workout_entity.canonical_records_blob)
+                    if not records_df.empty:
+                        records = self._slice_records_for_lap(records_df, lap_payload)
+
+                return {
+                    "workout_id": workout_id,
+                    "athlete_id": athlete_id,
+                    "lap_index": lap_index,
+                    **lap_payload,
+                    "record_count": len(records),
+                    "records": records,
+                }
 
             lap_entity = self.storage.get_workout_lap(workout_id, lap_index)
             if not lap_entity:
@@ -709,6 +1107,44 @@ class SemanticLayer:
                 pass
 
         return str(tokens["access_token"])
+
+    def _slice_records_for_lap(
+        self,
+        records_df: pd.DataFrame,
+        lap_payload: Dict,
+    ) -> List[Dict]:
+        """Return canonical records that fall within a lap window."""
+        if records_df.empty:
+            return []
+
+        filtered = records_df
+        start_time = lap_payload.get("start_time_utc")
+        elapsed_sec = lap_payload.get("elapsed_sec")
+
+        if start_time:
+            start_dt = pd.to_datetime(start_time, errors="coerce", utc=True)
+            if pd.notna(start_dt):
+                if elapsed_sec is not None:
+                    end_dt = start_dt + pd.to_timedelta(float(elapsed_sec), unit="s")
+                    ts = pd.to_datetime(filtered.get("timestamp_utc"), errors="coerce", utc=True)
+                    filtered = filtered[(ts >= start_dt) & (ts <= end_dt)]
+                else:
+                    ts = pd.to_datetime(filtered.get("timestamp_utc"), errors="coerce", utc=True)
+                    filtered = filtered[ts >= start_dt]
+
+        records = []
+        for _, row in filtered.iterrows():
+            records.append({
+                "timestamp_utc": row.get("timestamp_utc"),
+                "elapsed_sec": row.get("elapsed_sec"),
+                "power_watts": row.get("power_watts"),
+                "heart_rate_bpm": row.get("heart_rate_bpm"),
+                "cadence_rpm": row.get("cadence_rpm"),
+                "speed_mps": row.get("speed_mps"),
+                "distance_m": row.get("distance_m"),
+                "elevation_m": row.get("elevation_m"),
+            })
+        return records
 
     def _extract_laps(self, adapter: FitAdapter) -> List[Dict]:
         laps: List[Dict] = []

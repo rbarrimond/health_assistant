@@ -158,10 +158,6 @@ class FitParser:
                 session.start_time_utc if session else None,
                 self._get_start_time
             ),
-            "end_time_utc": self._session_or_fallback(
-                session.end_time_utc if session else None,
-                self._get_end_time
-            ),
             "timezone": self._session_or_fallback(
                 session.timezone if session else None, self._get_timezone
             ),
@@ -292,6 +288,206 @@ class FitParser:
         lap_windows = self._build_lap_windows(laps)
         self._assign_records_to_laps(lap_windows)
         return self._finalize_lap_records(lap_windows)
+
+    def extract_canonical_records(self) -> List[Dict[str, Any]]:
+        """Extract Section I canonical substrate records for parquet storage."""
+        if not self.fit:
+            self._load_fit_sources()
+        start_dt = self._canonical_start_dt()
+
+        records: List[Dict[str, Any]] = []
+        for record in self.fit.get_messages("record") if self.fit else []:
+            payload = self._build_canonical_record(record, start_dt)
+            if payload:
+                records.append(payload)
+
+        return records
+
+    def extract_canonical_laps(self) -> List[Dict[str, Any]]:
+        """Extract lap summaries for parquet storage."""
+        if not self.fit:
+            self._load_fit_sources()
+
+        laps = list(self.fit.get_messages("lap")) if self.fit else []
+        if not laps:
+            return []
+
+        canonical_laps: List[Dict[str, Any]] = []
+        for idx, msg in enumerate(laps):
+            start_time = self._get_field_from_msg(msg, "start_time")
+            start_iso = None
+            if isinstance(start_time, datetime):
+                start_iso = start_time.astimezone(timezone.utc).isoformat()
+
+            total_elapsed = self._get_field_from_msg(msg, "total_elapsed_time")
+            total_timer = self._get_field_from_msg(msg, "total_timer_time")
+            total_distance = self._get_field_from_msg(msg, "total_distance")
+            total_calories = self._get_field_from_msg(msg, "total_calories")
+
+            canonical_laps.append({
+                "lap_index": idx,
+                "start_time_utc": start_iso,
+                "elapsed_sec": float(total_elapsed) if total_elapsed is not None else None,
+                "moving_time_sec": float(total_timer) if total_timer is not None else None,
+                "distance_m": float(total_distance) if total_distance is not None else None,
+                "calories_kcal": float(total_calories) if total_calories is not None else None,
+                "avg_heart_rate_bpm": self._get_field_from_msg(msg, "avg_heart_rate"),
+                "max_heart_rate_bpm": self._get_field_from_msg(msg, "max_heart_rate"),
+                "avg_power_watts": self._get_field_from_msg(msg, "avg_power"),
+                "max_power_watts": self._get_field_from_msg(msg, "max_power"),
+                "avg_cadence_rpm": self._get_field_from_msg(msg, "avg_cadence"),
+                "max_cadence_rpm": self._get_field_from_msg(msg, "max_cadence"),
+            })
+
+        return canonical_laps
+
+    def extract_canonical_metadata(self) -> Dict[str, Any]:
+        """Extract canonical FIT metadata from file, device, event, activity, session."""
+        if not self.fit:
+            self._load_fit_sources()
+        metadata: Dict[str, Any] = {}
+        metadata.update(self._build_canonical_session_metadata())
+        metadata.update(self._build_canonical_file_metadata())
+        metadata.update(self._build_canonical_activity_metadata())
+
+        return {k: v for k, v in metadata.items() if v is not None}
+
+    def _canonical_start_dt(self) -> Optional[datetime]:
+        start_time = self._get_start_time()
+        if not start_time:
+            return None
+        try:
+            return datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+    def _build_canonical_record(
+        self,
+        record,
+        start_dt: Optional[datetime],
+    ) -> Optional[Dict[str, Any]]:
+        timestamp = self._normalize_record_timestamp(
+            self._get_field_from_msg(record, "timestamp")
+        )
+        if not timestamp:
+            return None
+
+        timestamp_utc = timestamp.astimezone(timezone.utc).isoformat()
+        elapsed_sec = None
+        if start_dt is not None:
+            elapsed_sec = (timestamp - start_dt).total_seconds()
+
+        power = self._get_field_from_msg(record, "power")
+        heart_rate = self._get_field_from_msg(record, "heart_rate")
+        cadence = self._get_field_from_msg(record, "cadence")
+        speed = (
+            self._get_field_from_msg(record, "enhanced_speed")
+            or self._get_field_from_msg(record, "speed")
+        )
+        distance = (
+            self._get_field_from_msg(record, "enhanced_distance")
+            or self._get_field_from_msg(record, "distance")
+        )
+        elevation = (
+            self._get_field_from_msg(record, "enhanced_altitude")
+            or self._get_field_from_msg(record, "altitude")
+        )
+
+        return {
+            "timestamp_utc": timestamp_utc,
+            "elapsed_sec": float(elapsed_sec) if elapsed_sec is not None else None,
+            "power_watts": float(power) if power is not None else None,
+            "heart_rate_bpm": float(heart_rate) if heart_rate is not None else None,
+            "cadence_rpm": float(cadence) if cadence is not None else None,
+            "speed_mps": float(speed) if speed is not None else None,
+            "distance_m": float(distance) if distance is not None else None,
+            "elevation_m": float(elevation) if elevation is not None else None,
+        }
+
+    def _build_canonical_session_metadata(self) -> Dict[str, Any]:
+        session = self.workout.session if self.workout else None
+        if session:
+            return {
+                "sport": session.sport,
+                "sub_sport": session.sub_sport,
+                "apple_workout_type": session.apple_workout_type,
+                "workout_name": session.workout_name,
+                "is_indoor": session.is_indoor,
+                "start_time_utc": session.start_time_utc,
+                "timezone": session.timezone,
+                "duration_sec": session.duration_sec,
+                "moving_time_sec": session.moving_time_sec,
+                "distance_m": session.distance_m,
+                "elevation_gain_m": session.elevation_gain_m,
+                "elevation_loss_m": session.elevation_loss_m,
+                "avg_speed_mps": session.avg_speed_mps,
+                "max_speed_mps": session.max_speed_mps,
+                "calories_kcal": session.calories_kcal,
+                "device_name": self._get_device_name(),
+            }
+
+        return {
+            "sport": self._get_sport(),
+            "sub_sport": self._get_sub_sport(),
+            "apple_workout_type": None,
+            "workout_name": self._get_workout_name(),
+            "is_indoor": self._get_is_indoor(),
+            "start_time_utc": self._get_start_time(),
+            "timezone": self._get_timezone(),
+            "duration_sec": self._get_duration(),
+            "moving_time_sec": self._get_moving_time(),
+            "distance_m": self._get_distance(),
+            "elevation_gain_m": self._get_elevation_gain(),
+            "elevation_loss_m": self._get_elevation_loss(),
+            "avg_speed_mps": self._get_avg_speed(),
+            "max_speed_mps": self._get_max_speed(),
+            "calories_kcal": self._get_calories(),
+            "device_name": self._get_device_name(),
+        }
+
+    def _build_canonical_file_metadata(self) -> Dict[str, Any]:
+        metadata: Dict[str, Any] = {}
+        file_created = self._get_field_from_msg(self.file_id_msg, "time_created")
+        if isinstance(file_created, datetime):
+            metadata["file_time_created_utc"] = file_created.astimezone(timezone.utc).isoformat()
+
+        file_manufacturer = self._get_field_from_msg(self.file_id_msg, "manufacturer")
+        if file_manufacturer is not None:
+            metadata["file_manufacturer"] = (
+                str(file_manufacturer.name) if hasattr(file_manufacturer, "name") else str(file_manufacturer)
+            )
+
+        file_product = self._get_field_from_msg(self.file_id_msg, "product")
+        if file_product is not None:
+            metadata["file_product"] = str(file_product)
+
+        file_serial = self._get_field_from_msg(self.file_id_msg, "serial_number")
+        if file_serial is not None:
+            metadata["file_serial_number"] = str(file_serial)
+
+        return metadata
+
+    def _build_canonical_activity_metadata(self) -> Dict[str, Any]:
+        metadata: Dict[str, Any] = {}
+        activity_msg = None
+        for msg in self.fit.get_messages("activity") if self.fit else []:
+            activity_msg = msg
+            break
+        if not activity_msg:
+            return metadata
+
+        activity_timestamp = self._get_field_from_msg(activity_msg, "timestamp")
+        if isinstance(activity_timestamp, datetime):
+            metadata["activity_timestamp_utc"] = activity_timestamp.astimezone(timezone.utc).isoformat()
+
+        activity_local = (
+            self._get_raw_field_from_msg(activity_msg, "local_time")
+            or self._get_raw_field_from_msg(activity_msg, "local_timestamp")
+        )
+        if isinstance(activity_local, datetime):
+            metadata["activity_local_time"] = activity_local.isoformat()
+
+        return metadata
 
     def _build_lap_windows(self, laps: List) -> List[Dict[str, Any]]:
         summary_fields = [
@@ -472,16 +668,6 @@ class FitParser:
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
             return dt.astimezone(timezone.utc).isoformat()
-        return None
-
-    def _get_end_time(self) -> Optional[str]:
-        """Calculate end time from start + duration."""
-        start = self._get_start_time()
-        duration = self._get_duration()
-        if start and duration:
-            dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
-            end_dt = dt + timedelta(seconds=duration)
-            return end_dt.isoformat()
         return None
 
     def _get_timezone(self) -> Optional[str]:

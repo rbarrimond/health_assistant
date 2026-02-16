@@ -1,35 +1,78 @@
 # Workout Metrics Schema — Azure Table Storage
 
-Version: 6.1.0
+Version: 7.0.0
 
 This schema is designed to support:
 
-- ad hoc queries (last 45 days, last 12 weeks, etc.)
-- trend analysis (Z2 volume, intensity balance, drift/decoupling trends)
+- a canonical substrate stored as parquet (Section I)
+- semantic layer queries without changing the API surface
 - workout planning context payloads
-- clean Power BI usage (columnar fields, minimal JSON)
 
 It assumes:
 
 - **OneDrive Personal** holds the raw `.fit` files (`/Apps/Apps/HealthFit/*.fit`)
-- **Python ingestion** parses FIT and writes **deterministic metrics**
-- **Azure Table Storage** stores the metric entities
+- **Python ingestion** parses FIT and writes canonical parquet + metadata
+- **Azure Table Storage** stores workout metadata + parquet pointers
 
 ---
 
 ## Tables
 
-1. `Workouts` — **one entity per workout** (primary fact table)
-2. `WorkoutLaps` — **one entity per lap** (summary + blob pointer)
-3. `WeeklyRollups` — **one entity per week** (optional but recommended)
-4. `IngestionState` — **idempotency + operational tracking** (recommended)
-5. `Physiometrics` — **body and fitness metrics** (FTP, weight, LTHR, etc.)
-6. `AgentPreferences` — **user training preferences and goals** (agent memory)
-7. `AgentObservations` — **training patterns and observations** (agent memory)
+1. `Workouts` — **one entity per workout** (metadata + parquet pointers)
+2. `WeeklyRollups` — **one entity per week** (optional but recommended)
+3. `IngestionState` — **idempotency + operational tracking** (recommended)
+4. `Physiometrics` — **body and fitness metrics** (FTP, weight, LTHR, etc.)
+5. `AgentPreferences` — **user training preferences and goals** (agent memory)
+6. `AgentObservations` — **training patterns and observations** (agent memory)
+
+> **Note:** `WorkoutLaps` and `lap-records` are legacy stores. Laps now live in parquet.
 
 > **Note:** Tables 5-6 are part of the Agent Memory System. See [AGENT_MEMORY.md](./AGENT_MEMORY.md) for details.
 
 ---
+
+## Canonical Substrate (Parquet)
+
+Canonical records are stored as parquet in Azure Blob Storage and represent the
+lowest-level substrate for derived metrics.
+
+**Container:** `canonical-substrate`
+
+**Blob name:** `{workout_id}/canonical-records.parquet`
+
+### Section I Fields
+
+|Field|Type|Required|Description|
+|---|---:|:---:|---|
+|timestamp_utc|datetime (ISO string)|✅|Record timestamp UTC|
+|elapsed_sec|float|⛔️|Elapsed seconds since workout start|
+|power_watts|float|⛔️|Instantaneous power|
+|heart_rate_bpm|float|⛔️|Instantaneous heart rate|
+|cadence_rpm|float|⛔️|Instantaneous cadence|
+|speed_mps|float|⛔️|Instantaneous speed|
+|distance_m|float|⛔️|Cumulative distance|
+|elevation_m|float|⛔️|Instantaneous elevation|
+
+### Canonical Laps (Parquet)
+
+**Container:** `canonical-laps`
+
+**Blob name:** `{workout_id}/canonical-laps.parquet`
+
+|Field|Type|Required|Description|
+|---|---:|:---:|---|
+|lap_index|int|✅|Lap sequence index|
+|start_time_utc|datetime (ISO string)|⛔️|Lap start UTC|
+|elapsed_sec|float|⛔️|Lap elapsed seconds|
+|moving_time_sec|float|⛔️|Lap moving time seconds|
+|distance_m|float|⛔️|Lap distance meters|
+|calories_kcal|float|⛔️|Lap calories|
+|avg_heart_rate_bpm|float|⛔️|Average HR|
+|max_heart_rate_bpm|float|⛔️|Max HR|
+|avg_power_watts|float|⛔️|Average power|
+|max_power_watts|float|⛔️|Max power|
+|avg_cadence_rpm|float|⛔️|Average cadence|
+|max_cadence_rpm|float|⛔️|Max cadence|
 
 ## 1) Workouts Table
 
@@ -73,7 +116,6 @@ Preferred order:
 |Field|Type|Required|Description|
 |---|---:|:---:|---|
 |start_time_utc|datetime (ISO string)|✅|Workout start time UTC, e.g. `2026-01-07T23:15:00+00:00`|
-|end_time_utc|datetime (ISO string)|⛔️|Derived end time UTC|
 |timezone|string|⛔️|Source timezone if available (UTC offset like `UTC-05:00`)|
 |duration_sec|int|✅|Total elapsed duration (seconds)|
 |moving_time_sec|int|⛔️|Moving time if derivable (cycling often equals duration)|
@@ -83,13 +125,32 @@ Preferred order:
 |workout_name|string|⛔️|Workout title (HealthFit/Strava/Garmin name)|
 |device_name|string|⛔️|Device model if present|
 |is_indoor|bool|⛔️|Indoor flag if derivable|
-|has_gps|bool|⛔️|Whether GPS track exists|
+
+### Canonical parquet pointers
+
+|Field|Type|Required|Description|
+|---|---:|:---:|---|
+|canonical_records_blob|string|✅|Blob path for canonical records parquet|
+|canonical_laps_blob|string|⛔️|Blob path for canonical laps parquet|
+|records_count|int|⛔️|Number of canonical records|
+|laps_count|int|⛔️|Number of canonical laps|
+
+### FIT metadata (File / Device / Activity)
+
+|Field|Type|Required|Description|
+|---|---:|:---:|---|
+|file_time_created_utc|datetime (ISO string)|⛔️|FIT file creation time|
+|file_manufacturer|string|⛔️|FIT file manufacturer name|
+|file_product|string|⛔️|FIT file product identifier|
+|file_serial_number|string|⛔️|FIT file serial number|
+|activity_timestamp_utc|datetime (ISO string)|⛔️|Activity timestamp UTC|
+|activity_local_time|datetime (ISO string)|⛔️|Activity local timestamp (local timezone, no UTC conversion)|
 
 ---
 
-## 2) WorkoutLaps Table
+## 2) WorkoutLaps Table (Legacy)
 
-Stores lap summaries and the blob pointer for per-lap record payloads.
+Legacy lap summaries and record blobs. New ingestion uses canonical laps parquet.
 
 ### Keying strategy
 
@@ -133,7 +194,10 @@ Stores lap summaries and the blob pointer for per-lap record payloads.
 
 ---
 
-### Distance / elevation / energy
+### Distance / elevation / energy (derived)
+
+These fields are computed from canonical records and are **not stored** in the
+Workouts table.
 
 |Field|Type|Required|Description|
 |---|---:|:---:|---|
@@ -146,7 +210,7 @@ Stores lap summaries and the blob pointer for per-lap record payloads.
 
 ---
 
-### Heart rate summary
+### Heart rate summary (derived)
 
 |Field|Type|Required|Description|
 |---|---:|:---:|---|
@@ -158,7 +222,7 @@ Stores lap summaries and the blob pointer for per-lap record payloads.
 
 ---
 
-### Power summary (cycling)
+### Power summary (cycling, derived)
 
 |Field|Type|Required|Description|
 |---|---:|:---:|---|
@@ -171,7 +235,7 @@ Stores lap summaries and the blob pointer for per-lap record payloads.
 
 ---
 
-### Cadence summary
+### Cadence summary (derived)
 
 |Field|Type|Required|Description|
 |---|---:|:---:|---|
@@ -181,7 +245,7 @@ Stores lap summaries and the blob pointer for per-lap record payloads.
 
 ---
 
-### Training load / intensity (optional but useful)
+### Training load / intensity (derived, optional but useful)
 
 |Field|Type|Required|Description|
 |---|---:|:---:|---|
@@ -192,7 +256,7 @@ Stores lap summaries and the blob pointer for per-lap record payloads.
 
 ---
 
-## Zone Definitions (stored per-workout for interpretability)
+## Zone Definitions (derived per-workout for interpretability)
 
 ### HR zone definition fields
 

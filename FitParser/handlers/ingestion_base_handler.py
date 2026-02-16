@@ -4,7 +4,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Tuple
 
-from FitParser.fit_parser import FitParser
+from FitParser.fit_parser import FitParser, compute_workout_id
 from FitParser.table_storage import WorkoutTableStorage
 
 logger = logging.getLogger(__name__)
@@ -95,24 +95,37 @@ class FitIngestionBaseHandler(ABC):
             file_bytes=file_bytes,
             source_file_name=source_info.get("source_file_name"),
         )
-        metrics = parser.parse()
-        workout_id = self.storage.store_workout(
-            athlete_id, metrics, source_info
+        metadata = parser.extract_canonical_metadata()
+        workout_id = compute_workout_id(
+            source_item_id=source_info.get("source_item_id"),
+            file_sha256=source_info.get("file_sha256"),
+            file_path=source_info.get("source_file_path"),
+            file_name=source_info.get("source_file_name"),
+            start_time=metadata.get("start_time_utc"),
         )
-        lap_records = parser.extract_lap_records()
-        if lap_records:
-            self.storage.store_workout_laps(
-                athlete_id,
-                workout_id,
-                lap_records,
-            )
+
+        records = parser.extract_canonical_records()
+        laps = parser.extract_canonical_laps()
+        records_blob = self.storage.store_canonical_records(workout_id, records)
+        laps_blob = self.storage.store_canonical_laps(workout_id, laps)
+
+        self.storage.store_workout(
+            athlete_id,
+            metadata,
+            source_info,
+            workout_id=workout_id,
+            canonical_records_blob=records_blob,
+            canonical_laps_blob=laps_blob,
+            records_count=len(records),
+            laps_count=len(laps),
+        )
         self.storage.record_ingestion_state(
             athlete_id,
             source_info,
             status="ingested",
             workout_id=workout_id,
         )
-        return metrics, workout_id
+        return metadata, workout_id
 
     def _record_failure(
         self,

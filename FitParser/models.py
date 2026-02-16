@@ -28,7 +28,6 @@ class WorkoutSession(BaseModel):
     is_indoor: Optional[bool] = None
 
     start_time_utc: Optional[str] = None
-    end_time_utc: Optional[str] = None
     timezone: str = "UTC"
 
     duration_sec: Optional[int] = None
@@ -71,6 +70,36 @@ class RecordSample(BaseModel):
     position_long: Optional[float] = None
 
 
+class CanonicalRecord(BaseModel):
+    """Canonical substrate record (Section I) for parquet storage."""
+
+    timestamp_utc: str = Field(description=ISO_8601_UTC_DESC)
+    elapsed_sec: Optional[float] = Field(None, ge=0)
+    power_watts: Optional[float] = Field(None, ge=0)
+    heart_rate_bpm: Optional[float] = Field(None, ge=0)
+    cadence_rpm: Optional[float] = Field(None, ge=0)
+    speed_mps: Optional[float] = Field(None, ge=0)
+    distance_m: Optional[float] = Field(None, ge=0)
+    elevation_m: Optional[float] = Field(None)
+
+
+class CanonicalLap(BaseModel):
+    """Canonical lap summary for parquet storage."""
+
+    lap_index: int = Field(ge=0)
+    start_time_utc: Optional[str] = Field(None, description=ISO_8601_UTC_DESC)
+    elapsed_sec: Optional[float] = Field(None, ge=0)
+    moving_time_sec: Optional[float] = Field(None, ge=0)
+    distance_m: Optional[float] = Field(None, ge=0)
+    calories_kcal: Optional[float] = Field(None, ge=0)
+    avg_heart_rate_bpm: Optional[float] = Field(None, ge=0)
+    max_heart_rate_bpm: Optional[float] = Field(None, ge=0)
+    avg_power_watts: Optional[float] = Field(None, ge=0)
+    max_power_watts: Optional[float] = Field(None, ge=0)
+    avg_cadence_rpm: Optional[float] = Field(None, ge=0)
+    max_cadence_rpm: Optional[float] = Field(None, ge=0)
+
+
 class Workout(BaseModel):
     """Aggregated workout consisting of session summary, device, and samples."""
 
@@ -94,7 +123,6 @@ class SessionMetricsModel(BaseModel):
     device_name: Optional[str] = Field(None, description="Device manufacturer")
     is_indoor: Optional[bool] = Field(None, description="Indoor vs outdoor")
     start_time_utc: Optional[str] = Field(None, description="ISO 8601 UTC start time")
-    end_time_utc: Optional[str] = Field(None, description="ISO 8601 UTC end time")
     timezone: str = Field(default="UTC", description="Timezone of workout")
     duration_sec: Optional[float] = Field(None, ge=0, description="Total elapsed time seconds")
     moving_time_sec: Optional[float] = Field(None, ge=0, description="Active movement seconds")

@@ -148,13 +148,7 @@ class FitAdapter:
         duration = self._get_field_value(session_msg, "total_elapsed_time")
         duration_sec = int(duration) if duration is not None else None
 
-        end_iso = None
-        if start_iso and duration_sec:
-            dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
-            end_dt = dt + timedelta(seconds=duration_sec)
-            end_iso = end_dt.isoformat()
-
-        return start_iso, end_iso, duration_sec
+        return start_iso, duration_sec
 
     def _extract_timezone(self) -> str:
         """Extract timezone name or UTC offset from FIT messages.
@@ -306,7 +300,7 @@ class FitAdapter:
         """Build a WorkoutSession from cached messages."""
         session_msg = self.session_msg
         sport_name, sub_sport_name = self._extract_sport_names(session_msg)
-        start_iso, end_iso, duration_sec = self._extract_session_times(
+        start_iso, duration_sec = self._extract_session_times(
             session_msg)
         (distance_m, elev_gain_m, elev_loss_m,
          avg_speed_mps, max_speed_mps) = self._extract_session_metrics(session_msg)
@@ -353,7 +347,6 @@ class FitAdapter:
                 workout_name) if workout_name is not None else None,
             is_indoor=is_indoor_flag,
             start_time_utc=start_iso,
-            end_time_utc=end_iso,
             timezone=tz_value,
             duration_sec=duration_sec,
             moving_time_sec=moving_sec,

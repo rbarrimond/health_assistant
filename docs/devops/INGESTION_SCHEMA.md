@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 3.1.1
+Version: 4.0.0
 
 This document defines the ingestion payloads and the IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -10,6 +10,10 @@ It is intentionally explicit to avoid ambiguity between ingestion metadata and w
 - **Ingestion payloads** accepted by the ingestion entrypoints.
 - **IngestionState** table schema (idempotency + provenance + operational tracking).
 - **Workouts** provenance policy (what stays vs what moves to IngestionState).
+
+Ingestion now writes canonical parquet payloads (records + laps) and stores
+only metadata + blob pointers in the Workouts table. Derived metrics are
+computed on read.
 
 This document does **not** define the workout metrics schema. See WORKOUT_SCHEMA.md for that.
 
@@ -93,7 +97,7 @@ It is intentionally separate from Workouts to keep workout entities small and st
 
 ## Workouts Provenance Policy
 
-Workouts should only store minimal provenance used by downstream consumers.
+Workouts should only store minimal provenance and canonical parquet pointers.
 
 ### Allowed provenance fields in Workouts
 
@@ -101,6 +105,10 @@ Workouts should only store minimal provenance used by downstream consumers.
 | --- | --- | --- | --- |
 | source_system | string | Yes | Source system name (e.g., `HealthFit`). |
 | source_item_id | string | No | Stable source item ID (OneDrive item ID). |
+| canonical_records_blob | string | Yes | Blob path to canonical records parquet. |
+| canonical_laps_blob | string | No | Blob path to canonical laps parquet. |
+| records_count | int | No | Count of canonical records. |
+| laps_count | int | No | Count of canonical laps. |
 
 All other provenance fields belong in **IngestionState**.
 
@@ -147,13 +155,8 @@ currently enforce a single winner for these cases.
 
 ---
 
-## Lap Record Storage
+## Lap Record Storage (Legacy)
 
-When FIT lap messages are present, ingestion persists per-lap summaries and
-per-lap record payloads:
-
-- Lap summaries are stored in the `WorkoutLaps` table keyed by `workout_id`
-  and `lap_index`.
-- Per-lap record payloads are stored as JSON blobs in the `lap-records`
-  container using `{workout_id}/lap-XXXX.json` naming.
-- Each record includes a monotonic `record_index` for stable ordering.
+Legacy ingestion stored lap summaries in `WorkoutLaps` and per-lap record
+payloads as JSON blobs in `lap-records`. New ingestion writes canonical laps
+to parquet in `canonical-laps` and slices canonical records for lap detail.

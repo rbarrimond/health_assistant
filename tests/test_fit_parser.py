@@ -648,8 +648,6 @@ class TestAdapterIntegration:
         assert workout.session.is_indoor is True
         assert workout.session.start_time_utc is not None
         assert workout.session.start_time_utc.endswith("+00:00")
-        assert workout.session.end_time_utc is not None
-        assert workout.session.end_time_utc.endswith("+00:00")
         assert workout.session.duration_sec == 3600
         # pylint: disable=no-member
         assert workout.device.manufacturer_name == "garmin"
@@ -669,7 +667,6 @@ class TestFitParserWithEntities:
             workout_name="Commute",
             is_indoor=False,
             start_time_utc="2024-02-01T07:00:00+00:00",
-            end_time_utc="2024-02-01T08:00:00+00:00",
             duration_sec=3600,
             moving_time_sec=3500,
             distance_m=15000.0,

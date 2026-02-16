@@ -5,7 +5,7 @@
 | Timezone Semantics | Define athlete home timezone | First-class concept; authoritative for weeks, days, rollups | ⬜ | ⬜ |
 | Timezone Semantics | Interpret data in local time | Store UTC, interpret in athlete timezone | ⬜ | ⬜ |
 | Timezone Semantics | Hide UTC from UI | UTC never surfaced to athlete | ⬜ | ⬜ |
-| Semantic Layer | Document timestamp meaning | `start_time_utc` / `end_time_utc` are storage fields | ⬜ | ⬜ |
+| Semantic Layer | Document timestamp meaning | `start_time_utc` is storage field; end time computed from duration | ⬜ | ⬜ |
 | Semantic Layer | Document timezone usage | Contextual only; not grouping authority | ⬜ | ⬜ |
 | Semantic Layer | Rollup computation rule | Always use athlete home timezone | ⬜ | ⬜ |
 | Athlete Context | Set home timezone | `America/New_York` | ⬜ | ⬜ |

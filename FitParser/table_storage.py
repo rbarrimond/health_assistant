@@ -1,6 +1,7 @@
 """Azure Table Storage client for workout data."""
 # pylint: disable=too-many-lines
 
+import io
 import json
 import logging
 import os
@@ -8,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
+import pandas as pd
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 from azure.data.tables import TableClient, TableServiceClient
 from azure.identity import DefaultAzureCredential
@@ -15,9 +17,11 @@ from azure.storage.blob import BlobServiceClient
 
 from FitParser.fit_parser import compute_workout_id
 
-INGEST_VERSION = "v3.1.1"
+INGEST_VERSION = "v4.0.0"
 
 LAP_RECORDS_CONTAINER = "lap-records"
+CANONICAL_RECORDS_CONTAINER = "canonical-substrate"
+CANONICAL_LAPS_CONTAINER = "canonical-laps"
 WORKOUT_LAPS_TABLE = "WorkoutLaps"
 
 logger = logging.getLogger(__name__)
@@ -33,6 +37,10 @@ class WorkoutEntity:
     athlete_id: str
     source_system: str
     source_item_id: Optional[str]
+    canonical_records_blob: Optional[str] = None
+    canonical_laps_blob: Optional[str] = None
+    records_count: Optional[int] = None
+    laps_count: Optional[int] = None
     metrics: Dict = field(default_factory=dict)
 
     @classmethod
@@ -45,6 +53,10 @@ class WorkoutEntity:
             "athlete_id",
             "source_system",
             "source_item_id",
+            "canonical_records_blob",
+            "canonical_laps_blob",
+            "records_count",
+            "laps_count",
             "source_file_name",
             "source_file_path",
             "source_drive_id",
@@ -70,6 +82,10 @@ class WorkoutEntity:
             athlete_id=entity.get("athlete_id", ""),
             source_system=entity.get("source_system", ""),
             source_item_id=entity.get("source_item_id"),
+            canonical_records_blob=entity.get("canonical_records_blob"),
+            canonical_laps_blob=entity.get("canonical_laps_blob"),
+            records_count=entity.get("records_count"),
+            laps_count=entity.get("laps_count"),
             metrics=metrics,
         )
 
@@ -88,6 +104,10 @@ class WorkoutEntity:
             "athlete_id": self.athlete_id,
             "source_system": self.source_system,
             "source_item_id": self.source_item_id,
+            "canonical_records_blob": self.canonical_records_blob,
+            "canonical_laps_blob": self.canonical_laps_blob,
+            "records_count": self.records_count,
+            "laps_count": self.laps_count,
         }
 
         for key, value in self.metrics.items():
@@ -441,17 +461,23 @@ class WorkoutTableStorage:
                 raise
 
     def _ensure_blob_container(self) -> None:
-        try:
-            container_client = self._blob_service_client.get_container_client(
-                LAP_RECORDS_CONTAINER
-            )
-            container_client.create_container()
-            logger.info("Blob container %s ready", LAP_RECORDS_CONTAINER)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            if "ContainerAlreadyExists" in str(exc):
-                return
-            logger.error("Error creating blob container %s: %s", LAP_RECORDS_CONTAINER, exc)
-            raise
+        containers = [
+            LAP_RECORDS_CONTAINER,
+            CANONICAL_RECORDS_CONTAINER,
+            CANONICAL_LAPS_CONTAINER,
+        ]
+        for container in containers:
+            try:
+                container_client = self._blob_service_client.get_container_client(
+                    container
+                )
+                container_client.create_container()
+                logger.info("Blob container %s ready", container)
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                if "ContainerAlreadyExists" in str(exc):
+                    continue
+                logger.error("Error creating blob container %s: %s", container, exc)
+                raise
 
     def _get_table_client(self, table_name: str) -> TableClient:
         """Get table client for specified table."""
@@ -459,6 +485,78 @@ class WorkoutTableStorage:
 
     def _lap_blob_name(self, workout_id: str, lap_index: int) -> str:
         return f"{workout_id}/lap-{lap_index:04d}.json"
+
+    def _canonical_records_blob_name(self, workout_id: str) -> str:
+        return f"{workout_id}/canonical-records.parquet"
+
+    def _canonical_laps_blob_name(self, workout_id: str) -> str:
+        return f"{workout_id}/canonical-laps.parquet"
+
+    def store_canonical_records(
+        self,
+        workout_id: str,
+        records: List[Dict],
+    ) -> Optional[str]:
+        """Store canonical substrate records to parquet blob."""
+        if not records:
+            return None
+
+        df = pd.DataFrame(records)
+        buffer = io.BytesIO()
+        df.to_parquet(buffer, index=False)
+        buffer.seek(0)
+
+        blob_name = self._canonical_records_blob_name(workout_id)
+        blob_client = self._blob_service_client.get_blob_client(
+            container=CANONICAL_RECORDS_CONTAINER,
+            blob=blob_name,
+        )
+        blob_client.upload_blob(buffer.getvalue(), overwrite=True)
+        return blob_name
+
+    def store_canonical_laps(
+        self,
+        workout_id: str,
+        laps: List[Dict],
+    ) -> Optional[str]:
+        """Store canonical lap summaries to parquet blob."""
+        if not laps:
+            return None
+
+        df = pd.DataFrame(laps)
+        buffer = io.BytesIO()
+        df.to_parquet(buffer, index=False)
+        buffer.seek(0)
+
+        blob_name = self._canonical_laps_blob_name(workout_id)
+        blob_client = self._blob_service_client.get_blob_client(
+            container=CANONICAL_LAPS_CONTAINER,
+            blob=blob_name,
+        )
+        blob_client.upload_blob(buffer.getvalue(), overwrite=True)
+        return blob_name
+
+    def load_canonical_records(self, blob_name: str) -> pd.DataFrame:
+        """Load canonical substrate parquet into a DataFrame."""
+        if not blob_name:
+            return pd.DataFrame()
+        blob_client = self._blob_service_client.get_blob_client(
+            container=CANONICAL_RECORDS_CONTAINER,
+            blob=blob_name,
+        )
+        payload = blob_client.download_blob().readall()
+        return pd.read_parquet(io.BytesIO(payload))
+
+    def load_canonical_laps(self, blob_name: str) -> pd.DataFrame:
+        """Load canonical laps parquet into a DataFrame."""
+        if not blob_name:
+            return pd.DataFrame()
+        blob_client = self._blob_service_client.get_blob_client(
+            container=CANONICAL_LAPS_CONTAINER,
+            blob=blob_name,
+        )
+        payload = blob_client.download_blob().readall()
+        return pd.read_parquet(io.BytesIO(payload))
 
     def store_workout_laps(
         self,
@@ -550,15 +648,29 @@ class WorkoutTableStorage:
             existing_state=existing_state,
         )
 
-    def store_workout(self, athlete_id: str, metrics: Dict,
-                       source_info: Dict) -> str:
+    def store_workout(
+        self,
+        athlete_id: str,
+        metadata: Dict,
+        source_info: Dict,
+        *,
+        workout_id: Optional[str] = None,
+        canonical_records_blob: Optional[str] = None,
+        canonical_laps_blob: Optional[str] = None,
+        records_count: Optional[int] = None,
+        laps_count: Optional[int] = None,
+    ) -> str:
         """
-        Store parsed workout metrics in Workouts table.
+        Store canonical workout metadata and parquet pointers in Workouts table.
 
         Args:
             athlete_id: Athlete identifier (e.g., 'rob')
-            metrics: Parsed metrics from FIT file
+            metadata: Canonical metadata from FIT messages
             source_info: OneDrive/source file info
+            canonical_records_blob: Blob path for canonical substrate parquet
+            canonical_laps_blob: Blob path for canonical laps parquet
+            records_count: Number of canonical records
+            laps_count: Number of canonical laps
 
         Returns:
             workout_id of stored entity
@@ -570,16 +682,16 @@ class WorkoutTableStorage:
                 existing_workout_id = context.existing_state.get("workout_id")
 
         # Generate deterministic workout_id (reuse existing if available)
-        workout_id = existing_workout_id or compute_workout_id(
+        workout_id = workout_id or existing_workout_id or compute_workout_id(
             source_item_id=source_info.get("source_item_id"),
             file_sha256=source_info.get("file_sha256"),
             file_path=source_info.get("source_file_path"),
             file_name=source_info.get("source_file_name"),
-            start_time=metrics.get("start_time_utc"),
+            start_time=metadata.get("start_time_utc"),
         )
 
         # Build partition and row keys
-        start_time = metrics.get("start_time_utc", "")
+        start_time = metadata.get("start_time_utc", "")
         if start_time:
             # Extract YYYY-MM for partition
             # Azure Tables forbid '/', '\\', '#', '?' in PartitionKey/RowKey
@@ -599,7 +711,11 @@ class WorkoutTableStorage:
             athlete_id=athlete_id,
             source_system=source_info.get("source_system", "HealthFit"),
             source_item_id=source_info.get("source_item_id"),
-            metrics=metrics,
+            canonical_records_blob=canonical_records_blob,
+            canonical_laps_blob=canonical_laps_blob,
+            records_count=records_count,
+            laps_count=laps_count,
+            metrics=metadata,
         ).to_entity()
 
         # Store in table
@@ -1307,7 +1423,6 @@ class WorkoutTableStorage:
                 "device_name": metrics_model.session.device_name,
                 "is_indoor": metrics_model.session.is_indoor,
                 "start_time_utc": metrics_model.session.start_time_utc,
-                "end_time_utc": metrics_model.session.end_time_utc,
                 "timezone": metrics_model.session.timezone,
                 "duration_sec": metrics_model.session.duration_sec,
                 "moving_time_sec": metrics_model.session.moving_time_sec,

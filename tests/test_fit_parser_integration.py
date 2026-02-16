@@ -41,7 +41,6 @@ class TestFitParserRealFiles:
         assert metrics.get("sport") is not None
         assert metrics.get("sub_sport") is not None
         assert metrics.get("start_time_utc") is not None
-        assert metrics.get("end_time_utc") is not None
         assert metrics.get("duration_sec") is not None
         assert metrics.get("distance_m") is not None
         assert metrics.get("calories_kcal") is not None

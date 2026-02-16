@@ -1271,9 +1271,6 @@ components:
         start_time_utc:
           type: string
           format: date-time
-        end_time_utc:
-          type: string
-          format: date-time
         timezone:
           type: string
           description: Timezone name or UTC offset (e.g., `UTC-05:00`).
