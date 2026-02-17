@@ -1,5 +1,5 @@
 # Phase 1 -- Canonical System Architecture (v1)
-
+<!-- markdownlint-disable MD024 -->
 ------------------------------------------------------------------------
 
 ## Section I. System Overview
