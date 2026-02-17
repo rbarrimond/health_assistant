@@ -1,5 +1,8 @@
-# Phase 1 -- Canonical System Architecture (v1)
+# Canonical System Architecture
 <!-- markdownlint-disable MD024 -->
+
+Version: 1.0.0
+
 ------------------------------------------------------------------------
 
 ## Section I. System Overview
