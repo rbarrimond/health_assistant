@@ -4,7 +4,7 @@ Pydantic v2 data models for workout parsing, storage, and analytics.
 
 ## Package Structure
 
-```
+``` plaintext
 models/
 ├── core.py          # WorkoutMetricsModel, CanonicalAnalyticsEngine
 ├── substrate.py     # CanonicalRecord, CanonicalLap (1 Hz telemetry)
@@ -40,6 +40,7 @@ print(metrics.training.tss)
 ```
 
 **Benefits:**
+
 - Type safety with nested models
 - Clear semantic grouping
 - IDE autocomplete for submodel fields
@@ -48,16 +49,19 @@ print(metrics.training.tss)
 ### Separation of Concerns
 
 **Storage Models** (`legacy.py`):
+
 - `Workout`, `WorkoutSession` - Azure Table entity shapes
 - Direct 1:1 with stored data
 - Minimal validation, optimized for serialization
 
 **Analytics Models** (`core.py`):
+
 - `WorkoutMetricsModel` - In-memory computed metrics cache
 - `CanonicalAnalyticsEngine` - Computation engine for deriving metrics
 - Heavy validation, vectorized pandas operations
 
 **Substrate Models** (`substrate.py`):
+
 - `CanonicalRecord` - 1 Hz resampled telemetry row
 - `CanonicalLap` - Lap-level aggregated metrics
 - Schema contract for analytics computations
