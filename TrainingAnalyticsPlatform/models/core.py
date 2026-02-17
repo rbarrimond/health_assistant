@@ -34,41 +34,20 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_serializer, model_validator
+from pydantic import (BaseModel, ConfigDict, Field, computed_field,
+                      model_serializer, model_validator)
 
 from TrainingAnalyticsPlatform.config import Config
 from TrainingAnalyticsPlatform.models.constants import (
-    ATHLETE_ID_DESC,
-    CLIMB_MIN_GRADE,
-    CLIMB_MIN_SEC,
-    DATETIME64_NS,
-    INTERVAL_MIN_SEC,
-    INTERVAL_THRESHOLD_FACTOR,
-    ISO_8601_UTC_DESC,
-    LAG_WINDOW_SEC,
-    POWER_ANCHOR_WINDOWS_SEC,
-    POWER_CURVE_SECONDS,
-    RECOVERY_HR_WINDOW_SEC,
-    SURGE_MIN_SEC,
-    SURGE_THRESHOLD_FACTOR,
-    numeric_series,
-)
-from TrainingAnalyticsPlatform.models.legacy import DeviceInfo, RecordSample, Workout, WorkoutSession
-from TrainingAnalyticsPlatform.models.substrate import CanonicalLap, CanonicalRecord
+    CLIMB_MIN_GRADE, CLIMB_MIN_SEC, DATETIME64_NS,
+    INTERVAL_MIN_SEC, INTERVAL_THRESHOLD_FACTOR, ISO_8601_UTC_DESC,
+    LAG_WINDOW_SEC, POWER_CURVE_SECONDS,
+    RECOVERY_HR_WINDOW_SEC, SURGE_MIN_SEC, SURGE_THRESHOLD_FACTOR)
 from TrainingAnalyticsPlatform.models.metrics import (
-    DistanceMetricsModel,
-    DurabilityMetricsModel,
-    EnvelopeScoresModel,
-    HRZonesModel,
-    PowerDurationAnchorsModel,
-    PowerZonesModel,
-    SampleMetricsModel,
-    SessionMetricsModel,
-    StructuredArtifactsModel,
-    TrainingLoadMetricsModel,
-    VariabilityMetricsModel,
-)
-
+    DistanceMetricsModel, DurabilityMetricsModel, EnvelopeScoresModel,
+    HRZonesModel, PowerDurationAnchorsModel, PowerZonesModel,
+    SampleMetricsModel, SessionMetricsModel, StructuredArtifactsModel,
+    TrainingLoadMetricsModel, VariabilityMetricsModel)
 
 # ============================================================================
 # MAIN API: WorkoutMetricsModel
