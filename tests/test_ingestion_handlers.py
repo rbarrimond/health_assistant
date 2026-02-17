@@ -1,4 +1,4 @@
-# pylint: disable=W0212
+# pylint: disable=W0212,C0301
 
 """Tests for ingestion handlers and shared base logic."""
 

@@ -19,7 +19,8 @@ class AgentPreferences(BaseModel):
         None, description="Current training goal or race target"
     )
     training_phase: Optional[str] = Field(
-        None, description="Current training phase (e.g., 'base-building', 'build', 'peak', 'recovery')"
+        None,
+        description="Current training phase (e.g., 'base-building', 'build', 'peak', 'recovery')"
     )
     preferred_sports: List[str] = Field(
         default_factory=list, description="Preferred sports in priority order"

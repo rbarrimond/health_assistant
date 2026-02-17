@@ -1,4 +1,5 @@
 """Session-level metadata for workouts."""
+# pylint: disable=line-too-long
 
 from typing import Optional
 
