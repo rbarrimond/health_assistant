@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Semantic/GPT)
-  version: "2.0.0"
+  version: "3.0.0"
   description: |
     Deterministic workout and physiometric API consumed by ChatGPT Actions.
     Returns stored metrics only; no model-generated values.
@@ -1151,74 +1151,6 @@ components:
               power:
                 type: object
                 additionalProperties: true
-    ProcessFitRequest:
-      type: object
-      required:
-        - athlete_id
-        - source_file_name
-        - file_content_b64
-      properties:
-        athlete_id:
-          type: string
-        source_system:
-          type: string
-        source_item_id:
-          type: string
-        source_file_name:
-          type: string
-        source_file_path:
-          type: string
-        source_drive_id:
-          type: string
-        source_etag:
-          type: string
-        source_ctag:
-          type: string
-        source_quickxor_hash:
-          type: string
-        source_modified_at_utc:
-          type: string
-          format: date-time
-        file_content_b64:
-          type: string
-          description: Base64-encoded FIT file content
-        file_size_bytes:
-          type: integer
-        file_sha256:
-          type: string
-    ProcessFitResponse:
-      type: object
-      description: Parsed FIT metrics with source metadata. Response fields mirror parsed metrics.
-      properties:
-        source_info:
-          type: object
-          properties:
-            source_system:
-              type: string
-            source_file_name:
-              type: string
-            source_file_path:
-              type: string
-            source_item_id:
-              type: string
-            source_drive_id:
-              type: string
-            source_etag:
-              type: string
-            source_ctag:
-              type: string
-            source_quickxor_hash:
-              type: string
-            source_modified_at_utc:
-              type: string
-              format: date-time
-            file_size_bytes:
-              type: integer
-            file_sha256:
-              type: string
-        error:
-          type: string
-      additionalProperties: true
     PlanningContext:
       type: object
       description: Aggregated planning context for the athlete.
@@ -1268,6 +1200,8 @@ components:
           type: string
         is_indoor:
           type: boolean
+        device_name:
+          type: string
         start_time_utc:
           type: string
           format: date-time
@@ -1414,7 +1348,38 @@ components:
           type: array
           items:
             type: object
-            additionalProperties: true
+            properties:
+              week_start_utc:
+                type: string
+                format: date-time
+              week_end_utc:
+                type: string
+                format: date-time
+              workouts_count:
+                type: integer
+              total_duration_min:
+                type: number
+              total_distance_km:
+                type: number
+              total_elev_m:
+                type: number
+              total_hr_z2_min:
+                type: number
+              total_pwr_z2_min:
+                type: number
+              total_low_aerobic_min:
+                type: number
+              total_intensity_min:
+                type: number
+              avg_decoupling_pct:
+                type: number
+              hard_days_count:
+                type: integer
+              long_rides_count:
+                type: integer
+              last_updated_at_utc:
+                type: string
+                format: date-time
     ZoneDistribution:
       type: object
       description: Time-in-zone distribution.

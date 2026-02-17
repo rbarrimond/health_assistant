@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 4.0.0
+Version: 4.1.0
 
 This document defines the ingestion payloads and the IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -16,6 +16,42 @@ only metadata + blob pointers in the Workouts table. Derived metrics are
 computed on read.
 
 This document does **not** define the workout metrics schema. See WORKOUT_SCHEMA.md for that.
+
+---
+
+## Operational Storage Layout
+
+This section captures the storage-level details that are intentionally hidden
+from the semantic API.
+
+### Azure Table Storage
+
+1. `Workouts` — metadata + parquet pointers
+
+    - `PartitionKey`: `athlete_id|YYYY-MM`
+    - `RowKey`: `YYYYMMDDTHHMMSS0000|workout_id_prefix`
+
+1. `WeeklyRollups` — aggregated weekly metrics
+
+    - `PartitionKey`: `athlete_id#YYYY`
+    - `RowKey`: `YYYY-WW`
+
+1. `IngestionState` — idempotency + provenance
+
+    - `PartitionKey`: `athlete_id`
+    - `RowKey`: `source_item_id` OR `file_sha256` OR `workout_id`
+
+1. `Physiometrics` — body + fitness metrics (FTP, weight, LTHR)
+1. `AgentPreferences` — user training preferences
+1. `AgentObservations` — training observations
+
+### Azure Blob Storage
+
+- `canonical-substrate` — canonical records parquet
+  - `{workout_id}/canonical-records.parquet`
+- `canonical-laps` — canonical laps parquet
+  - `{workout_id}/canonical-laps.parquet`
+- `lap-records` — legacy per-lap JSON payloads (deprecated)
 
 ---
 

@@ -1,10 +1,11 @@
 # Semantic Access Layer API (GPT)
 
-Version: 4.1.3
+Version: 6.0.0
 
 The Semantic Access Layer is the **read + agent-memory write API** for ChatGPT Actions. It exposes meaningful, human-centric questions about training data rather than raw table access.
 
 > **Note:** This document mirrors [`openapi.yaml`](../../api_docs/openapi.yaml). For admin/operations endpoints, see [`../devops/OPERATIONS_API.md`](../devops/OPERATIONS_API.md).
+> Storage and ingestion details live in [`INGESTION_SCHEMA.md`](../devops/INGESTION_SCHEMA.md).
 >
 > **Phase 1 Note:** This system is currently deployed for single-athlete use. Most endpoints default `athlete_id` to `"rob"` when not provided. The multi-athlete architecture is implemented but enforcement is deferred to Phase 2.
 
@@ -451,6 +452,8 @@ Get workout summaries with optional filtering.
 - `limit` (optional): Max workouts to return (default 50, max 200)
 - `sport` (optional): Filter by sport type
 
+**Note:** `device_name` reflects the file-creator device (e.g., Edge 1050, Apple Watch), not peripheral sensors.
+
 **Response:**
 
 ```json
@@ -597,13 +600,20 @@ Get aggregated weekly training data.
   "count": 16,
   "rollups": [
     {
-      "PartitionKey": "rob#2026",
-      "RowKey": "2026-03",
-      "total_duration_sec": 14400,
-      "total_distance_m": 180000,
-      "total_hr_z2_min": 200,
-      "total_pwr_z2_min": 180,
-      "total_intensity_min": 45
+      "week_start_utc": "2026-01-13T00:00:00+00:00",
+      "week_end_utc": "2026-01-19T23:59:59+00:00",
+      "workouts_count": 6,
+      "total_duration_min": 240.0,
+      "total_distance_km": 180.0,
+      "total_elev_m": 900.0,
+      "total_hr_z2_min": 200.0,
+      "total_pwr_z2_min": 180.0,
+      "total_low_aerobic_min": 160.0,
+      "total_intensity_min": 45.0,
+      "avg_decoupling_pct": 3.2,
+      "hard_days_count": 2,
+      "long_rides_count": 1,
+      "last_updated_at_utc": "2026-01-19T23:59:59+00:00"
     }
   ]
 }
