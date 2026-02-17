@@ -447,14 +447,24 @@ class FitParser:
 
     def _build_canonical_file_metadata(self) -> Dict[str, Any]:
         metadata: Dict[str, Any] = {}
-        file_created = self._get_field_from_msg(self.file_id_msg, "time_created")
+        file_created = self._get_field_from_msg(
+            self.file_id_msg,
+            "time_created",
+        )
         if isinstance(file_created, datetime):
-            metadata["file_time_created_utc"] = file_created.astimezone(timezone.utc).isoformat()
+            metadata["file_time_created_utc"] = (
+                file_created.astimezone(timezone.utc).isoformat()
+            )
 
-        file_manufacturer = self._get_field_from_msg(self.file_id_msg, "manufacturer")
+        file_manufacturer = self._get_field_from_msg(
+            self.file_id_msg,
+            "manufacturer",
+        )
         if file_manufacturer is not None:
             metadata["file_manufacturer"] = (
-                str(file_manufacturer.name) if hasattr(file_manufacturer, "name") else str(file_manufacturer)
+                str(file_manufacturer.name)
+                if hasattr(file_manufacturer, "name")
+                else str(file_manufacturer)
             )
 
         file_product = self._get_field_from_msg(self.file_id_msg, "product")
@@ -478,7 +488,9 @@ class FitParser:
 
         activity_timestamp = self._get_field_from_msg(activity_msg, "timestamp")
         if isinstance(activity_timestamp, datetime):
-            metadata["activity_timestamp_utc"] = activity_timestamp.astimezone(timezone.utc).isoformat()
+            metadata["activity_timestamp_utc"] = (
+                activity_timestamp.astimezone(timezone.utc).isoformat()
+            )
 
         activity_local = (
             self._get_raw_field_from_msg(activity_msg, "local_time")
@@ -649,8 +661,23 @@ class FitParser:
         """Get device/manufacturer info."""
         file_msg = self.file_id_msg
         manufacturer = self._get_field_from_msg(file_msg, "manufacturer")
-        if manufacturer and hasattr(manufacturer, "name"):
-            return str(cast(Any, manufacturer).name)
+        product = self._get_field_from_msg(file_msg, "product")
+
+        parts: List[str] = []
+        if manufacturer is not None:
+            parts.append(
+                str(cast(Any, manufacturer).name)
+                if hasattr(manufacturer, "name")
+                else str(manufacturer)
+            )
+        if product is not None:
+            parts.append(
+                str(cast(Any, product).name)
+                if hasattr(product, "name")
+                else str(product)
+            )
+        if parts:
+            return " ".join(parts)
         return None
 
     def _get_is_indoor(self) -> Optional[bool]:

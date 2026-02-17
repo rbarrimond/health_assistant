@@ -883,7 +883,11 @@ class SemanticLayer:
             try:
                 df = self.storage.load_canonical_laps(workout_entity.canonical_laps_blob)
             except Exception as exc:  # pylint: disable=broad-exception-caught
-                logger.warning("Failed to load canonical laps %s: %s", workout_entity.canonical_laps_blob, exc)
+                logger.warning(
+                    "Failed to load canonical laps %s: %s",
+                    workout_entity.canonical_laps_blob,
+                    exc,
+                )
                 df = pd.DataFrame()
             if not df.empty:
                 return df.to_dict(orient="records")
@@ -928,7 +932,9 @@ class SemanticLayer:
 
                 records = []
                 if workout_entity.canonical_records_blob:
-                    records_df = self.storage.load_canonical_records(workout_entity.canonical_records_blob)
+                    records_df = self.storage.load_canonical_records(
+                        workout_entity.canonical_records_blob
+                    )
                     if not records_df.empty:
                         records = self._slice_records_for_lap(records_df, lap_payload)
 

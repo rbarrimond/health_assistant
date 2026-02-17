@@ -228,8 +228,18 @@ class TestQueryHandler:
         """Test successful weekly rollups retrieval."""
         # Arrange
         rollups_data = [
-            {"week": "2026-W05", "total_hours": 12, "total_distance_km": 150},
-            {"week": "2026-W04", "total_hours": 10, "total_distance_km": 120}
+            {
+                "week_start_utc": "2026-01-27T00:00:00+00:00",
+                "week_end_utc": "2026-02-02T23:59:59+00:00",
+                "total_duration_min": 720.0,
+                "total_distance_km": 150.0,
+            },
+            {
+                "week_start_utc": "2026-01-20T00:00:00+00:00",
+                "week_end_utc": "2026-01-26T23:59:59+00:00",
+                "total_duration_min": 600.0,
+                "total_distance_km": 120.0,
+            }
         ]
         mock_semantic_layer.get_weekly_rollups.return_value = rollups_data
 

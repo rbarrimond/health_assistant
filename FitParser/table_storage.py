@@ -483,6 +483,10 @@ class WorkoutTableStorage:
         """Get table client for specified table."""
         return self.service_client.get_table_client(table_name)
 
+    def get_table_client(self, table_name: str) -> TableClient:
+        """Public table client accessor for callers outside storage layer."""
+        return self._get_table_client(table_name)
+
     def _lap_blob_name(self, workout_id: str, lap_index: int) -> str:
         return f"{workout_id}/lap-{lap_index:04d}.json"
 

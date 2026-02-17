@@ -285,7 +285,12 @@ class TestWeeklyRollupsEndpoint:
         mock_request.params = {"athlete_id": "rob", "weeks": "12"}
 
         mock_rollups = [
-            {"PartitionKey": "rob#2026", "RowKey": "2026-03"},
+            {
+                "week_start_utc": "2026-01-13T00:00:00+00:00",
+                "week_end_utc": "2026-01-19T23:59:59+00:00",
+                "workouts_count": 4,
+                "total_duration_min": 240.0,
+            },
         ]
         mock_semantic_layer.get_weekly_rollups.return_value = mock_rollups
 

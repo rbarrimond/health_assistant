@@ -207,7 +207,7 @@ class TestWorkoutQueries:
     def test_get_workout_detail_found(self, semantic_layer, mock_storage):
         """Test retrieving detailed workout data."""
         mock_table_client = MagicMock()
-        mock_storage._get_table_client.return_value = mock_table_client
+        mock_storage.get_table_client.return_value = mock_table_client
 
         # Mock entity return
         mock_entity = {
@@ -227,7 +227,7 @@ class TestWorkoutQueries:
     def test_get_workout_detail_not_found(self, semantic_layer, mock_storage):
         """Test retrieving non-existent workout."""
         mock_table_client = MagicMock()
-        mock_storage._get_table_client.return_value = mock_table_client
+        mock_storage.get_table_client.return_value = mock_table_client
         mock_table_client.query_entities.return_value = []
 
         workout = semantic_layer.get_workout_detail("rob", "nonexistent")
@@ -237,7 +237,7 @@ class TestWorkoutQueries:
     def test_get_workout_detail_wrong_athlete(self, semantic_layer, mock_storage):
         """Test workout detail with mismatched athlete_id."""
         mock_table_client = MagicMock()
-        mock_storage._get_table_client.return_value = mock_table_client
+        mock_storage.get_table_client.return_value = mock_table_client
 
         mock_entity = {
             "workout_id": "workout-001",
