@@ -1,7 +1,7 @@
 # Canonical Analytics Surface
 <!-- markdownlint-disable MD024 -->
 
-Version: 1.0.1
+Version: 1.1.0
 
 > This document defines the canonical analytics contract for workout computation.
 > The surface is derived deterministically from canonical.parquet streams.
@@ -24,14 +24,32 @@ Each row corresponds to a timestamped observation.
 All higher-level analytics must be computable from this stream.
 Units are explicit and normalized.
 
-- `timestamp_utc` — Absolute UTC timestamp of the sample.
-- `elapsed_sec` — Seconds since the start of the workout.
-- `power_watts` — Instantaneous mechanical power output in watts.
-- `heart_rate_bpm` — Heart rate in beats per minute.
-- `cadence_rpm` — Pedaling cadence in revolutions per minute.
-- `speed_mps` — Ground speed in meters per second.
-- `distance_m` — Cumulative distance traveled in meters.
-- `elevation_m` — Elevation above sea level in meters.
+Core Telemetry
+
+- `timestamp_utc` — Absolute UTC timestamp of the sample (required).
+- `elapsed_sec` — Seconds since the start of the workout (required).
+- `power_watts` — Instantaneous mechanical power output in watts (nullable).
+- `heart_rate_bpm` — Heart rate in beats per minute (nullable).
+- `cadence_rpm` — Pedaling cadence in revolutions per minute (nullable).
+- `speed_mps` — Ground speed in meters per second (nullable).
+- `distance_m` — Cumulative distance traveled in meters (nullable).
+- `elevation_m` — Elevation above sea level in meters (nullable).
+
+Extended Telemetry (Nullable):
+
+- `temperature_c` — Ambient temperature in degrees Celsius.
+- `respiration_rate_brpm` — Respiratory rate in breaths per minute.
+- `lr_balance_pct` — Left leg power contribution percentage (0–100).
+- `rr_interval_sec` — Beat-to-beat RR interval in seconds aligned to timestamp when available (sourced from HRV messages).
+
+Notes:
+
+- With the exception of `timestamp_utc` and `elapsed_sec`, all substrate fields are nullable.
+- Different exercise modalities (cycling, strength, commute, indoor trainer, rowing, etc.) may omit telemetry dimensions such as heart rate, speed, elevation, or power.
+- Absence of any field must not invalidate ingestion or downstream analytics.
+- Derived metrics must be conditionally computed only when required substrate fields are present.
+- All stored metrics must remain recomputable from this substrate.
+- HRV messages from FIT files must be merged deterministically into `rr_interval_sec` during ingestion when present.
 
 ------------------------------------------------------------------------
 
