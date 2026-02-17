@@ -9,9 +9,10 @@ from typing import Optional
 
 import fitparse
 
+from TrainingAnalyticsPlatform.platform.exceptions import FitAdapterError
+from TrainingAnalyticsPlatform.models import DeviceInfo, RecordSample, Workout, WorkoutSession
+
 from .apple_workout_types import AppleWorkoutTypeResolver
-from .exceptions import FitAdapterError
-from .models import DeviceInfo, RecordSample, Workout, WorkoutSession
 from .timezone_utils import (
     infer_timezone_from_activity,
     infer_timezone_from_session,

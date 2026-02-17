@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
-from TrainingAnalyticsPlatform.fit_parser import FitParser
+from TrainingAnalyticsPlatform.ingestion.fit_parser import FitParser
 
 
 class TestSchemaFieldImplementation:
@@ -50,11 +50,13 @@ class TestSchemaFieldImplementation:
 
         # Mock fitparse.FitFile
         mocker.patch(
-            'FitParser.fit_parser.fitparse.FitFile',
-            return_value=mock_fit)
+            'TrainingAnalyticsPlatform.ingestion.fit_parser.fitparse.FitFile',
+            return_value=mock_fit,
+        )
         mocker.patch(
-            'FitParser.adapter.fitparse.FitFile',
-            return_value=mock_fit)
+            'TrainingAnalyticsPlatform.ingestion.adapter.fitparse.FitFile',
+            return_value=mock_fit,
+        )
 
         # Parse and check for zone boundaries
         parser = FitParser(str(sample_fit_file))
@@ -122,11 +124,13 @@ class TestSchemaFieldImplementation:
 
         mock_fit.get_messages = MagicMock(side_effect=get_messages)
         mocker.patch(
-            'FitParser.fit_parser.fitparse.FitFile',
-            return_value=mock_fit)
+            'TrainingAnalyticsPlatform.ingestion.fit_parser.fitparse.FitFile',
+            return_value=mock_fit,
+        )
         mocker.patch(
-            'FitParser.adapter.fitparse.FitFile',
-            return_value=mock_fit)
+            'TrainingAnalyticsPlatform.ingestion.adapter.fitparse.FitFile',
+            return_value=mock_fit,
+        )
 
         parser = FitParser(str(sample_fit_file))
         metrics = parser.parse()
@@ -185,11 +189,13 @@ class TestSchemaFieldImplementation:
 
         mock_fit.get_messages = MagicMock(side_effect=get_messages)
         mocker.patch(
-            'FitParser.fit_parser.fitparse.FitFile',
-            return_value=mock_fit)
+            'TrainingAnalyticsPlatform.ingestion.fit_parser.fitparse.FitFile',
+            return_value=mock_fit,
+        )
         mocker.patch(
-            'FitParser.adapter.fitparse.FitFile',
-            return_value=mock_fit)
+            'TrainingAnalyticsPlatform.ingestion.adapter.fitparse.FitFile',
+            return_value=mock_fit,
+        )
 
         parser = FitParser(str(sample_fit_file))
         metrics = parser.parse()
@@ -241,11 +247,13 @@ class TestSchemaFieldImplementation:
 
         mock_fit.get_messages = MagicMock(side_effect=get_messages)
         mocker.patch(
-            'FitParser.fit_parser.fitparse.FitFile',
-            return_value=mock_fit)
+            'TrainingAnalyticsPlatform.ingestion.fit_parser.fitparse.FitFile',
+            return_value=mock_fit,
+        )
         mocker.patch(
-            'FitParser.adapter.fitparse.FitFile',
-            return_value=mock_fit)
+            'TrainingAnalyticsPlatform.ingestion.adapter.fitparse.FitFile',
+            return_value=mock_fit,
+        )
 
         parser = FitParser(str(sample_fit_file))
         metrics = parser.parse()
@@ -276,11 +284,13 @@ class TestSchemaFieldImplementation:
 
         mock_fit.get_messages = MagicMock(side_effect=get_messages)
         mocker.patch(
-            'FitParser.fit_parser.fitparse.FitFile',
-            return_value=mock_fit)
+            'TrainingAnalyticsPlatform.ingestion.fit_parser.fitparse.FitFile',
+            return_value=mock_fit,
+        )
         mocker.patch(
-            'FitParser.adapter.fitparse.FitFile',
-            return_value=mock_fit)
+            'TrainingAnalyticsPlatform.ingestion.adapter.fitparse.FitFile',
+            return_value=mock_fit,
+        )
 
         parser = FitParser(str(sample_fit_file))
         metrics = parser.parse()

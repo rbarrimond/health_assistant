@@ -11,10 +11,11 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Dict, Tuple
 
+from TrainingAnalyticsPlatform.integrations.onedrive_client import OneDriveGraphClient
+from TrainingAnalyticsPlatform.ingestion.fit_parser import compute_bytes_hash
+from TrainingAnalyticsPlatform.storage.table_storage import IngestionContext, WorkoutTableStorage
+
 from .ingestion_base_handler import FitIngestionBaseHandler
-from ..onedrive_client import OneDriveGraphClient
-from ..fit_parser import compute_bytes_hash
-from ..table_storage import IngestionContext, WorkoutTableStorage
 
 logger = logging.getLogger(__name__)
 

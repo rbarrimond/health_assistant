@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from TrainingAnalyticsPlatform.fit_parser import FitParser, compute_file_hash
+from TrainingAnalyticsPlatform.ingestion.fit_parser import FitParser, compute_file_hash
 from TrainingAnalyticsPlatform.models import DeviceInfo, RecordSample, Workout, WorkoutSession
 
 
@@ -569,7 +569,7 @@ class TestAdapterIntegration:
     def test_load_workout_maps_messages(self, tmp_path: Path) -> None:
         """Ensure adapter builds session, device, and records from FitFile."""
         # pylint: disable=import-outside-toplevel
-        from TrainingAnalyticsPlatform.adapter import FitAdapter
+        from TrainingAnalyticsPlatform.ingestion.adapter import FitAdapter
 
         def create_field_getter(field_map):
             """Create a getter function for mock field lookups."""
@@ -685,7 +685,7 @@ class TestFitParserWithEntities:
 
         parser = FitParser(str(tmp_path / "sample.fit"))
 
-        with patch("TrainingAnalyticsPlatform.fit_parser.FitAdapter") as adapter_cls:
+        with patch("TrainingAnalyticsPlatform.ingestion.fit_parser.FitAdapter") as adapter_cls:
             adapter_instance = adapter_cls.return_value
             fit_instance = MagicMock()
             fit_instance.get_messages.return_value = []

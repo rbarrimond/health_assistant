@@ -1,6 +1,6 @@
 """Unit tests for Apple workout type resolution."""
 
-from TrainingAnalyticsPlatform.apple_workout_types import (
+from TrainingAnalyticsPlatform.ingestion.apple_workout_types import (
     AppleWorkoutTypeResolver,
     FUNCTIONAL_STRENGTH,
     INDOOR_CYCLE,

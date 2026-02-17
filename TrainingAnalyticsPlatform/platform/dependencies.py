@@ -17,9 +17,9 @@ from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import (
     OneDriveSyncHandler,
     OneDriveSyncConfig,
 )
-from TrainingAnalyticsPlatform.semantic_layer import SemanticLayer
-from TrainingAnalyticsPlatform.table_storage import WorkoutTableStorage
-from TrainingAnalyticsPlatform.withings_client import WithingsClient
+from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.storage.table_storage import WorkoutTableStorage
+from TrainingAnalyticsPlatform.integrations.withings_client import WithingsClient
 from TrainingAnalyticsPlatform.handlers import FitPayloadIngestionHandler
 
 logger = logging.getLogger(__name__)

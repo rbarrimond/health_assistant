@@ -7,7 +7,7 @@ import json
 from unittest.mock import MagicMock, patch, PropertyMock
 
 import azure.functions as func
-from TrainingAnalyticsPlatform.dependencies import FunctionAppDependencies
+from TrainingAnalyticsPlatform.platform.dependencies import FunctionAppDependencies
 
 # Import endpoints (these are module-level functions in function_app.py)
 # We'll test them by importing the app module
@@ -54,7 +54,7 @@ class TestReloadConfigEndpoint:
 
     def test_reload_config_success(self) -> None:
         """Verify config reload returns 200 with config details."""
-        from TrainingAnalyticsPlatform.config import Config
+        from TrainingAnalyticsPlatform.platform.config import Config
         from function_app import reload_config
 
         config_data = {
@@ -75,7 +75,7 @@ class TestReloadConfigEndpoint:
 
     def test_reload_config_file_not_found(self) -> None:
         """Verify 404 when physiometrics.json not found."""
-        from TrainingAnalyticsPlatform.config import Config
+        from TrainingAnalyticsPlatform.platform.config import Config
         from function_app import reload_config
 
         with patch.object(Config, "load_physiometrics", return_value=None):
@@ -89,7 +89,7 @@ class TestReloadConfigEndpoint:
 
     def test_reload_config_json_error(self) -> None:
         """Verify 500 on JSON parse error."""
-        from TrainingAnalyticsPlatform.config import Config
+        from TrainingAnalyticsPlatform.platform.config import Config
         from function_app import reload_config
 
         with patch.object(
@@ -108,7 +108,7 @@ class TestUpdateConfigEndpoint:
 
     def test_update_config_success(self) -> None:
         """Verify config update stores and returns 200."""
-        from TrainingAnalyticsPlatform.config import Config
+        from TrainingAnalyticsPlatform.platform.config import Config
         from function_app import update_config
 
         payload = {
@@ -162,7 +162,7 @@ class TestUpdateConfigEndpoint:
 
     def test_update_config_storage_error(self) -> None:
         """Verify 500 when storage save fails."""
-        from TrainingAnalyticsPlatform.config import Config
+        from TrainingAnalyticsPlatform.platform.config import Config
         from function_app import update_config
 
         payload = {"heart_rate": {}, "power": {}}
@@ -184,7 +184,7 @@ class TestConfigHistoryEndpoint:
 
     def test_config_history_success(self) -> None:
         """Verify config history returns list of changes."""
-        from TrainingAnalyticsPlatform.config import Config
+        from TrainingAnalyticsPlatform.platform.config import Config
         from function_app import config_history
 
         mock_entries = [
@@ -215,7 +215,7 @@ class TestConfigHistoryEndpoint:
 
     def test_config_history_with_limit(self) -> None:
         """Verify limit parameter is respected."""
-        from TrainingAnalyticsPlatform.config import Config
+        from TrainingAnalyticsPlatform.platform.config import Config
         from function_app import config_history
 
         mock_entries = [{"RowKey": "2026-01-18T10:30:00+00:00"}]
@@ -231,7 +231,7 @@ class TestConfigHistoryEndpoint:
 
     def test_config_history_limit_capped(self) -> None:
         """Verify limit is capped at 50."""
-        from TrainingAnalyticsPlatform.config import Config
+        from TrainingAnalyticsPlatform.platform.config import Config
         from function_app import config_history
 
         with patch.object(Config, "get_physiometrics_history", return_value=[]) as mock_history:
@@ -255,7 +255,7 @@ class TestConfigHistoryEndpoint:
 
     def test_config_history_error(self) -> None:
         """Verify 500 on retrieval error."""
-        from TrainingAnalyticsPlatform.config import Config
+        from TrainingAnalyticsPlatform.platform.config import Config
         from function_app import config_history
 
         with patch.object(

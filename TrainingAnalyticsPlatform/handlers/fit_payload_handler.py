@@ -4,8 +4,11 @@ import base64
 import logging
 from typing import Any, Dict, Optional, Tuple
 
-from TrainingAnalyticsPlatform.exceptions import FitAdapterError, WorkoutTypeResolutionError
-from TrainingAnalyticsPlatform.fit_parser import compute_bytes_hash
+from TrainingAnalyticsPlatform.platform.exceptions import (
+    FitAdapterError,
+    WorkoutTypeResolutionError,
+)
+from TrainingAnalyticsPlatform.ingestion.fit_parser import compute_bytes_hash
 from TrainingAnalyticsPlatform.handlers.ingestion_base_handler import FitIngestionBaseHandler
 
 logger = logging.getLogger(__name__)

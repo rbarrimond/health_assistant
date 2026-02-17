@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Dict, Tuple, Any
 
-from TrainingAnalyticsPlatform.config import Config
+from TrainingAnalyticsPlatform.platform.config import Config
 
 logger = logging.getLogger(__name__)
 

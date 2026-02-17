@@ -25,9 +25,9 @@ from config.constants import (
     INTERNAL_SERVER_ERROR,
     TEXT_PLAIN_CONTENT_TYPE,
 )
-from TrainingAnalyticsPlatform.backup_exporter import BackupExporter
-from TrainingAnalyticsPlatform.dependencies import dependencies
-from TrainingAnalyticsPlatform.http_utils import json_response, public_base_url
+from TrainingAnalyticsPlatform.storage.backup_exporter import BackupExporter
+from TrainingAnalyticsPlatform.platform.dependencies import dependencies
+from TrainingAnalyticsPlatform.platform.http_utils import json_response, public_base_url
 from TrainingAnalyticsPlatform.handlers import (
     FitPayloadIngestionHandler,
     OneDriveSyncRequest,

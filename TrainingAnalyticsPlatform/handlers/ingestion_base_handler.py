@@ -4,8 +4,8 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Tuple
 
-from TrainingAnalyticsPlatform.fit_parser import FitParser, compute_workout_id
-from TrainingAnalyticsPlatform.table_storage import WorkoutTableStorage
+from TrainingAnalyticsPlatform.ingestion.fit_parser import FitParser, compute_workout_id
+from TrainingAnalyticsPlatform.storage.table_storage import WorkoutTableStorage
 
 logger = logging.getLogger(__name__)
 

@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 
 from azure.storage.blob import BlobClient
 
-from TrainingAnalyticsPlatform.config import Config
-from TrainingAnalyticsPlatform.table_storage import WorkoutTableStorage
+from TrainingAnalyticsPlatform.platform.config import Config
+from TrainingAnalyticsPlatform.storage.table_storage import WorkoutTableStorage
 
 logger = logging.getLogger(__name__)
 

@@ -36,7 +36,9 @@ class TestConfigHandler:
     def test_reload_config_success(self, handler, sample_config_data, mocker):
         """Test successful config reload."""
         # Arrange
-        mock_load = mocker.patch('FitParser.handlers.config_handler.Config.load_physiometrics')
+        mock_load = mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.load_physiometrics'
+        )
         mock_load.return_value = sample_config_data
 
         mock_hr_config = Mock()
@@ -48,8 +50,14 @@ class TestConfigHandler:
         mock_pwr_config = Mock()
         mock_pwr_config.ftp_watts = 280
 
-        mocker.patch('FitParser.handlers.config_handler.Config.hr_config', return_value=mock_hr_config)
-        mocker.patch('FitParser.handlers.config_handler.Config.power_config', return_value=mock_pwr_config)
+        mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.hr_config',
+            return_value=mock_hr_config,
+        )
+        mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.power_config',
+            return_value=mock_pwr_config,
+        )
 
         # Act
         result, status = handler.reload_config()
@@ -66,7 +74,9 @@ class TestConfigHandler:
     def test_reload_config_file_not_found(self, handler, mocker):
         """Test reload when config file doesn't exist."""
         # Arrange
-        mock_load = mocker.patch('FitParser.handlers.config_handler.Config.load_physiometrics')
+        mock_load = mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.load_physiometrics'
+        )
         mock_load.return_value = None
 
         # Act
@@ -80,7 +90,9 @@ class TestConfigHandler:
     def test_reload_config_json_decode_error(self, handler, mocker):
         """Test reload handles JSON parsing errors."""
         # Arrange
-        mock_load = mocker.patch('FitParser.handlers.config_handler.Config.load_physiometrics')
+        mock_load = mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.load_physiometrics'
+        )
         mock_load.side_effect = json.JSONDecodeError("Invalid JSON", "", 0)
 
         # Act
@@ -94,7 +106,9 @@ class TestConfigHandler:
     def test_reload_config_io_error(self, handler, mocker):
         """Test reload handles I/O errors."""
         # Arrange
-        mock_load = mocker.patch('FitParser.handlers.config_handler.Config.load_physiometrics')
+        mock_load = mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.load_physiometrics'
+        )
         mock_load.side_effect = IOError("Disk error")
 
         # Act
@@ -107,7 +121,9 @@ class TestConfigHandler:
     def test_update_config_success(self, handler, sample_config_data, mocker):
         """Test successful config update."""
         # Arrange
-        mock_save = mocker.patch('FitParser.handlers.config_handler.Config.save_physiometrics')
+        mock_save = mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.save_physiometrics'
+        )
         mock_save.return_value = "2026-02-01T12:00:00+00:00"
 
         mock_hr_config = Mock()
@@ -119,8 +135,14 @@ class TestConfigHandler:
         mock_pwr_config = Mock()
         mock_pwr_config.ftp_watts = 285  # Updated value
 
-        mocker.patch('FitParser.handlers.config_handler.Config.hr_config', return_value=mock_hr_config)
-        mocker.patch('FitParser.handlers.config_handler.Config.power_config', return_value=mock_pwr_config)
+        mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.hr_config',
+            return_value=mock_hr_config,
+        )
+        mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.power_config',
+            return_value=mock_pwr_config,
+        )
 
         # Act
         result, status = handler.update_config(sample_config_data)
@@ -137,7 +159,9 @@ class TestConfigHandler:
     def test_update_config_invalid_type(self, handler, mocker):
         """Test update with non-dict config data."""
         # Arrange
-        mock_save = mocker.patch('FitParser.handlers.config_handler.Config.save_physiometrics')
+        mock_save = mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.save_physiometrics'
+        )
 
         # Act
         result, status = handler.update_config("not_a_dict")
@@ -151,7 +175,9 @@ class TestConfigHandler:
     def test_update_config_validation_error(self, handler, sample_config_data, mocker):
         """Test update handles validation errors."""
         # Arrange
-        mock_save = mocker.patch('FitParser.handlers.config_handler.Config.save_physiometrics')
+        mock_save = mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.save_physiometrics'
+        )
         mock_save.side_effect = ValueError("Invalid HR value")
 
         # Act
@@ -165,7 +191,9 @@ class TestConfigHandler:
     def test_update_config_io_error(self, handler, sample_config_data, mocker):
         """Test update handles I/O errors."""
         # Arrange
-        mock_save = mocker.patch('FitParser.handlers.config_handler.Config.save_physiometrics')
+        mock_save = mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.save_physiometrics'
+        )
         mock_save.side_effect = IOError("Disk full")
 
         # Act
@@ -196,7 +224,9 @@ class TestConfigHandler:
                 "power_ftp_watts": 275
             }
         ]
-        mock_get_history = mocker.patch('FitParser.handlers.config_handler.Config.get_physiometrics_history')
+        mock_get_history = mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.get_physiometrics_history'
+        )
         mock_get_history.return_value = mock_history_data
 
         # Act
@@ -215,7 +245,9 @@ class TestConfigHandler:
     def test_get_history_caps_limit_at_50(self, handler, mocker):
         """Test history caps limit parameter at 50."""
         # Arrange
-        mock_get_history = mocker.patch('FitParser.handlers.config_handler.Config.get_physiometrics_history')
+        mock_get_history = mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.get_physiometrics_history'
+        )
         mock_get_history.return_value = []
 
         # Act
@@ -229,7 +261,9 @@ class TestConfigHandler:
     def test_get_history_default_limit(self, handler, mocker):
         """Test history uses default limit of 10."""
         # Arrange
-        mock_get_history = mocker.patch('FitParser.handlers.config_handler.Config.get_physiometrics_history')
+        mock_get_history = mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.get_physiometrics_history'
+        )
         mock_get_history.return_value = []
 
         # Act
@@ -242,7 +276,9 @@ class TestConfigHandler:
     def test_get_history_exception_handling(self, handler, mocker):
         """Test history handles exceptions."""
         # Arrange
-        mock_get_history = mocker.patch('FitParser.handlers.config_handler.Config.get_physiometrics_history')
+        mock_get_history = mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.get_physiometrics_history'
+        )
         mock_get_history.side_effect = ValueError("Invalid limit")
 
         # Act - handler catches ValueError and returns 500
@@ -256,7 +292,9 @@ class TestConfigHandler:
     def test_get_history_empty_result(self, handler, mocker):
         """Test history with no entries."""
         # Arrange
-        mock_get_history = mocker.patch('FitParser.handlers.config_handler.Config.get_physiometrics_history')
+        mock_get_history = mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.get_physiometrics_history'
+        )
         mock_get_history.return_value = []
 
         # Act

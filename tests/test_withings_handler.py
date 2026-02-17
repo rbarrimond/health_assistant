@@ -259,7 +259,10 @@ class TestWithingsHandler:
         """Test webhook handles unexpected exceptions gracefully."""
         # Arrange
         # Mock logger to raise exception
-        mocker.patch('FitParser.handlers.withings_handler.logger.info', side_effect=Exception("Logging error"))
+        mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.withings_handler.logger.info',
+            side_effect=Exception("Logging error"),
+        )
 
         # Act
         _, status = handler.process_webhook(

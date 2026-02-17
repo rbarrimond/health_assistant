@@ -15,11 +15,14 @@ import pandas as pd
 
 from azure.core.exceptions import HttpResponseError
 
-from TrainingAnalyticsPlatform.adapter import FitAdapter
-from TrainingAnalyticsPlatform.config import Config
+from TrainingAnalyticsPlatform.ingestion.adapter import FitAdapter
+from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import OneDriveSyncConfig
-from TrainingAnalyticsPlatform.onedrive_client import OneDriveGraphClient, OneDriveGraphError
-from TrainingAnalyticsPlatform.table_storage import WorkoutEntity, WorkoutTableStorage
+from TrainingAnalyticsPlatform.integrations.onedrive_client import (
+    OneDriveGraphClient,
+    OneDriveGraphError,
+)
+from TrainingAnalyticsPlatform.storage.table_storage import WorkoutEntity, WorkoutTableStorage
 
 logger = logging.getLogger(__name__)
 UTC_OFFSET = "+00:00"

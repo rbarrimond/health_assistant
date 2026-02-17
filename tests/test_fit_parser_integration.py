@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from TrainingAnalyticsPlatform.fit_parser import FitParser
+from TrainingAnalyticsPlatform.ingestion.fit_parser import FitParser
 
 
 pytestmark = pytest.mark.integration

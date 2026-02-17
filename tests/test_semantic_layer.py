@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from TrainingAnalyticsPlatform.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
 
 
 @pytest.fixture

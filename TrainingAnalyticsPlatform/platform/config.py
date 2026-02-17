@@ -107,7 +107,7 @@ class Config:
         # Avoid circular imports and only initialize if storage is needed
         if Config._table_storage_client is None:
             try:
-                from .table_storage import WorkoutTableStorage
+                from TrainingAnalyticsPlatform.storage.table_storage import WorkoutTableStorage
                 Config._table_storage_client = WorkoutTableStorage()
             except (ImportError, ValueError, OSError) as e:
                 logger = logging.getLogger(__name__)

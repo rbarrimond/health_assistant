@@ -15,9 +15,9 @@ from azure.data.tables import TableClient, TableServiceClient
 from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
 
-from TrainingAnalyticsPlatform.fit_parser import compute_workout_id
+from TrainingAnalyticsPlatform.ingestion.fit_parser import compute_workout_id
 
-INGEST_VERSION = "v5.0.0"
+INGEST_VERSION = "v5.0.1"
 
 LAP_RECORDS_CONTAINER = "lap-records"
 CANONICAL_RECORDS_CONTAINER = "canonical-substrate"

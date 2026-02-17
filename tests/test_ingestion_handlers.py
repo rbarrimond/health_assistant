@@ -5,11 +5,11 @@
 import base64
 from unittest.mock import Mock, patch
 
-from TrainingAnalyticsPlatform.fit_parser import compute_workout_id
+from TrainingAnalyticsPlatform.ingestion.fit_parser import compute_workout_id
 
 from TrainingAnalyticsPlatform.handlers.fit_payload_handler import FitPayloadIngestionHandler
 from TrainingAnalyticsPlatform.handlers.ingestion_base_handler import FitIngestionBaseHandler
-from TrainingAnalyticsPlatform.table_storage import IngestionContext
+from TrainingAnalyticsPlatform.storage.table_storage import IngestionContext
 
 
 class _TestIngestionHandler(FitIngestionBaseHandler):

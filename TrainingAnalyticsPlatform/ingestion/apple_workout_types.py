@@ -3,7 +3,7 @@
 import logging
 from typing import Optional
 
-from .exceptions import WorkoutTypeResolutionError
+from TrainingAnalyticsPlatform.platform.exceptions import WorkoutTypeResolutionError
 logger = logging.getLogger(__name__)
 
 

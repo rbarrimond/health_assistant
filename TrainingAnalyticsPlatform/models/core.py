@@ -37,7 +37,7 @@ import pandas as pd
 from pydantic import (BaseModel, ConfigDict, Field, computed_field,
                       model_serializer, model_validator)
 
-from TrainingAnalyticsPlatform.config import Config
+from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.models.constants import (
     CLIMB_MIN_GRADE, CLIMB_MIN_SEC, DATETIME64_NS,
     INTERVAL_MIN_SEC, INTERVAL_THRESHOLD_FACTOR, ISO_8601_UTC_DESC,

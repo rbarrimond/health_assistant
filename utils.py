@@ -14,7 +14,7 @@ from config.constants import (
     INTERNAL_SERVER_ERROR,
     TEXT_PLAIN_CONTENT_TYPE,
 )
-from TrainingAnalyticsPlatform.http_utils import json_response
+from TrainingAnalyticsPlatform.platform.http_utils import json_response
 
 logger = logging.getLogger(__name__)
 

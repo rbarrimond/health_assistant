@@ -9,11 +9,16 @@ from typing import Any, Dict, List, Optional, cast
 
 import fitparse
 import numpy as np
+
+from TrainingAnalyticsPlatform.platform.config import Config
+from TrainingAnalyticsPlatform.platform.exceptions import (
+    FitAdapterError,
+    WorkoutTypeResolutionError,
+)
+from TrainingAnalyticsPlatform.models import Workout
+
 from .adapter import FitAdapter
 from .apple_workout_types import AppleWorkoutTypeResolver
-from .config import Config
-from .exceptions import FitAdapterError, WorkoutTypeResolutionError
-from .models import Workout
 from .timezone_utils import (
     infer_timezone_from_activity,
     infer_timezone_from_session,
@@ -22,7 +27,7 @@ from .timezone_utils import (
 
 logger = logging.getLogger(__name__)
 
-# Expose fitparse for tests that patch TrainingAnalyticsPlatform.fit_parser.fitparse.
+# Expose fitparse for tests that patch TrainingAnalyticsPlatform.ingestion.fit_parser.fitparse.
 _fitparse = fitparse
 
 
