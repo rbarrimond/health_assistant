@@ -6,6 +6,7 @@
 
 ## 2026-02-16
 
+- Harden FIT dump script to use safe attribute access for fitparse message fields and developer fields.
 - Add canonical FIT parquet substrate + lap parquet storage, store canonical pointers in Workouts, compute derived metrics from canonical records in semantic layer, and bump ingestion/workout schema versions to 4.0.0 and 7.0.0.
 - Store activity local timestamps without UTC conversion and rename field to `activity_local_time`; keep workout schema at 7.0.0 for this commit.
 - Remove redundant metadata fields (`file_type`, `event_count`, `event_types`, `end_time_utc`) - end_time_utc is derivable from start_time_utc + duration_sec, others provide no discriminatory value.
