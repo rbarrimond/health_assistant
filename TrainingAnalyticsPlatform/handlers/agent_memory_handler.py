@@ -204,7 +204,8 @@ class AgentMemoryHandler:
                 details=details,
                 priority=priority,
                 status=status,
-                created_at=created_at
+                created_at=created_at,
+                updated_at=created_at
             )
 
             self._store_preference(preference)
