@@ -185,7 +185,14 @@ health_assistant/
 │
 ├── FitParser/                    # Core parsing & business logic
 │   ├── fit_parser.py             # FIT file parsing + metric computation
-│   ├── models.py                 # Pydantic data models (100+ fields)
+│   ├── models/                   # Pydantic data models (see models/README.md for architecture)
+│   │   ├── README.md             # Model design patterns, composition, usage examples
+│   │   ├── core.py               # WorkoutMetricsModel, CanonicalAnalyticsEngine
+│   │   ├── substrate.py          # CanonicalRecord, CanonicalLap
+│   │   ├── legacy.py             # Workout, WorkoutSession, DeviceInfo, RecordSample
+│   │   ├── agent.py              # AgentPreferences, AgentObservation
+│   │   ├── constants.py          # Shared constants, utilities, decorators
+│   │   └── metrics/              # Metric submodels (8 files)
 │   ├── adapter.py                # fitparse → pydantic mapping
 │   ├── table_storage.py          # Azure Tables client (6 tables)
 │   ├── config.py                 # Configuration management (multi-source)

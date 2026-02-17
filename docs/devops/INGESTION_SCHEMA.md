@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 4.1.0
+Version: 4.1.1
 
 This document defines the ingestion payloads and the IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.

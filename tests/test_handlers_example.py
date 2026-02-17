@@ -15,7 +15,12 @@ from FitParser.handlers.onedrive_sync_handler import (
     OneDriveSyncRequest,
 )
 from FitParser.handlers.query_handler import QueryHandler
-from FitParser.models import WorkoutMetricsModel, SessionMetricsModel
+from FitParser.models import (
+    DistanceMetricsModel,
+    SampleMetricsModel,
+    SessionMetricsModel,
+    WorkoutMetricsModel,
+)
 
 
 # ==============================================================================
@@ -290,15 +295,20 @@ def test_lookback_days_parsing(days_value, expected):
 def create_mock_workout_metrics():
     """Helper to create mock workout metrics."""
     _ = WorkoutMetricsModel(
-        workout_id="W123",
-        athlete_id="rob",
         session=SessionMetricsModel(
             sport="Cycling",
-            start_time_utc=datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            start_time_utc=datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc).isoformat(),
             duration_sec=3600,
-            device_manufacturer="Garmin",
-            device_product="Edge 530"
-        )
+            device_name="Garmin Edge 530",
+        ),
+        samples=SampleMetricsModel(
+            hr_samples_count=0,
+            pwr_samples_count=0,
+            cad_samples_count=0,
+        ),
+        distance=DistanceMetricsModel(
+            has_gps=False,
+        ),
     )
 
 

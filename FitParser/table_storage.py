@@ -17,7 +17,7 @@ from azure.storage.blob import BlobServiceClient
 
 from FitParser.fit_parser import compute_workout_id
 
-INGEST_VERSION = "v4.0.0"
+INGEST_VERSION = "v4.1.1"
 
 LAP_RECORDS_CONTAINER = "lap-records"
 CANONICAL_RECORDS_CONTAINER = "canonical-substrate"
@@ -1439,9 +1439,9 @@ class WorkoutTableStorage:
                 "distance_m": metrics_model.distance.distance_m,
                 "elevation_gain_m": metrics_model.distance.elevation_gain_m,
                 "elevation_loss_m": metrics_model.distance.elevation_loss_m,
-                "avg_speed_mps": metrics_model.distance.avg_speed_ms,
-                "max_speed_mps": metrics_model.distance.max_speed_ms,
-                "calories_kcal": metrics_model.distance.calories,
+                "avg_speed_mps": metrics_model.distance.avg_speed_mps,
+                "max_speed_mps": metrics_model.distance.max_speed_mps,
+                "calories_kcal": metrics_model.distance.calories_kcal,
             })
 
         # Sample metrics
@@ -1449,6 +1449,7 @@ class WorkoutTableStorage:
             metrics.update({
                 "hr_avg_bpm": metrics_model.samples.hr_avg_bpm,
                 "hr_max_bpm": metrics_model.samples.hr_max_bpm,
+                "hr_min_bpm": metrics_model.samples.hr_min_bpm,
                 "hr_samples_count": metrics_model.samples.hr_samples_count,
                 "hr_missing_pct": metrics_model.samples.hr_missing_pct,
                 "pwr_avg_watts": metrics_model.samples.pwr_avg_watts,
@@ -1470,7 +1471,17 @@ class WorkoutTableStorage:
                 "hr_z3_sec": metrics_model.zones_hr.hr_z3_sec,
                 "hr_z4_sec": metrics_model.zones_hr.hr_z4_sec,
                 "hr_z5_sec": metrics_model.zones_hr.hr_z5_sec,
-                "hr_z2_min": metrics_model.zones_hr.hr_z2_min,
+                "hr_z1_low_bpm": metrics_model.zones_hr.hr_z1_low_bpm,
+                "hr_z1_high_bpm": metrics_model.zones_hr.hr_z1_high_bpm,
+                "hr_z2_low_bpm": metrics_model.zones_hr.hr_z2_low_bpm,
+                "hr_z2_high_bpm": metrics_model.zones_hr.hr_z2_high_bpm,
+                "hr_z3_low_bpm": metrics_model.zones_hr.hr_z3_low_bpm,
+                "hr_z3_high_bpm": metrics_model.zones_hr.hr_z3_high_bpm,
+                "hr_z4_low_bpm": metrics_model.zones_hr.hr_z4_low_bpm,
+                "hr_z4_high_bpm": metrics_model.zones_hr.hr_z4_high_bpm,
+                "hr_z5_low_bpm": metrics_model.zones_hr.hr_z5_low_bpm,
+                "hr_z5_high_bpm": metrics_model.zones_hr.hr_z5_high_bpm,
+                "hr_zone_model": metrics_model.zones_hr.hr_zone_model,
                 "hr_zone_basis": metrics_model.zones_hr.hr_zone_basis,
                 "hr_zone_reference_bpm": metrics_model.zones_hr.hr_zone_reference_bpm,
                 "hr_zone_total_sec": metrics_model.zones_hr.hr_zone_total_sec,
@@ -1486,16 +1497,75 @@ class WorkoutTableStorage:
                 "pwr_z5_sec": metrics_model.zones_power.pwr_z5_sec,
                 "pwr_z6_sec": metrics_model.zones_power.pwr_z6_sec,
                 "pwr_z7_sec": metrics_model.zones_power.pwr_z7_sec,
-                "pwr_z2_min": metrics_model.zones_power.pwr_z2_min,
-                "low_aerobic_min": metrics_model.zones_power.low_aerobic_min,
-                "intensity_min": metrics_model.zones_power.intensity_min,
+                "pwr_z1_low_w": metrics_model.zones_power.pwr_z1_low_w,
+                "pwr_z1_high_w": metrics_model.zones_power.pwr_z1_high_w,
+                "pwr_z2_low_w": metrics_model.zones_power.pwr_z2_low_w,
+                "pwr_z2_high_w": metrics_model.zones_power.pwr_z2_high_w,
+                "pwr_z3_low_w": metrics_model.zones_power.pwr_z3_low_w,
+                "pwr_z3_high_w": metrics_model.zones_power.pwr_z3_high_w,
+                "pwr_z4_low_w": metrics_model.zones_power.pwr_z4_low_w,
+                "pwr_z4_high_w": metrics_model.zones_power.pwr_z4_high_w,
+                "pwr_z5_low_w": metrics_model.zones_power.pwr_z5_low_w,
+                "pwr_z5_high_w": metrics_model.zones_power.pwr_z5_high_w,
+                "pwr_z6_low_w": metrics_model.zones_power.pwr_z6_low_w,
+                "pwr_z6_high_w": metrics_model.zones_power.pwr_z6_high_w,
+                "pwr_z7_low_w": metrics_model.zones_power.pwr_z7_low_w,
+                "pwr_z7_high_w": metrics_model.zones_power.pwr_z7_high_w,
+                "pwr_zone_total_sec": metrics_model.zones_power.pwr_zone_total_sec,
+                "low_aerobic_sec": metrics_model.zones_power.low_aerobic_sec,
+                "intensity_sec": metrics_model.zones_power.intensity_sec,
                 "ftp_watts": metrics_model.zones_power.ftp_watts,
                 "pwr_zone_model": metrics_model.zones_power.pwr_zone_model,
             })
 
-        # Aerobic efficiency and HR resting
+        if metrics_model.training_load:
+            metrics.update({
+                "intensity_factor": metrics_model.training_load.intensity_factor,
+                "tss": metrics_model.training_load.tss,
+            })
+
+        if metrics_model.power_duration:
+            metrics.update({
+                "peak_5s_watts": metrics_model.power_duration.peak_5s_watts,
+                "peak_30s_watts": metrics_model.power_duration.peak_30s_watts,
+                "peak_3min_watts": metrics_model.power_duration.peak_3min_watts,
+                "peak_5min_watts": metrics_model.power_duration.peak_5min_watts,
+                "peak_8min_watts": metrics_model.power_duration.peak_8min_watts,
+                "peak_20min_watts": metrics_model.power_duration.peak_20min_watts,
+                "peak_60min_watts": metrics_model.power_duration.peak_60min_watts,
+            })
+
+        if metrics_model.envelope:
+            metrics.update({
+                "sprint_envelope_score": metrics_model.envelope.sprint_envelope_score,
+                "vo2_envelope_score": metrics_model.envelope.vo2_envelope_score,
+                "threshold_envelope_score": metrics_model.envelope.threshold_envelope_score,
+            })
+
+        if metrics_model.variability:
+            metrics.update({
+                "cv_power": metrics_model.variability.cv_power,
+                "cv_hr": metrics_model.variability.cv_hr,
+                "surge_count": metrics_model.variability.surge_count,
+                "surge_density_per_hr": metrics_model.variability.surge_density_per_hr,
+                "pacing_evenness_score": metrics_model.variability.pacing_evenness_score,
+            })
+
+        if metrics_model.durability:
+            metrics.update({
+                "efficiency_factor_avg": metrics_model.durability.efficiency_factor_avg,
+                "decoupling_pct": metrics_model.durability.decoupling_pct,
+                "durability_slope": metrics_model.durability.durability_slope,
+                "fatigue_rate_power": metrics_model.durability.fatigue_rate_power,
+                "hr_power_lag_sec": metrics_model.durability.hr_power_lag_sec,
+                "ef_first_half": metrics_model.durability.ef_first_half,
+                "ef_second_half": metrics_model.durability.ef_second_half,
+                "ef_overall": metrics_model.durability.ef_overall,
+                "hr_drift_bpm": metrics_model.durability.hr_drift_bpm,
+            })
+
+        # Physiometrics
         metrics.update({
-            "aerobic_efficiency_mphb": metrics_model.aerobic_efficiency_mphb,
             "hr_resting_bpm": metrics_model.hr_resting_bpm,
             "physiometrics_snapshot_timestamp": metrics_model.physiometrics_snapshot_timestamp,
         })

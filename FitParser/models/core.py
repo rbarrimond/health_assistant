@@ -1,267 +1,414 @@
-"""Domain models for parsed FIT workout data using pydantic."""
+"""Domain models for workout data analysis and storage.
+
+This module provides a top-down, compositional model architecture for workout analytics:
+
+**Main API Surface:**
+- WorkoutMetricsModel: Compositional output model with typed submodels for all metric families
+
+**Computation Engine:**
+- CanonicalAnalyticsEngine: Vectorized analytics from 1 Hz canonical substrate
+
+**Compositional Submodels:**
+- SessionMetricsModel, SampleMetricsModel, DistanceMetricsModel: Core workout data
+- HRZonesModel, PowerZonesModel: Zone distribution and boundaries
+- TrainingLoadMetricsModel: Intensity Factor and TSS
+- PowerDurationAnchorsModel: Peak power at standard durations
+- EnvelopeScoresModel: Sprint/VO2/threshold capability scores
+- VariabilityMetricsModel: Pacing and surge metrics
+- DurabilityMetricsModel: Efficiency, decoupling, and fatigue
+- StructuredArtifactsModel: JSON blobs for intervals, climbs, power curve
+
+**Canonical Substrate:**
+- CanonicalRecord: 1 Hz time-series record
+- CanonicalLap: Lap summary
+
+**Legacy Models:**
+- Workout, WorkoutSession, DeviceInfo, RecordSample: Original parsed structures
+
+All analytics follow the Canonical Analytics Surface specification (v1.1.0).
+"""
 
 # pylint: disable=line-too-long, missing-function-docstring, too-many-lines
 
-from datetime import datetime, timezone
-from functools import wraps
 from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_serializer, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_serializer, model_validator
 
 from FitParser.config import Config
-
-ATHLETE_ID_DESC = "Athlete identifier"
-ISO_8601_UTC_DESC = "ISO 8601 UTC timestamp"
-LAST_UPDATE_DESC = "ISO 8601 UTC timestamp of last update"
-DATETIME64_NS = "datetime64[ns]"
-POWER_ANCHOR_WINDOWS_SEC = [5, 30, 180, 300, 480, 1200, 3600]
-POWER_CURVE_SECONDS = [
-    5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 420, 600, 900, 1200, 1800, 2400, 3600
-]
-
-
-def numeric_series(column: str):
-    def decorator(func):
-        @wraps(func)
-        def wrapper(self):
-            # pylint: disable=protected-access
-            series = self._numeric_series(self.df, column)
-            if series.empty:
-                return None
-            return func(self, series)
-
-        return property(wrapper)
-
-    return decorator
-
-
-SURGE_THRESHOLD_FACTOR = 1.2
-SURGE_MIN_SEC = 3
-INTERVAL_THRESHOLD_FACTOR = 0.9
-INTERVAL_MIN_SEC = 60
-CLIMB_MIN_GRADE = 0.03
-CLIMB_MIN_SEC = 60
-RECOVERY_HR_WINDOW_SEC = 30
-LAG_WINDOW_SEC = 60
-
-
-class DeviceInfo(BaseModel):
-    """Device/manufacturer metadata."""
-
-    manufacturer_name: Optional[str] = None
-
-
-class WorkoutSession(BaseModel):
-    """Session-level attributes and summaries."""
-
-    sport: Optional[str] = None
-    sub_sport: Optional[str] = None
-    apple_workout_type: Optional[str] = None
-    workout_name: Optional[str] = None
-    is_indoor: Optional[bool] = None
-
-    start_time_utc: Optional[str] = None
-    timezone: str = "UTC"
-
-    duration_sec: Optional[int] = None
-    moving_time_sec: Optional[int] = None
-
-    distance_m: Optional[float] = None
-    elevation_gain_m: Optional[float] = None
-    elevation_loss_m: Optional[float] = None
-
-    avg_speed_mps: Optional[float] = None
-    max_speed_mps: Optional[float] = None
-
-    calories_kcal: Optional[float] = None
-
-    @field_validator("start_time_utc", mode="before")
-    @classmethod
-    def ensure_utc_suffix(cls, v: Optional[str]) -> Optional[str]:
-        """Normalize ISO timestamps to use UTC offsets instead of Z."""
-        if v is None:
-            return v
-        value = str(v)
-        if value.endswith("Z"):
-            return f"{value[:-1]}+00:00"
-        try:
-            parsed = datetime.fromisoformat(value)
-        except ValueError:
-            return value
-        if parsed.tzinfo is None:
-            return parsed.replace(tzinfo=timezone.utc).isoformat()
-        return value
-
-
-class RecordSample(BaseModel):
-    """Per-sample data points from FIT records."""
-
-    heart_rate: Optional[int] = None
-    power: Optional[int] = None
-    cadence: Optional[int] = None
-    position_lat: Optional[float] = None
-    position_long: Optional[float] = None
-
-
-class CanonicalRecord(BaseModel):
-    """Canonical substrate record (Section I) for parquet storage."""
-
-    timestamp_utc: str = Field(description=ISO_8601_UTC_DESC)
-    elapsed_sec: Optional[float] = Field(None, ge=0)
-    power_watts: Optional[float] = Field(None, ge=0)
-    heart_rate_bpm: Optional[float] = Field(None, ge=0)
-    cadence_rpm: Optional[float] = Field(None, ge=0)
-    speed_mps: Optional[float] = Field(None, ge=0)
-    distance_m: Optional[float] = Field(None, ge=0)
-    elevation_m: Optional[float] = Field(None)
-    temperature_c: Optional[float] = Field(None)
-    respiration_rate_brpm: Optional[float] = Field(None, ge=0)
-    lr_balance_pct: Optional[float] = Field(None, ge=0, le=100)
-    rr_interval_sec: Optional[float] = Field(None, ge=0)
-
-
-class CanonicalLap(BaseModel):
-    """Canonical lap summary for parquet storage."""
-
-    lap_index: int = Field(ge=0)
-    start_time_utc: Optional[str] = Field(None, description=ISO_8601_UTC_DESC)
-    elapsed_sec: Optional[float] = Field(None, ge=0)
-    moving_time_sec: Optional[float] = Field(None, ge=0)
-    distance_m: Optional[float] = Field(None, ge=0)
-    calories_kcal: Optional[float] = Field(None, ge=0)
-    avg_heart_rate_bpm: Optional[float] = Field(None, ge=0)
-    max_heart_rate_bpm: Optional[float] = Field(None, ge=0)
-    avg_power_watts: Optional[float] = Field(None, ge=0)
-    max_power_watts: Optional[float] = Field(None, ge=0)
-    avg_cadence_rpm: Optional[float] = Field(None, ge=0)
-    max_cadence_rpm: Optional[float] = Field(None, ge=0)
-
-
-class Workout(BaseModel):
-    """Aggregated workout consisting of session summary, device, and samples."""
-
-    session: WorkoutSession
-    device: DeviceInfo = Field(default_factory=DeviceInfo)
-    records: List[RecordSample] = Field(default_factory=list)
+from FitParser.models.constants import (
+    ATHLETE_ID_DESC,
+    CLIMB_MIN_GRADE,
+    CLIMB_MIN_SEC,
+    DATETIME64_NS,
+    INTERVAL_MIN_SEC,
+    INTERVAL_THRESHOLD_FACTOR,
+    ISO_8601_UTC_DESC,
+    LAG_WINDOW_SEC,
+    POWER_ANCHOR_WINDOWS_SEC,
+    POWER_CURVE_SECONDS,
+    RECOVERY_HR_WINDOW_SEC,
+    SURGE_MIN_SEC,
+    SURGE_THRESHOLD_FACTOR,
+    numeric_series,
+)
+from FitParser.models.legacy import DeviceInfo, RecordSample, Workout, WorkoutSession
+from FitParser.models.substrate import CanonicalLap, CanonicalRecord
+from FitParser.models.metrics import (
+    DistanceMetricsModel,
+    DurabilityMetricsModel,
+    EnvelopeScoresModel,
+    HRZonesModel,
+    PowerDurationAnchorsModel,
+    PowerZonesModel,
+    SampleMetricsModel,
+    SessionMetricsModel,
+    StructuredArtifactsModel,
+    TrainingLoadMetricsModel,
+    VariabilityMetricsModel,
+)
 
 
 # ============================================================================
-# METRICS MODELS - For parsed FIT file output
+# MAIN API: WorkoutMetricsModel
 # ============================================================================
-
-
-class SessionMetricsModel(BaseModel):
-    """Session-level metrics (duration, distance, sport type)."""
-
-    sport: Optional[str] = Field(None, description="Sport type (e.g., 'cycling', 'running')")
-    sub_sport: Optional[str] = Field(None, description="Sub-sport variant")
-    apple_workout_type: Optional[str] = Field(None, description="Apple Watch workout type (e.g., 'Functional Strength Training')")
-    workout_name: Optional[str] = Field(None, description="User-defined workout name")
-    device_name: Optional[str] = Field(None, description="Device manufacturer")
-    is_indoor: Optional[bool] = Field(None, description="Indoor vs outdoor")
-    start_time_utc: Optional[str] = Field(None, description="ISO 8601 UTC start time")
-    timezone: str = Field(default="UTC", description="Timezone of workout")
-    duration_sec: Optional[float] = Field(None, ge=0, description="Total elapsed time seconds")
-    moving_time_sec: Optional[float] = Field(None, ge=0, description="Active movement seconds")
-
-
-class SampleMetricsModel(BaseModel):
-    """Sample-based metrics (HR, power, cadence aggregates)."""
-
-    # Heart rate
-    hr_avg_bpm: Optional[float] = Field(None, ge=0, le=300, description="Average HR")
-    hr_max_bpm: Optional[float] = Field(None, ge=0, le=300, description="Maximum HR")
-    hr_samples_count: int = Field(
-        default=0, ge=0, description="Valid HR samples"
-    )
-    hr_missing_pct: Optional[float] = Field(
-        None, ge=0, le=100, description="Percent missing HR data"
-    )
-
-    # Power
-    pwr_avg_watts: Optional[float] = Field(None, ge=0, description="Average power")
-    pwr_max_watts: Optional[float] = Field(None, ge=0, description="Maximum power")
-    pwr_normalized_watts: Optional[float] = Field(None, ge=0, description="Normalized power (NP)")
-    pwr_variability_index: Optional[float] = Field(None, ge=1.0, description="VI = NP / avg (≥1.0)")
-    pwr_samples_count: int = Field(default=0, ge=0, description="Valid power samples")
-    pwr_missing_pct: Optional[float] = Field(None, ge=0, le=100, description="Percent missing power data")
-
-    # Cadence
-    cad_avg_rpm: Optional[float] = Field(None, ge=0, description="Average cadence")
-    cad_max_rpm: Optional[float] = Field(None, ge=0, description="Maximum cadence")
-    cad_samples_count: int = Field(default=0, ge=0, description="Valid cadence samples")
-
-
-class DistanceMetricsModel(BaseModel):
-    """Distance and elevation metrics."""
-
-    has_gps: bool = Field(default=False, description="Contains GPS coordinates")
-    distance_m: Optional[float] = Field(None, ge=0, description="Total distance meters")
-    elevation_gain_m: Optional[float] = Field(None, ge=0, description="Total climbing meters")
-    elevation_loss_m: Optional[float] = Field(None, ge=0, description="Total descending meters")
-    avg_speed_ms: Optional[float] = Field(None, ge=0, description="Average speed m/s")
-    max_speed_ms: Optional[float] = Field(None, ge=0, description="Maximum speed m/s")
-    calories: Optional[float] = Field(None, ge=0, description="Total calories burned")
-
-
-class HRZonesModel(BaseModel):
-    """Heart rate zone metrics."""
-
-    hr_zone_basis: str = Field(description="Zone calculation method (max|lthr|hrr)")
-    hr_zone_reference_bpm: float = Field(gt=0, description="Reference BPM for zone calc")
-    hr_z1_sec: float = Field(default=0, ge=0)
-    hr_z1_min: float = Field(default=0, ge=0)
-    hr_z2_sec: float = Field(default=0, ge=0)
-    hr_z2_min: float = Field(default=0, ge=0)
-    hr_z3_sec: float = Field(default=0, ge=0)
-    hr_z3_min: float = Field(default=0, ge=0)
-    hr_z4_sec: float = Field(default=0, ge=0)
-    hr_z4_min: float = Field(default=0, ge=0)
-    hr_z5_sec: float = Field(default=0, ge=0)
-    hr_z5_min: float = Field(default=0, ge=0)
-    hr_zone_total_sec: float = Field(default=0, ge=0)
-
-
-class PowerZonesModel(BaseModel):
-    """Power zone metrics (Coggan 7-zone)."""
-
-    pwr_zone_model: str = Field(default="coggan_7")
-    ftp_watts: float = Field(gt=0, description="Functional threshold power")
-    pwr_z1_sec: float = Field(default=0, ge=0)
-    pwr_z1_min: float = Field(default=0, ge=0)
-    pwr_z2_sec: float = Field(default=0, ge=0)
-    pwr_z2_min: float = Field(default=0, ge=0)
-    pwr_z3_sec: float = Field(default=0, ge=0)
-    pwr_z3_min: float = Field(default=0, ge=0)
-    pwr_z4_sec: float = Field(default=0, ge=0)
-    pwr_z4_min: float = Field(default=0, ge=0)
-    pwr_z5_sec: float = Field(default=0, ge=0)
-    pwr_z5_min: float = Field(default=0, ge=0)
-    pwr_z6_sec: float = Field(default=0, ge=0)
-    pwr_z6_min: float = Field(default=0, ge=0)
-    pwr_z7_sec: float = Field(default=0, ge=0)
-    pwr_z7_min: float = Field(default=0, ge=0)
-    low_aerobic_min: float = Field(default=0, ge=0)
-    intensity_min: float = Field(default=0, ge=0)
 
 
 class WorkoutMetricsModel(BaseModel):
-    """Complete workout metrics output."""
+    """Main API surface for workout analytics - compositional model with typed metric families.
+    
+    This is the primary output model that composes all workout metrics into semantic groups.
+    Construct from canonical substrate using `from_canonical()` for in-memory cached metrics.
+    
+    Structure:
+    - session: Basic workout metadata (sport, start time, duration)
+    - samples: Telemetry aggregates (HR/power/cadence averages, counts, missing data)
+    - distance: GPS-based metrics (distance, elevation, speed, calories)
+    - zones_hr: Heart rate zone distribution with boundaries (optional)
+    - zones_power: Power zone distribution with boundaries (optional)
+    - training_load: Intensity Factor and TSS (optional)
+    - power_duration: Peak power anchors at standard durations (optional)
+    - envelope: Sprint/VO2/threshold capability scores (optional)
+    - variability: CV, surges, pacing evenness (optional)
+    - durability: Efficiency factor, decoupling, drift, fatigue (optional)
+    - artifacts: Structured JSON for intervals, climbs, power curve (optional)
+    
+    Example:
+        >>> from CanonicalAnalyticsEngine import CanonicalAnalyticsEngine
+        >>> df = load_canonical_records("workout.parquet")
+        >>> metrics = WorkoutMetricsModel.from_canonical(df, metadata)
+        >>> print(f"TSS: {metrics.training_load.tss if metrics.training_load else 'N/A'}")
+        >>> print(f"20min power: {metrics.power_duration.peak_20min_watts if metrics.power_duration else 'N/A'}")
+    """
 
-    physiometrics_snapshot_timestamp: str = Field(description=ISO_8601_UTC_DESC)
+    physiometrics_snapshot_timestamp: Optional[str] = Field(None, description=ISO_8601_UTC_DESC)
     session: SessionMetricsModel
     samples: SampleMetricsModel
     distance: DistanceMetricsModel
     zones_hr: Optional[HRZonesModel] = None
     zones_power: Optional[PowerZonesModel] = None
-    aerobic_efficiency_mphb: Optional[float] = Field(None, ge=0)
     hr_resting_bpm: Optional[float] = Field(None, ge=0, le=300)
+    training_load: Optional[TrainingLoadMetricsModel] = None
+    power_duration: Optional[PowerDurationAnchorsModel] = None
+    envelope: Optional[EnvelopeScoresModel] = None
+    variability: Optional[VariabilityMetricsModel] = None
+    durability: Optional[DurabilityMetricsModel] = None
+    artifacts: Optional[StructuredArtifactsModel] = None
+
+    @classmethod
+    def from_canonical(
+        cls,
+        df: pd.DataFrame,
+        metadata: Dict[str, Any],
+        resample: bool = False,
+    ) -> "WorkoutMetricsModel":
+        canonical = CanonicalAnalyticsEngine.from_dataframe(df, metadata, resample=resample)
+        metrics = canonical.to_metrics_dict()
+        return cls._from_metrics(metrics, metadata)
+
+    @classmethod
+    def _from_metrics(
+        cls,
+        metrics: Dict[str, Any],
+        metadata: Dict[str, Any],
+    ) -> "WorkoutMetricsModel":
+        session = cls._build_session(metrics, metadata)
+        distance = cls._build_distance(metrics, metadata)
+        samples = cls._build_samples(metrics)
+        zones_hr = cls._build_hr_zones(metrics)
+        zones_power = cls._build_power_zones(metrics)
+        training_load = cls._build_training_load(metrics)
+        power_duration = cls._build_power_duration(metrics)
+        envelope = cls._build_envelope(metrics)
+        variability = cls._build_variability(metrics)
+        durability = cls._build_durability(metrics)
+        artifacts = cls._build_artifacts(metrics)
+
+        return cls(
+            physiometrics_snapshot_timestamp=metadata.get("physiometrics_snapshot_timestamp"),
+            session=session,
+            samples=samples,
+            distance=distance,
+            zones_hr=zones_hr,
+            zones_power=zones_power,
+            hr_resting_bpm=metadata.get("hr_resting_bpm"),
+            training_load=training_load,
+            power_duration=power_duration,
+            envelope=envelope,
+            variability=variability,
+            durability=durability,
+            artifacts=artifacts,
+        )
+
+    @staticmethod
+    def _has_any(values: List[Any]) -> bool:
+        return any(value is not None for value in values)
+
+    @staticmethod
+    def _build_session(metrics: Dict[str, Any], metadata: Dict[str, Any]) -> SessionMetricsModel:
+        return SessionMetricsModel(
+            sport=metadata.get("sport"),
+            sub_sport=metadata.get("sub_sport"),
+            apple_workout_type=metadata.get("apple_workout_type"),
+            workout_name=metadata.get("workout_name"),
+            device_name=metadata.get("device_name"),
+            is_indoor=metadata.get("is_indoor"),
+            start_time_utc=metadata.get("start_time_utc") or metrics.get("start_time_utc"),
+            timezone=metadata.get("timezone") or "UTC",
+            duration_sec=metadata.get("duration_sec") or metrics.get("duration_sec"),
+            moving_time_sec=metadata.get("moving_time_sec") or metrics.get("moving_time_sec"),
+        )
+
+    @staticmethod
+    def _build_distance(metrics: Dict[str, Any], metadata: Dict[str, Any]) -> DistanceMetricsModel:
+        return DistanceMetricsModel(
+            has_gps=bool(metadata.get("has_gps")) if metadata.get("has_gps") is not None else False,
+            distance_m=metrics.get("distance_m"),
+            elevation_gain_m=metrics.get("elevation_gain_m"),
+            elevation_loss_m=metrics.get("elevation_loss_m"),
+            avg_speed_mps=metrics.get("avg_speed_mps"),
+            max_speed_mps=metrics.get("max_speed_mps"),
+            calories_kcal=metrics.get("calories_kcal"),
+        )
+
+    @staticmethod
+    def _build_samples(metrics: Dict[str, Any]) -> SampleMetricsModel:
+        return SampleMetricsModel(
+            hr_avg_bpm=metrics.get("hr_avg_bpm"),
+            hr_max_bpm=metrics.get("hr_max_bpm"),
+            hr_min_bpm=metrics.get("hr_min_bpm"),
+            hr_samples_count=metrics.get("hr_samples_count") or 0,
+            hr_missing_pct=metrics.get("hr_missing_pct"),
+            pwr_avg_watts=metrics.get("pwr_avg_watts"),
+            pwr_max_watts=metrics.get("pwr_max_watts"),
+            pwr_normalized_watts=metrics.get("pwr_normalized_watts"),
+            pwr_variability_index=metrics.get("pwr_variability_index"),
+            pwr_samples_count=metrics.get("pwr_samples_count") or 0,
+            pwr_missing_pct=metrics.get("pwr_missing_pct"),
+            cad_avg_rpm=metrics.get("cad_avg_rpm"),
+            cad_max_rpm=metrics.get("cad_max_rpm"),
+            cad_samples_count=metrics.get("cad_samples_count") or 0,
+        )
+
+    @classmethod
+    def _build_hr_zones(cls, metrics: Dict[str, Any]) -> Optional[HRZonesModel]:
+        hr_zone_basis = metrics.get("hr_zone_basis")
+        hr_zone_reference = metrics.get("hr_zone_reference_bpm")
+        if not hr_zone_basis or hr_zone_reference is None:
+            return None
+        return HRZonesModel(
+            hr_zone_model=metrics.get("hr_zone_model"),
+            hr_zone_basis=str(hr_zone_basis),
+            hr_zone_reference_bpm=float(hr_zone_reference),
+            hr_z1_sec=metrics.get("hr_z1_sec") or 0,
+            hr_z1_min=metrics.get("hr_z1_min") or 0,
+            hr_z2_sec=metrics.get("hr_z2_sec") or 0,
+            hr_z2_min=metrics.get("hr_z2_min") or 0,
+            hr_z3_sec=metrics.get("hr_z3_sec") or 0,
+            hr_z3_min=metrics.get("hr_z3_min") or 0,
+            hr_z4_sec=metrics.get("hr_z4_sec") or 0,
+            hr_z4_min=metrics.get("hr_z4_min") or 0,
+            hr_z5_sec=metrics.get("hr_z5_sec") or 0,
+            hr_z5_min=metrics.get("hr_z5_min") or 0,
+            hr_z1_low_bpm=metrics.get("hr_z1_low_bpm"),
+            hr_z1_high_bpm=metrics.get("hr_z1_high_bpm"),
+            hr_z2_low_bpm=metrics.get("hr_z2_low_bpm"),
+            hr_z2_high_bpm=metrics.get("hr_z2_high_bpm"),
+            hr_z3_low_bpm=metrics.get("hr_z3_low_bpm"),
+            hr_z3_high_bpm=metrics.get("hr_z3_high_bpm"),
+            hr_z4_low_bpm=metrics.get("hr_z4_low_bpm"),
+            hr_z4_high_bpm=metrics.get("hr_z4_high_bpm"),
+            hr_z5_low_bpm=metrics.get("hr_z5_low_bpm"),
+            hr_z5_high_bpm=metrics.get("hr_z5_high_bpm"),
+            hr_zone_total_sec=metrics.get("hr_zone_total_sec") or 0,
+        )
+
+    @classmethod
+    def _build_power_zones(cls, metrics: Dict[str, Any]) -> Optional[PowerZonesModel]:
+        ftp_watts = metrics.get("ftp_watts")
+        if ftp_watts is None or ftp_watts <= 0:
+            return None
+        return PowerZonesModel(
+            pwr_zone_model=metrics.get("pwr_zone_model") or "coggan_7",
+            ftp_watts=float(ftp_watts),
+            pwr_z1_sec=metrics.get("pwr_z1_sec") or 0,
+            pwr_z2_sec=metrics.get("pwr_z2_sec") or 0,
+            pwr_z3_sec=metrics.get("pwr_z3_sec") or 0,
+            pwr_z4_sec=metrics.get("pwr_z4_sec") or 0,
+            pwr_z5_sec=metrics.get("pwr_z5_sec") or 0,
+            pwr_z6_sec=metrics.get("pwr_z6_sec") or 0,
+            pwr_z7_sec=metrics.get("pwr_z7_sec") or 0,
+            pwr_z1_low_w=metrics.get("pwr_z1_low_w"),
+            pwr_z1_high_w=metrics.get("pwr_z1_high_w"),
+            pwr_z2_low_w=metrics.get("pwr_z2_low_w"),
+            pwr_z2_high_w=metrics.get("pwr_z2_high_w"),
+            pwr_z3_low_w=metrics.get("pwr_z3_low_w"),
+            pwr_z3_high_w=metrics.get("pwr_z3_high_w"),
+            pwr_z4_low_w=metrics.get("pwr_z4_low_w"),
+            pwr_z4_high_w=metrics.get("pwr_z4_high_w"),
+            pwr_z5_low_w=metrics.get("pwr_z5_low_w"),
+            pwr_z5_high_w=metrics.get("pwr_z5_high_w"),
+            pwr_z6_low_w=metrics.get("pwr_z6_low_w"),
+            pwr_z6_high_w=metrics.get("pwr_z6_high_w"),
+            pwr_z7_low_w=metrics.get("pwr_z7_low_w"),
+            pwr_z7_high_w=metrics.get("pwr_z7_high_w"),
+            pwr_zone_total_sec=metrics.get("pwr_zone_total_sec"),
+            low_aerobic_sec=metrics.get("low_aerobic_sec"),
+            intensity_sec=metrics.get("intensity_sec"),
+        )
+
+    @classmethod
+    def _build_training_load(cls, metrics: Dict[str, Any]) -> Optional[TrainingLoadMetricsModel]:
+        if not cls._has_any([metrics.get("intensity_factor"), metrics.get("tss")]):
+            return None
+        return TrainingLoadMetricsModel(
+            intensity_factor=metrics.get("intensity_factor"),
+            tss=metrics.get("tss"),
+        )
+
+    @classmethod
+    def _build_power_duration(cls, metrics: Dict[str, Any]) -> Optional[PowerDurationAnchorsModel]:
+        if not cls._has_any([
+            metrics.get("peak_5s_watts"),
+            metrics.get("peak_30s_watts"),
+            metrics.get("peak_3min_watts"),
+            metrics.get("peak_5min_watts"),
+            metrics.get("peak_8min_watts"),
+            metrics.get("peak_20min_watts"),
+            metrics.get("peak_60min_watts"),
+        ]):
+            return None
+        return PowerDurationAnchorsModel(
+            peak_5s_watts=metrics.get("peak_5s_watts"),
+            peak_30s_watts=metrics.get("peak_30s_watts"),
+            peak_3min_watts=metrics.get("peak_3min_watts"),
+            peak_5min_watts=metrics.get("peak_5min_watts"),
+            peak_8min_watts=metrics.get("peak_8min_watts"),
+            peak_20min_watts=metrics.get("peak_20min_watts"),
+            peak_60min_watts=metrics.get("peak_60min_watts"),
+            power_curve_watts=metrics.get("power_curve_watts") or None,
+        )
+
+    @classmethod
+    def _build_envelope(cls, metrics: Dict[str, Any]) -> Optional[EnvelopeScoresModel]:
+        if not cls._has_any([
+            metrics.get("sprint_envelope_score"),
+            metrics.get("vo2_envelope_score"),
+            metrics.get("threshold_envelope_score"),
+        ]):
+            return None
+        return EnvelopeScoresModel(
+            sprint_envelope_score=metrics.get("sprint_envelope_score"),
+            vo2_envelope_score=metrics.get("vo2_envelope_score"),
+            threshold_envelope_score=metrics.get("threshold_envelope_score"),
+        )
+
+    @classmethod
+    def _build_variability(cls, metrics: Dict[str, Any]) -> Optional[VariabilityMetricsModel]:
+        if not cls._has_any([
+            metrics.get("cv_power"),
+            metrics.get("cv_hr"),
+            metrics.get("surge_count"),
+            metrics.get("surge_density_per_hr"),
+            metrics.get("pacing_evenness_score"),
+        ]):
+            return None
+        return VariabilityMetricsModel(
+            cv_power=metrics.get("cv_power"),
+            cv_hr=metrics.get("cv_hr"),
+            surge_count=metrics.get("surge_count"),
+            surge_density_per_hr=metrics.get("surge_density_per_hr"),
+            pacing_evenness_score=metrics.get("pacing_evenness_score"),
+        )
+
+    @classmethod
+    def _build_durability(cls, metrics: Dict[str, Any]) -> Optional[DurabilityMetricsModel]:
+        if not cls._has_any([
+            metrics.get("efficiency_factor_avg"),
+            metrics.get("decoupling_pct"),
+            metrics.get("durability_slope"),
+            metrics.get("fatigue_rate_power"),
+            metrics.get("hr_power_lag_sec"),
+            metrics.get("ef_first_half"),
+            metrics.get("ef_second_half"),
+            metrics.get("ef_overall"),
+            metrics.get("hr_drift_bpm"),
+        ]):
+            return None
+        return DurabilityMetricsModel(
+            efficiency_factor_avg=metrics.get("efficiency_factor_avg"),
+            decoupling_pct=metrics.get("decoupling_pct"),
+            durability_slope=metrics.get("durability_slope"),
+            fatigue_rate_power=metrics.get("fatigue_rate_power"),
+            hr_power_lag_sec=metrics.get("hr_power_lag_sec"),
+            ef_first_half=metrics.get("ef_first_half"),
+            ef_second_half=metrics.get("ef_second_half"),
+            ef_overall=metrics.get("ef_overall"),
+            hr_drift_bpm=metrics.get("hr_drift_bpm"),
+        )
+
+    @classmethod
+    def _build_artifacts(cls, metrics: Dict[str, Any]) -> Optional[StructuredArtifactsModel]:
+        if not cls._has_any([
+            metrics.get("intervals_json"),
+            metrics.get("climbs_json"),
+            metrics.get("power_curve_json"),
+        ]):
+            return None
+        return StructuredArtifactsModel(
+            intervals_json=metrics.get("intervals_json"),
+            climbs_json=metrics.get("climbs_json"),
+            power_curve_json=metrics.get("power_curve_json"),
+        )
 
 
-class CanonicalWorkoutMetrics(BaseModel):  # pylint: disable=too-many-public-methods
-    """Canonical workout data with calculated metrics."""
+class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-methods
+    """Computation engine for deriving workout analytics from canonical 1 Hz substrate.
+    
+    This is an internal computation engine that calculates all workout metrics from a 1 Hz
+    canonical DataFrame. It enforces 1 Hz sampling and provides computed fields for all
+    metrics defined in the Canonical Analytics Surface specification.
+    
+    The engine uses vectorized pandas operations for efficient computation and exposes
+    metrics as @computed_field properties. All computations are lazy and cached.
+    
+    Usage:
+        >>> engine = CanonicalAnalyticsEngine.from_dataframe(df, metadata, resample=True)
+        >>> metrics_dict = engine.to_metrics_dict()
+        >>> # Or use WorkoutMetricsModel.from_canonical() for typed output
+    
+    Validation:
+    - By default, raises ValueError if input DataFrame is not 1 Hz sampled
+    - Set resample=True to automatically resample non-1Hz data
+    - Requires 'timestamp_utc' or 'elapsed_sec' column for temporal index
+    
+    Architecture:
+    - df: pandas DataFrame with 1 Hz canonical records (schema: CanonicalRecord)
+    - metadata: Dict with workout context (sport, FTP, HR zones, etc.)
+    - @computed_field properties: Lazy-evaluated metrics with caching
+    - to_metrics_dict(): Exports all computed metrics as flat dictionary
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -277,7 +424,7 @@ class CanonicalWorkoutMetrics(BaseModel):  # pylint: disable=too-many-public-met
         return self.to_metrics_dict()
 
     @model_validator(mode='after')
-    def _validate_and_resample_to_1hz(self) -> 'CanonicalWorkoutMetrics':
+    def _validate_and_resample_to_1hz(self) -> 'CanonicalAnalyticsEngine':
         """Validate input is 1 Hz or resample if explicitly requested."""
         df = self.__dict__.get("df")
         if not isinstance(df, pd.DataFrame) or df.empty:
@@ -405,7 +552,7 @@ class CanonicalWorkoutMetrics(BaseModel):  # pylint: disable=too-many-public-met
         df: pd.DataFrame,
         metadata: Dict[str, Any],
         resample: bool = False,
-    ) -> "CanonicalWorkoutMetrics":
+    ) -> "CanonicalAnalyticsEngine":
         return cls.from_dataframe(df, metadata, resample=resample)
 
     @classmethod
@@ -414,7 +561,7 @@ class CanonicalWorkoutMetrics(BaseModel):  # pylint: disable=too-many-public-met
         df: pd.DataFrame,
         metadata: Dict[str, Any],
         resample: bool = False,
-    ) -> "CanonicalWorkoutMetrics":
+    ) -> "CanonicalAnalyticsEngine":
         return cls(df=df, metadata=metadata, resample=resample)
 
     @property
@@ -1725,76 +1872,3 @@ class CanonicalWorkoutMetrics(BaseModel):  # pylint: disable=too-many-public-met
                     }
                 )
         return curve
-
-
-# ============================================================================
-# AGENT MEMORY MODELS - For external memory storage
-# ============================================================================
-
-
-class AgentPreferences(BaseModel):
-    """Legacy single-record preferences for the agent."""
-
-    athlete_id: str = Field(description=ATHLETE_ID_DESC)
-    current_goal: Optional[str] = Field(
-        None, description="Current training goal or race target"
-    )
-    training_phase: Optional[str] = Field(
-        None, description="Current training phase (e.g., 'base-building', 'build', 'peak', 'recovery')"
-    )
-    preferred_sports: List[str] = Field(
-        default_factory=list, description="Preferred sports in priority order"
-    )
-    ftp_test_frequency_weeks: Optional[int] = Field(
-        None, description="How often to prompt for FTP testing"
-    )
-    last_ftp_test_date: Optional[str] = Field(
-        None, description="ISO 8601 date of last FTP test"
-    )
-    notes: Optional[str] = Field(
-        None, description="Free-form context notes"
-    )
-    updated_at: Optional[str] = Field(None, description=LAST_UPDATE_DESC)
-
-
-class AgentPreference(BaseModel):
-    """Preference item for agent memory."""
-
-    athlete_id: str = Field(description=ATHLETE_ID_DESC)
-    preference_id: str = Field(description="Unique preference identifier")
-    category: str = Field(description="Preference category (goal, constraint, routine, etc.)")
-    summary: str = Field(description="Brief preference summary")
-    details: Optional[str] = Field(None, description="Detailed preference context")
-    priority: str = Field(
-        default="normal", description="Priority level: low, normal, high"
-    )
-    status: str = Field(
-        default="active", description="Status: active, resolved, archived"
-    )
-    created_at: str = Field(description=ISO_8601_UTC_DESC)
-    updated_at: Optional[str] = Field(None, description=LAST_UPDATE_DESC)
-
-
-class AgentObservation(BaseModel):
-    """Agent observations and flags for future reference."""
-
-    athlete_id: str = Field(description=ATHLETE_ID_DESC)
-    observation_id: str = Field(description="Unique observation identifier")
-    category: str = Field(
-        description="Observation category (e.g., 'pattern', 'flag', 'insight')"
-    )
-    summary: str = Field(description="Brief observation summary")
-    details: Optional[str] = Field(None, description="Detailed observation context")
-    referenced_workout_ids: List[str] = Field(
-        default_factory=list, description="Related workout IDs"
-    )
-    priority: str = Field(
-        default="normal", description="Priority level: low, normal, high"
-    )
-    status: str = Field(
-        default="active", description="Status: active, resolved, archived"
-    )
-    created_at: str = Field(description=ISO_8601_UTC_DESC)
-    expires_at: Optional[str] = Field(
-        None, description="ISO 8601 UTC timestamp when observation expires"
-    )

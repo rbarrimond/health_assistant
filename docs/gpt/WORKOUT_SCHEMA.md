@@ -1,6 +1,6 @@
 # Workout Schema - Semantic API (Logical)
 
-Version: 9.0.0
+Version: 10.0.0
 
 This document defines the **logical workout schema** exposed by the semantic API.
 It avoids storage details (tables, blobs, partitions) and focuses on fields used
@@ -68,6 +68,7 @@ Extends the summary with derived metrics and optional lap summaries.
 |---|---:|:---:|---|
 |hr_avg_bpm|float|⛔️|Average heart rate|
 |hr_max_bpm|float|⛔️|Max heart rate|
+|hr_min_bpm|float|⛔️|Min heart rate|
 |hr_resting_bpm|float|⛔️|Resting HR if available (rare)|
 |hr_samples_count|int|⛔️|Number of HR samples used|
 |hr_missing_pct|float|⛔️|Percent of expected samples missing (0–100)|
@@ -99,6 +100,58 @@ Extends the summary with derived metrics and optional lap summaries.
 |tss|float|⛔️|Training Stress Score (requires FTP + NP)|
 |intensity_factor|float|⛔️|IF = NP / FTP|
 |workout_rpe|int|⛔️|Optional manual RPE if you add later|
+
+### Power-duration anchors (derived)
+
+|Field|Type|Required|Description|
+|---|---:|:---:|---|
+|peak_5s_watts|float|⛔️|Best 5s rolling average power|
+|peak_30s_watts|float|⛔️|Best 30s rolling average power|
+|peak_3min_watts|float|⛔️|Best 3min rolling average power|
+|peak_5min_watts|float|⛔️|Best 5min rolling average power|
+|peak_8min_watts|float|⛔️|Best 8min rolling average power|
+|peak_20min_watts|float|⛔️|Best 20min rolling average power|
+|peak_60min_watts|float|⛔️|Best 60min rolling average power|
+
+### Envelope scores (derived)
+
+|Field|Type|Required|Description|
+|---|---:|:---:|---|
+|sprint_envelope_score|float|⛔️|Composite sprint capability score|
+|vo2_envelope_score|float|⛔️|Composite VO2 capability score|
+|threshold_envelope_score|float|⛔️|Composite threshold endurance score|
+
+### Variability & pacing (derived)
+
+|Field|Type|Required|Description|
+|---|---:|:---:|---|
+|cv_power|float|⛔️|Coefficient of variation for power|
+|cv_hr|float|⛔️|Coefficient of variation for heart rate|
+|surge_count|int|⛔️|Number of surge events detected|
+|surge_density_per_hr|float|⛔️|Surges per hour|
+|pacing_evenness_score|float|⛔️|Pacing smoothness score|
+
+### Durability & efficiency (derived)
+
+|Field|Type|Required|Description|
+|---|---:|:---:|---|
+|efficiency_factor_avg|float|⛔️|Normalized power / HR efficiency ratio|
+|decoupling_pct|float|⛔️|% divergence between HR and power halves|
+|durability_slope|float|⛔️|Performance decline slope over time|
+|fatigue_rate_power|float|⛔️|Power fatigue rate across session|
+|hr_power_lag_sec|int|⛔️|Lag between power and HR response|
+|ef_first_half|float|⛔️|Efficiency factor for first half|
+|ef_second_half|float|⛔️|Efficiency factor for second half|
+|ef_overall|float|⛔️|Overall efficiency factor|
+|hr_drift_bpm|float|⛔️|HR drift (bpm) between halves|
+
+### Structured artifacts (derived, stored as blobs)
+
+|Field|Type|Required|Description|
+|---|---:|:---:|---|
+|intervals_json|array|⛔️|Structured interval detection artifact|
+|climbs_json|array|⛔️|Structured climb detection artifact|
+|power_curve_json|array|⛔️|Log-spaced power curve artifact|
 
 ---
 

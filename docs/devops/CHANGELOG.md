@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-02-17
+
+- Fold canonical analytics metrics into `WorkoutMetricsModel` with compositional submodels (training load, power-duration anchors, envelope scores, variability, durability, artifacts) and align zone boundaries/summary fields.
+- Add `WorkoutMetricsModel.from_canonical()` classmethod for constructing from canonical DataFrame with in-memory caching.
+- Refactor `from_canonical()` into helper methods (`_build_hr_zones`, `_build_power_zones`, etc.) to reduce cognitive complexity.
+- Rename `CanonicalWorkoutMetrics` to `CanonicalAnalyticsEngine` to clarify its role as a computation engine rather than an output model.
+- Split monolithic `FitParser/models.py` (2311 lines) into organized multi-file package structure with focused submodules: `core.py`, `constants.py`, `substrate.py`, `legacy.py`, `agent.py`, and `metrics/` (session, samples, distance, zones, training, performance, artifacts); maintain backward compatibility via package `__init__.py` exports.
+- Update Workout Schema to 10.0.0 to document the expanded canonical analytics surface.
+- Bump ingestion schema to 4.1.1 and ingest version to v4.1.1 for parsing/model changes.
+- Fix semantic layer tests to use correct `_get_table_client` mock and include required WorkoutEntity fields.
+
 ## 2026-02-15
 
 - Treat unchanged skipped ingestions as terminal to prevent reingestion and preserve `ingested_at_utc`; bump ingest version to v3.1.1 and ingestion schema to 3.1.1.
