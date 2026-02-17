@@ -5,6 +5,8 @@
 import base64
 from unittest.mock import Mock, patch
 
+from FitParser.fit_parser import compute_workout_id
+
 from FitParser.handlers.fit_payload_handler import FitPayloadIngestionHandler
 from FitParser.handlers.ingestion_base_handler import FitIngestionBaseHandler
 from FitParser.table_storage import IngestionContext
@@ -65,31 +67,50 @@ def test_ingestion_base_does_not_skip_when_unchanged() -> None:
 def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     """Test parsing and storing records."""
     storage = Mock()
-    storage.store_workout.return_value = "workout-2"
+    storage.store_canonical_records.return_value = "records.parquet"
+    storage.store_canonical_laps.return_value = "laps.parquet"
     handler = _TestIngestionHandler(storage)
+    source_info = {
+        "source_file_name": "file.fit",
+        "file_sha256": "hash",
+    }
+    metadata = {
+        "sport": "Cycling",
+        "start_time_utc": "2026-01-01T00:00:00+00:00",
+    }
+    records = [{"timestamp_utc": "2026-01-01T00:00:00+00:00"}]
+    laps = [{"lap_index": 0}]
+    expected_workout_id = compute_workout_id(file_sha256="hash")
 
     with patch("FitParser.handlers.ingestion_base_handler.FitParser") as parser_cls:
         parser = parser_cls.return_value
-        parser.parse.return_value = {"sport": "Cycling"}
+        parser.extract_canonical_metadata.return_value = metadata
+        parser.extract_canonical_records.return_value = records
+        parser.extract_canonical_laps.return_value = laps
 
         metrics, workout_id = handler._parse_and_store(
             "rob",
-            {"source_file_name": "file.fit"},
+            source_info,
             file_path="/tmp/file.fit",
         )
 
     assert metrics["sport"] == "Cycling"
-    assert workout_id == "workout-2"
+    assert workout_id == expected_workout_id
     storage.store_workout.assert_called_once_with(
         "rob",
-        {"sport": "Cycling"},
-        {"source_file_name": "file.fit"},
+        metadata,
+        source_info,
+        workout_id=expected_workout_id,
+        canonical_records_blob="records.parquet",
+        canonical_laps_blob="laps.parquet",
+        records_count=len(records),
+        laps_count=len(laps),
     )
     storage.record_ingestion_state.assert_called_once_with(
         "rob",
-        {"source_file_name": "file.fit"},
+        source_info,
         status="ingested",
-        workout_id="workout-2",
+        workout_id=expected_workout_id,
     )
 
 
