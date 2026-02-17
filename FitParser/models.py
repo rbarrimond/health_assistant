@@ -1,15 +1,50 @@
 """Domain models for parsed FIT workout data using pydantic."""
 
-# pylint: disable=line-too-long
+# pylint: disable=line-too-long, missing-function-docstring, too-many-lines
 
 from datetime import datetime, timezone
-from typing import List, Optional
+from functools import wraps
+from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+import numpy as np
+import pandas as pd
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_serializer, model_validator
+
+from FitParser.config import Config
 
 ATHLETE_ID_DESC = "Athlete identifier"
 ISO_8601_UTC_DESC = "ISO 8601 UTC timestamp"
 LAST_UPDATE_DESC = "ISO 8601 UTC timestamp of last update"
+DATETIME64_NS = "datetime64[ns]"
+POWER_ANCHOR_WINDOWS_SEC = [5, 30, 180, 300, 480, 1200, 3600]
+POWER_CURVE_SECONDS = [
+    5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 420, 600, 900, 1200, 1800, 2400, 3600
+]
+
+
+def numeric_series(column: str):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(self):
+            # pylint: disable=protected-access
+            series = self._numeric_series(self.df, column)
+            if series.empty:
+                return None
+            return func(self, series)
+
+        return property(wrapper)
+
+    return decorator
+
+
+SURGE_THRESHOLD_FACTOR = 1.2
+SURGE_MIN_SEC = 3
+INTERVAL_THRESHOLD_FACTOR = 0.9
+INTERVAL_MIN_SEC = 60
+CLIMB_MIN_GRADE = 0.03
+CLIMB_MIN_SEC = 60
+RECOVERY_HR_WINDOW_SEC = 30
+LAG_WINDOW_SEC = 60
 
 
 class DeviceInfo(BaseModel):
@@ -219,6 +254,1449 @@ class WorkoutMetricsModel(BaseModel):
     zones_power: Optional[PowerZonesModel] = None
     aerobic_efficiency_mphb: Optional[float] = Field(None, ge=0)
     hr_resting_bpm: Optional[float] = Field(None, ge=0, le=300)
+
+
+class CanonicalWorkoutMetrics(BaseModel):  # pylint: disable=too-many-public-methods
+    """Canonical workout data with calculated metrics."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    df: pd.DataFrame = Field(default_factory=pd.DataFrame)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    resample: bool = Field(
+        default=False,
+        description="If True, resample input DataFrame to 1 Hz; if False, validate input is already 1 Hz"
+    )
+
+    @model_serializer(mode="plain")
+    def _serialize_metrics(self) -> Dict[str, Any]:
+        return self.to_metrics_dict()
+
+    @model_validator(mode='after')
+    def _validate_and_resample_to_1hz(self) -> 'CanonicalWorkoutMetrics':
+        """Validate input is 1 Hz or resample if explicitly requested."""
+        df = self.__dict__.get("df")
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            return self
+
+        working = self._establish_temporal_index(df)
+        is_1hz = self._is_1hz_frequency(working)
+
+        if is_1hz:
+            working = self._add_elapsed_sec_column(working)
+            self.__dict__["df"] = working
+            return self
+
+        # Not 1 Hz - check if resampling is allowed
+        if not self.__dict__.get("resample", False):
+            raise ValueError(
+                "Input DataFrame is not 1 Hz sampled. "
+                "Set resample=True to enable automatic resampling, or provide pre-resampled 1 Hz data."
+            )
+
+        resampled = self._resample_to_1hz(working)
+        self.__dict__["df"] = resampled
+        return self
+
+    def _establish_temporal_index(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Establish temporal index from timestamp_utc or elapsed_sec columns."""
+        working = df.copy()
+        index = None
+
+        if "timestamp_utc" in working:
+            timestamps = pd.to_datetime(working["timestamp_utc"], errors="coerce", utc=True)
+            valid = timestamps.notna()
+            if valid.any():
+                working = working.loc[valid].copy()
+                index = timestamps[valid]
+
+        if index is None and "elapsed_sec" in working:
+            elapsed = pd.to_numeric(working["elapsed_sec"], errors="coerce")
+            valid = elapsed.notna()
+            if valid.any():
+                working = working.loc[valid].copy()
+                index = pd.to_timedelta(elapsed[valid], unit="s")
+
+        if index is None:
+            raise ValueError(
+                "Cannot establish temporal index for CanonicalRecord validation. "
+                "DataFrame must have either 'timestamp_utc' or 'elapsed_sec' column."
+            )
+
+        working.index = index
+        return working.sort_index()
+
+    def _add_elapsed_sec_column(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Add elapsed_sec column if not present."""
+        if "elapsed_sec" in df:
+            return df
+
+        if isinstance(df.index, pd.DatetimeIndex):
+            df["elapsed_sec"] = (df.index - df.index[0]).total_seconds()
+        else:
+            df["elapsed_sec"] = pd.to_timedelta(df.index).total_seconds()
+        return df
+
+    def _resample_to_1hz(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Resample DataFrame to 1 Hz."""
+        mean_cols = [
+            col
+            for col in ["power_watts", "heart_rate_bpm", "cadence_rpm", "speed_mps"]
+            if col in df
+        ]
+        last_cols = [col for col in ["distance_m", "elevation_m"] if col in df]
+
+        mean_frame = (
+            df[mean_cols].apply(pd.to_numeric, errors="coerce").resample("1s").mean()
+            if mean_cols
+            else pd.DataFrame(index=df.resample("1s").mean().index)
+        )
+        last_frame = (
+            df[last_cols].apply(pd.to_numeric, errors="coerce").resample("1s").last().ffill()
+            if last_cols
+            else pd.DataFrame(index=mean_frame.index)
+        )
+
+        resampled = pd.concat([mean_frame, last_frame], axis=1)
+        return self._add_elapsed_sec_column(resampled)
+
+    def _is_1hz_frequency(self, df: pd.DataFrame) -> bool:
+        """Check if DataFrame index represents 1 Hz sampling (1 second intervals)."""
+        if len(df) < 2:
+            return True  # Too few samples to determine frequency
+
+        # Calculate time differences between consecutive samples
+        if isinstance(df.index, pd.DatetimeIndex):
+            diffs = df.index.to_series().diff().dt.total_seconds()
+        elif isinstance(df.index, pd.TimedeltaIndex):
+            diffs = df.index.to_series().diff().dt.total_seconds()
+        else:
+            return False  # Cannot determine frequency without time-based index
+
+        # Check if all diffs are approximately 1 second (allowing small floating point tolerance)
+        diffs = diffs.dropna()
+        if diffs.empty:
+            return False
+
+        # Allow 10ms tolerance for 1 Hz (floating point comparisons)
+        return bool(np.all(np.abs(diffs - 1.0) < 0.01))
+
+    @classmethod
+    def from_canonical(
+        cls,
+        df: pd.DataFrame,
+        metadata: Dict[str, Any],
+        resample: bool = False,
+    ) -> "CanonicalWorkoutMetrics":
+        return cls.from_dataframe(df, metadata, resample=resample)
+
+    @classmethod
+    def from_dataframe(
+        cls,
+        df: pd.DataFrame,
+        metadata: Dict[str, Any],
+        resample: bool = False,
+    ) -> "CanonicalWorkoutMetrics":
+        return cls(df=df, metadata=metadata, resample=resample)
+
+    @property
+    def metrics(self) -> Dict[str, Any]:
+        return self.to_metrics_dict()
+
+    def to_metrics_dict(self) -> Dict[str, Any]:
+        values = {
+            "start_time_utc": self.start_time_utc,
+            "duration_sec": self.duration_sec,
+            "moving_time_sec": self.moving_time_sec,
+            "distance_m": self.distance_m,
+            "elevation_gain_m": self.elevation_gain_m,
+            "elevation_loss_m": self.elevation_loss_m,
+            "avg_speed_mps": self.avg_speed_mps,
+            "max_speed_mps": self.max_speed_mps,
+            "hr_avg_bpm": self.hr_avg_bpm,
+            "hr_max_bpm": self.hr_max_bpm,
+            "hr_min_bpm": self.hr_min_bpm,
+            "hr_samples_count": self.hr_samples_count,
+            "hr_missing_pct": self.hr_missing_pct,
+            "pwr_avg_watts": self.pwr_avg_watts,
+            "pwr_max_watts": self.pwr_max_watts,
+            "pwr_normalized_watts": self.pwr_normalized_watts,
+            "pwr_variability_index": self.pwr_variability_index,
+            "pwr_samples_count": self.pwr_samples_count,
+            "pwr_missing_pct": self.pwr_missing_pct,
+            "cad_avg_rpm": self.cad_avg_rpm,
+            "cad_max_rpm": self.cad_max_rpm,
+            "cad_samples_count": self.cad_samples_count,
+            "hr_zone_basis": self.hr_zone_basis,
+            "hr_zone_reference_bpm": self.hr_zone_reference_bpm,
+            "hr_zone_model": self.hr_zone_model,
+            "hr_z1_sec": self.hr_z1_sec,
+            "hr_z2_sec": self.hr_z2_sec,
+            "hr_z3_sec": self.hr_z3_sec,
+            "hr_z4_sec": self.hr_z4_sec,
+            "hr_z5_sec": self.hr_z5_sec,
+            "hr_z1_low_bpm": self.hr_z1_low_bpm,
+            "hr_z1_high_bpm": self.hr_z1_high_bpm,
+            "hr_z2_low_bpm": self.hr_z2_low_bpm,
+            "hr_z2_high_bpm": self.hr_z2_high_bpm,
+            "hr_z3_low_bpm": self.hr_z3_low_bpm,
+            "hr_z3_high_bpm": self.hr_z3_high_bpm,
+            "hr_z4_low_bpm": self.hr_z4_low_bpm,
+            "hr_z4_high_bpm": self.hr_z4_high_bpm,
+            "hr_z5_low_bpm": self.hr_z5_low_bpm,
+            "hr_z5_high_bpm": self.hr_z5_high_bpm,
+            "hr_zone_total_sec": self.hr_zone_total_sec,
+            "pwr_zone_model": self.pwr_zone_model,
+            "ftp_watts": self.ftp_watts,
+            "pwr_z1_sec": self.pwr_z1_sec,
+            "pwr_z2_sec": self.pwr_z2_sec,
+            "pwr_z3_sec": self.pwr_z3_sec,
+            "pwr_z4_sec": self.pwr_z4_sec,
+            "pwr_z5_sec": self.pwr_z5_sec,
+            "pwr_z6_sec": self.pwr_z6_sec,
+            "pwr_z7_sec": self.pwr_z7_sec,
+            "pwr_z1_low_w": self.pwr_z1_low_w,
+            "pwr_z1_high_w": self.pwr_z1_high_w,
+            "pwr_z2_low_w": self.pwr_z2_low_w,
+            "pwr_z2_high_w": self.pwr_z2_high_w,
+            "pwr_z3_low_w": self.pwr_z3_low_w,
+            "pwr_z3_high_w": self.pwr_z3_high_w,
+            "pwr_z4_low_w": self.pwr_z4_low_w,
+            "pwr_z4_high_w": self.pwr_z4_high_w,
+            "pwr_z5_low_w": self.pwr_z5_low_w,
+            "pwr_z5_high_w": self.pwr_z5_high_w,
+            "pwr_z6_low_w": self.pwr_z6_low_w,
+            "pwr_z6_high_w": self.pwr_z6_high_w,
+            "pwr_z7_low_w": self.pwr_z7_low_w,
+            "pwr_z7_high_w": self.pwr_z7_high_w,
+            "pwr_zone_total_sec": self.pwr_zone_total_sec,
+            "low_aerobic_sec": self.low_aerobic_sec,
+            "intensity_sec": self.intensity_sec,
+            "intensity_factor": self.intensity_factor,
+            "tss": self.tss,
+            "ef_first_half": self.ef_first_half,
+            "ef_second_half": self.ef_second_half,
+            "ef_overall": self.ef_overall,
+            "hr_drift_bpm": self.hr_drift_bpm,
+            "decoupling_pct": self.decoupling_pct,
+            "efficiency_factor_avg": self.efficiency_factor_avg,
+            "peak_5s_watts": self.peak_5s_watts,
+            "peak_30s_watts": self.peak_30s_watts,
+            "peak_3min_watts": self.peak_3min_watts,
+            "peak_5min_watts": self.peak_5min_watts,
+            "peak_8min_watts": self.peak_8min_watts,
+            "peak_20min_watts": self.peak_20min_watts,
+            "peak_60min_watts": self.peak_60min_watts,
+            "sprint_envelope_score": self.sprint_envelope_score,
+            "vo2_envelope_score": self.vo2_envelope_score,
+            "threshold_envelope_score": self.threshold_envelope_score,
+            "cv_power": self.cv_power,
+            "cv_hr": self.cv_hr,
+            "surge_count": self.surge_count,
+            "surge_density_per_hr": self.surge_density_per_hr,
+            "pacing_evenness_score": self.pacing_evenness_score,
+            "durability_slope": self.durability_slope,
+            "fatigue_rate_power": self.fatigue_rate_power,
+            "hr_power_lag_sec": self.hr_power_lag_sec,
+            "power_curve_watts": self.power_curve_watts,
+            "intervals_json": self.intervals_json,
+            "climbs_json": self.climbs_json,
+            "power_curve_json": self.power_curve_json,
+        }
+        return {key: value for key, value in values.items() if value is not None}
+
+    @computed_field
+    @property
+    def start_time_utc(self) -> Optional[str]:
+        metadata = self.metadata or {}
+        metadata_value = metadata.get("start_time_utc")
+        if metadata_value:
+            return str(metadata_value)
+        timestamps = self._timestamps()
+        return timestamps.min().isoformat() if not timestamps.empty else None
+
+    @computed_field
+    @property
+    def duration_sec(self) -> Optional[float]:
+        metadata = self.metadata or {}
+        metadata_value = metadata.get("duration_sec")
+        if metadata_value is not None:
+            return self._as_float(metadata_value)
+        elapsed = self._numeric_series(self.df, "elapsed_sec")
+        if not elapsed.empty:
+            return float(elapsed.max())
+        timestamps = self._timestamps()
+        if timestamps.size >= 2:
+            return float((timestamps.max() - timestamps.min()).total_seconds())
+        return None
+
+    @computed_field
+    @property
+    def moving_time_sec(self) -> Optional[float]:
+        metadata = self.metadata or {}
+        metadata_value = metadata.get("moving_time_sec")
+        if metadata_value is not None:
+            return self._as_float(metadata_value)
+        return self.duration_sec
+
+    @computed_field
+    @property
+    def distance_m(self) -> Optional[float]:
+        metadata = self.metadata or {}
+        metadata_value = metadata.get("distance_m")
+        if metadata_value is not None:
+            return self._as_float(metadata_value)
+        distance = self._numeric_series(self.df, "distance_m")
+        return float(distance.max()) if not distance.empty else None
+
+    @computed_field
+    @property
+    def elevation_gain_m(self) -> Optional[float]:
+        elevation = self._numeric_series(self.df, "elevation_m")
+        if elevation.size < 2:
+            return None
+        diffs = elevation.diff()
+        return float(diffs[diffs > 0].sum())
+
+    @computed_field
+    @property
+    def elevation_loss_m(self) -> Optional[float]:
+        elevation = self._numeric_series(self.df, "elevation_m")
+        if elevation.size < 2:
+            return None
+        diffs = elevation.diff()
+        return float(diffs[diffs < 0].abs().sum())
+
+    @computed_field
+    @property
+    def avg_speed_mps(self) -> Optional[float]:
+        speed = self._numeric_series(self.df, "speed_mps")
+        return float(np.round(speed.mean(), 2)) if not speed.empty else None
+
+    @computed_field
+    @property
+    def max_speed_mps(self) -> Optional[float]:
+        speed = self._numeric_series(self.df, "speed_mps")
+        return float(speed.max()) if not speed.empty else None
+
+    @computed_field
+    @property
+    def hr_avg_bpm(self) -> Optional[float]:
+        hr = self._numeric_series(self.df, "heart_rate_bpm")
+        return float(np.round(hr.mean(), 1)) if not hr.empty else None
+
+    @computed_field
+    @property
+    def hr_max_bpm(self) -> Optional[float]:
+        hr = self._numeric_series(self.df, "heart_rate_bpm")
+        return float(hr.max()) if not hr.empty else None
+
+    @computed_field
+    @property
+    def hr_min_bpm(self) -> Optional[float]:
+        hr = self._numeric_series(self.df, "heart_rate_bpm")
+        return float(hr.min()) if not hr.empty else None
+
+    @computed_field
+    @property
+    def hr_samples_count(self) -> Optional[int]:
+        hr = self._numeric_series(self.df, "heart_rate_bpm")
+        return int(hr.size) if not hr.empty else None
+
+    @computed_field
+    @property
+    def hr_missing_pct(self) -> Optional[float]:
+        duration = self.duration_sec
+        if not duration or duration <= 0:
+            return None
+        samples = self.hr_samples_count
+        if not samples:
+            return None
+        return round((1 - samples / duration) * 100, 1)
+
+    @computed_field
+    @property
+    def pwr_avg_watts(self) -> Optional[float]:
+        power = self._numeric_series(self.df, "power_watts")
+        return float(np.round(power.mean(), 1)) if not power.empty else None
+
+    @computed_field
+    @property
+    def pwr_max_watts(self) -> Optional[float]:
+        power = self._numeric_series(self.df, "power_watts")
+        return float(power.max()) if not power.empty else None
+
+    @computed_field
+    @property
+    def pwr_normalized_watts(self) -> Optional[float]:
+        power = self._numeric_series(self.df, "power_watts")
+        return self._normalized_power(power)
+
+    @computed_field
+    @property
+    def pwr_variability_index(self) -> Optional[float]:
+        avg_power = self.pwr_avg_watts
+        normalized = self.pwr_normalized_watts
+        if not avg_power or not normalized or avg_power <= 0:
+            return None
+        return round(normalized / avg_power, 2)
+
+    @computed_field
+    @property
+    def pwr_samples_count(self) -> Optional[int]:
+        power = self._numeric_series(self.df, "power_watts")
+        return int(power.size) if not power.empty else None
+
+    @computed_field
+    @property
+    def pwr_missing_pct(self) -> Optional[float]:
+        duration = self.duration_sec
+        if not duration or duration <= 0:
+            return None
+        samples = self.pwr_samples_count
+        if not samples:
+            return None
+        return round((1 - samples / duration) * 100, 1)
+
+    @computed_field
+    @property
+    def cad_avg_rpm(self) -> Optional[float]:
+        cadence = self._numeric_series(self.df, "cadence_rpm")
+        return float(np.round(cadence.mean(), 1)) if not cadence.empty else None
+
+    @computed_field
+    @property
+    def cad_max_rpm(self) -> Optional[float]:
+        cadence = self._numeric_series(self.df, "cadence_rpm")
+        return float(cadence.max()) if not cadence.empty else None
+
+    @computed_field
+    @property
+    def cad_samples_count(self) -> Optional[int]:
+        cadence = self._numeric_series(self.df, "cadence_rpm")
+        return int(cadence.size) if not cadence.empty else None
+
+    @computed_field
+    @property
+    def hr_zone_basis(self) -> Optional[str]:
+        return self._hr_zone_summary().get("hr_zone_basis")
+
+    @computed_field
+    @property
+    def hr_zone_reference_bpm(self) -> Optional[float]:
+        return self._hr_zone_summary().get("hr_zone_reference_bpm")
+
+    @computed_field
+    @property
+    def hr_zone_model(self) -> Optional[str]:
+        return self._hr_zone_summary().get("hr_zone_model")
+
+    @computed_field
+    @property
+    def hr_z1_sec(self) -> Optional[int]:
+        return self._hr_zone_summary().get("hr_z1_sec")
+
+    @computed_field
+    @property
+    def hr_z2_sec(self) -> Optional[int]:
+        return self._hr_zone_summary().get("hr_z2_sec")
+
+    @computed_field
+    @property
+    def hr_z3_sec(self) -> Optional[int]:
+        return self._hr_zone_summary().get("hr_z3_sec")
+
+    @computed_field
+    @property
+    def hr_z4_sec(self) -> Optional[int]:
+        return self._hr_zone_summary().get("hr_z4_sec")
+
+    @computed_field
+    @property
+    def hr_z5_sec(self) -> Optional[int]:
+        return self._hr_zone_summary().get("hr_z5_sec")
+
+    @computed_field
+    @property
+    def hr_z1_low_bpm(self) -> Optional[float]:
+        return self._hr_zone_summary().get("hr_z1_low_bpm")
+
+    @computed_field
+    @property
+    def hr_z1_high_bpm(self) -> Optional[float]:
+        return self._hr_zone_summary().get("hr_z1_high_bpm")
+
+    @computed_field
+    @property
+    def hr_z2_low_bpm(self) -> Optional[float]:
+        return self._hr_zone_summary().get("hr_z2_low_bpm")
+
+    @computed_field
+    @property
+    def hr_z2_high_bpm(self) -> Optional[float]:
+        return self._hr_zone_summary().get("hr_z2_high_bpm")
+
+    @computed_field
+    @property
+    def hr_z3_low_bpm(self) -> Optional[float]:
+        return self._hr_zone_summary().get("hr_z3_low_bpm")
+
+    @computed_field
+    @property
+    def hr_z3_high_bpm(self) -> Optional[float]:
+        return self._hr_zone_summary().get("hr_z3_high_bpm")
+
+    @computed_field
+    @property
+    def hr_z4_low_bpm(self) -> Optional[float]:
+        return self._hr_zone_summary().get("hr_z4_low_bpm")
+
+    @computed_field
+    @property
+    def hr_z4_high_bpm(self) -> Optional[float]:
+        return self._hr_zone_summary().get("hr_z4_high_bpm")
+
+    @computed_field
+    @property
+    def hr_z5_low_bpm(self) -> Optional[float]:
+        return self._hr_zone_summary().get("hr_z5_low_bpm")
+
+    @computed_field
+    @property
+    def hr_z5_high_bpm(self) -> Optional[float]:
+        return self._hr_zone_summary().get("hr_z5_high_bpm")
+
+    @computed_field
+    @property
+    def hr_zone_total_sec(self) -> Optional[int]:
+        return self._hr_zone_summary().get("hr_zone_total_sec")
+
+    @computed_field
+    @property
+    def pwr_zone_model(self) -> Optional[str]:
+        return self._power_zone_summary().get("pwr_zone_model")
+
+    @computed_field
+    @property
+    def ftp_watts(self) -> Optional[float]:
+        return self._resolve_ftp_watts()
+
+    @computed_field
+    @property
+    def pwr_z1_sec(self) -> Optional[int]:
+        return self._power_zone_summary().get("pwr_z1_sec")
+
+    @computed_field
+    @property
+    def pwr_z2_sec(self) -> Optional[int]:
+        return self._power_zone_summary().get("pwr_z2_sec")
+
+    @computed_field
+    @property
+    def pwr_z3_sec(self) -> Optional[int]:
+        return self._power_zone_summary().get("pwr_z3_sec")
+
+    @computed_field
+    @property
+    def pwr_z4_sec(self) -> Optional[int]:
+        return self._power_zone_summary().get("pwr_z4_sec")
+
+    @computed_field
+    @property
+    def pwr_z5_sec(self) -> Optional[int]:
+        return self._power_zone_summary().get("pwr_z5_sec")
+
+    @computed_field
+    @property
+    def pwr_z6_sec(self) -> Optional[int]:
+        return self._power_zone_summary().get("pwr_z6_sec")
+
+    @computed_field
+    @property
+    def pwr_z7_sec(self) -> Optional[int]:
+        return self._power_zone_summary().get("pwr_z7_sec")
+
+    @computed_field
+    @property
+    def pwr_z1_low_w(self) -> Optional[float]:
+        return self._power_zone_summary().get("pwr_z1_low_w")
+
+    @computed_field
+    @property
+    def pwr_z1_high_w(self) -> Optional[float]:
+        return self._power_zone_summary().get("pwr_z1_high_w")
+
+    @computed_field
+    @property
+    def pwr_z2_low_w(self) -> Optional[float]:
+        return self._power_zone_summary().get("pwr_z2_low_w")
+
+    @computed_field
+    @property
+    def pwr_z2_high_w(self) -> Optional[float]:
+        return self._power_zone_summary().get("pwr_z2_high_w")
+
+    @computed_field
+    @property
+    def pwr_z3_low_w(self) -> Optional[float]:
+        return self._power_zone_summary().get("pwr_z3_low_w")
+
+    @computed_field
+    @property
+    def pwr_z3_high_w(self) -> Optional[float]:
+        return self._power_zone_summary().get("pwr_z3_high_w")
+
+    @computed_field
+    @property
+    def pwr_z4_low_w(self) -> Optional[float]:
+        return self._power_zone_summary().get("pwr_z4_low_w")
+
+    @computed_field
+    @property
+    def pwr_z4_high_w(self) -> Optional[float]:
+        return self._power_zone_summary().get("pwr_z4_high_w")
+
+    @computed_field
+    @property
+    def pwr_z5_low_w(self) -> Optional[float]:
+        return self._power_zone_summary().get("pwr_z5_low_w")
+
+    @computed_field
+    @property
+    def pwr_z5_high_w(self) -> Optional[float]:
+        return self._power_zone_summary().get("pwr_z5_high_w")
+
+    @computed_field
+    @property
+    def pwr_z6_low_w(self) -> Optional[float]:
+        return self._power_zone_summary().get("pwr_z6_low_w")
+
+    @computed_field
+    @property
+    def pwr_z6_high_w(self) -> Optional[float]:
+        return self._power_zone_summary().get("pwr_z6_high_w")
+
+    @computed_field
+    @property
+    def pwr_z7_low_w(self) -> Optional[float]:
+        return self._power_zone_summary().get("pwr_z7_low_w")
+
+    @computed_field
+    @property
+    def pwr_z7_high_w(self) -> Optional[float]:
+        return self._power_zone_summary().get("pwr_z7_high_w")
+
+    @computed_field
+    @property
+    def pwr_zone_total_sec(self) -> Optional[int]:
+        return self._power_zone_summary().get("pwr_zone_total_sec")
+
+    @computed_field
+    @property
+    def low_aerobic_sec(self) -> Optional[float]:
+        return self._power_zone_summary().get("low_aerobic_sec")
+
+    @computed_field
+    @property
+    def intensity_sec(self) -> Optional[float]:
+        return self._power_zone_summary().get("intensity_sec")
+
+    @computed_field
+    @property
+    def intensity_factor(self) -> Optional[float]:
+        normalized = self.pwr_normalized_watts
+        ftp = self.ftp_watts
+        if not normalized or not ftp or ftp <= 0:
+            return None
+        return round(normalized / ftp, 3)
+
+    @computed_field
+    @property
+    def tss(self) -> Optional[float]:
+        duration = self.duration_sec
+        intensity = self.intensity_factor
+        if not duration or not intensity:
+            return None
+        return round((duration / 3600) * (intensity ** 2) * 100, 1)
+
+    @computed_field
+    @property
+    def ef_first_half(self) -> Optional[float]:
+        return self._efficiency_summary().get("ef_first_half")
+
+    @computed_field
+    @property
+    def ef_second_half(self) -> Optional[float]:
+        return self._efficiency_summary().get("ef_second_half")
+
+    @computed_field
+    @property
+    def ef_overall(self) -> Optional[float]:
+        return self._efficiency_summary().get("ef_overall")
+
+    @computed_field
+    @property
+    def hr_drift_bpm(self) -> Optional[float]:
+        return self._efficiency_summary().get("hr_drift_bpm")
+
+    @computed_field
+    @property
+    def decoupling_pct(self) -> Optional[float]:
+        return self._efficiency_summary().get("decoupling_pct")
+
+    @computed_field
+    @property
+    def efficiency_factor_avg(self) -> Optional[float]:
+        return self._efficiency_summary().get("efficiency_factor_avg")
+
+    @computed_field
+    @property
+    def peak_5s_watts(self) -> Optional[float]:
+        return self._best_avg_power(5)
+
+    @computed_field
+    @property
+    def peak_30s_watts(self) -> Optional[float]:
+        return self._best_avg_power(30)
+
+    @computed_field
+    @property
+    def peak_3min_watts(self) -> Optional[float]:
+        return self._best_avg_power(180)
+
+    @computed_field
+    @property
+    def peak_5min_watts(self) -> Optional[float]:
+        return self._best_avg_power(300)
+
+    @computed_field
+    @property
+    def peak_8min_watts(self) -> Optional[float]:
+        return self._best_avg_power(480)
+
+    @computed_field
+    @property
+    def peak_20min_watts(self) -> Optional[float]:
+        return self._best_avg_power(1200)
+
+    @computed_field
+    @property
+    def peak_60min_watts(self) -> Optional[float]:
+        return self._best_avg_power(3600)
+
+    @computed_field
+    @property
+    def sprint_envelope_score(self) -> Optional[float]:
+        ftp = self.ftp_watts
+        if not ftp or ftp <= 0:
+            return None
+        p5 = self.peak_5s_watts
+        p30 = self.peak_30s_watts
+        if p5 is None or p30 is None:
+            return None
+        sprint_raw = 0.6 * p5 + 0.4 * p30
+        return round(sprint_raw / ftp, 3)
+
+    @computed_field
+    @property
+    def vo2_envelope_score(self) -> Optional[float]:
+        ftp = self.ftp_watts
+        if not ftp or ftp <= 0:
+            return None
+        values = [self.peak_3min_watts, self.peak_5min_watts, self.peak_8min_watts]
+        if any(value is None for value in values):
+            return None
+        vo2_values = np.array([float(value) for value in values if value is not None])
+        vo2_raw = float(np.mean(vo2_values))
+        return round(vo2_raw / ftp, 3)
+
+    @computed_field
+    @property
+    def threshold_envelope_score(self) -> Optional[float]:
+        ftp = self.ftp_watts
+        if not ftp or ftp <= 0:
+            return None
+        values = [self.peak_20min_watts, self.peak_60min_watts]
+        if any(value is None for value in values):
+            return None
+        threshold_values = np.array([float(value) for value in values if value is not None])
+        threshold_raw = float(np.mean(threshold_values))
+        return round(threshold_raw / ftp, 3)
+
+    @computed_field
+    @property
+    def cv_power(self) -> Optional[float]:
+        power = self._numeric_series(self.df, "power_watts")
+        if power.empty:
+            return None
+        mean_power = float(power.mean())
+        if mean_power <= 0:
+            return None
+        return round(float(power.std()) / mean_power, 3)
+
+    @computed_field
+    @property
+    def cv_hr(self) -> Optional[float]:
+        hr = self._numeric_series(self.df, "heart_rate_bpm")
+        if hr.empty:
+            return None
+        mean_hr = float(hr.mean())
+        if mean_hr <= 0:
+            return None
+        return round(float(hr.std()) / mean_hr, 3)
+
+    @computed_field
+    @property
+    def surge_count(self) -> Optional[int]:
+        power = self._numeric_series(self.df, "power_watts")
+        ftp = self.ftp_watts
+        if power.empty or not ftp or ftp <= 0:
+            return None
+        mask = (power > (ftp * SURGE_THRESHOLD_FACTOR)).to_numpy()
+        return self._count_segments(mask, SURGE_MIN_SEC)
+
+    @computed_field
+    @property
+    def surge_density_per_hr(self) -> Optional[float]:
+        duration = self.duration_sec
+        count = self.surge_count
+        if not duration or not count:
+            return None
+        return round(count / (duration / 3600), 3)
+
+    @computed_field
+    @property
+    def pacing_evenness_score(self) -> Optional[float]:
+        variability = self.pwr_variability_index
+        if not variability or variability <= 0:
+            return None
+        return round(1 / variability, 3)
+
+    @computed_field
+    @property
+    def durability_slope(self) -> Optional[float]:
+        arrays = self._durability_arrays()
+        if arrays is None:
+            return None
+        elapsed, power, _ = arrays
+        slope = self._linear_regression_slope(elapsed, power)
+        return round(slope, 5) if slope is not None else None
+
+    @computed_field
+    @property
+    def fatigue_rate_power(self) -> Optional[float]:
+        arrays = self._durability_arrays()
+        if arrays is None:
+            return None
+        _, power, _ = arrays
+        duration = self.duration_sec
+        rate = self._fatigue_rate_power(power, duration)
+        return round(rate, 6) if rate is not None else None
+
+    @computed_field
+    @property
+    def hr_power_lag_sec(self) -> Optional[int]:
+        arrays = self._durability_arrays()
+        if arrays is None:
+            return None
+        _, power, hr_values = arrays
+        return self._hr_power_lag_sec(pd.Series(power), pd.Series(hr_values))
+
+    @computed_field
+    @property
+    def power_curve_watts(self) -> Dict[int, float]:
+        power = self._numeric_series(self.df, "power_watts")
+        if power.empty:
+            return {}
+        metrics: Dict[int, float] = {}
+        for minutes in [1, 5, 20, 60]:
+            best = self._compute_best_avg_power(power, minutes * 60)
+            if best is not None:
+                metrics[minutes] = best
+        return metrics
+
+    @computed_field
+    @property
+    def intervals_json(self) -> List[Dict[str, Any]]:
+        return self._intervals_json()
+
+    @computed_field
+    @property
+    def climbs_json(self) -> List[Dict[str, Any]]:
+        return self._climbs_json()
+
+    @computed_field
+    @property
+    def power_curve_json(self) -> List[Dict[str, Any]]:
+        return self._power_curve_json()
+
+    # ========== Private Helper Methods ==========
+    # pylint: disable=missing-function-docstring
+
+    def _timestamps(self) -> pd.Series:
+        raw_df = self.__dict__.get("df")
+        df = raw_df if isinstance(raw_df, pd.DataFrame) else pd.DataFrame()
+        return pd.to_datetime(
+            self._timestamp_series(df),
+            errors="coerce",
+            utc=True,
+        ).dropna()
+
+    def _resolve_ftp_watts(self) -> Optional[float]:
+        return self._as_float(Config.power_config().ftp_watts)
+
+    def _normalized_power(self, power: pd.Series) -> Optional[float]:
+        if power.size < 30:
+            return None
+        p30 = power.rolling(window=30, min_periods=30).mean().dropna()
+        if p30.empty:
+            return None
+        np_sum = p30.pow(4).mean()
+        if np_sum <= 0:
+            return None
+        return float(np.round(np_sum ** 0.25, 1))
+
+    def _best_avg_power(self, window_sec: int) -> Optional[float]:
+        power = self._numeric_series(self.df, "power_watts")
+        if power.empty:
+            return None
+        return self._compute_best_avg_power(power, window_sec)
+
+    def _compute_best_avg_power(self, power: pd.Series, window_sec: int) -> Optional[float]:
+        window = int(window_sec)
+        if window <= 0 or power.size < window:
+            return None
+        cumsum = power.cumsum().to_numpy()
+        window_sums = cumsum[window - 1 :] - np.concatenate(([0.0], cumsum[:-window]))
+        best_avg = float(np.max(window_sums) / window) if window_sums.size else None
+        return round(best_avg, 1) if best_avg is not None else None
+
+    def _hr_zone_summary(self) -> Dict[str, Any]:
+        hr = self._numeric_series(self.df, "heart_rate_bpm")
+        return self._compute_hr_zones_from_series(hr) if not hr.empty else {}
+
+    def _power_zone_summary(self) -> Dict[str, Any]:
+        power = self._numeric_series(self.df, "power_watts")
+        ftp = self.ftp_watts
+        return self._compute_power_zones_from_series(power, ftp_watts=ftp) if not power.empty else {}
+
+    def _efficiency_summary(self) -> Dict[str, Any]:
+        duration = self.duration_sec
+        if not duration or duration < 1800:
+            return {}
+        hr = self._numeric_series(self.df, "heart_rate_bpm")
+        power = self._numeric_series(self.df, "power_watts")
+        if hr.empty or power.empty or len(hr) < 30 or len(power) < 30:
+            return {}
+
+        min_len = min(len(hr), len(power))
+        hrs = hr.iloc[:min_len]
+        pwr = power.iloc[:min_len]
+        mid = min_len // 2
+        avg_hr_first = float(hrs.iloc[:mid].mean())
+        avg_hr_second = float(hrs.iloc[mid:].mean())
+        avg_hr_overall = float(hrs.mean())
+
+        if avg_hr_first <= 0 or avg_hr_second <= 0 or avg_hr_overall <= 0:
+            return {}
+
+        np_first = self._normalized_power(pwr.iloc[:mid])
+        np_second = self._normalized_power(pwr.iloc[mid:])
+        np_overall = self._normalized_power(pd.Series(pwr))
+        if np_first is None or np_second is None or np_overall is None:
+            return {}
+
+        ef_first = np_first / avg_hr_first
+        ef_second = np_second / avg_hr_second
+        ef_overall = np_overall / avg_hr_overall
+        hr_drift = avg_hr_second - avg_hr_first
+
+        metrics = {
+            "ef_first_half": round(ef_first, 3),
+            "ef_second_half": round(ef_second, 3),
+            "ef_overall": round(ef_overall, 3),
+            "efficiency_factor_avg": round(ef_overall, 3),
+            "hr_drift_bpm": round(hr_drift, 1),
+        }
+        if ef_first > 0:
+            metrics["decoupling_pct"] = round(((ef_second / ef_first) - 1) * 100, 2)
+        return metrics
+
+    def _durability_arrays(self) -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+        df = self.__dict__.get("df", pd.DataFrame())
+        power_col = df.get("power_watts")
+        elapsed_col = df.get("elapsed_sec")
+        hr_col = df.get("heart_rate_bpm")
+
+        power_raw = pd.to_numeric(power_col, errors="coerce") if power_col is not None else None
+        elapsed_raw = pd.to_numeric(elapsed_col, errors="coerce") if elapsed_col is not None else None
+        hr_raw = pd.to_numeric(hr_col, errors="coerce") if hr_col is not None else None
+
+        if power_raw is None or elapsed_raw is None:
+            return None
+
+        base_mask = power_raw.notna() & elapsed_raw.notna()
+        if not base_mask.any():
+            return None
+
+        power = power_raw[base_mask].to_numpy(dtype=float)
+        elapsed = elapsed_raw[base_mask].to_numpy(dtype=float)
+        hr_values = hr_raw[base_mask].to_numpy(dtype=float) if hr_raw is not None else np.array([])
+        return elapsed, power, hr_values
+
+    def _intervals_json(self) -> List[Dict[str, Any]]:
+        ftp = self.ftp_watts
+        return self._compute_intervals_artifact(self.df, ftp) if ftp else []
+
+    def _climbs_json(self) -> List[Dict[str, Any]]:
+        return self._compute_climbs_artifact(self.df)
+
+    def _power_curve_json(self) -> List[Dict[str, Any]]:
+        power = self._numeric_series(self.df, "power_watts")
+        return self._compute_power_curve_artifact(power)
+
+    def _durability_slope(self, elapsed: np.ndarray, power: np.ndarray) -> Optional[float]:
+        if elapsed.size < 2 or power.size < 2:
+            return None
+        return self._linear_regression_slope(elapsed, power)
+
+    def _fatigue_rate_power(self, power: np.ndarray, duration_sec: Optional[float]) -> Optional[float]:
+        if not duration_sec or duration_sec <= 0 or power.size < 4:
+            return None
+        quartile = power.size // 4
+        if quartile <= 0:
+            return None
+        p1 = float(np.mean(power[:quartile]))
+        p4 = float(np.mean(power[-quartile:]))
+        return (p4 - p1) / duration_sec
+
+    def _as_float(self, value: Any) -> Optional[float]:
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                return None
+        return None
+
+    def _numeric_series(self, df: pd.DataFrame, column: str) -> pd.Series:
+        if column in df:
+            return pd.to_numeric(df[column], errors="coerce").dropna()
+        return pd.Series(dtype=float)
+
+    def _timestamp_series(self, df: pd.DataFrame) -> pd.Series:
+        if "timestamp_utc" in df:
+            return df["timestamp_utc"]
+        return pd.Series(dtype=DATETIME64_NS)
+
+    @classmethod
+    def _compute_hr_zones_from_series(
+        cls,
+        hr: pd.Series,
+    ) -> Dict[str, float | int | str]:
+        hr_cfg = Config.hr_config()
+        zone_basis = hr_cfg.basis
+        hr_rest = hr_cfg.resting_hr_bpm
+
+        if zone_basis == "LTHR":
+            ref_bpm = hr_cfg.lthr_bpm
+        elif zone_basis == "HRR":
+            ref_bpm = hr_cfg.hr_max_bpm
+        else:
+            ref_bpm = hr_cfg.hr_max_bpm
+
+        if not ref_bpm:
+            ref_bpm = float(hr.max()) if not hr.empty else None
+        if not ref_bpm:
+            return {}
+
+        zones = cls._get_hr_zones(zone_basis, ref_bpm, hr_rest)
+        if not zones:
+            return {}
+
+        hrs_array = hr.to_numpy(dtype=float)
+        zone_bounds = list(zones.values())
+        lows = np.array([low for low, _ in zone_bounds], dtype=float)
+        highs = np.array([high for _, high in zone_bounds], dtype=float)
+        in_range = (hrs_array >= lows[0]) & (hrs_array <= highs[-1])
+        hrs_valid = hrs_array[in_range]
+        if hrs_valid.size:
+            bin_indices = np.digitize(hrs_valid, highs, right=True)
+            counts = np.bincount(bin_indices, minlength=len(highs))[:len(highs)]
+        else:
+            counts = np.zeros(len(highs), dtype=int)
+
+        metrics: Dict[str, float | int | str] = {}
+        total_sec = 0
+        for i, (zone_name, (low, high)) in enumerate(zones.items(), 1):
+            count = int(counts[i - 1])
+            metrics[f"{zone_name}_sec"] = count
+            metrics[f"hr_z{i}_low_bpm"] = float(low)
+            metrics[f"hr_z{i}_high_bpm"] = float(high)
+            total_sec += count
+
+        metrics["hr_zone_total_sec"] = total_sec
+        metrics["hr_zone_basis"] = zone_basis
+        metrics["hr_zone_reference_bpm"] = float(ref_bpm)
+        metrics["hr_zone_model"] = (
+            "coggan" if zone_basis == "LTHR" else "karvonen"
+        )
+        return metrics
+
+    @staticmethod
+    def _get_hr_zones(
+        zone_basis: str,
+        reference_bpm: float,
+        hr_rest: Optional[float] = None,
+    ) -> Dict[str, tuple]:
+        if zone_basis == "HRmax":
+            return {
+                "hr_z1": (int(reference_bpm * 0.50), int(reference_bpm * 0.60)),
+                "hr_z2": (int(reference_bpm * 0.60), int(reference_bpm * 0.70)),
+                "hr_z3": (int(reference_bpm * 0.70), int(reference_bpm * 0.80)),
+                "hr_z4": (int(reference_bpm * 0.80), int(reference_bpm * 0.90)),
+                "hr_z5": (int(reference_bpm * 0.90), int(reference_bpm * 1.00)),
+            }
+        if zone_basis == "LTHR":
+            return {
+                "hr_z1": (int(reference_bpm * 0.65), int(reference_bpm * 0.81)),
+                "hr_z2": (int(reference_bpm * 0.81), int(reference_bpm * 0.90)),
+                "hr_z3": (int(reference_bpm * 0.90), int(reference_bpm * 0.94)),
+                "hr_z4": (int(reference_bpm * 0.94), int(reference_bpm * 1.00)),
+                "hr_z5": (int(reference_bpm * 1.00), int(reference_bpm * 1.06)),
+            }
+        if zone_basis == "HRR":
+            rest_hr = hr_rest if hr_rest else 60
+            hr_reserve = reference_bpm - rest_hr
+            return {
+                "hr_z1": (int(hr_reserve * 0.50 + rest_hr), int(hr_reserve * 0.60 + rest_hr)),
+                "hr_z2": (int(hr_reserve * 0.60 + rest_hr), int(hr_reserve * 0.70 + rest_hr)),
+                "hr_z3": (int(hr_reserve * 0.70 + rest_hr), int(hr_reserve * 0.80 + rest_hr)),
+                "hr_z4": (int(hr_reserve * 0.80 + rest_hr), int(hr_reserve * 0.90 + rest_hr)),
+                "hr_z5": (int(hr_reserve * 0.90 + rest_hr), int(hr_reserve * 1.00 + rest_hr)),
+            }
+        return {}
+
+    @classmethod
+    def _compute_power_zones_from_series(
+        cls,
+        power: pd.Series,
+        ftp_watts: Optional[float] = None,
+    ) -> Dict[str, float | int | str]:
+        pwr_cfg = Config.power_config()
+        ftp = ftp_watts or pwr_cfg.ftp_watts or 250
+        zones = {
+            "pwr_z1": (0, int(ftp * 0.55)),
+            "pwr_z2": (int(ftp * 0.55), int(ftp * 0.75)),
+            "pwr_z3": (int(ftp * 0.75), int(ftp * 0.90)),
+            "pwr_z4": (int(ftp * 0.90), int(ftp * 1.05)),
+            "pwr_z5": (int(ftp * 1.05), int(ftp * 1.20)),
+            "pwr_z6": (int(ftp * 1.20), int(ftp * 1.50)),
+            "pwr_z7": (int(ftp * 1.50), 99999),
+        }
+
+        powers_array = power.to_numpy(dtype=float)
+        zone_bounds = list(zones.values())
+        lows = np.array([low for low, _ in zone_bounds], dtype=float)
+        highs = np.array([high for _, high in zone_bounds], dtype=float)
+        in_range = (powers_array >= lows[0]) & (powers_array <= highs[-1])
+        powers_valid = powers_array[in_range]
+        if powers_valid.size:
+            bin_indices = np.digitize(powers_valid, highs, right=False)
+            counts = np.bincount(bin_indices, minlength=len(highs))[:len(highs)]
+        else:
+            counts = np.zeros(len(highs), dtype=int)
+
+        metrics: Dict[str, float | int | str] = {}
+        total_sec = 0
+        for i, (zone_name, (low, high)) in enumerate(zones.items(), 1):
+            count = int(counts[i - 1])
+            metrics[f"{zone_name}_sec"] = count
+            metrics[f"pwr_z{i}_low_w"] = float(low)
+            metrics[f"pwr_z{i}_high_w"] = float(high if high != 99999 else ftp * 2)
+            total_sec += count
+
+        def _num(value: object) -> float:
+            return float(value) if isinstance(value, (int, float)) else 0.0
+
+        metrics["pwr_zone_total_sec"] = total_sec
+        metrics["low_aerobic_sec"] = (
+            _num(metrics.get("pwr_z1_sec")) + _num(metrics.get("pwr_z2_sec"))
+        )
+        metrics["intensity_sec"] = sum(
+            _num(metrics.get(f"pwr_z{i}_sec")) for i in range(4, 8)
+        )
+        metrics["pwr_zone_model"] = "coggan_7"
+        metrics["ftp_watts"] = ftp
+        return metrics
+
+    def _find_segments(self, mask: np.ndarray, min_len: int) -> List[tuple[int, int]]:
+        if min_len <= 0:
+            return []
+        true_indices = np.nonzero(mask)[0]
+        if true_indices.size == 0:
+            return []
+        segments: List[tuple[int, int]] = []
+        start = int(true_indices[0])
+        prev = int(true_indices[0])
+        for idx in true_indices[1:]:
+            idx = int(idx)
+            if idx == prev + 1:
+                prev = idx
+                continue
+            if prev - start + 1 >= min_len:
+                segments.append((start, prev))
+            start = idx
+            prev = idx
+        if prev - start + 1 >= min_len:
+            segments.append((start, prev))
+        return segments
+
+    def _count_segments(self, mask: np.ndarray, min_len: int) -> int:
+        return len(self._find_segments(mask, min_len))
+
+    def _linear_regression_slope(self, x_values: np.ndarray, y_values: np.ndarray) -> Optional[float]:
+        if x_values.size < 2 or y_values.size < 2:
+            return None
+        if x_values.size != y_values.size:
+            min_len = min(x_values.size, y_values.size)
+            x_values = x_values[:min_len]
+            y_values = y_values[:min_len]
+        if np.all(np.isnan(x_values)) or np.all(np.isnan(y_values)):
+            return None
+        try:
+            slope = np.polyfit(x_values, y_values, 1)[0]
+        except (TypeError, ValueError):
+            return None
+        return float(slope)
+
+    def _hr_power_lag_sec(self, power: pd.Series, hr: pd.Series) -> Optional[int]:
+        if power.empty or hr.empty:
+            return None
+        min_len = min(len(power), len(hr))
+        if min_len < 10:
+            return None
+        power_values = power.to_numpy(dtype=float)[:min_len]
+        hr_values = hr.to_numpy(dtype=float)[:min_len]
+
+        power_values = power_values - np.mean(power_values)
+        hr_values = hr_values - np.mean(hr_values)
+
+        best_lag = None
+        best_corr = -np.inf
+        for lag in range(-LAG_WINDOW_SEC, LAG_WINDOW_SEC + 1):
+            p_slice, h_slice = self._lagged_slices(
+                power_values,
+                hr_values,
+                lag,
+            )
+            if p_slice.size < 2 or h_slice.size < 2:
+                continue
+            corr = np.corrcoef(p_slice, h_slice)[0, 1]
+            if np.isnan(corr):
+                continue
+            if corr > best_corr:
+                best_corr = corr
+                best_lag = lag
+        return int(best_lag) if best_lag is not None else None
+
+    def _lagged_slices(
+        self,
+        power_values: np.ndarray,
+        hr_values: np.ndarray,
+        lag: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        if lag < 0:
+            return power_values[:lag], hr_values[-lag:]
+        if lag > 0:
+            return power_values[lag:], hr_values[:-lag]
+        return power_values, hr_values
+
+    def _compute_intervals_artifact(
+        self,
+        resampled: pd.DataFrame,
+        ftp_watts: Optional[float],
+    ) -> List[Dict[str, Any]]:
+        if not ftp_watts or ftp_watts <= 0:
+            return []
+
+        series = self._interval_series(resampled)
+        if series is None:
+            return []
+
+        power_arr, hr_arr, elapsed_arr = series
+        segments = self._interval_segments(power_arr, ftp_watts)
+        return [
+            self._interval_summary(power_arr, hr_arr, elapsed_arr, start_idx, end_idx)
+            for start_idx, end_idx in segments
+        ]
+
+    def _compute_climbs_artifact(
+        self,
+        resampled: pd.DataFrame,
+    ) -> List[Dict[str, Any]]:
+        series = self._climb_series(resampled)
+        if series is None:
+            return []
+
+        grade, power_values, hr_values = series
+        segments = self._climb_segments(grade)
+        return [
+            self._climb_summary(grade, power_values, hr_values, start_idx, end_idx)
+            for start_idx, end_idx in segments
+        ]
+
+    def _interval_series(
+        self,
+        resampled: pd.DataFrame,
+    ) -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+        power_col = resampled.get("power_watts")
+        elapsed_col = resampled.get("elapsed_sec")
+        if power_col is None or elapsed_col is None:
+            return None
+
+        power_values = pd.to_numeric(power_col, errors="coerce").to_numpy(dtype=float)
+        elapsed_values = pd.to_numeric(elapsed_col, errors="coerce").to_numpy(dtype=float)
+        hr_col = resampled.get("heart_rate_bpm")
+        hr_values = (
+            pd.to_numeric(hr_col, errors="coerce").to_numpy(dtype=float)
+            if hr_col is not None
+            else np.array([])
+        )
+        if power_values.size == 0 or elapsed_values.size == 0:
+            return None
+        return power_values, hr_values, elapsed_values
+
+    def _interval_segments(
+        self,
+        power_values: np.ndarray,
+        ftp_watts: float,
+    ) -> List[tuple[int, int]]:
+        threshold = ftp_watts * INTERVAL_THRESHOLD_FACTOR
+        mask = power_values >= threshold
+        return self._find_segments(mask, INTERVAL_MIN_SEC)
+
+    def _interval_summary(
+        self,
+        power_values: np.ndarray,
+        hr_values: np.ndarray,
+        elapsed_values: np.ndarray,
+        start_idx: int,
+        end_idx: int,
+    ) -> Dict[str, Any]:
+        start_sec = float(elapsed_values[start_idx]) if start_idx < elapsed_values.size else None
+        end_sec = float(elapsed_values[end_idx]) if end_idx < elapsed_values.size else None
+        duration_sec = int(round(end_sec - start_sec + 1)) if start_sec is not None and end_sec is not None else 0
+        power_slice = power_values[start_idx : end_idx + 1]
+        peak_power = float(np.nanmax(power_slice)) if power_slice.size else None
+        avg_power = float(np.nanmean(power_slice)) if power_slice.size else None
+        recovery_slope = self._interval_recovery_slope(hr_values, end_idx)
+        return {
+            "start_sec": round(start_sec, 1) if start_sec is not None else None,
+            "end_sec": round(end_sec, 1) if end_sec is not None else None,
+            "duration_sec": duration_sec,
+            "avg_power": round(avg_power, 1) if avg_power is not None else None,
+            "peak_power": round(peak_power, 1) if peak_power is not None else None,
+            "recovery_hr_slope": round(recovery_slope, 4) if recovery_slope is not None else None,
+        }
+
+    def _interval_recovery_slope(self, hr_values: np.ndarray, end_idx: int) -> Optional[float]:
+        if hr_values.size == 0:
+            return None
+        recovery_start = end_idx + 1
+        recovery_end = min(recovery_start + RECOVERY_HR_WINDOW_SEC, hr_values.size)
+        if recovery_end - recovery_start < 2:
+            return None
+        x_vals = np.arange(recovery_end - recovery_start, dtype=float)
+        y_vals = hr_values[recovery_start:recovery_end]
+        return self._linear_regression_slope(x_vals, y_vals)
+
+    def _climb_series(
+        self,
+        resampled: pd.DataFrame,
+    ) -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+        if "distance_m" not in resampled or "elevation_m" not in resampled:
+            return None
+        distance = pd.to_numeric(resampled["distance_m"], errors="coerce")
+        elevation = pd.to_numeric(resampled["elevation_m"], errors="coerce")
+        if distance.dropna().size < 2 or elevation.dropna().size < 2:
+            return None
+
+        dist_values = distance.to_numpy(dtype=float)
+        elev_values = elevation.to_numpy(dtype=float)
+        delta_dist = np.diff(dist_values)
+        delta_elev = np.diff(elev_values)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            grade = np.where(delta_dist > 0, delta_elev / delta_dist, np.nan)
+
+        power_col = resampled.get("power_watts")
+        hr_col = resampled.get("heart_rate_bpm")
+        power_values = (
+            pd.to_numeric(power_col, errors="coerce").to_numpy(dtype=float)
+            if power_col is not None
+            else np.array([])
+        )
+        hr_values = (
+            pd.to_numeric(hr_col, errors="coerce").to_numpy(dtype=float)
+            if hr_col is not None
+            else np.array([])
+        )
+        return grade, power_values, hr_values
+
+    def _climb_segments(self, grade: np.ndarray) -> List[tuple[int, int]]:
+        mask = grade >= CLIMB_MIN_GRADE
+        return self._find_segments(mask, CLIMB_MIN_SEC)
+
+    def _climb_summary(
+        self,
+        grade: np.ndarray,
+        power_values: np.ndarray,
+        hr_values: np.ndarray,
+        start_idx: int,
+        end_idx: int,
+    ) -> Dict[str, Any]:
+        segment_grade = grade[start_idx : end_idx + 1]
+        avg_grade = float(np.nanmean(segment_grade)) * 100
+        power_slice = power_values[start_idx : end_idx + 1]
+        avg_power = float(np.nanmean(power_slice)) if power_slice.size else None
+        efficiency = self._climb_efficiency(avg_power, hr_values, start_idx, end_idx)
+        return {
+            "duration": int(end_idx - start_idx + 1),
+            "avg_grade": round(avg_grade, 2),
+            "avg_power": round(avg_power, 1) if avg_power is not None else None,
+            "efficiency_factor": round(efficiency, 3) if efficiency is not None else None,
+        }
+
+    def _climb_efficiency(
+        self,
+        avg_power: Optional[float],
+        hr_values: np.ndarray,
+        start_idx: int,
+        end_idx: int,
+    ) -> Optional[float]:
+        if avg_power is None or hr_values.size == 0:
+            return None
+        hr_slice = hr_values[start_idx : end_idx + 1]
+        avg_hr = float(np.nanmean(hr_slice)) if hr_slice.size else None
+        if avg_hr and avg_hr > 0:
+            return avg_power / avg_hr
+        return None
+
+    def _compute_power_curve_artifact(self, power: pd.Series) -> List[Dict[str, Any]]:
+        if power.empty:
+            return []
+        curve: List[Dict[str, Any]] = []
+        for duration_sec in POWER_CURVE_SECONDS:
+            best = self._compute_best_avg_power(power, duration_sec)
+            if best is not None:
+                curve.append(
+                    {
+                        "duration_sec": duration_sec,
+                        "avg_power_watts": best,
+                    }
+                )
+        return curve
 
 
 # ============================================================================
