@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timezone
 from typing import Dict, Tuple, Any
 
-from FitParser.table_storage import WorkoutTableStorage
+from TrainingAnalyticsPlatform.table_storage import WorkoutTableStorage
 
 logger = logging.getLogger(__name__)
 

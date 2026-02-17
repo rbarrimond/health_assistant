@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from FitParser.handlers import HealthHandler
+from TrainingAnalyticsPlatform.handlers import HealthHandler
 
 
 class TestHealthHandler:

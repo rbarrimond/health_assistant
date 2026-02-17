@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Dict, Tuple, Any
 
-from FitParser.config import Config
+from TrainingAnalyticsPlatform.config import Config
 
 logger = logging.getLogger(__name__)
 

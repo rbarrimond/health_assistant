@@ -1,4 +1,4 @@
-# FitParser Models
+# TrainingAnalyticsPlatform Models
 
 Pydantic v2 data models for workout parsing, storage, and analytics.
 
@@ -28,7 +28,7 @@ models/
 `WorkoutMetricsModel` uses **typed compositional submodels** instead of 100+ flat fields:
 
 ```python
-from FitParser.models import WorkoutMetricsModel
+from TrainingAnalyticsPlatform.models import WorkoutMetricsModel
 
 # Fields are organized into semantic groups
 metrics = WorkoutMetricsModel.from_canonical(df, metadata)
@@ -94,7 +94,7 @@ custom_metric = engine._compute_custom_analysis()  # Not cached
 ### Import All Models (Backward Compatible)
 
 ```python
-from FitParser.models import (
+from TrainingAnalyticsPlatform.models import (
     WorkoutMetricsModel,
     CanonicalAnalyticsEngine,
     CanonicalRecord,
@@ -111,7 +111,7 @@ from FitParser.models import (
 
 ```python
 import pandas as pd
-from FitParser.models import WorkoutMetricsModel
+from TrainingAnalyticsPlatform.models import WorkoutMetricsModel
 
 # 1 Hz canonical telemetry
 canonical_df = pd.DataFrame({...})  # CanonicalRecord schema
@@ -137,7 +137,7 @@ metrics_dict = metrics.model_dump(mode='json')
 ### Validate Canonical Schema
 
 ```python
-from FitParser.models import CanonicalRecord
+from TrainingAnalyticsPlatform.models import CanonicalRecord
 
 # Validate DataFrame schema matches CanonicalRecord
 records = [CanonicalRecord(**row) for _, row in canonical_df.iterrows()]
@@ -148,7 +148,7 @@ records = [CanonicalRecord(**row) for _, row in canonical_df.iterrows()]
 All models use Pydantic v2 validation:
 
 ```python
-from FitParser.models import SessionMetricsModel
+from TrainingAnalyticsPlatform.models import SessionMetricsModel
 
 # Automatic type coercion and validation
 session = SessionMetricsModel(
@@ -184,15 +184,15 @@ Package `__init__.py` re-exports all models for seamless migration:
 
 ```python
 # Old import (still works)
-from FitParser.models import WorkoutMetricsModel
+from TrainingAnalyticsPlatform.models import WorkoutMetricsModel
 
 # New import (explicit submodule)
-from FitParser.models.core import WorkoutMetricsModel
+from TrainingAnalyticsPlatform.models.core import WorkoutMetricsModel
 
 # Both work identically
 ```
 
-All existing code using `from FitParser.models import X` continues to work without changes.
+All existing code using `from TrainingAnalyticsPlatform.models import X` continues to work without changes.
 
 ## Schema Versions
 

@@ -1,7 +1,7 @@
 """Azure Functions app - HTTP adapter for FIT parsing and health analytics.
 
 This module serves as the HTTP layer, delegating all business logic to handlers
-in FitParser.handlers. All endpoints are thin wrappers that:
+in TrainingAnalyticsPlatform.handlers. All endpoints are thin wrappers that:
 1. Parse HTTP request
 2. Call appropriate handler
 3. Return JSON response
@@ -25,10 +25,10 @@ from config.constants import (
     INTERNAL_SERVER_ERROR,
     TEXT_PLAIN_CONTENT_TYPE,
 )
-from FitParser.backup_exporter import BackupExporter
-from FitParser.dependencies import dependencies
-from FitParser.http_utils import json_response, public_base_url
-from FitParser.handlers import (
+from TrainingAnalyticsPlatform.backup_exporter import BackupExporter
+from TrainingAnalyticsPlatform.dependencies import dependencies
+from TrainingAnalyticsPlatform.http_utils import json_response, public_base_url
+from TrainingAnalyticsPlatform.handlers import (
     FitPayloadIngestionHandler,
     OneDriveSyncRequest,
     QueryHandler,

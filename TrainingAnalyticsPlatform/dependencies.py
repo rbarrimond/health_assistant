@@ -13,14 +13,14 @@ from typing import Any, Dict
 
 from azure.core.exceptions import AzureError
 
-from FitParser.handlers.onedrive_sync_handler import (
+from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import (
     OneDriveSyncHandler,
     OneDriveSyncConfig,
 )
-from FitParser.semantic_layer import SemanticLayer
-from FitParser.table_storage import WorkoutTableStorage
-from FitParser.withings_client import WithingsClient
-from FitParser.handlers import FitPayloadIngestionHandler
+from TrainingAnalyticsPlatform.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.table_storage import WorkoutTableStorage
+from TrainingAnalyticsPlatform.withings_client import WithingsClient
+from TrainingAnalyticsPlatform.handlers import FitPayloadIngestionHandler
 
 logger = logging.getLogger(__name__)
 

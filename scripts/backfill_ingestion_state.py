@@ -7,7 +7,7 @@ from typing import Dict, Optional
 
 from azure.core.exceptions import HttpResponseError
 
-from FitParser.table_storage import INGEST_VERSION, WorkoutTableStorage
+from TrainingAnalyticsPlatform.table_storage import INGEST_VERSION, WorkoutTableStorage
 
 UTC_SUFFIX = "+00:00"
 

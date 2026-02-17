@@ -3,7 +3,7 @@
 import logging
 from typing import Dict, List, Tuple, Any, Optional
 
-from FitParser.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.semantic_layer import SemanticLayer
 
 logger = logging.getLogger(__name__)
 

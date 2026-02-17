@@ -122,7 +122,7 @@ class Config:
     def _repo_root() -> Path:
         """Return repository root path.
 
-        Config.py lives in FitParser/. Default config/ is at repo root.
+        Config.py lives in TrainingAnalyticsPlatform/. Default config/ is at repo root.
         """
         return Path(__file__).resolve().parents[1]
 

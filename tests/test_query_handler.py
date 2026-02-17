@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from FitParser.handlers import QueryHandler
+from TrainingAnalyticsPlatform.handlers import QueryHandler
 
 
 class TestQueryHandler:

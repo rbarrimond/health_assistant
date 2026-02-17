@@ -7,7 +7,7 @@ from typing import cast
 
 import pandas as pd
 import pytest
-from FitParser.models import CanonicalAnalyticsEngine
+from TrainingAnalyticsPlatform.models import CanonicalAnalyticsEngine
 
 
 @pytest.fixture

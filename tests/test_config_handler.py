@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from FitParser.handlers import ConfigHandler
+from TrainingAnalyticsPlatform.handlers import ConfigHandler
 
 
 class TestConfigHandler:

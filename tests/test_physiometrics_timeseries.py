@@ -6,10 +6,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 from azure.core.exceptions import ResourceNotFoundError
 
-from FitParser.table_storage import WorkoutTableStorage
+from TrainingAnalyticsPlatform.table_storage import WorkoutTableStorage
 
-from FitParser.semantic_layer import SemanticLayer
-from FitParser.withings_client import WithingsClient
+from TrainingAnalyticsPlatform.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.withings_client import WithingsClient
 
 class TestPhysiometricsTimeSeries:
     """Test time-series physiometrics storage and retrieval."""
@@ -211,7 +211,7 @@ class TestSemanticLayerPhysiometrics:
     @pytest.fixture
     def layer(self):
         """Create semantic layer with mocked storage."""
-        with patch("FitParser.semantic_layer.WorkoutTableStorage"):
+        with patch("TrainingAnalyticsPlatform.semantic_layer.WorkoutTableStorage"):
             return SemanticLayer()
 
     def test_get_current_physiometrics(self, layer):

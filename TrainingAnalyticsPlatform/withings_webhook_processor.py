@@ -15,8 +15,8 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from FitParser.table_storage import WorkoutTableStorage
-from FitParser.withings_client import WithingsClient
+from TrainingAnalyticsPlatform.table_storage import WorkoutTableStorage
+from TrainingAnalyticsPlatform.withings_client import WithingsClient
 
 logger = logging.getLogger(__name__)
 

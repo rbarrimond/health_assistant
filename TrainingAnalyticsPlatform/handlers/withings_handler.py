@@ -4,8 +4,8 @@ import logging
 import os
 from typing import Dict, Tuple, Any
 
-from FitParser.withings_client import WithingsClient
-from FitParser.table_storage import WorkoutTableStorage
+from TrainingAnalyticsPlatform.withings_client import WithingsClient
+from TrainingAnalyticsPlatform.table_storage import WorkoutTableStorage
 
 logger = logging.getLogger(__name__)
 

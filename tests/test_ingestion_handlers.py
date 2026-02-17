@@ -5,11 +5,11 @@
 import base64
 from unittest.mock import Mock, patch
 
-from FitParser.fit_parser import compute_workout_id
+from TrainingAnalyticsPlatform.fit_parser import compute_workout_id
 
-from FitParser.handlers.fit_payload_handler import FitPayloadIngestionHandler
-from FitParser.handlers.ingestion_base_handler import FitIngestionBaseHandler
-from FitParser.table_storage import IngestionContext
+from TrainingAnalyticsPlatform.handlers.fit_payload_handler import FitPayloadIngestionHandler
+from TrainingAnalyticsPlatform.handlers.ingestion_base_handler import FitIngestionBaseHandler
+from TrainingAnalyticsPlatform.table_storage import IngestionContext
 
 
 class _TestIngestionHandler(FitIngestionBaseHandler):
@@ -82,7 +82,7 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     laps = [{"lap_index": 0}]
     expected_workout_id = compute_workout_id(file_sha256="hash")
 
-    with patch("FitParser.handlers.ingestion_base_handler.FitParser") as parser_cls:
+    with patch("TrainingAnalyticsPlatform.handlers.ingestion_base_handler.FitParser") as parser_cls:
         parser = parser_cls.return_value
         parser.extract_canonical_metadata.return_value = metadata
         parser.extract_canonical_records.return_value = records
@@ -162,7 +162,7 @@ def test_fit_payload_handler_success_calls_parse_and_store() -> None:
         "source_system": "HealthFit",
     }
 
-    with patch("FitParser.handlers.fit_payload_handler.compute_bytes_hash", return_value="hash"), \
+    with patch("TrainingAnalyticsPlatform.handlers.fit_payload_handler.compute_bytes_hash", return_value="hash"), \
         patch.object(handler, "_skip_if_unchanged", return_value=(False, None)), \
         patch.object(
             handler,

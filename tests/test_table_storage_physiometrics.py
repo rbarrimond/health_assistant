@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 from azure.core.exceptions import HttpResponseError
 
-from FitParser.table_storage import WorkoutTableStorage
+from TrainingAnalyticsPlatform.table_storage import WorkoutTableStorage
 
 
 class TestStorePhysiometrics:

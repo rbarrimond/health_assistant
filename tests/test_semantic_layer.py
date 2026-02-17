@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from FitParser.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.semantic_layer import SemanticLayer
 
 
 @pytest.fixture

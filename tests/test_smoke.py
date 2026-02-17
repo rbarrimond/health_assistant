@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from FitParser.fit_parser import \
+from TrainingAnalyticsPlatform.fit_parser import \
     compute_file_hash  # pylint: disable=unused-import
 from function_app import parse_ingest_payload  # pylint: disable=unused-import
 
@@ -20,9 +20,9 @@ from function_app import parse_ingest_payload  # pylint: disable=unused-import
 # Ensure all necessary imports and functionality remain intact.
 # Ensure all references to MagicMock and patch are valid and properly used.
 WorkoutTableStorage = MagicMock()
-from FitParser.handlers import (ConfigHandler, HealthHandler,
+from TrainingAnalyticsPlatform.handlers import (ConfigHandler, HealthHandler,
                                 OneDriveSyncHandler, OneDriveSyncConfig)
-from FitParser.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.semantic_layer import SemanticLayer
 
 # Ensure all references to these classes and functions are valid.
 WorkoutTableStorage = MagicMock()
@@ -31,7 +31,7 @@ WorkoutTableStorage = MagicMock()
 def test_core_modules_importable() -> None:
     """Core FitParser and function_app modules should import successfully."""
     # If this test runs, the imports at module level succeeded
-    from FitParser.table_storage import WorkoutTableStorage as _  # noqa: F401
+    from TrainingAnalyticsPlatform.table_storage import WorkoutTableStorage as _  # noqa: F401
 
     # All imports succeeded - test passes
 

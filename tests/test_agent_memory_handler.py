@@ -8,7 +8,7 @@ from unittest.mock import Mock, MagicMock
 
 import pytest
 
-from FitParser.handlers import AgentMemoryHandler
+from TrainingAnalyticsPlatform.handlers import AgentMemoryHandler
 
 
 class TestAgentMemoryHandler:

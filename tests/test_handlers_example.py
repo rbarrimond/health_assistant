@@ -9,13 +9,13 @@ from datetime import datetime, timezone
 
 import pytest
 
-from FitParser.handlers.onedrive_sync_handler import (
+from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import (
     OneDriveSyncConfig,
     OneDriveSyncHandler,
     OneDriveSyncRequest,
 )
-from FitParser.handlers.query_handler import QueryHandler
-from FitParser.models import (
+from TrainingAnalyticsPlatform.handlers.query_handler import QueryHandler
+from TrainingAnalyticsPlatform.models import (
     DistanceMetricsModel,
     SampleMetricsModel,
     SessionMetricsModel,

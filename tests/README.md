@@ -9,7 +9,7 @@
 pytest
 
 # Run with coverage report
-pytest --cov=FitParser --cov=function_app --cov-report=html
+pytest --cov=TrainingAnalyticsPlatform --cov=function_app --cov-report=html
 
 # Run specific test file
 pytest tests/test_fit_parser.py -v
@@ -691,7 +691,7 @@ pytest tests/test_fit_parser.py::TestComputeFileHash -v
 **Run with coverage:**
 
 ```bash
-pytest tests/ --cov=FitParser --cov-report=html
+pytest tests/ --cov=TrainingAnalyticsPlatform --cov-report=html
 ```
 
 ## Key Testing Patterns Used
@@ -780,10 +780,10 @@ RUN_AZURE_INTEGRATION=1 pytest
 pytest
 
 # 2. Check coverage (aim for >90%)
-pytest --cov=FitParser --cov=function_app --cov-report=term-missing
+pytest --cov=TrainingAnalyticsPlatform --cov=function_app --cov-report=term-missing
 
 # 3. Review coverage report for gaps
-pytest --cov=FitParser --cov=function_app --cov-report=html
+pytest --cov=TrainingAnalyticsPlatform --cov=function_app --cov-report=html
 open htmlcov/index.html
 
 # 4. Run specific test file if making targeted changes

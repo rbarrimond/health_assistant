@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from FitParser.handlers import WithingsHandler
+from TrainingAnalyticsPlatform.handlers import WithingsHandler
 
 
 class TestWithingsHandler:

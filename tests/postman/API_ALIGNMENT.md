@@ -108,5 +108,5 @@ All core endpoints are present in all three sources:
 ### To review implementation
 
 1. Check `function_app.py` for route definitions
-2. Verify handler logic in `FitParser/handlers/`
+2. Verify handler logic in `TrainingAnalyticsPlatform/handlers/`
 3. Compare with test coverage in `tests/`

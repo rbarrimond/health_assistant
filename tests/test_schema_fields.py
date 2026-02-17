@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
-from FitParser.fit_parser import FitParser
+from TrainingAnalyticsPlatform.fit_parser import FitParser
 
 
 class TestSchemaFieldImplementation:

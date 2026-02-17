@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from FitParser.handlers import onedrive_sync_handler
-from FitParser.handlers.onedrive_sync_handler import (
+from TrainingAnalyticsPlatform.handlers import onedrive_sync_handler
+from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import (
     OneDriveSyncConfig,
     OneDriveSyncHandler,
 )

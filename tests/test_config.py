@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from FitParser.config import Config, HeartRateConfig, PowerConfig
+from TrainingAnalyticsPlatform.config import Config, HeartRateConfig, PowerConfig
 
 
 class TestHeartRateConfigDataclass:

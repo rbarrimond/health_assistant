@@ -22,7 +22,7 @@ from .timezone_utils import (
 
 logger = logging.getLogger(__name__)
 
-# Expose fitparse for tests that patch FitParser.fit_parser.fitparse.
+# Expose fitparse for tests that patch TrainingAnalyticsPlatform.fit_parser.fitparse.
 _fitparse = fitparse
 
 

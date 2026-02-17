@@ -9,7 +9,7 @@ import json
 from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
-from FitParser.dependencies import FunctionAppDependencies
+from TrainingAnalyticsPlatform.dependencies import FunctionAppDependencies
 
 from function_app import (
     planning_context,

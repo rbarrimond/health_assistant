@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from FitParser.handlers import PhysiometricsHandler
+from TrainingAnalyticsPlatform.handlers import PhysiometricsHandler
 
 
 class TestPhysiometricsHandler:

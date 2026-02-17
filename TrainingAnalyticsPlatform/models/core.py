@@ -36,8 +36,8 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_serializer, model_validator
 
-from FitParser.config import Config
-from FitParser.models.constants import (
+from TrainingAnalyticsPlatform.config import Config
+from TrainingAnalyticsPlatform.models.constants import (
     ATHLETE_ID_DESC,
     CLIMB_MIN_GRADE,
     CLIMB_MIN_SEC,
@@ -53,9 +53,9 @@ from FitParser.models.constants import (
     SURGE_THRESHOLD_FACTOR,
     numeric_series,
 )
-from FitParser.models.legacy import DeviceInfo, RecordSample, Workout, WorkoutSession
-from FitParser.models.substrate import CanonicalLap, CanonicalRecord
-from FitParser.models.metrics import (
+from TrainingAnalyticsPlatform.models.legacy import DeviceInfo, RecordSample, Workout, WorkoutSession
+from TrainingAnalyticsPlatform.models.substrate import CanonicalLap, CanonicalRecord
+from TrainingAnalyticsPlatform.models.metrics import (
     DistanceMetricsModel,
     DurabilityMetricsModel,
     EnvelopeScoresModel,

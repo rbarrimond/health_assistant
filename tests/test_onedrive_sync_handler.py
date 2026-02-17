@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from FitParser.handlers.onedrive_sync_handler import (
+from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import (
     OneDriveSyncConfig,
     OneDriveSyncHandler,
     OneDriveSyncRequest,

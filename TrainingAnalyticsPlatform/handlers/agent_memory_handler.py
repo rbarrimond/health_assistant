@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Tuple, Any, Optional
 
-from FitParser.models import AgentPreference, AgentObservation, AgentPreferences
+from TrainingAnalyticsPlatform.models import AgentPreference, AgentObservation, AgentPreferences
 
 logger = logging.getLogger(__name__)
 

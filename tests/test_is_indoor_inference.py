@@ -1,7 +1,7 @@
 """Tests for is_indoor inference logic."""
 
 
-from FitParser.models import WorkoutSession
+from TrainingAnalyticsPlatform.models import WorkoutSession
 
 
 class TestIsIndoorInference:

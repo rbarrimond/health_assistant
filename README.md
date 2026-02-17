@@ -183,7 +183,7 @@ health_assistant/
 ├── local.settings.json           # Local development secrets (not committed)
 ├── host.json                     # Azure Functions host configuration
 │
-├── FitParser/                    # Core parsing & business logic
+├── TrainingAnalyticsPlatform/                    # Core parsing & business logic
 │   ├── fit_parser.py             # FIT file parsing + metric computation
 │   ├── models/                   # Pydantic data models (see models/README.md for architecture)
 │   │   ├── README.md             # Model design patterns, composition, usage examples
@@ -671,7 +671,7 @@ pytest
 **With coverage report**:
 
 ```bash
-pytest --cov=FitParser --cov=function_app --cov-report=html
+pytest --cov=TrainingAnalyticsPlatform --cov=function_app --cov-report=html
 # Open htmlcov/index.html for detailed coverage report
 ```
 
@@ -695,7 +695,7 @@ pytest -vv
 
 ### Development Workflow
 
-1. **Make code changes** in `FitParser/` or `function_app.py`
+1. **Make code changes** in `TrainingAnalyticsPlatform/` or `function_app.py`
 2. **Run tests** to verify: `pytest tests/test_<module>.py`
 3. **Test locally** with `func start`
 4. **Check coverage**: `pytest --cov`
