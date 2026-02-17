@@ -4,7 +4,7 @@ Pydantic v2 data models for workout parsing, storage, and analytics.
 
 ## Package Structure
 
-``` plaintext
+```plaintext
 models/
 ├── core.py          # WorkoutMetricsModel, CanonicalAnalyticsEngine
 ├── substrate.py     # CanonicalRecord, CanonicalLap (1 Hz telemetry)
