@@ -1,4 +1,4 @@
-# Canonical System Architecture
+# Canonical Data Architecture
 <!-- markdownlint-disable MD024 -->
 
 Version: 1.0.0
