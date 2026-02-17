@@ -2,7 +2,6 @@
 
 from functools import wraps
 
-import pandas as pd
 
 # Field description constants
 ATHLETE_ID_DESC = "Athlete identifier"
