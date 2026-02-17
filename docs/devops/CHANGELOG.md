@@ -7,6 +7,7 @@
 ## 2026-02-16
 
 - Expand Canonical Analytics Surface substrate section with core vs extended telemetry, nullability guidance, and HRV RR-interval integration notes; bump version to 1.1.0.
+- Extend CanonicalRecord with extended telemetry fields, preserve sparse RR intervals during 1 Hz resampling, and pass through calories_kcal from metadata.
 - Harden FIT dump script to use safe attribute access for fitparse message fields and developer fields.
 - Add canonical FIT parquet substrate + lap parquet storage, store canonical pointers in Workouts, compute derived metrics from canonical records in semantic layer, and bump ingestion/workout schema versions to 4.0.0 and 7.0.0.
 - Store activity local timestamps without UTC conversion and rename field to `activity_local_time`; keep workout schema at 7.0.0 for this commit.

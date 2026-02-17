@@ -116,6 +116,10 @@ class CanonicalRecord(BaseModel):
     speed_mps: Optional[float] = Field(None, ge=0)
     distance_m: Optional[float] = Field(None, ge=0)
     elevation_m: Optional[float] = Field(None)
+    temperature_c: Optional[float] = Field(None)
+    respiration_rate_brpm: Optional[float] = Field(None, ge=0)
+    lr_balance_pct: Optional[float] = Field(None, ge=0, le=100)
+    rr_interval_sec: Optional[float] = Field(None, ge=0)
 
 
 class CanonicalLap(BaseModel):
@@ -341,10 +345,19 @@ class CanonicalWorkoutMetrics(BaseModel):  # pylint: disable=too-many-public-met
         """Resample DataFrame to 1 Hz."""
         mean_cols = [
             col
-            for col in ["power_watts", "heart_rate_bpm", "cadence_rpm", "speed_mps"]
+            for col in [
+                "power_watts",
+                "heart_rate_bpm",
+                "cadence_rpm",
+                "speed_mps",
+                "temperature_c",
+                "respiration_rate_brpm",
+                "lr_balance_pct",
+            ]
             if col in df
         ]
         last_cols = [col for col in ["distance_m", "elevation_m"] if col in df]
+        rr_col = "rr_interval_sec" if "rr_interval_sec" in df else None
 
         mean_frame = (
             df[mean_cols].apply(pd.to_numeric, errors="coerce").resample("1s").mean()
@@ -356,8 +369,13 @@ class CanonicalWorkoutMetrics(BaseModel):  # pylint: disable=too-many-public-met
             if last_cols
             else pd.DataFrame(index=mean_frame.index)
         )
+        rr_frame = (
+            df[[rr_col]].apply(pd.to_numeric, errors="coerce").resample("1s").first()
+            if rr_col
+            else pd.DataFrame(index=mean_frame.index)
+        )
 
-        resampled = pd.concat([mean_frame, last_frame], axis=1)
+        resampled = pd.concat([mean_frame, last_frame, rr_frame], axis=1)
         return self._add_elapsed_sec_column(resampled)
 
     def _is_1hz_frequency(self, df: pd.DataFrame) -> bool:
@@ -413,6 +431,7 @@ class CanonicalWorkoutMetrics(BaseModel):  # pylint: disable=too-many-public-met
             "elevation_loss_m": self.elevation_loss_m,
             "avg_speed_mps": self.avg_speed_mps,
             "max_speed_mps": self.max_speed_mps,
+            "calories_kcal": self.calories_kcal,
             "hr_avg_bpm": self.hr_avg_bpm,
             "hr_max_bpm": self.hr_max_bpm,
             "hr_min_bpm": self.hr_min_bpm,
@@ -578,6 +597,15 @@ class CanonicalWorkoutMetrics(BaseModel):  # pylint: disable=too-many-public-met
     def max_speed_mps(self) -> Optional[float]:
         speed = self._numeric_series(self.df, "speed_mps")
         return float(speed.max()) if not speed.empty else None
+
+    @computed_field
+    @property
+    def calories_kcal(self) -> Optional[float]:
+        metadata = self.metadata or {}
+        metadata_value = metadata.get("calories_kcal")
+        if metadata_value is not None:
+            return self._as_float(metadata_value)
+        return None
 
     @computed_field
     @property
