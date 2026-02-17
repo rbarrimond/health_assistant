@@ -253,6 +253,7 @@ class OneDriveSyncHandler:
 
     @property
     def config(self) -> OneDriveSyncConfig:
+        """Expose current sync configuration."""
         return self._config
 
     def build_authorize_url(self, *, state: str) -> str:
