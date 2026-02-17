@@ -9,6 +9,22 @@
 - Add canonical FIT parquet substrate + lap parquet storage, store canonical pointers in Workouts, compute derived metrics from canonical records in semantic layer, and bump ingestion/workout schema versions to 4.0.0 and 7.0.0.
 - Store activity local timestamps without UTC conversion and rename field to `activity_local_time`; keep workout schema at 7.0.0 for this commit.
 - Remove redundant metadata fields (`file_type`, `event_count`, `event_types`, `end_time_utc`) - end_time_utc is derivable from start_time_utc + duration_sec, others provide no discriminatory value.
+- Split logical workout schema from operational storage details, move storage layout into ingestion schema, and update GPT semantic API docs/rollups to remove storage keys; bump workout schema to 8.0.0, ingestion schema to 4.1.0, semantic API doc to 5.0.0, and GPT OpenAPI spec to 2.1.0.
+- Trim logical workout schema device/file fields to `device_name` only, make device labels include product when available, and bump WORKOUT_SCHEMA to 9.0.0, SEMANTIC_LAYER_API to 6.0.0, and GPT OpenAPI to 3.0.0.
+- Refactor `CanonicalWorkoutMetrics` to own canonical records + metadata and expose calculated metrics as properties on the model.
+- Remove cached metrics in `CanonicalWorkoutMetrics` so computed fields recompute on access.
+- Remove cached DataFrame in `CanonicalWorkoutMetrics` so metrics always derive from current records.
+- Compute canonical metrics once per `CanonicalWorkoutMetrics` instance and reuse a snapshot when serving computed fields.
+- Update `CanonicalWorkoutMetrics` to own a canonical DataFrame (schema `CanonicalRecord`) instead of a list of records.
+- Remove cached metrics snapshot so computed fields calculate from DataFrame columns on access.
+- Compute canonical metrics per property group on-demand (no full-metrics cache for computed fields).
+- Add power curve helper and `power_curve_watts` computed field for best-average power by minute duration.
+- Expand `CanonicalWorkoutMetrics` to the full Canonical Analytics Surface with 1 Hz resampling, Coggan normalized power, anchor/envelope/variability/durability metrics, and structured artifact projections.
+- Standardize FTP naming to `ftp_watts` across the Canonical Analytics Surface and deterministic formula contract (rename only).
+- Rewrite `CanonicalWorkoutMetrics` to compute analytics directly from the canonical DataFrame with vectorized pandas operations and no metric-routing lookups.
+- Remove unused legacy helper methods from `CanonicalWorkoutMetrics` (`_compute_time_bounds`, `_compute_distance_metrics`, `_compute_speed_metrics`, `_compute_hr_metrics`, `_compute_power_metrics`, `_compute_cadence_metrics`, `_compute_missing_pct`, `_compute_training_load`, `_compute_aerobic_efficiency`) - superseded by direct computed field implementations.
+- Refactor `CanonicalWorkoutMetrics` to validate input DataFrame is 1 Hz sampled during initialization; add explicit `resample=True` flag to enable automatic resampling instead of implicit on-demand resampling.
+- Keep direct `_numeric_series` usage in computed fields to avoid decorator/tooling conflicts.
 
 ## 2026-02-14
 
