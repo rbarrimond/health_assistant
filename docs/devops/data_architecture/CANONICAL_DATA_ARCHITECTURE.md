@@ -5,7 +5,7 @@ Version: 1.0.0
 
 ------------------------------------------------------------------------
 
-## Section I. System Overview
+## Section I. Overview
 
 - **Canonical Telemetry Storage**: Parquet workout streams
     (device-native FIT parsed)
