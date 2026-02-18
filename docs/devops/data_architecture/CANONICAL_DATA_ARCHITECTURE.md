@@ -1,140 +1,374 @@
 # Canonical Data Architecture
 <!-- markdownlint-disable MD024 -->
 
-Version: 1.0.0
+Version: 2.1.1
 
-------------------------------------------------------------------------
+=====================================================================
 
-## Section I. Overview
+## Section I. Philosophy
 
-- **Canonical Telemetry Storage**: Parquet workout streams
-    (device-native FIT parsed)
-- **Minimal Workout Metadata Table** referencing parquet blobs
-- **Wellness Table** (daily physiological state)
-- **GarminTrainingState Table** (vendor model snapshots)
-- **Gear Table** (canonical gear artifact)
-- **Blob Storage** for `canonical.parquet` and optional
-    `metadata.json`
-- **Semantic Layer** computes all derived metrics from canonical
-    streams
+This architecture enforces strict separation between:
 
-------------------------------------------------------------------------
+1. Deterministic telemetry (physics)
+2. Structural metadata
+3. Semantic enrichment
 
-## Section II. Workout Domain
+### Core Principles
 
-### Sources
+- Canonical Parquet stream is the single source of workout truth
+- All derived metrics are deterministic projections
+- AI analysis is advisory and never mutates canonical data
+- Raw FIT JSON is preserved for full archival integrity
+- Vendor platforms are sinks, not authorities
+- Architecture optimized for recomputability and sovereignty
 
-- Apple Watch FIT (OneDrive)
-- Garmin Edge / Zwift FIT (Garmin Connect)
+=====================================================================
 
-### Canonical Output
+## Section II. Workout Ingestion Artifacts
 
-- Normalized `parquet` stream
+At ingestion, each workout produces five immutable blobs and one Workout Table row.
 
-### Derived Projections
+---------------------------------------------------------------------
+
+### 1. Raw FIT Archive (Immutable)
+
+Path:
+/workouts/{workout_id}/raw_fit.json.gz
+
+Purpose:
+
+- Full structural preservation
+- Schema evolution insurance
+- Vendor forensic capability
+- Re-decodable indefinitely
+
+This file is never modified after ingestion.
+
+---------------------------------------------------------------------
+
+### 2. AI Structural Analysis (Advisory)
+
+Path:
+/workouts/{workout_id}/fit_analysis.json
+
+Purpose:
+
+- Classify unknown FIT fields
+- Detect device quirks
+- Detect summary vs record discrepancies
+- Recommend canonical promotion candidates
+- Provide semantic enrichment guidance
+
+Rules:
+
+- Cannot modify canonical.parquet
+- Versioned independently
+- Treated as enrichment metadata only
+
+---------------------------------------------------------------------
+
+### 3. Canonical Record Stream (Authoritative)
+
+Path:
+/workouts/{workout_id}/canonical.parquet
+
+Derived strictly from FIT `record` messages.
+
+Canonical fields include:
+
+- timestamp_utc
+- elapsed_sec
+- power_watts (nullable)
+- heart_rate_bpm (nullable)
+- cadence_rpm (nullable)
+- speed_mps (nullable)
+- distance_m (nullable)
+- elevation_m (nullable)
+- temperature_c (nullable)
+- respiration_rate_brpm (nullable)
+- lr_balance_pct (nullable)
+- rr_interval_sec (nullable)
+
+This file is the authoritative substrate for all metrics.
+
+---------------------------------------------------------------------
+
+### 4. Lap Messages (Contextual)
+
+Path:
+/workouts/{workout_id}/laps.json.gz
+
+Purpose:
+
+- Preserve vendor segmentation
+- Structured workout definitions
+- Manual lap markers
+- Source for API `intervals_json` pass-through payload
+
+Laps are never flattened into canonical telemetry.
+`intervals_json` is not computed in the current architecture; it is a pass-through
+representation of lap records extracted at ingest from FIT lap messages.
+
+---------------------------------------------------------------------
+
+### 5. Metadata Messages
+
+Path:
+/workouts/{workout_id}/metadata.json
+
+Contains structured FIT messages:
+
+- file_id
+- file_creator
+- device_info
+- sport
+- activity
+- session
+- event
+
+Provides fast metadata access without decompressing raw FIT.
+
+=====================================================================
+
+## Section III. Workout Table
+
+One Azure Table row per workout.
+
+PartitionKey = athlete_id
+RowKey = workout_id
+
+---------------------------------------------------------------------
+
+### Required Deterministic Fields
+
+- workout_id
+- athlete_id
+- start_time_utc
+- sport
+- sub_sport
+- device_source
+- gear_id
+- duration_sec
+- distance_m
+- has_power
+- has_hr
+- has_gps
+
+Computed deterministically from canonical.parquet and metadata.
+
+---------------------------------------------------------------------
+
+### Optional Enrichment Fields
+
+- environment (indoor | outdoor)
+- virtual_platform
+- commute_flag
+- race_flag
+- structured_flag
+- analysis_version
+
+These may be AI-assisted but never override deterministic telemetry.
+
+---------------------------------------------------------------------
+
+### Versioning Fields
+
+- ingestion_version
+- canonical_schema_version
+- analysis_model_version
+
+---------------------------------------------------------------------
+
+### Immutable Zone Provenance Fields
+
+- hr_zone_model
+- hr_zone_basis
+- hr_zone_reference_bpm
+- pwr_zone_model
+- ftp_watts
+
+These fields capture the academic/model source and reference basis used for
+zone computation and are immutable once the workout is ingested.
+
+=====================================================================
+
+## Section IV. Derived Projections (Lazy Computation)
+
+This section separates pass-through fields from deterministic projections.
+
+Pass-through fields (not computed):
+
+- intervals_json (sourced from laps.json.gz)
+
+Derived fields (computed from canonical.parquet):
 
 - Normalized Power (NP)
 - Intensity Factor (IF)
 - Training Stress Score (TSS)
-- Power Curve
+- Power Curve scalars and power_curve_json artifact
 - Durability
 - Decoupling
+- Efficiency Factor
+- Surge Detection
+- climbs_json artifact
 
-### Workout Table Fields
+Derived outputs remain deterministic projections over the canonical substrate.
+No scalar duplication unless required for query optimization.
 
-- `workout_id`
-- `date`
-- `sport`
-- `device_source`
-- `gear_id`
-- `parquet_path`
+=====================================================================
 
-------------------------------------------------------------------------
+## Section V. Wellness Domain
 
-## Section III. Wellness Domain
-
-### Sources
+Sources:
 
 - Intervals (HRV, RHR, sleep)
 - Withings (weight, body composition)
 
-### Storage
+Storage:
+Azure Table (daily index)
 
-- Daily indexed Azure Table
-  - `PartitionKey = athlete_id`
-  - `RowKey = YYYY-MM-DD`
+PartitionKey = athlete_id
+RowKey = YYYY-MM-DD
 
-### Derived Metrics
+Derived Metrics:
 
 - Rolling HRV
 - Readiness Score
 - Autonomic Stress Index
 
-### Design Notes
+Design Notes:
 
 - Sparse tolerant
 - Nullable physiometrics supported
+- Independent from workout ingestion
 
-------------------------------------------------------------------------
+=====================================================================
 
-## Section IV. Garmin Training State Domain
+## Section VI. Garmin Training State Domain
 
-- Read-only polling via `python-garminconnect`
-- Daily snapshot model state:
-  - VO2Max
-  - LTHR
-  - Load
-  - Readiness
+Read-only polling via python-garminconnect.
 
-### Storage
+Daily snapshot includes:
 
-- `PartitionKey = athlete_id`
-- `RowKey = YYYY-MM-DD`
+- VO2Max
+- LTHR
+- Load
+- Readiness
 
-### Rules
+Storage:
+PartitionKey = athlete_id
+RowKey = YYYY-MM-DD
 
-- Historical snapshots frozen (no retroactive overwrite)
-- Vendor-model outputs isolated from canonical metrics
+Rules:
 
-------------------------------------------------------------------------
+- Historical snapshots frozen
+- Vendor model outputs isolated from canonical metrics
 
-## Section V. Gear Domain
+=====================================================================
 
-### Gear Table
+## Section VII. Gear Domain
 
-- `PartitionKey = athlete_id`
-- `RowKey = gear_id (UUID)`
+Gear Table:
+PartitionKey = athlete_id
+RowKey = gear_id (UUID)
 
-### Fields
+Fields:
 
-- `gear_name`
-- `gear_type`
-- `is_ebike`
-- `has_power_meter`
-- `attributes`
+- gear_name
+- gear_type
+- is_ebike
+- has_power_meter
+- attributes
 
-### Relationships
+Relationships:
 
-- Workout references `gear_id`
-- Vendor gear mapping fields optional (Strava/Garmin IDs)
-- Supports analytical segmentation by equipment
+- Workout references gear_id
+- Vendor gear IDs optional
+- Supports equipment-based analytics
 
-------------------------------------------------------------------------
+=====================================================================
 
-## Section VI. Data Flow Architecture
+## Section VIII. Data Flow Architecture
 
-- Garmin → FIT download → Parse → `canonical.parquet`
-- Apple Watch → FIT (OneDrive) → Parse → `canonical.parquet`
-- Wellness APIs → Normalize → Azure Table upsert
-- Garmin State → Poll → Snapshot → Azure Table
-- Semantic Layer → Compute projections lazily from canonical stream
+FIT Source
+  → Parse
+    → raw_fit.json.gz
+    → fit_analysis.json
+    → canonical.parquet
+    → laps.json.gz
+    → metadata.json
+    → Insert Workout Table Row
 
-------------------------------------------------------------------------
+Wellness APIs
+  → Normalize
+  → Azure Table upsert
 
-## Section VII. Governance Principles
+Garmin Training State
+  → Poll
+  → Snapshot
+  → Azure Table
 
-- Parquet stream is the **single source of workout truth**
-- All metrics are **deterministic projections**
-- No duplicated scalar storage unless for query optimization
-- Vendor platforms are sinks, not authorities
-- Architecture designed for sovereignty and recomputability
+Semantic Layer
+  → Compute projections lazily from canonical stream
+
+=====================================================================
+
+## Section IX. Governance
+
+- Canonical parquet is immutable
+- Raw FIT archive guarantees long-term sovereignty
+- AI analysis is advisory and versioned
+- No recomputation depends on vendor-derived scalars
+- Zone provenance is immutable per workout and must include:
+  hr_zone_model, hr_zone_basis, hr_zone_reference_bpm, pwr_zone_model, ftp_watts
+- System optimized for deterministic reproducibility
+
+=====================================================================
+
+## Section X. Deterministic Contract Integration
+
+This architecture explicitly integrates with:
+
+- CANONICAL_ANALYTICS_SURFACE.md
+- CANONICAL_ANALYTICS_DETERMINISTIC_FORMULA_CONTRACT.md
+
+Rules:
+
+- All derived metrics MUST conform to the deterministic formula contract.
+- Canonical parquet schema changes require schema version bump.
+- Formula contract changes require minor version bump.
+- Breaking storage or ingestion changes require major version bump.
+- AI enrichment layers must not alter deterministic outputs.
+
+Terminology Crosswalk:
+
+- `intervals_json` (analytics/API surface) = pass-through representation of
+  ingest lap artifact (`laps.json.gz`)
+- `climbs_json` and `power_curve_json` = deterministic computed artifacts from
+  canonical telemetry
+
+Forward Compatibility:
+
+- If future lap resampling or lap normalization is introduced, it must be
+  version-gated and documented as an explicit behavior change.
+
+Versioning Policy:
+
+- MAJOR: Storage model or canonical schema changes
+- MINOR: Additional deterministic metrics or enrichment layers
+- PATCH: Documentation or clarification updates only
+
+=====================================================================
+
+## Section XI. Schema Evolution Policy
+
+Canonical schema evolution must follow:
+
+1. Backward compatibility where possible
+2. Nullable-first column additions
+3. Raw FIT archive retained to allow reprocessing
+4. Analysis model versioning independent of canonical schema
+
+No telemetry field may be removed without a MAJOR version increment.
+
+=====================================================================
