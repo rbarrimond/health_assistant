@@ -1,7 +1,7 @@
 # Canonical Data Architecture
 <!-- markdownlint-disable MD024 -->
 
-Version: 2.1.1
+Version: 2.1.4
 
 =====================================================================
 
@@ -15,11 +15,11 @@ This architecture enforces strict separation between:
 
 ### Core Principles
 
-- Canonical Parquet stream is the single source of workout truth
+- Canonical Parquet stream is the single source of metric truth
 - All derived metrics are deterministic projections
 - AI analysis is advisory and never mutates canonical data
 - Raw FIT JSON is preserved for full archival integrity
-- Vendor platforms are sinks, not authorities
+- Vendor platforms may be ingestion sources or publication sinks, but never canonical authorities
 - Architecture optimized for recomputability and sovereignty
 
 =====================================================================
@@ -72,7 +72,7 @@ Rules:
 Path:
 /workouts/{workout_id}/canonical.parquet
 
-Derived strictly from FIT `record` messages.
+Derived strictly from FIT `Record` messages.
 
 Canonical fields include:
 
@@ -122,11 +122,12 @@ Contains structured FIT messages:
 - file_creator
 - device_info
 - sport
+- sub-sport
 - activity
 - session
 - event
 
-Provides fast metadata access without decompressing raw FIT.
+Provides fast metadata access without decompressing `raw_fit.json.gz`.
 
 =====================================================================
 
@@ -161,7 +162,7 @@ Computed deterministically from canonical.parquet and metadata.
 ### Optional Enrichment Fields
 
 - environment (indoor | outdoor)
-- virtual_platform
+- virtual_platform (Zwift | Garmin | Other) - based on recording device
 - commute_flag
 - race_flag
 - structured_flag
@@ -250,7 +251,9 @@ Read-only polling via python-garminconnect.
 
 Daily snapshot includes:
 
+- FTP
 - VO2Max
+- Max HR
 - LTHR
 - Load
 - Readiness
@@ -316,7 +319,7 @@ Semantic Layer
 ## Section IX. Governance
 
 - Canonical parquet is immutable
-- Raw FIT archive guarantees long-term sovereignty
+- Raw FIT (as compressed JSON) archive guarantees long-term sovereignty
 - AI analysis is advisory and versioned
 - No recomputation depends on vendor-derived scalars
 - Zone provenance is immutable per workout and must include:
