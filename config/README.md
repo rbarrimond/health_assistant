@@ -4,7 +4,44 @@ This directory contains configuration templates and examples for local developme
 
 **Important**: Only example/template files are committed to version control. Generated or user-specific configs remain local and are excluded via `.gitignore`.
 
-## Files in This Directory
+## Application-Level Constants and Mappings
+
+### `constants.py` - HTTP & Plugin Configuration
+
+Contains global configuration for the HTTP API and plugin system:
+
+- Content type definitions (`JSON_CONTENT_TYPE`, `HTML_CONTENT_TYPE`, etc.)
+- Error messages for API responses
+- Environment variable names for plugin metadata
+- API documentation paths
+
+**Scope**: Health Assistant platform layer and HTTP endpoints  
+**Used by**: `function_app.py`, `utils.py`, HTTP utilities
+
+---
+
+### Rationale for Multiple `constants.py` Files
+
+The codebase has two separate constants files in different modules:
+
+1. **`config/constants.py`** - Platform configuration
+   - HTTP API and plugin metadata
+   - Shared across function app and utilities
+   - Low-level infrastructure concerns
+
+2. **`TrainingAnalyticsPlatform/models/constants.py`** - Analytics configuration
+   - Workout analysis thresholds and algorithms
+   - Time series computation parameters
+   - Specific to the analytics engine
+
+**Why separate?**
+
+- **Modularity**: Each module encapsulates its own configuration dependencies
+- **Independent scaling**: Analytics constants can be tuned independently without affecting HTTP layer
+- **Reduced coupling**: The analytics platform can be used standalone without loading HTTP config
+- **Clarity**: Constants are located near their usage context
+
+## Configuration Template Files
 
 - **`physiometrics.json.example`** - Template for athlete physiological configuration
 - **`onedrive_power_automate_legacy.json.example`** - Legacy Power Automate configuration (deprecated)
@@ -211,7 +248,7 @@ For automatic FIT file sync from OneDrive Personal (`/Apps/HealthFit` folder):
 3. Grant permissions
 4. Refresh token stored automatically
 
-**See**: [../docs/BACKENDS.md](../docs/BACKENDS.md#onedrive-personal-integration) for complete setup guide.
+**See**: [../docs/devops/BACKENDS.md](../docs/devops/BACKENDS.md#onedrive-personal-integration) for complete setup guide.
 
 ### Withings Integration
 
@@ -242,7 +279,7 @@ For automatic body metrics (weight, body fat, muscle mass) via webhook:
 3. Grant permissions
 4. Configure webhook to: `https://<your-function-app>.azurewebsites.net/api/withings/webhook`
 
-**See**: [../docs/BACKENDS.md](../docs/BACKENDS.md#withings-integration) for complete setup guide.
+**See**: [../docs/devops/BACKENDS.md](../docs/devops/BACKENDS.md#withings-integration) for complete setup guide.
 
 ## Troubleshooting
 
@@ -306,10 +343,10 @@ curl -X POST "http://localhost:7071/api/config/reload"
 ## Related Documentation
 
 - [Main README](../README.md) - Project overview and quick start
-- [BACKENDS.md](../docs/BACKENDS.md) - OneDrive, Withings, Garmin integration
-- [DEPLOYMENT.md](../docs/DEPLOYMENT.md) - Azure deployment procedures
-- [WORKOUT_SCHEMA.md](../docs/WORKOUT_SCHEMA.md) - Data model and fields
-- [SEMANTIC_LAYER_API.md](../docs/SEMANTIC_LAYER_API.md) - API reference
+- [BACKENDS.md](../docs/devops/BACKENDS.md) - OneDrive, Withings, Garmin integration
+- [DEPLOYMENT.md](../docs/devops/DEPLOYMENT.md) - Azure deployment procedures
+- [WORKOUT_SCHEMA.md](../docs/gpt/WORKOUT_SCHEMA.md) - Data model and fields
+- [SEMANTIC_LAYER_API.md](../docs/gpt/SEMANTIC_LAYER_API.md) - API reference
 
 ---
 

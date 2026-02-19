@@ -10,7 +10,7 @@ models/
 ├── substrate.py     # CanonicalRecord, CanonicalLap (1 Hz telemetry)
 ├── legacy.py        # Workout, WorkoutSession, DeviceInfo, RecordSample
 ├── agent.py         # AgentPreferences, AgentObservation
-├── constants.py     # Shared utilities, decorators (@numeric_series)
+├── constants.py     # Analytics config, field descriptors, @numeric_series decorator
 └── metrics/         # Compositional metric submodels
     ├── session.py      # SessionMetricsModel
     ├── samples.py      # SampleMetricsModel
@@ -20,6 +20,42 @@ models/
     ├── performance.py  # VariabilityMetricsModel, DurabilityMetricsModel
     └── artifacts.py    # StructuredArtifactsModel
 ```
+
+## Module Documentation
+
+### `constants.py` - Analytics Configuration
+
+Analytics-specific constants and utilities for the models layer:
+
+**Field Descriptors** (for Pydantic model documentation):
+
+- `ATHLETE_ID_DESC`, `ISO_8601_UTC_DESC`, `LAST_UPDATE_DESC` - Standard field descriptions
+- `DATETIME64_NS` - Data type identifier for numpy datetime64[ns]
+
+**Performance Analysis Thresholds**:
+
+- `POWER_ANCHOR_WINDOWS_SEC` - Time windows for power curve anchoring [5, 30, 180, 300, 480, 1200, 3600]
+- `POWER_CURVE_SECONDS` - Standardized power duration targets [5s to 3600s]
+- `SURGE_THRESHOLD_FACTOR` - Multiplier (1.2x) for surge detection
+- `SURGE_MIN_SEC` - Minimum duration (3s) to qualify as surge
+- `INTERVAL_THRESHOLD_FACTOR` - Multiplier (0.9x) for interval detection
+- `INTERVAL_MIN_SEC` - Minimum duration (60s) for intervals
+
+**Recovery and Training Metrics**:
+
+- `CLIMB_MIN_GRADE` - Minimum gradient (3%) to qualify as climb
+- `CLIMB_MIN_SEC` - Minimum climb duration (60s)
+- `RECOVERY_HR_WINDOW_SEC` - Heart rate recovery window (30s)
+- `LAG_WINDOW_SEC` - Time lag for correlation analysis (60s)
+
+**Utilities**:
+
+- `@numeric_series` - Decorator for safe numeric series extraction and validation in computed properties
+
+**Scope**: Specific to analytics engine and metrics computation  
+**Used by**: `core.py`, `metrics/` submodels
+
+---
 
 ## Design Philosophy
 
@@ -47,6 +83,8 @@ print(metrics.training.tss)
 - Easier testing of field groups
 
 ### Separation of Concerns
+
+`WorkoutMetricsModel` uses **typed compositional submodels** instead of 100+ flat fields:
 
 **Storage Models** (`legacy.py`):
 

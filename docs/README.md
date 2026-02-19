@@ -68,6 +68,7 @@ Athlete-specific and training-specific knowledge:
 2. Review [gpt/SEMANTIC_LAYER_API.md](./gpt/SEMANTIC_LAYER_API.md) for GPT-facing API reference
 3. See [devops/OPERATIONS_API.md](./devops/OPERATIONS_API.md) for admin endpoints
 4. Follow [devops/DEPLOYMENT.md](./devops/DEPLOYMENT.md) for getting started
+5. Check module docstrings in `config/constants.py` and `TrainingAnalyticsPlatform/models/constants.py` for constants architecture
 
 ---
 
