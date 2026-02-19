@@ -1,7 +1,7 @@
 # Canonical Data Architecture
 <!-- markdownlint-disable MD024 -->
 
-Version: 2.1.4
+Version: 2.2.0
 
 =====================================================================
 
@@ -137,6 +137,11 @@ One Azure Table row per workout.
 
 PartitionKey = athlete_id
 RowKey = workout_id
+
+Operational Note:
+The Workouts table implementation may use an ingestion-optimized keying
+scheme (athlete_id|YYYY-MM + timestamp prefix). Logical identifiers remain
+workout_id and athlete_id as specified here.
 
 ---------------------------------------------------------------------
 

@@ -237,7 +237,7 @@ az storage table entity query \
 
 ### FIT Parsing Errors
 
-- Verify FIT file is valid (use `fitparse` CLI)
+- Verify FIT file is valid (use `fitdecode` CLI)
 - Check log for specific parsing error
 - May need to support different FIT file versions
 

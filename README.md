@@ -28,7 +28,7 @@ Data Sources
     ↓
 Azure Functions App (31 HTTP/Timer Endpoints)
     ├── FIT Ingestion Layer
-    │   ├── FIT Parser (fitparse library)
+   │   ├── FIT Parser (fitdecode library)
     │   ├── Metric Computation (TSS, IF, NP, EF)
     │   └── Zone Calculation (HR/Power zones)
     ├── Backend Integration Layer
@@ -86,7 +86,7 @@ Read Interfaces
   - Withings physiometric payloads (weight, composition, vitals)
   
 - **Processing**:
-  - FIT parsing with fitparse library
+  - FIT parsing with fitdecode library
   - Metric extraction (100+ fields)
   - Zone computation (HR: HRmax/LTHR/HRR; Power: 7-zone Coggan)
   - Training load calculation (TSS, IF, NP)
@@ -193,7 +193,7 @@ health_assistant/
 │   │   ├── agent.py              # AgentPreferences, AgentObservation
 │   │   ├── constants.py          # Shared constants, utilities, decorators
 │   │   └── metrics/              # Metric submodels (8 files)
-│   ├── adapter.py                # fitparse → pydantic mapping
+│   ├── adapter.py                # fitdecode → pydantic mapping
 │   ├── table_storage.py          # Azure Tables client (6 tables)
 │   ├── config.py                 # Configuration management (multi-source)
 │   ├── semantic_layer.py         # Read API implementation (14 endpoints)
@@ -814,14 +814,16 @@ Use Azure Function App Settings or Terraform variables for environment-specific 
    ```
 
 3. **Verify OneDrive sync**:
-   - Navigate to: `https://<your-function-app>.azurewebsites.net/api/onedrive/authorize?code=<function_key>`
-   - Complete OAuth flow
-   - Check Application Insights for sync logs
 
-4. **Monitor with Application Insights**:
-   - Check Function execution logs
-   - View telemetry in Azure Portal
-   - Set up alerts for failures
+- Navigate to: `https://<your-function-app>.azurewebsites.net/api/onedrive/authorize?code=<function_key>`
+- Complete OAuth flow
+- Check Application Insights for sync logs
+
+1. **Monitor with Application Insights**:
+
+- Check Function execution logs
+- View telemetry in Azure Portal
+- Set up alerts for failures
 
 ## Integration with OneDrive Personal
 
@@ -836,17 +838,19 @@ Use Azure Function App Settings or Terraform variables for environment-specific 
    ```
 
 2. **Complete browser sign-in**:
-   - You'll be redirected to Microsoft login
-   - Grant permissions to access OneDrive files
-   - Redirect back to callback endpoint
-   - Refresh token persisted in Table Storage
 
-3. **Automatic sync**:
-   - Timer trigger runs hourly
-   - Syncs `/Apps/HealthFit` folder by default
-   - Processes new .fit files automatically
+- You'll be redirected to Microsoft login
+- Grant permissions to access OneDrive files
+- Redirect back to callback endpoint
+- Refresh token persisted in Table Storage
 
-4. **Manual sync** (optional):
+1. **Automatic sync**:
+
+- Timer trigger runs hourly
+- Syncs `/Apps/HealthFit` folder by default
+- Processes new .fit files automatically
+
+1. **Manual sync** (optional):
 
    ```bash
    curl -X POST https://<your-function-app>.azurewebsites.net/api/onedrive/sync?code=<function_key> \
@@ -875,15 +879,17 @@ Use Azure Function App Settings or Terraform variables for environment-specific 
    ```
 
 2. **Complete browser authorization**:
-   - Sign in to Withings account
-   - Grant permissions for body metrics
-   - Redirect back to callback endpoint
-   - Refresh token persisted in Table Storage
 
-3. **Configure webhook**:
-   - Withings sends real-time updates to: `/api/withings/webhook`
-   - Automatic body metric ingestion (weight, body fat %, muscle mass, etc.)
-   - Time-series storage in `Physiometrics` table
+- Sign in to Withings account
+- Grant permissions for body metrics
+- Redirect back to callback endpoint
+- Refresh token persisted in Table Storage
+
+1. **Configure webhook**:
+
+- Withings sends real-time updates to: `/api/withings/webhook`
+- Automatic body metric ingestion (weight, body fat %, muscle mass, etc.)
+- Time-series storage in `Physiometrics` table
 
 ### Supported Metrics
 
@@ -901,16 +907,18 @@ Use Azure Function App Settings or Terraform variables for environment-specific 
 ### Plugin Configuration
 
 1. **Create Custom GPT** in ChatGPT:
-   - Go to: <https://chat.openai.com/gpts/editor>
-   - Configure name: "Workout Intelligence Agent"
-   - Add instructions (see [docs/INSTRUCTIONS.md](./docs/INSTRUCTIONS.md))
 
-2. **Configure Actions**:
-   - Import OpenAPI spec from: `https://<your-function-app>.azurewebsites.net/api/openapi.yaml`
-   - Add function key authentication: `?code=<function_key>`
-   - Configure plugin manifest: `https://<your-function-app>.azurewebsites.net/api/.well-known/ai-plugin.json`
+- Go to: <https://chat.openai.com/gpts/editor>
+- Configure name: "Workout Intelligence Agent"
+- Add instructions (see [docs/INSTRUCTIONS.md](./docs/INSTRUCTIONS.md))
 
-3. **Primary Conversation Flow**:
+1. **Configure Actions**:
+
+- Import OpenAPI spec from: `https://<your-function-app>.azurewebsites.net/api/openapi.yaml`
+- Add function key authentication: `?code=<function_key>`
+- Configure plugin manifest: `https://<your-function-app>.azurewebsites.net/api/.well-known/ai-plugin.json`
+
+1. **Primary Conversation Flow**:
 
    ```text
    1. Agent loads context: GET /api/agent/context?athlete_id=rob
@@ -1211,4 +1219,4 @@ This project is personal software for training analytics. Not licensed for comme
 
 ---
 
-**Built with**: Python, Azure Functions, Azure Table Storage, Microsoft Graph API, Withings API, fitparse, Pydantic, pytest
+**Built with**: Python, Azure Functions, Azure Table Storage, Microsoft Graph API, Withings API, fitdecode, Pydantic, pytest

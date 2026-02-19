@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 4.1.1
+Version: 5.0.0
 
 This document defines the ingestion payloads and the IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -11,9 +11,10 @@ It is intentionally explicit to avoid ambiguity between ingestion metadata and w
 - **IngestionState** table schema (idempotency + provenance + operational tracking).
 - **Workouts** provenance policy (what stays vs what moves to IngestionState).
 
-Ingestion now writes canonical parquet payloads (records + laps) and stores
-only metadata + blob pointers in the Workouts table. Derived metrics are
-computed on read.
+Ingestion writes canonical parquet payloads (records + laps) and stores
+metadata + blob pointers in the Workouts table. Derived metrics are
+computed on read, with additional canonical artifacts persisted for
+archival and semantic use.
 
 This document does **not** define the workout metrics schema. See WORKOUT_SCHEMA.md for that.
 
@@ -47,11 +48,14 @@ from the semantic API.
 
 ### Azure Blob Storage
 
-- `canonical-substrate` — canonical records parquet
-  - `{workout_id}/canonical-records.parquet`
-- `canonical-laps` — canonical laps parquet
-  - `{workout_id}/canonical-laps.parquet`
-- `lap-records` — legacy per-lap JSON payloads (deprecated)
+- `workouts` — canonical artifacts and telemetry
+  - `{workout_id}/canonical.parquet`
+  - `{workout_id}/canonical-laps.parquet` (deprecated)
+  - `{workout_id}/raw_fit.json.gz`
+  - `{workout_id}/fit_analysis.json`
+  - `{workout_id}/metadata.json`
+  - `{workout_id}/laps.json.gz`
+  - `{workout_id}/laps/lap-0001.json` (legacy per-lap records, deprecated)
 
 ---
 
@@ -141,6 +145,7 @@ Workouts should only store minimal provenance and canonical parquet pointers.
 | --- | --- | --- | --- |
 | source_system | string | Yes | Source system name (e.g., `HealthFit`). |
 | source_item_id | string | No | Stable source item ID (OneDrive item ID). |
+| canonical_schema_version | string | Yes | Canonical telemetry schema version. |
 | canonical_records_blob | string | Yes | Blob path to canonical records parquet. |
 | canonical_laps_blob | string | No | Blob path to canonical laps parquet. |
 | records_count | int | No | Count of canonical records. |

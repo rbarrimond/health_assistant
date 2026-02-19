@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-18
+
+- Migrate FIT ingestion to fitdecode with a compatibility shim and update JSON dump utility to decoded-only output.
+- Consolidate blob storage into the `workouts` container and add canonical artifact writes (raw FIT, metadata, laps, analysis).
+- Add `canonical_schema_version` to Workouts and bump ingestion schema to 5.0.0 and ingest version to v6.0.0.
+
 ## 2026-02-17
 
 - Fold canonical analytics metrics into `WorkoutMetricsModel` with compositional submodels (training load, power-duration anchors, envelope scores, variability, durability, artifacts) and align zone boundaries/summary fields.
