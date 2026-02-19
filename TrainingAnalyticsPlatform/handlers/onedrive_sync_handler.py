@@ -9,7 +9,7 @@ import re
 import threading
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 from TrainingAnalyticsPlatform.integrations.onedrive_client import OneDriveGraphClient
 from TrainingAnalyticsPlatform.ingestion.fit_parser import compute_bytes_hash
@@ -180,7 +180,7 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
 class OneDriveSyncRequest:
     """Encapsulates OneDrive sync request parsing."""
 
-    def __init__(self, body: Dict, query_params: Dict):
+    def __init__(self, body: Optional[Dict], query_params: Optional[Dict]):
         self.body = body or {}
         self.query_params = query_params or {}
 

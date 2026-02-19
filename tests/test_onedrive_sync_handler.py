@@ -1,6 +1,6 @@
 """Tests for OneDriveSyncHandler."""
 
-# pylint: disable=redefined-outer-name
+# pylint: disable=redefined-outer-name, protected-access
 
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
@@ -450,5 +450,3 @@ class TestSyncStatus:
         assert result["ingested"] == 0
         assert result["skipped"] == 2
         assert result["failed"] == 2
-
-
