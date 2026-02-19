@@ -41,13 +41,14 @@ INDOOR_KEYWORDS = [
 
 def _load_fit_messages(file_path_or_stream) -> tuple[List[Dict[str, Any]], str]:
     """Load FIT messages from a file or stream using fitdecode.
-    
+
     Returns:
         Tuple of (messages list, source description for errors)
     """
+    stream = None
     should_close = False
     source_desc = "unknown"
-    
+
     try:
         if isinstance(file_path_or_stream, (bytes, bytearray)):
             stream = io.BytesIO(file_path_or_stream)
@@ -59,7 +60,7 @@ def _load_fit_messages(file_path_or_stream) -> tuple[List[Dict[str, Any]], str]:
         else:
             stream = file_path_or_stream
             source_desc = "file stream"
-        
+
         messages: List[Dict[str, Any]] = []
         try:
             with fitdecode.FitReader(stream, processor=fitdecode.DefaultDataProcessor()) as reader:
@@ -76,12 +77,12 @@ def _load_fit_messages(file_path_or_stream) -> tuple[List[Dict[str, Any]], str]:
                 f"FIT file parsing failed: {exc.__class__.__name__}: {exc}"
             ) from exc
         finally:
-            if should_close:
+            if should_close and stream is not None:
                 stream.close()
-        
+
         return messages, source_desc
-    except Exception as exc:
-        if should_close and "stream" in locals():
+    except Exception:
+        if should_close and stream is not None:
             stream.close()
         raise
 

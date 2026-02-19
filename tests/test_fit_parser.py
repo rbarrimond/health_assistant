@@ -1,7 +1,7 @@
 """Unit tests for FitParser module."""
 
 # Allow protected member access in tests to validate internal caching behavior.
-# pylint: disable=protected-access
+# pylint: disable=protected-access, line-too-long
 
 from datetime import datetime, timezone
 from pathlib import Path

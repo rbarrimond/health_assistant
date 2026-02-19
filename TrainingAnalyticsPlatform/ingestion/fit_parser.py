@@ -463,7 +463,7 @@ class FitParser:
         """
         frame = message.get("frame")
         fields_dict = message.get("fields", {})
-        
+
         msg_payload = {
             "message_type": msg_type or message.get("name", "unknown"),
             "fields": {},

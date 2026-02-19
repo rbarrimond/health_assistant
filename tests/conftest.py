@@ -1,4 +1,5 @@
 """Pytest configuration and fixtures."""
+# pylint: disable=line-too-long
 
 import json
 import os
@@ -102,7 +103,7 @@ def fixture_mock_fit_file_with_data() -> list:
     sport_enum.name = 'cycling'
     manufacturer_enum = MagicMock()
     manufacturer_enum.name = 'garmin'
-    
+
     sub_sport_enum = MagicMock()
     sub_sport_enum.name = 'road'
     session_sport_enum = MagicMock()
@@ -113,13 +114,13 @@ def fixture_mock_fit_file_with_data() -> list:
         'type': MagicMock(value=sport_enum, name='type'),
         'manufacturer': MagicMock(value=manufacturer_enum, name='manufacturer'),
     }
-    
+
     file_id_msg = {
         "name": "file_id",
         "frame": MagicMock(developer_fields=[]),
         "fields": file_id_fields,
     }
-    
+
     session_fields = {
         'sub_sport': MagicMock(value=sub_sport_enum, name='sub_sport'),
         'sport': MagicMock(value=session_sport_enum, name='sport'),
@@ -140,13 +141,13 @@ def fixture_mock_fit_file_with_data() -> list:
         'max_cadence': MagicMock(value=120, name='max_cadence'),
         'total_calories': MagicMock(value=1500, name='total_calories'),
     }
-    
+
     session_msg = {
         "name": "session",
         "frame": MagicMock(developer_fields=[]),
         "fields": session_fields,
     }
-    
+
     return [file_id_msg, session_msg]
 
 
@@ -180,7 +181,8 @@ def fixture_mock_fit_file_with_records(mock_fit_file_with_data: list) -> list:
 @pytest.fixture
 def sample_payload() -> Dict[str, Any]:
     """Load example OneDrive payload JSON used by smoke/integration tests."""
-    data_path = Path(__file__).resolve().parent / "data" / "test_payload_example.json"
+    data_path = Path(__file__).resolve().parent / \
+        "data" / "test_payload_example.json"
     with data_path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -322,11 +324,13 @@ class _ThreadedHTTPServer(HTTPServer):
 def _start_test_server() -> Optional[Tuple[HTTPServer, threading.Thread]]:
     """Start a local HTTP server for agent memory tests."""
     try:
-        server = _ThreadedHTTPServer(("127.0.0.1", 7071), _AgentMemoryRequestHandler)
+        server = _ThreadedHTTPServer(
+            ("127.0.0.1", 7071), _AgentMemoryRequestHandler)
     except OSError:
         return None
 
-    thread = threading.Thread(target=server.serve_forever, name="agent-memory-test-server")
+    thread = threading.Thread(
+        target=server.serve_forever, name="agent-memory-test-server")
     thread.daemon = True
     thread.start()
     return server, thread
