@@ -9,14 +9,14 @@ Azure Function App that parses FIT workout files from multiple sources (OneDrive
 | Role | Start Here |
 | --- | --- |
 | **First time?** | [Architecture Overview](#architecture) below |
-| **Deploying?** | [DEPLOYMENT.md](./docs/DEPLOYMENT.md) (30 min) |
-| **Setting up dashboards?** | [MONITORING.md](./docs/MONITORING.md) → Power BI section |
-| **Building integrations?** | [SEMANTIC_LAYER_API.md](./docs/SEMANTIC_LAYER_API.md) |
-| **Agent memory system?** | [AGENT_MEMORY.md](./docs/AGENT_MEMORY.md) |
-| **Configuring backends?** | [BACKENDS.md](./docs/BACKENDS.md) → OneDrive, Withings, Garmin |
-| **Understanding the data model?** | [WORKOUT_SCHEMA.md](./docs/WORKOUT_SCHEMA.md) |
-| **Chaos testing?** | [CHAOS.md](./docs/CHAOS.md) |
-| **Design philosophy?** | [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./docs/WORKOUT_INTELLIGENCE_AGENT_VISION.md) |
+| **Deploying?** | [DEPLOYMENT.md](./docs/devops/DEPLOYMENT.md) (30 min) |
+| **Setting up dashboards?** | [MONITORING.md](./docs/devops/MONITORING.md) → Power BI section |
+| **Building integrations?** | [SEMANTIC_LAYER_API.md](./docs/gpt/SEMANTIC_LAYER_API.md) |
+| **Agent memory system?** | [AGENT_MEMORY.md](./docs/gpt/AGENT_MEMORY.md) |
+| **Configuring backends?** | [BACKENDS.md](./docs/devops/BACKENDS.md) → OneDrive, Withings, Garmin |
+| **Understanding the data model?** | [WORKOUT_SCHEMA.md](./docs/gpt/WORKOUT_SCHEMA.md) |
+| **Chaos testing?** | [CHAOS.md](./docs/devops/CHAOS.md) |
+| **Design philosophy?** | [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./docs/gpt/WORKOUT_INTELLIGENCE_AGENT_VISION.md) |
 
 ## Architecture
 
@@ -135,7 +135,7 @@ Read Interfaces
 - `HR_ZONE_REFERENCE_BPM`: Reference HR for zone calculation (default: `0` = auto-detect from workout)
 - `HR_RESTING_BPM`: Resting heart rate for HRR method (default: `60` bpm)
 
-**OneDrive Personal Integration** (see [BACKENDS.md](./docs/BACKENDS.md) for setup):
+**OneDrive Personal Integration** (see [BACKENDS.md](./docs/devops/BACKENDS.md) for setup):
 
 - `ONEDRIVE_CLIENT_ID`: Azure app registration client ID (consumer/personal accounts)
 - `ONEDRIVE_CLIENT_SECRET`: Azure app registration client secret
@@ -144,7 +144,7 @@ Read Interfaces
 - `ONEDRIVE_FOLDER_PATH`: Target folder path (default: `'/Apps/HealthFit'`)
 - `ONEDRIVE_SYNC_LOOKBACK_DAYS`: Sync window in days (default: `30`)
 
-**Withings Integration** (see [BACKENDS.md](./docs/BACKENDS.md) for setup):
+**Withings Integration** (see [BACKENDS.md](./docs/devops/BACKENDS.md) for setup):
 
 - `WITHINGS_CLIENT_ID`: Withings app client ID
 - `WITHINGS_CLIENT_SECRET`: Withings app client secret
@@ -758,7 +758,7 @@ az login
 func azure functionapp publish <FUNCTION_APP_NAME>
 ```
 
-**Complete deployment guide**: See [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) for:
+**Complete deployment guide**: See [docs/DEPLOYMENT.md](./docs/devops/DEPLOYMENT.md) for:
 
 - Azure resource provisioning
 - Function App configuration
@@ -827,7 +827,7 @@ Use Azure Function App Settings or Terraform variables for environment-specific 
 
 ## Integration with OneDrive Personal
 
-**Complete setup guide**: See [docs/BACKENDS.md](./docs/BACKENDS.md#onedrive-personal-integration)
+**Complete setup guide**: See [docs/BACKENDS.md](./docs/devops/BACKENDS.md#onedrive-personal-integration)
 
 ### OAuth Flow
 
@@ -868,7 +868,7 @@ Use Azure Function App Settings or Terraform variables for environment-specific 
 
 ## Integration with Withings
 
-**Complete setup guide**: See [docs/BACKENDS.md](./docs/BACKENDS.md#withings-integration)
+**Complete setup guide**: See [docs/BACKENDS.md](./docs/devops/BACKENDS.md#withings-integration)
 
 ### Authorization & Webhook Setup
 
@@ -902,7 +902,7 @@ Use Azure Function App Settings or Terraform variables for environment-specific 
 
 ## Integration with ChatGPT
 
-**Complete guide**: See [docs/GPT_ACTIONS_GUIDE.md](./docs/GPT_ACTIONS_GUIDE.md)
+**Complete guide**: See [docs/GPT_ACTIONS_GUIDE.md](./docs/gpt/GPT_ACTIONS_GUIDE.md)
 
 ### Plugin Configuration
 
@@ -910,7 +910,7 @@ Use Azure Function App Settings or Terraform variables for environment-specific 
 
 - Go to: <https://chat.openai.com/gpts/editor>
 - Configure name: "Workout Intelligence Agent"
-- Add instructions (see [docs/INSTRUCTIONS.md](./docs/INSTRUCTIONS.md))
+- Add instructions (see [docs/INSTRUCTIONS.md](./docs/gpt/INSTRUCTIONS.md))
 
 1. **Configure Actions**:
 
@@ -936,11 +936,11 @@ The GPT maintains long-term awareness through:
 - **Observations**: Active patterns, flags, insights with workout references
 - **Context Loading**: Automatic at conversation start via `/api/agent/context`
 
-See [docs/AGENT_MEMORY.md](./docs/AGENT_MEMORY.md) for detailed architecture.
+See [docs/AGENT_MEMORY.md](./docs/gpt/AGENT_MEMORY.md) for detailed architecture.
 
 ## Monitoring & Analytics
 
-**Complete guide**: See [docs/MONITORING.md](./docs/MONITORING.md)
+**Complete guide**: See [docs/MONITORING.md](./docs/devops/MONITORING.md)
 
 ### Application Insights
 
@@ -976,7 +976,7 @@ traces
 3. Enter storage account connection string
 4. Load `Workouts`, `WeeklyRollups`, and `Physiometrics` tables
 
-**Pre-built visualizations** (see [docs/MONITORING.md](./docs/MONITORING.md)):
+**Pre-built visualizations** (see [docs/MONITORING.md](./docs/devops/MONITORING.md)):
 
 - Training volume trends (weekly TSS, duration)
 - Time-in-zone distribution (HR and power)
@@ -1027,7 +1027,7 @@ Returns HTTP 503 with `"status": "degraded"` if storage connectivity fails.
 - Minimal cross-partition queries
 - Table Storage pagination for large result sets
 
-See [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md#scaling-and-performance) for scaling recommendations.
+See [docs/DEPLOYMENT.md](./docs/devops/DEPLOYMENT.md#scaling-and-performance) for scaling recommendations.
 
 ## Documentation
 
@@ -1035,23 +1035,23 @@ See [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md#scaling-and-performance) for scali
 
 |Document|Purpose|Audience|
 |-|-|-|
-|[DEPLOYMENT.md](./docs/DEPLOYMENT.md)|Azure deployment procedures|DevOps, Infrastructure|
-|[BACKENDS.md](./docs/BACKENDS.md)|OneDrive, Withings, Garmin integration|Developers, Users|
-|[SEMANTIC_LAYER_API.md](./docs/SEMANTIC_LAYER_API.md)|Complete API reference (31 endpoints)|Developers, GPT Config|
-|[WORKOUT_SCHEMA.md](./docs/WORKOUT_SCHEMA.md)|Data model (100+ fields)|Developers, Data Analysts|
-|[AGENT_MEMORY.md](./docs/AGENT_MEMORY.md)|GPT memory system architecture|GPT Developers|
-|[MONITORING.md](./docs/MONITORING.md)|Power BI dashboards & monitoring|Athletes, Analysts|
+|[DEPLOYMENT.md](./docs/devops/DEPLOYMENT.md)|Azure deployment procedures|DevOps, Infrastructure|
+|[BACKENDS.md](./docs/devops/BACKENDS.md)|OneDrive, Withings, Garmin integration|Developers, Users|
+|[SEMANTIC_LAYER_API.md](./docs/gpt/SEMANTIC_LAYER_API.md)|Complete API reference (31 endpoints)|Developers, GPT Config|
+|[WORKOUT_SCHEMA.md](./docs/gpt/WORKOUT_SCHEMA.md)|Data model (100+ fields)|Developers, Data Analysts|
+|[AGENT_MEMORY.md](./docs/gpt/AGENT_MEMORY.md)|GPT memory system architecture|GPT Developers|
+|[MONITORING.md](./docs/devops/MONITORING.md)|Power BI dashboards & monitoring|Athletes, Analysts|
 
 ### Design & Context
 
 |Document|Purpose|Audience|
 |-|-|-|
-|[WORKOUT_INTELLIGENCE_AGENT_VISION.md](./docs/WORKOUT_INTELLIGENCE_AGENT_VISION.md)|System design philosophy|Architects, Contributors|
-|[GPT_ACTIONS_GUIDE.md](./docs/GPT_ACTIONS_GUIDE.md)|ChatGPT integration guide|GPT Developers|
-|[INSTRUCTIONS.md](./docs/INSTRUCTIONS.md)|GPT agent instructions|GPT Configuration|
-|[CYCLING_CONTEXT.md](./docs/CYCLING_CONTEXT.md)|Cycling training context|Athletes, GPT|
-|[MOVESMETHOD_CONTEXT.md](./docs/MOVESMETHOD_CONTEXT.md)|Training methodology|Athletes, Coaches|
-|[ROB_CONTEXT.md](./docs/ROB_CONTEXT.md)|Personal athlete context|Athletes|
+|[WORKOUT_INTELLIGENCE_AGENT_VISION.md](./docs/gpt/WORKOUT_INTELLIGENCE_AGENT_VISION.md)|System design philosophy|Architects, Contributors|
+|[GPT_ACTIONS_GUIDE.md](./docs/gpt/GPT_ACTIONS_GUIDE.md)|ChatGPT integration guide|GPT Developers|
+|[INSTRUCTIONS.md](./docs/gpt/INSTRUCTIONS.md)|GPT agent instructions|GPT Configuration|
+|[CYCLING_CONTEXT.md](./docs/gpt/context/CYCLING_CONTEXT.md)|Cycling training context|Athletes, GPT|
+|[MOVESMETHOD_CONTEXT.md](./docs/gpt/context/MOVESMETHOD_CONTEXT.md)|Training methodology|Athletes, Coaches|
+|[ROB_CONTEXT.md](./docs/gpt/context/ROB_CONTEXT.md)|Personal athlete context|Athletes|
 
 ### Testing Documentation
 

@@ -1,6 +1,6 @@
 # Testing
 
-> **Source of Truth**: See [WORKOUT_SCHEMA.md](../docs/WORKOUT_SCHEMA.md) for the complete specification of expected fields and metrics. This document describes the test coverage of that schema.
+> **Source of Truth**: See [WORKOUT_SCHEMA.md](../docs/gpt/WORKOUT_SCHEMA.md) for the complete specification of expected fields and metrics. This document describes the test coverage of that schema.
 
 ## Quick Start
 
@@ -846,7 +846,7 @@ class TestFeatureName:
 ## Related Documentation
 
 - [Main README](../README.md) - Project overview
-- [WORKOUT_SCHEMA.md](../docs/WORKOUT_SCHEMA.md) - Expected data model
+- [WORKOUT_SCHEMA.md](../docs/gpt/WORKOUT_SCHEMA.md) - Expected data model
 
 **Test Coverage Status**: ✅ 330 tests passing, high coverage across all modules
 

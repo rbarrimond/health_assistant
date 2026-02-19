@@ -303,7 +303,7 @@ Example: `test_payload_2026-01-12-183000-Indoor Cycling-RunGap.json`
 
 - [../postman/README.md](../postman/README.md) - Postman collection testing guide
 - [../README.md](../README.md) - Complete test suite documentation
-- [../../docs/WORKOUT_SCHEMA.md](../../docs/WORKOUT_SCHEMA.md) - Expected workout fields
+- [../../docs/gpt/WORKOUT_SCHEMA.md](../../docs/gpt/WORKOUT_SCHEMA.md) - Expected workout fields
 - [../../README.md](../../README.md) - Main project documentation
 
 ---

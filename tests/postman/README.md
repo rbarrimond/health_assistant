@@ -6,7 +6,7 @@
 
 - [API Alignment Report](./API_ALIGNMENT.md) - Verification that collection, openapi.yaml, and function_app.py are aligned
 - [postman_collection.json](./postman_collection.json) - Ready-to-use test collection (import this!)
-- [Complete API Reference](../../docs/SEMANTIC_LAYER_API.md) - Full API documentation
+- [Complete API Reference](../../docs/gpt/SEMANTIC_LAYER_API.md) - Full API documentation
 
 ## What's Included
 
@@ -72,7 +72,7 @@ The collection includes a dedicated **Agent Memory** folder with 6 endpoints for
 
 - **GET endpoints** are public (no auth required)
 - **POST/PATCH endpoints** require function key authentication
-- See [AGENT_MEMORY.md](../../docs/AGENT_MEMORY.md) for detailed documentation
+- See [AGENT_MEMORY.md](../../docs/gpt/AGENT_MEMORY.md) for detailed documentation
 
 ## Test Requests
 
@@ -274,7 +274,7 @@ base64 -i your_workout.fit
 
 ## Additional Resources
 
-- [Complete API Reference](../../docs/SEMANTIC_LAYER_API.md) - All 31 endpoints documented
+- [Complete API Reference](../../docs/gpt/SEMANTIC_LAYER_API.md) - All 31 endpoints documented
 - [Test Data Files](../data/README.md) - FIT file details and conversion scripts
 - [Main Testing Guide](../README.md) - Complete test suite (330 tests)
 - [API Alignment Report](./API_ALIGNMENT.md) - Collection consistency verification
