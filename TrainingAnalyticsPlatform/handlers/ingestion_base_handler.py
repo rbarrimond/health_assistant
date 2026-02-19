@@ -5,7 +5,10 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Tuple
 
 from TrainingAnalyticsPlatform.ingestion.fit_parser import FitParser, compute_workout_id
-from TrainingAnalyticsPlatform.storage.table_storage import WorkoutTableStorage
+from TrainingAnalyticsPlatform.storage.table_storage import (
+    CANONICAL_SCHEMA_VERSION,
+    WorkoutTableStorage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -104,16 +107,26 @@ class FitIngestionBaseHandler(ABC):
             start_time=metadata.get("start_time_utc"),
         )
 
+        raw_fit_payload = parser.extract_raw_fit_json()
+        metadata_payload = parser.extract_metadata_messages()
+        laps_payload = parser.extract_lap_messages()
+        analysis_payload = parser.extract_fit_analysis()
+
         records = parser.extract_canonical_records()
         laps = parser.extract_canonical_laps()
         records_blob = self.storage.store_canonical_records(workout_id, records)
         laps_blob = self.storage.store_canonical_laps(workout_id, laps)
+        self.storage.store_raw_fit_json(workout_id, raw_fit_payload)
+        self.storage.store_metadata_json(workout_id, metadata_payload)
+        self.storage.store_laps_json(workout_id, laps_payload)
+        self.storage.store_fit_analysis(workout_id, analysis_payload)
 
         self.storage.store_workout(
             athlete_id,
             metadata,
             source_info,
             workout_id=workout_id,
+            canonical_schema_version=CANONICAL_SCHEMA_VERSION,
             canonical_records_blob=records_blob,
             canonical_laps_blob=laps_blob,
             records_count=len(records),
