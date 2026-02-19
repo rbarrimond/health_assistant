@@ -8,7 +8,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
-from TrainingAnalyticsPlatform.ingestion.fitdecode_shim import FitFile
+from TrainingAnalyticsPlatform.ingestion.adapter import _load_fit_messages
 
 
 def safe_value(field: Any) -> dict[str, Any]:
@@ -24,15 +24,14 @@ def safe_value(field: Any) -> dict[str, Any]:
 
 def dump_fit_to_json(fit_path, output_path):
     """Dumps all messages from a FIT file to a JSON file."""
-    fitfile = FitFile(fit_path)
+    messages, _ = _load_fit_messages(fit_path)
 
     all_messages = []
     message_index = defaultdict(int)
 
-    for message in fitfile.get_messages():
-        msg_type = getattr(message, "name", type(message).__name__)
-        fields = getattr(message, "fields", [])
-        developer_fields = getattr(message, "developer_fields", [])
+    for message in messages:
+        msg_type = message.get("name", "unknown")
+        fields_dict = message.get("fields", {})
 
         message_index[msg_type] += 1
 
@@ -42,12 +41,8 @@ def dump_fit_to_json(fit_path, output_path):
             "fields": {},
         }
 
-        for field in fields:
-            msg_dict["fields"][field.name] = safe_value(field)
-
-        # Include developer fields if present
-        for field in developer_fields:
-            msg_dict["fields"][f"dev_{field.name}"] = safe_value(field)
+        for field_name, field in fields_dict.items():
+            msg_dict["fields"][field_name] = safe_value(field)
 
         all_messages.append(msg_dict)
 
