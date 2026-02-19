@@ -1,4 +1,14 @@
-"""Shared constants and utilities for workout models."""
+"""Analytics-specific constants and utilities for workout models.
+
+This module contains configuration for metrics computation and performance analysis
+algorithms. It is kept separate from platform constants (config/constants.py) to
+maintain modularity: the analytics engine can be used independently without
+loading HTTP/plugin infrastructure, and algorithm parameters can be tuned
+independently from API behavior.
+
+Scope: Analytics layer (metrics computation, performance analysis, algorithm parameters)
+Used by: core.py, metrics submodules, Pydantic model annotations
+"""
 
 from functools import wraps
 

@@ -1,4 +1,14 @@
-"""Shared constants and environment variable names."""
+# pylint: disable=line-too-long
+"""Shared constants for HTTP API and plugin metadata.
+
+This module contains platform-level configuration used by the HTTP API endpoints
+and plugin system. It is kept separate from analytics constants (TrainingAnalyticsPlatform/models/constants.py)
+to maintain modularity: the analytics engine can be used independently without
+loading HTTP/plugin infrastructure, and each module's constants are colocated with their usage context.
+
+Scope: Platform layer (HTTP API, plugin system, external interfaces)
+Used by: function_app.py, utils.py, http_utils.py, and HTTP handler tests
+"""
 
 import os
 
