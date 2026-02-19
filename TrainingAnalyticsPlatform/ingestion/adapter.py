@@ -5,9 +5,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import io
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
-from TrainingAnalyticsPlatform.ingestion import fitdecode_shim
+import fitdecode
 
 from TrainingAnalyticsPlatform.platform.exceptions import FitAdapterError
 from TrainingAnalyticsPlatform.models import DeviceInfo, RecordSample, Workout, WorkoutSession
@@ -39,6 +39,53 @@ INDOOR_KEYWORDS = [
 ]
 
 
+def _load_fit_messages(file_path_or_stream) -> tuple[List[Dict[str, Any]], str]:
+    """Load FIT messages from a file or stream using fitdecode.
+    
+    Returns:
+        Tuple of (messages list, source description for errors)
+    """
+    should_close = False
+    source_desc = "unknown"
+    
+    try:
+        if isinstance(file_path_or_stream, (bytes, bytearray)):
+            stream = io.BytesIO(file_path_or_stream)
+            source_desc = "bytes stream"
+        elif isinstance(file_path_or_stream, (str, Path)):
+            stream = open(file_path_or_stream, "rb")
+            should_close = True
+            source_desc = f"file {file_path_or_stream}"
+        else:
+            stream = file_path_or_stream
+            source_desc = "file stream"
+        
+        messages: List[Dict[str, Any]] = []
+        try:
+            with fitdecode.FitReader(stream, processor=fitdecode.DefaultDataProcessor()) as reader:
+                for frame in reader:
+                    if not isinstance(frame, fitdecode.FitDataMessage):
+                        continue
+                    messages.append({
+                        "name": frame.name,
+                        "frame": frame,
+                        "fields": {field.name: field for field in frame.fields},
+                    })
+        except Exception as exc:
+            raise RuntimeError(
+                f"FIT file parsing failed: {exc.__class__.__name__}: {exc}"
+            ) from exc
+        finally:
+            if should_close:
+                stream.close()
+        
+        return messages, source_desc
+    except Exception as exc:
+        if should_close and "stream" in locals():
+            stream.close()
+        raise
+
+
 class FitAdapter:
     """Build Workout entities from a FIT file."""
 
@@ -51,13 +98,9 @@ class FitAdapter:
         self.file_path = file_path
         self.source_file_name = source_file_name
         self._gps_data_cache: Optional[bool] = None
-        self._fit_source = None
         try:
-            if file_bytes is not None:
-                self._fit_source = io.BytesIO(file_bytes)
-                self.fit = fitdecode_shim.FitFile(self._fit_source)
-            else:
-                self.fit = fitdecode_shim.FitFile(file_path)
+            file_input = file_bytes if file_bytes is not None else file_path
+            self.messages, source_desc = _load_fit_messages(file_input)
             self.file_id_msg, self.session_msg = self._cache_core_messages()
         except Exception as exc:  # pylint: disable=broad-exception-caught
             source_desc = "bytes stream" if file_bytes is not None else f"file {file_path}"
@@ -77,11 +120,12 @@ class FitAdapter:
                 "Failed to build Workout from FIT data") from exc
 
     @staticmethod
-    def _get_field_value(msg, field_name: str):
-        """Return field value from a fitparse message if present."""
+    def _get_field_value(msg: Optional[Dict], field_name: str) -> Any:
+        """Return field value from a FIT message if present."""
         if not msg:
             return None
-        field = msg.get(field_name)
+        fields = msg.get("fields", {})
+        field = fields.get(field_name)
         if not field:
             return None
         value = field.value
@@ -90,21 +134,25 @@ class FitAdapter:
         return value
 
     @staticmethod
-    def _get_raw_field_value(msg, field_name: str):
+    def _get_raw_field_value(msg: Optional[Dict], field_name: str) -> Any:
         """Return raw field value (no timezone coercion)."""
         if not msg:
             return None
-        field = msg.get(field_name)
+        fields = msg.get("fields", {})
+        field = fields.get(field_name)
         return field.value if field else None
 
-    def _cache_core_messages(self):
+    def _cache_core_messages(self) -> tuple[Optional[Dict], Optional[Dict]]:
         """Cache the first file_id and session messages for reuse."""
         file_id_msg = None
         session_msg = None
-        for msg in self.fit.get_messages("file_id"):
-            file_id_msg = msg
-        for msg in self.fit.get_messages("session"):
-            session_msg = msg
+        for msg in self.messages:
+            if msg["name"] == "file_id" and file_id_msg is None:
+                file_id_msg = msg
+            elif msg["name"] == "session" and session_msg is None:
+                session_msg = msg
+            if file_id_msg and session_msg:
+                break
         return file_id_msg, session_msg
 
     @staticmethod
@@ -174,21 +222,23 @@ class FitAdapter:
 
     def _get_time_zone_name(self) -> Optional[str]:
         """Return time zone name from FIT messages, if present."""
-        for msg in self.fit.get_messages("time_zone"):
-            name = self._get_field_value(msg, "name")
-            if name:
-                return str(name)
+        for msg in self.messages:
+            if msg["name"] == "time_zone":
+                name = self._get_field_value(msg, "name")
+                if name:
+                    return str(name)
         return None
 
     def _get_device_utc_offset_minutes(self) -> Optional[int]:
         """Return device UTC offset in minutes from settings, if present."""
-        for msg in self.fit.get_messages("device_settings"):
-            offset = (
-                self._get_field_value(msg, "utc_offset")
-                or self._get_field_value(msg, "timezone_offset")
-            )
-            if isinstance(offset, (int, float)):
-                return int(round(offset / 60))
+        for msg in self.messages:
+            if msg["name"] == "device_settings":
+                offset = (
+                    self._get_field_value(msg, "utc_offset")
+                    or self._get_field_value(msg, "timezone_offset")
+                )
+                if isinstance(offset, (int, float)):
+                    return int(round(offset / 60))
         return None
 
     def _infer_timezone_from_session_times(self, session_msg) -> Optional[str]:
@@ -218,9 +268,10 @@ class FitAdapter:
     def _infer_timezone_from_activity_times(self) -> Optional[str]:
         """Infer timezone from activity local_time vs UTC timestamp."""
         activity_msg = None
-        for msg in self.fit.get_messages("activity"):
-            activity_msg = msg
-            break
+        for msg in self.messages:
+            if msg["name"] == "activity":
+                activity_msg = msg
+                break
         if not activity_msg:
             return None
 
@@ -259,16 +310,17 @@ class FitAdapter:
         has_gps = False
         try:
             record_count = 0
-            for record in self.fit.get_messages("record"):
-                lat = self._get_field_value(record, "position_lat")
-                lon = self._get_field_value(record, "position_long")
-                if lat is not None and lon is not None:
-                    has_gps = True
-                    break
-                record_count += 1
-                if record_count >= 100:
-                    # Limit checks to first 100 records to avoid timeout on large files
-                    break
+            for record in self.messages:
+                if record["name"] == "record":
+                    lat = self._get_field_value(record, "position_lat")
+                    lon = self._get_field_value(record, "position_long")
+                    if lat is not None and lon is not None:
+                        has_gps = True
+                        break
+                    record_count += 1
+                    if record_count >= 100:
+                        # Limit checks to first 100 records to avoid timeout on large files
+                        break
         except Exception:  # pylint: disable=broad-exception-caught
             # If there's any error checking GPS, assume no GPS data
             has_gps = False
@@ -374,19 +426,20 @@ class FitAdapter:
     def _build_records(self) -> list[RecordSample]:
         """Extract record samples into domain objects."""
         records: list[RecordSample] = []
-        for record in self.fit.get_messages("record"):
-            hr = self._get_field_value(record, "heart_rate")
-            pwr = self._get_field_value(record, "power")
-            cad = self._get_field_value(record, "cadence")
-            lat = self._get_field_value(record, "position_lat")
-            lon = self._get_field_value(record, "position_long")
-            records.append(
-                RecordSample(
-                    heart_rate=hr,
-                    power=pwr,
-                    cadence=cad,
-                    position_lat=lat,
-                    position_long=lon,
+        for record in self.messages:
+            if record["name"] == "record":
+                hr = self._get_field_value(record, "heart_rate")
+                pwr = self._get_field_value(record, "power")
+                cad = self._get_field_value(record, "cadence")
+                lat = self._get_field_value(record, "position_lat")
+                lon = self._get_field_value(record, "position_long")
+                records.append(
+                    RecordSample(
+                        heart_rate=hr,
+                        power=pwr,
+                        cadence=cad,
+                        position_lat=lat,
+                        position_long=lon,
+                    )
                 )
-            )
         return records

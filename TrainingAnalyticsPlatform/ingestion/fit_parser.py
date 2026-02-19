@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, cast
 
 import numpy as np
 
-from TrainingAnalyticsPlatform.ingestion import fitdecode_shim
+import fitdecode
 
 from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.platform.exceptions import (
@@ -28,9 +28,9 @@ from .timezone_utils import (
 
 logger = logging.getLogger(__name__)
 
-# Expose fitdecode shim for tests that patch
-# TrainingAnalyticsPlatform.ingestion.fit_parser.fitdecode_shim.
-_fitdecode = fitdecode_shim
+# Expose fitdecode for tests that patch
+# TrainingAnalyticsPlatform.ingestion.fit_parser.fitdecode
+_fitdecode = fitdecode
 
 
 class FitParser:
@@ -56,7 +56,7 @@ class FitParser:
         self.file_path = file_path or "<in-memory>"
         self.file_bytes = file_bytes
         self.source_file_name = source_file_name
-        self.fit = None
+        self.messages = None
         self.workout: Optional[Workout] = None
         self.metrics = {}
         self._file_id_msg = None
@@ -77,8 +77,7 @@ class FitParser:
     def records(self) -> List:
         """Cached list of record messages (lazily loaded)."""
         if self._records is None:
-            self._records = list(
-                self.fit.get_messages("record")) if self.fit else []
+            self._records = [msg for msg in (self.messages or []) if msg["name"] == "record"]
         return self._records
 
     def parse(self) -> Dict:
@@ -115,7 +114,7 @@ class FitParser:
         return self.metrics
 
     def _load_fit_sources(self) -> None:
-        """Load structured entities and raw fitparse for fallbacks."""
+        """Load structured entities and raw fit messages for fallbacks."""
         try:
             adapter = FitAdapter(
                 file_path=self.file_path,
@@ -123,7 +122,7 @@ class FitParser:
                 source_file_name=self.source_file_name,
             )
             self.workout = adapter.load_workout()
-            self.fit = adapter.fit
+            self.messages = adapter.messages
         except (FitAdapterError, WorkoutTypeResolutionError) as exc:
             logger.error("FIT adapter failure for %s: %s", self.file_path, exc)
             raise
@@ -229,12 +228,21 @@ class FitParser:
 
     def _cache_messages(self) -> None:
         """Cache frequently-accessed FIT messages for efficiency."""
-        if not self.fit:
+        if not self.messages:
             return
-        for message in self.fit.get_messages("file_id"):
-            self._file_id_msg = message
-        for message in self.fit.get_messages("session"):
-            self._session_msg = message
+        for message in self.messages:
+            if message["name"] == "file_id" and not self._file_id_msg:
+                self._file_id_msg = message
+            elif message["name"] == "session" and not self._session_msg:
+                self._session_msg = message
+
+    def _get_messages(self, message_name: Optional[str] = None) -> List[Dict]:
+        """Filter messages by name, or return all if name is None."""
+        if not self.messages:
+            return []
+        if message_name is None:
+            return list(self.messages)
+        return [msg for msg in self.messages if msg["name"] == message_name]
 
     # Removed Java-style getters in favor of properties above
 
@@ -248,23 +256,26 @@ class FitParser:
                     values.append(val)
             return values
 
-        # Fallback to raw fitparse records
+        # Fallback to raw message records
         values = []
         for record in self.records:
-            data = record.get(field_name)
-            if data:
-                values.append(data.value)
+            fields = record.get("fields", {})
+            field = fields.get(field_name)
+            if field:
+                values.append(field.value)
         return values
 
-    def _get_field_from_msg(self, msg, field_name: str) -> Optional[Any]:
-        """Safely get a field value from a FIT message."""
-        if msg:
-            field = msg.get(field_name)
-            if field:
-                value = field.value
-                if isinstance(value, datetime) and value.tzinfo is None:
-                    return value.replace(tzinfo=timezone.utc)
-                return value
+    def _get_field_from_msg(self, msg: Optional[Dict], field_name: str) -> Optional[Any]:
+        """Safely get a field value from a FIT message dict."""
+        if not msg:
+            return None
+        fields = msg.get("fields", {})
+        field = fields.get(field_name)
+        if field:
+            value = field.value
+            if isinstance(value, datetime) and value.tzinfo is None:
+                return value.replace(tzinfo=timezone.utc)
+            return value
         return None
 
     def _extract_record_payload(self, record) -> Optional[Dict[str, Any]]:
@@ -285,10 +296,10 @@ class FitParser:
         Returns:
             List of dicts: {"lap_index": int, "summary": {...}, "records": [...]}
         """
-        if not self.fit:
+        if not self.messages:
             self._load_fit_sources()
 
-        laps = list(self.fit.get_messages("lap")) if self.fit else []
+        laps = self._get_messages("lap")
         if not laps:
             return []
 
@@ -298,12 +309,12 @@ class FitParser:
 
     def extract_canonical_records(self) -> List[Dict[str, Any]]:
         """Extract Section I canonical substrate records for parquet storage."""
-        if not self.fit:
+        if not self.messages:
             self._load_fit_sources()
         start_dt = self._canonical_start_dt()
 
         records: List[Dict[str, Any]] = []
-        for record in self.fit.get_messages("record") if self.fit else []:
+        for record in self._get_messages("record"):
             payload = self._build_canonical_record(record, start_dt)
             if payload:
                 records.append(payload)
@@ -312,10 +323,10 @@ class FitParser:
 
     def extract_canonical_laps(self) -> List[Dict[str, Any]]:
         """Extract lap summaries for parquet storage."""
-        if not self.fit:
+        if not self.messages:
             self._load_fit_sources()
 
-        laps = list(self.fit.get_messages("lap")) if self.fit else []
+        laps = self._get_messages("lap")
         if not laps:
             return []
 
@@ -350,7 +361,7 @@ class FitParser:
 
     def extract_canonical_metadata(self) -> Dict[str, Any]:
         """Extract canonical FIT metadata from file, device, event, activity, session."""
-        if not self.fit:
+        if not self.messages:
             self._load_fit_sources()
         metadata: Dict[str, Any] = {}
         metadata.update(self._build_canonical_session_metadata())
@@ -361,13 +372,13 @@ class FitParser:
 
     def extract_raw_fit_json(self) -> Dict[str, Any]:
         """Return a decoded-only JSON representation of the full FIT file."""
-        if not self.fit:
+        if not self.messages:
             self._load_fit_sources()
 
         messages = []
         message_index: Dict[str, int] = {}
-        for message in self.fit.get_messages():
-            msg_type = getattr(message, "name", type(message).__name__)
+        for message in self._get_messages():
+            msg_type = message["name"]
             message_index[msg_type] = message_index.get(msg_type, 0) + 1
             messages.append(
                 self._serialize_message(
@@ -391,7 +402,7 @@ class FitParser:
 
     def extract_metadata_messages(self) -> Dict[str, Any]:
         """Return structured FIT metadata messages for fast access."""
-        if not self.fit:
+        if not self.messages:
             self._load_fit_sources()
 
         message_types = [
@@ -408,7 +419,7 @@ class FitParser:
         for message_type in message_types:
             messages = [
                 self._serialize_message(message)
-                for message in self.fit.get_messages(message_type)
+                for message in self._get_messages(message_type)
             ]
             if messages:
                 payload[message_type] = messages
@@ -417,12 +428,12 @@ class FitParser:
 
     def extract_lap_messages(self) -> Dict[str, Any]:
         """Return lap messages as a pass-through JSON artifact."""
-        if not self.fit:
+        if not self.messages:
             self._load_fit_sources()
 
         laps = [
             self._serialize_message(message)
-            for message in self.fit.get_messages("lap")
+            for message in self._get_messages("lap")
         ]
         return {
             "laps": laps,
@@ -437,32 +448,44 @@ class FitParser:
         }
 
     @staticmethod
+    @staticmethod
     def _serialize_message(
-        message,
+        message: Dict[str, Any],
         msg_type: Optional[str] = None,
         msg_index: Optional[int] = None,
     ) -> Dict[str, Any]:
-        fields = getattr(message, "fields", [])
-        developer_fields = getattr(message, "developer_fields", [])
+        """Serialize a FIT message dict to JSON-friendly format.
+        
+        Args:
+            message: Dict with "name", "frame", "fields" keys from _load_fit_messages
+            msg_type: Optional override for message type name
+            msg_index: Optional message index in sequence
+        """
+        frame = message.get("frame")
+        fields_dict = message.get("fields", {})
+        
         msg_payload = {
-            "message_type": msg_type or getattr(message, "name", type(message).__name__),
+            "message_type": msg_type or message.get("name", "unknown"),
             "fields": {},
         }
 
         if msg_index is not None:
             msg_payload["message_index"] = msg_index
 
-        for field in fields:
-            msg_payload["fields"][field.name] = {
-                "value": getattr(field, "value", None),
+        # Serialize standard fields
+        for field_name, field in fields_dict.items():
+            msg_payload["fields"][field_name] = {
+                "value": field.value,
                 "units": getattr(field, "units", None),
             }
 
-        for field in developer_fields:
-            msg_payload["fields"][f"dev_{field.name}"] = {
-                "value": getattr(field, "value", None),
-                "units": getattr(field, "units", None),
-            }
+        # Serialize developer fields if present
+        if frame and hasattr(frame, "developer_fields"):
+            for field in frame.developer_fields:
+                msg_payload["fields"][f"dev_{field.name}"] = {
+                    "value": field.value,
+                    "units": getattr(field, "units", None),
+                }
 
         return msg_payload
 
@@ -594,7 +617,7 @@ class FitParser:
     def _build_canonical_activity_metadata(self) -> Dict[str, Any]:
         metadata: Dict[str, Any] = {}
         activity_msg = None
-        for msg in self.fit.get_messages("activity") if self.fit else []:
+        for msg in self._get_messages("activity"):
             activity_msg = msg
             break
         if not activity_msg:
@@ -658,11 +681,11 @@ class FitParser:
         return lap_windows
 
     def _assign_records_to_laps(self, lap_windows: List[Dict[str, Any]]) -> None:
-        if not self.fit:
+        if not self.messages:
             return
 
         current_idx = 0
-        for record in self.fit.get_messages("record"):
+        for record in self._get_messages("record"):
             timestamp = self._normalize_record_timestamp(
                 self._get_field_from_msg(record, "timestamp")
             )
@@ -819,7 +842,7 @@ class FitParser:
         so the default is 'UTC'.
         """
         try:
-            if not self.fit:
+            if not self.messages:
                 return "UTC"
 
             tz_name = self._get_time_zone_name()
@@ -839,9 +862,9 @@ class FitParser:
 
     def _get_time_zone_name(self) -> Optional[str]:
         """Return time zone name from FIT messages, if present."""
-        if not self.fit:
+        if not self.messages:
             return None
-        for msg in self.fit.get_messages("time_zone"):
+        for msg in self._get_messages("time_zone"):
             name = self._get_field_from_msg(msg, "name")
             if name:
                 return str(name)
@@ -849,9 +872,9 @@ class FitParser:
 
     def _get_device_utc_offset_minutes(self) -> Optional[int]:
         """Return device UTC offset in minutes from settings, if present."""
-        if not self.fit:
+        if not self.messages:
             return None
-        for msg in self.fit.get_messages("device_settings"):
+        for msg in self._get_messages("device_settings"):
             offset = (
                 self._get_field_from_msg(msg, "utc_offset")
                 or self._get_field_from_msg(msg, "timezone_offset")
@@ -886,10 +909,10 @@ class FitParser:
 
     def _infer_timezone_from_activity_times(self) -> Optional[str]:
         """Infer timezone from activity local_time vs UTC timestamp."""
-        if not self.fit:
+        if not self.messages:
             return None
         activity_msg = None
-        for msg in self.fit.get_messages("activity"):
+        for msg in self._get_messages("activity"):
             activity_msg = msg
             break
         if not activity_msg:
@@ -1315,17 +1338,17 @@ class FitParser:
 
     def _extract_hr_resting(self) -> Optional[float]:
         """Extract resting heart rate from FIT file if available."""
-        if not self.fit:
+        if not self.messages:
             return None
 
         # Check user profile messages for resting HR
-        for msg in self.fit.get_messages("user_profile"):
+        for msg in self._get_messages("user_profile"):
             resting_hr = self._get_field_from_msg(msg, "resting_heart_rate")
             if resting_hr:
                 return float(resting_hr)
 
         # Check monitoring messages (less common in workout files)
-        for msg in self.fit.get_messages("monitoring"):
+        for msg in self._get_messages("monitoring"):
             resting_hr = self._get_field_from_msg(msg, "resting_heart_rate")
             if resting_hr:
                 return float(resting_hr)
@@ -1334,11 +1357,11 @@ class FitParser:
 
     def _extract_ftp(self) -> Optional[float]:
         """Extract FTP (Functional Threshold Power) from FIT file if available."""
-        if not self.fit:
+        if not self.messages:
             return None
 
         # Check user profile messages for FTP
-        for msg in self.fit.get_messages("user_profile"):
+        for msg in self._get_messages("user_profile"):
             ftp = self._get_field_from_msg(msg, "functional_threshold_power")
             if ftp:
                 return float(ftp)

@@ -64,7 +64,7 @@ class TestFitParserInitialization:
         """Verify __init__ initializes parser state."""
         parser = FitParser(str(sample_fit_file))
 
-        assert parser.fit is None
+        assert parser.messages is None
         assert isinstance(parser.metrics, dict) and not parser.metrics
         assert parser._file_id_msg is None
         assert parser._session_msg is None
@@ -78,7 +78,7 @@ class TestFitParserCaching:
                                            mock_fit_file_with_data: Mock) -> None:
         """Verify _cache_messages stores file_id message."""
         parser = FitParser(str(sample_fit_file))
-        parser.fit = mock_fit_file_with_data
+        parser.messages = mock_fit_file_with_data
 
         parser._cache_messages()
 
@@ -89,7 +89,7 @@ class TestFitParserCaching:
                                            mock_fit_file_with_data: Mock) -> None:
         """Verify _cache_messages stores session message."""
         parser = FitParser(str(sample_fit_file))
-        parser.fit = mock_fit_file_with_data
+        parser.messages = mock_fit_file_with_data
 
         parser._cache_messages()
 
@@ -100,7 +100,7 @@ class TestFitParserCaching:
                                               mock_fit_file_with_records: Mock) -> None:
         """Verify _get_records caches results."""
         parser = FitParser(str(sample_fit_file))
-        parser.fit = mock_fit_file_with_records
+        parser.messages = mock_fit_file_with_records
 
         records1 = parser.records
         records2 = parser.records
@@ -116,9 +116,8 @@ class TestFitParserFieldExtraction:
         """Verify _get_field_from_msg extracts field value."""
         parser = FitParser(str(sample_fit_file))
 
-        msg = MagicMock()
         field = MagicMock(value=42)
-        msg.get.return_value = field
+        msg = {"name": "test", "fields": {"test_field": field}}
 
         result = parser._get_field_from_msg(msg, "test_field")
 
@@ -136,8 +135,7 @@ class TestFitParserFieldExtraction:
         """Verify _get_field_from_msg handles missing field."""
         parser = FitParser(str(sample_fit_file))
 
-        msg = MagicMock()
-        msg.get.return_value = None
+        msg = {"name": "test", "fields": {}}
 
         result = parser._get_field_from_msg(msg, "nonexistent_field")
 
@@ -151,7 +149,7 @@ class TestFitParserSportExtraction:
                                          mock_fit_file_with_data: Mock) -> None:
         """Verify _get_sport extracts and lowercases sport type."""
         parser = FitParser(str(sample_fit_file))
-        parser.fit = mock_fit_file_with_data
+        parser.messages = mock_fit_file_with_data
         parser._cache_messages()
 
         sport = parser._get_sport()
@@ -171,7 +169,7 @@ class TestFitParserSportExtraction:
                                               mock_fit_file_with_data: Mock) -> None:
         """Verify _get_sub_sport extracts and lowercases sub-sport type."""
         parser = FitParser(str(sample_fit_file))
-        parser.fit = mock_fit_file_with_data
+        parser.messages = mock_fit_file_with_data
         parser._cache_messages()
 
         sub_sport = parser._get_sub_sport()
@@ -182,24 +180,15 @@ class TestFitParserSportExtraction:
         """Verify _get_sport handles both enum and string values from fitparse."""
         parser = FitParser(str(sample_fit_file))
 
-        # Mock fit file where sport is a string (as fitparse actually returns)
-        fit_file = MagicMock()
-        file_id_msg = MagicMock()
-        file_id_msg.get = MagicMock(
-            side_effect=lambda key: MagicMock(value="cycling") if key == "type" else None
-        )
-        session_msg = MagicMock()
-        session_msg.get = MagicMock(return_value=None)
-
-        def get_messages(msg_type):
-            if msg_type == "file_id":
-                return [file_id_msg]
-            elif msg_type == "session":
-                return [session_msg]
-            return []
-
-        fit_file.get_messages = MagicMock(side_effect=get_messages)
-        parser.fit = fit_file
+        # Create message list with file_id message containing sport
+        messages = [
+            {
+                "name": "file_id",
+                "frame": MagicMock(developer_fields=[]),
+                "fields": {"type": MagicMock(value="cycling")},
+            }
+        ]
+        parser.messages = messages
         parser._cache_messages()
 
         sport = parser._get_sport()
@@ -210,22 +199,15 @@ class TestFitParserSportExtraction:
         """Verify _get_sub_sport handles both enum and string values."""
         parser = FitParser(str(sample_fit_file))
 
-        # Mock fit file where sub_sport is a string (as fitparse actually returns)
-        fit_file = MagicMock()
-        session_msg = MagicMock()
-        session_msg.get = MagicMock(
-            side_effect=lambda key: MagicMock(value="indoor_cycling")
-            if key == "sub_sport"
-            else None
-        )
-
-        def get_messages(msg_type):
-            if msg_type == "session":
-                return [session_msg]
-            return []
-
-        fit_file.get_messages = MagicMock(side_effect=get_messages)
-        parser.fit = fit_file
+        # Create message list with session message containing sub_sport
+        messages = [
+            {
+                "name": "session",
+                "frame": MagicMock(developer_fields=[]),
+                "fields": {"sub_sport": MagicMock(value="indoor_cycling")},
+            }
+        ]
+        parser.messages = messages
         parser._cache_messages()
 
         sub_sport = parser._get_sub_sport()
@@ -240,7 +222,7 @@ class TestFitParserTimeExtraction:
                                                    mock_fit_file_with_data: Mock) -> None:
         """Verify _get_start_time returns ISO format UTC timestamp."""
         parser = FitParser(str(sample_fit_file))
-        parser.fit = mock_fit_file_with_data
+        parser.messages = mock_fit_file_with_data
         parser._cache_messages()
 
         start_time = parser._get_start_time()
@@ -253,7 +235,7 @@ class TestFitParserTimeExtraction:
                                               mock_fit_file_with_data: Mock) -> None:
         """Verify _get_duration returns total elapsed time in seconds."""
         parser = FitParser(str(sample_fit_file))
-        parser.fit = mock_fit_file_with_data
+        parser.messages = mock_fit_file_with_data
         parser._cache_messages()
 
         duration = parser._get_duration()
@@ -278,7 +260,7 @@ class TestFitParserDistanceExtraction:
                                         mock_fit_file_with_data: Mock) -> None:
         """Verify _get_distance returns total distance in meters."""
         parser = FitParser(str(sample_fit_file))
-        parser.fit = mock_fit_file_with_data
+        parser.messages = mock_fit_file_with_data
         parser._cache_messages()
 
         distance = parser._get_distance()
@@ -290,7 +272,7 @@ class TestFitParserDistanceExtraction:
                                               mock_fit_file_with_data: Mock) -> None:
         """Verify _get_elevation_gain returns gain in meters."""
         parser = FitParser(str(sample_fit_file))
-        parser.fit = mock_fit_file_with_data
+        parser.messages = mock_fit_file_with_data
         parser._cache_messages()
 
         elevation_gain = parser._get_elevation_gain()
@@ -306,7 +288,7 @@ class TestFitParserSpeedExtraction:
                                          mock_fit_file_with_data: Mock) -> None:
         """Verify _get_avg_speed returns average speed in m/s."""
         parser = FitParser(str(sample_fit_file))
-        parser.fit = mock_fit_file_with_data
+        parser.messages = mock_fit_file_with_data
         parser._cache_messages()
 
         avg_speed = parser._get_avg_speed()
@@ -318,7 +300,7 @@ class TestFitParserSpeedExtraction:
                                          mock_fit_file_with_data: Mock) -> None:
         """Verify _get_max_speed returns maximum speed in m/s."""
         parser = FitParser(str(sample_fit_file))
-        parser.fit = mock_fit_file_with_data
+        parser.messages = mock_fit_file_with_data
         parser._cache_messages()
 
         max_speed = parser._get_max_speed()
@@ -334,7 +316,8 @@ class TestFitParserHeartRateExtraction:
                                     mock_fit_file_with_records: Mock) -> None:
         """Verify _get_hr_avg returns average heart rate in bpm."""
         parser = FitParser(str(sample_fit_file))
-        parser.fit = mock_fit_file_with_records
+        parser.messages = mock_fit_file_with_records
+        parser._cache_messages()
 
         hr_avg = parser._get_hr_avg()
 
@@ -346,7 +329,8 @@ class TestFitParserHeartRateExtraction:
                                     mock_fit_file_with_records: Mock) -> None:
         """Verify _get_hr_max returns maximum heart rate in bpm."""
         parser = FitParser(str(sample_fit_file))
-        parser.fit = mock_fit_file_with_records
+        parser.messages = mock_fit_file_with_records
+        parser._cache_messages()
 
         hr_max = parser._get_hr_max()
 
@@ -362,7 +346,8 @@ class TestFitParserRecordDataExtraction:
                                                  mock_fit_file_with_records: Mock) -> None:
         """Verify _get_record_data extracts array of values from records."""
         parser = FitParser(str(sample_fit_file))
-        parser.fit = mock_fit_file_with_records
+        parser.messages = mock_fit_file_with_records
+        parser._cache_messages()
 
         heart_rates = parser._get_record_data("heart_rate")
 
@@ -374,7 +359,8 @@ class TestFitParserRecordDataExtraction:
                                                         mock_fit_file_with_records: Mock) -> None:
         """Verify _get_record_data returns empty list if field missing."""
         parser = FitParser(str(sample_fit_file))
-        parser.fit = mock_fit_file_with_records
+        parser.messages = mock_fit_file_with_records
+        parser._cache_messages()
 
         missing_field = parser._get_record_data("nonexistent_field")
 
@@ -462,8 +448,8 @@ class TestFitParserFullParse:
         parser = FitParser(str(sample_fit_file))
 
         with patch(
-            "TrainingAnalyticsPlatform.ingestion.fitdecode_shim.FitFile",
-            return_value=mock_fit_file_with_records,
+            "TrainingAnalyticsPlatform.ingestion.adapter._load_fit_messages",
+            return_value=(mock_fit_file_with_records, "mock_file"),
         ):
             result = parser.parse()
 
@@ -475,8 +461,8 @@ class TestFitParserFullParse:
         parser = FitParser(str(sample_fit_file))
 
         with patch(
-            "TrainingAnalyticsPlatform.ingestion.fitdecode_shim.FitFile",
-            return_value=mock_fit_file_with_records,
+            "TrainingAnalyticsPlatform.ingestion.adapter._load_fit_messages",
+            return_value=(mock_fit_file_with_records, "mock_file"),
         ):
             result = parser.parse()
 
@@ -496,8 +482,8 @@ class TestFitParserFullParse:
         parser = FitParser(str(sample_fit_file))
 
         with patch(
-            "TrainingAnalyticsPlatform.ingestion.fitdecode_shim.FitFile",
-            return_value=mock_fit_file_with_records,
+            "TrainingAnalyticsPlatform.ingestion.adapter._load_fit_messages",
+            return_value=(mock_fit_file_with_records, "mock_file"),
         ):
             result = parser.parse()
 
@@ -511,8 +497,8 @@ class TestFitParserFullParse:
         parser.metrics = {"hr_max_bpm": 185}
 
         with patch(
-            "TrainingAnalyticsPlatform.ingestion.fitdecode_shim.FitFile",
-            return_value=mock_fit_file_with_records,
+            "TrainingAnalyticsPlatform.ingestion.adapter._load_fit_messages",
+            return_value=(mock_fit_file_with_records, "mock_file"),
         ):
             result = parser.parse()
 
@@ -543,9 +529,14 @@ class TestFitParserEdgeCases:
         """Verify parser correctly handles zero metric values."""
         parser = FitParser(str(sample_fit_file))
 
-        msg = MagicMock()
-        field = MagicMock(value=0)
-        msg.get.return_value = field
+        # Create a message dict with zero value field
+        msg = {
+            "name": "test",
+            "frame": MagicMock(developer_fields=[]),
+            "fields": {
+                "test_field": MagicMock(value=0)
+            }
+        }
 
         result = parser._get_field_from_msg(msg, "test_field")
 
@@ -556,17 +547,15 @@ class TestFitParserEdgeCases:
         """Verify _get_record_data filters out None values."""
         parser = FitParser(str(sample_fit_file))
 
-        fit_file = MagicMock()
-        records = []
-
-        # Create records with None and valid values
-        for value in [None, 100, None, 150, 200]:
-            record = MagicMock()
-            record.get.return_value = MagicMock(value=value) if value else None
-            records.append(record)
-
-        fit_file.get_messages.return_value = records
-        parser.fit = fit_file
+        # Create record messages with None and valid values
+        messages = [
+            {"name": "record", "frame": MagicMock(developer_fields=[]), "fields": {"test_field": MagicMock(value=100)}},
+            {"name": "record", "frame": MagicMock(developer_fields=[]), "fields": {}},  # Missing field
+            {"name": "record", "frame": MagicMock(developer_fields=[]), "fields": {"test_field": MagicMock(value=150)}},
+            {"name": "record", "frame": MagicMock(developer_fields=[]), "fields": {"test_field": MagicMock(value=200)}},
+        ]
+        parser.messages = messages
+        parser._cache_messages()
 
         data = parser._get_record_data("test_field")
 
@@ -650,9 +639,48 @@ class TestAdapterIntegration:
 
         fit_file.get_messages = MagicMock(side_effect=get_messages)
 
+        # Convert MagicMock messages to dict format for _load_fit_messages
+        messages = []
+        messages.append({
+            "name": "file_id",
+            "frame": MagicMock(developer_fields=[]),
+            "fields": {"manufacturer": file_id_msg.get("manufacturer")},
+        })
+        messages.append({
+            "name": "session",
+            "frame": MagicMock(developer_fields=[]),
+            "fields": {
+                "sport": session_msg.get("sport"),
+                "sub_sport": session_msg.get("sub_sport"),
+                "session_name": session_msg.get("session_name"),
+                "indoor": session_msg.get("indoor"),
+                "start_time": session_msg.get("start_time"),
+                "total_elapsed_time": session_msg.get("total_elapsed_time"),
+                "total_timer_time": session_msg.get("total_timer_time"),
+                "total_distance": session_msg.get("total_distance"),
+                "total_ascent": session_msg.get("total_ascent"),
+                "total_descent": session_msg.get("total_descent"),
+                "avg_speed": session_msg.get("avg_speed"),
+                "max_speed": session_msg.get("max_speed"),
+                "total_calories": session_msg.get("total_calories"),
+            },
+        })
+        for rec in record_messages:
+            messages.append({
+                "name": "record",
+                "frame": MagicMock(developer_fields=[]),
+                "fields": {
+                    "heart_rate": rec.get("heart_rate"),
+                    "power": rec.get("power"),
+                    "cadence": rec.get("cadence"),
+                    "position_lat": rec.get("position_lat"),
+                    "position_long": rec.get("position_long"),
+                },
+            })
+
         with patch(
-            "TrainingAnalyticsPlatform.ingestion.fitdecode_shim.FitFile",
-            return_value=fit_file,
+            "TrainingAnalyticsPlatform.ingestion.adapter._load_fit_messages",
+            return_value=(messages, "test_file"),
         ):
             adapter = FitAdapter(str(tmp_path / "sample.fit"))
             workout = adapter.load_workout()
