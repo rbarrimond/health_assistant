@@ -8,17 +8,14 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
-from fitparse import FitFile
+from TrainingAnalyticsPlatform.ingestion.fitdecode_shim import FitFile
 
 
 def safe_value(field: Any) -> dict[str, Any]:
-    """
-    Return both raw and interpreted values if available.
-    """
+    """Return decoded values without raw binary fields."""
     try:
         return {
             "value": getattr(field, "value", None),
-            "raw_value": getattr(field, "raw_value", None),
             "units": getattr(field, "units", None),
         }
     except Exception as e:
