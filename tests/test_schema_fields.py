@@ -48,13 +48,13 @@ class TestSchemaFieldImplementation:
 
         mock_fit.get_messages = MagicMock(side_effect=get_messages)
 
-        # Mock fitparse.FitFile
+        # Mock fitdecode shim FitFile
         mocker.patch(
-            'TrainingAnalyticsPlatform.ingestion.fit_parser.fitparse.FitFile',
+            'TrainingAnalyticsPlatform.ingestion.fit_parser.fitdecode_shim.FitFile',
             return_value=mock_fit,
         )
         mocker.patch(
-            'TrainingAnalyticsPlatform.ingestion.adapter.fitparse.FitFile',
+            'TrainingAnalyticsPlatform.ingestion.adapter.fitdecode_shim.FitFile',
             return_value=mock_fit,
         )
 
@@ -124,11 +124,11 @@ class TestSchemaFieldImplementation:
 
         mock_fit.get_messages = MagicMock(side_effect=get_messages)
         mocker.patch(
-            'TrainingAnalyticsPlatform.ingestion.fit_parser.fitparse.FitFile',
+            'TrainingAnalyticsPlatform.ingestion.fit_parser.fitdecode_shim.FitFile',
             return_value=mock_fit,
         )
         mocker.patch(
-            'TrainingAnalyticsPlatform.ingestion.adapter.fitparse.FitFile',
+            'TrainingAnalyticsPlatform.ingestion.adapter.fitdecode_shim.FitFile',
             return_value=mock_fit,
         )
 
@@ -189,11 +189,11 @@ class TestSchemaFieldImplementation:
 
         mock_fit.get_messages = MagicMock(side_effect=get_messages)
         mocker.patch(
-            'TrainingAnalyticsPlatform.ingestion.fit_parser.fitparse.FitFile',
+            'TrainingAnalyticsPlatform.ingestion.fit_parser.fitdecode_shim.FitFile',
             return_value=mock_fit,
         )
         mocker.patch(
-            'TrainingAnalyticsPlatform.ingestion.adapter.fitparse.FitFile',
+            'TrainingAnalyticsPlatform.ingestion.adapter.fitdecode_shim.FitFile',
             return_value=mock_fit,
         )
 
@@ -247,11 +247,11 @@ class TestSchemaFieldImplementation:
 
         mock_fit.get_messages = MagicMock(side_effect=get_messages)
         mocker.patch(
-            'TrainingAnalyticsPlatform.ingestion.fit_parser.fitparse.FitFile',
+            'TrainingAnalyticsPlatform.ingestion.fit_parser.fitdecode_shim.FitFile',
             return_value=mock_fit,
         )
         mocker.patch(
-            'TrainingAnalyticsPlatform.ingestion.adapter.fitparse.FitFile',
+            'TrainingAnalyticsPlatform.ingestion.adapter.fitdecode_shim.FitFile',
             return_value=mock_fit,
         )
 
@@ -284,11 +284,11 @@ class TestSchemaFieldImplementation:
 
         mock_fit.get_messages = MagicMock(side_effect=get_messages)
         mocker.patch(
-            'TrainingAnalyticsPlatform.ingestion.fit_parser.fitparse.FitFile',
+            'TrainingAnalyticsPlatform.ingestion.fit_parser.fitdecode_shim.FitFile',
             return_value=mock_fit,
         )
         mocker.patch(
-            'TrainingAnalyticsPlatform.ingestion.adapter.fitparse.FitFile',
+            'TrainingAnalyticsPlatform.ingestion.adapter.fitdecode_shim.FitFile',
             return_value=mock_fit,
         )
 

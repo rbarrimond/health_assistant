@@ -101,6 +101,7 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
         metadata,
         source_info,
         workout_id=expected_workout_id,
+        canonical_schema_version='1.1.0',
         canonical_records_blob="records.parquet",
         canonical_laps_blob="laps.parquet",
         records_count=len(records),

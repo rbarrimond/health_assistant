@@ -461,7 +461,10 @@ class TestFitParserFullParse:
         """Verify parse() returns a dictionary."""
         parser = FitParser(str(sample_fit_file))
 
-        with patch("fitparse.FitFile", return_value=mock_fit_file_with_records):
+        with patch(
+            "TrainingAnalyticsPlatform.ingestion.fitdecode_shim.FitFile",
+            return_value=mock_fit_file_with_records,
+        ):
             result = parser.parse()
 
         assert isinstance(result, dict)
@@ -471,7 +474,10 @@ class TestFitParserFullParse:
         """Verify parse() includes expected metric keys."""
         parser = FitParser(str(sample_fit_file))
 
-        with patch("fitparse.FitFile", return_value=mock_fit_file_with_records):
+        with patch(
+            "TrainingAnalyticsPlatform.ingestion.fitdecode_shim.FitFile",
+            return_value=mock_fit_file_with_records,
+        ):
             result = parser.parse()
 
         required_keys = [
@@ -489,7 +495,10 @@ class TestFitParserFullParse:
         """Verify parse() correctly extracts sport from file."""
         parser = FitParser(str(sample_fit_file))
 
-        with patch("fitparse.FitFile", return_value=mock_fit_file_with_records):
+        with patch(
+            "TrainingAnalyticsPlatform.ingestion.fitdecode_shim.FitFile",
+            return_value=mock_fit_file_with_records,
+        ):
             result = parser.parse()
 
         assert result["sport"] == "cycling"
@@ -501,7 +510,10 @@ class TestFitParserFullParse:
         parser = FitParser(str(sample_fit_file))
         parser.metrics = {"hr_max_bpm": 185}
 
-        with patch("fitparse.FitFile", return_value=mock_fit_file_with_records):
+        with patch(
+            "TrainingAnalyticsPlatform.ingestion.fitdecode_shim.FitFile",
+            return_value=mock_fit_file_with_records,
+        ):
             result = parser.parse()
 
         # Should have computed HR zones
@@ -638,7 +650,10 @@ class TestAdapterIntegration:
 
         fit_file.get_messages = MagicMock(side_effect=get_messages)
 
-        with patch("fitparse.FitFile", return_value=fit_file):
+        with patch(
+            "TrainingAnalyticsPlatform.ingestion.fitdecode_shim.FitFile",
+            return_value=fit_file,
+        ):
             adapter = FitAdapter(str(tmp_path / "sample.fit"))
             workout = adapter.load_workout()
 
