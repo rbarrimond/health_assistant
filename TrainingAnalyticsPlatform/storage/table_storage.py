@@ -1,8 +1,10 @@
 """Azure Table Storage client for workout data."""
 # pylint: disable=too-many-lines
 
+import gzip
 import io
 import json
+import warnings
 import logging
 import os
 from dataclasses import dataclass, field
@@ -17,12 +19,14 @@ from azure.storage.blob import BlobServiceClient
 
 from TrainingAnalyticsPlatform.ingestion.fit_parser import compute_workout_id
 
-INGEST_VERSION = "v5.0.1"
+INGEST_VERSION = "v6.0.0"
+CANONICAL_SCHEMA_VERSION = "1.1.0"
 
-LAP_RECORDS_CONTAINER = "lap-records"
-CANONICAL_RECORDS_CONTAINER = "canonical-substrate"
-CANONICAL_LAPS_CONTAINER = "canonical-laps"
+WORKOUTS_CONTAINER = "workouts"
 WORKOUT_LAPS_TABLE = "WorkoutLaps"
+DEPRECATED_LAPS_WARNING = (
+    "WorkoutLaps storage is deprecated; use laps.json.gz artifacts."
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +41,7 @@ class WorkoutEntity:
     athlete_id: str
     source_system: str
     source_item_id: Optional[str]
+    canonical_schema_version: Optional[str] = None
     canonical_records_blob: Optional[str] = None
     canonical_laps_blob: Optional[str] = None
     records_count: Optional[int] = None
@@ -53,6 +58,7 @@ class WorkoutEntity:
             "athlete_id",
             "source_system",
             "source_item_id",
+            "canonical_schema_version",
             "canonical_records_blob",
             "canonical_laps_blob",
             "records_count",
@@ -82,6 +88,7 @@ class WorkoutEntity:
             athlete_id=entity.get("athlete_id", ""),
             source_system=entity.get("source_system", ""),
             source_item_id=entity.get("source_item_id"),
+            canonical_schema_version=entity.get("canonical_schema_version"),
             canonical_records_blob=entity.get("canonical_records_blob"),
             canonical_laps_blob=entity.get("canonical_laps_blob"),
             records_count=entity.get("records_count"),
@@ -104,6 +111,7 @@ class WorkoutEntity:
             "athlete_id": self.athlete_id,
             "source_system": self.source_system,
             "source_item_id": self.source_item_id,
+            "canonical_schema_version": self.canonical_schema_version,
             "canonical_records_blob": self.canonical_records_blob,
             "canonical_laps_blob": self.canonical_laps_blob,
             "records_count": self.records_count,
@@ -461,23 +469,17 @@ class WorkoutTableStorage:
                 raise
 
     def _ensure_blob_container(self) -> None:
-        containers = [
-            LAP_RECORDS_CONTAINER,
-            CANONICAL_RECORDS_CONTAINER,
-            CANONICAL_LAPS_CONTAINER,
-        ]
-        for container in containers:
-            try:
-                container_client = self._blob_service_client.get_container_client(
-                    container
-                )
-                container_client.create_container()
-                logger.info("Blob container %s ready", container)
-            except Exception as exc:  # pylint: disable=broad-exception-caught
-                if "ContainerAlreadyExists" in str(exc):
-                    continue
-                logger.error("Error creating blob container %s: %s", container, exc)
-                raise
+        try:
+            container_client = self._blob_service_client.get_container_client(
+                WORKOUTS_CONTAINER
+            )
+            container_client.create_container()
+            logger.info("Blob container %s ready", WORKOUTS_CONTAINER)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            if "ContainerAlreadyExists" in str(exc):
+                return
+            logger.error("Error creating blob container %s: %s", WORKOUTS_CONTAINER, exc)
+            raise
 
     def _get_table_client(self, table_name: str) -> TableClient:
         """Get table client for specified table."""
@@ -488,13 +490,25 @@ class WorkoutTableStorage:
         return self._get_table_client(table_name)
 
     def _lap_blob_name(self, workout_id: str, lap_index: int) -> str:
-        return f"{workout_id}/lap-{lap_index:04d}.json"
+        return f"{workout_id}/laps/lap-{lap_index:04d}.json"
 
     def _canonical_records_blob_name(self, workout_id: str) -> str:
-        return f"{workout_id}/canonical-records.parquet"
+        return f"{workout_id}/canonical.parquet"
 
     def _canonical_laps_blob_name(self, workout_id: str) -> str:
         return f"{workout_id}/canonical-laps.parquet"
+
+    def _raw_fit_blob_name(self, workout_id: str) -> str:
+        return f"{workout_id}/raw_fit.json.gz"
+
+    def _fit_analysis_blob_name(self, workout_id: str) -> str:
+        return f"{workout_id}/fit_analysis.json"
+
+    def _metadata_blob_name(self, workout_id: str) -> str:
+        return f"{workout_id}/metadata.json"
+
+    def _laps_blob_name(self, workout_id: str) -> str:
+        return f"{workout_id}/laps.json.gz"
 
     def store_canonical_records(
         self,
@@ -512,7 +526,7 @@ class WorkoutTableStorage:
 
         blob_name = self._canonical_records_blob_name(workout_id)
         blob_client = self._blob_service_client.get_blob_client(
-            container=CANONICAL_RECORDS_CONTAINER,
+            container=WORKOUTS_CONTAINER,
             blob=blob_name,
         )
         blob_client.upload_blob(buffer.getvalue(), overwrite=True)
@@ -534,18 +548,53 @@ class WorkoutTableStorage:
 
         blob_name = self._canonical_laps_blob_name(workout_id)
         blob_client = self._blob_service_client.get_blob_client(
-            container=CANONICAL_LAPS_CONTAINER,
+            container=WORKOUTS_CONTAINER,
             blob=blob_name,
         )
         blob_client.upload_blob(buffer.getvalue(), overwrite=True)
         return blob_name
+
+    def _upload_json_blob(self, blob_name: str, payload: Dict) -> str:
+        body = json.dumps(payload, separators=(",", ":"), default=str)
+        blob_client = self._blob_service_client.get_blob_client(
+            container=WORKOUTS_CONTAINER,
+            blob=blob_name,
+        )
+        blob_client.upload_blob(body, overwrite=True)
+        return blob_name
+
+    def _upload_json_gzip(self, blob_name: str, payload: Dict) -> str:
+        body = json.dumps(payload, separators=(",", ":"), default=str)
+        compressed = gzip.compress(body.encode("utf-8"))
+        blob_client = self._blob_service_client.get_blob_client(
+            container=WORKOUTS_CONTAINER,
+            blob=blob_name,
+        )
+        blob_client.upload_blob(compressed, overwrite=True)
+        return blob_name
+
+    def store_raw_fit_json(self, workout_id: str, payload: Dict) -> str:
+        """Store decoded-only raw FIT JSON artifact."""
+        return self._upload_json_gzip(self._raw_fit_blob_name(workout_id), payload)
+
+    def store_fit_analysis(self, workout_id: str, payload: Dict) -> str:
+        """Store advisory FIT analysis artifact."""
+        return self._upload_json_blob(self._fit_analysis_blob_name(workout_id), payload)
+
+    def store_metadata_json(self, workout_id: str, payload: Dict) -> str:
+        """Store structured FIT metadata messages artifact."""
+        return self._upload_json_blob(self._metadata_blob_name(workout_id), payload)
+
+    def store_laps_json(self, workout_id: str, payload: Dict) -> str:
+        """Store lap messages artifact as compressed JSON."""
+        return self._upload_json_gzip(self._laps_blob_name(workout_id), payload)
 
     def load_canonical_records(self, blob_name: str) -> pd.DataFrame:
         """Load canonical substrate parquet into a DataFrame."""
         if not blob_name:
             return pd.DataFrame()
         blob_client = self._blob_service_client.get_blob_client(
-            container=CANONICAL_RECORDS_CONTAINER,
+            container=WORKOUTS_CONTAINER,
             blob=blob_name,
         )
         payload = blob_client.download_blob().readall()
@@ -556,7 +605,7 @@ class WorkoutTableStorage:
         if not blob_name:
             return pd.DataFrame()
         blob_client = self._blob_service_client.get_blob_client(
-            container=CANONICAL_LAPS_CONTAINER,
+            container=WORKOUTS_CONTAINER,
             blob=blob_name,
         )
         payload = blob_client.download_blob().readall()
@@ -569,6 +618,11 @@ class WorkoutTableStorage:
         laps: List[Dict],
     ) -> None:
         """Store lap summaries in tables and per-lap record blobs."""
+        warnings.warn(
+            DEPRECATED_LAPS_WARNING,
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if not laps:
             return
 
@@ -582,7 +636,7 @@ class WorkoutTableStorage:
                 blob_name = self._lap_blob_name(workout_id, lap_index)
                 json_payload = json.dumps(records, separators=(",", ":"))
                 blob_client = self._blob_service_client.get_blob_client(
-                    container=LAP_RECORDS_CONTAINER,
+                    container=WORKOUTS_CONTAINER,
                     blob=blob_name,
                 )
                 blob_client.upload_blob(json_payload, overwrite=True)
@@ -602,6 +656,11 @@ class WorkoutTableStorage:
 
     def get_workout_laps(self, workout_id: str) -> List[Dict]:
         """Return all lap summaries for a workout."""
+        warnings.warn(
+            DEPRECATED_LAPS_WARNING,
+            DeprecationWarning,
+            stacklevel=2,
+        )
         table_client = self._get_table_client(WORKOUT_LAPS_TABLE)
         query = f"PartitionKey eq '{workout_id}'"
         entities = list(table_client.query_entities(query))
@@ -613,6 +672,11 @@ class WorkoutTableStorage:
 
     def get_workout_lap(self, workout_id: str, lap_index: int) -> Optional[Dict]:
         """Return a single lap summary for a workout."""
+        warnings.warn(
+            DEPRECATED_LAPS_WARNING,
+            DeprecationWarning,
+            stacklevel=2,
+        )
         table_client = self._get_table_client(WORKOUT_LAPS_TABLE)
         row_key = f"{lap_index:04d}"
         try:
@@ -625,10 +689,15 @@ class WorkoutTableStorage:
 
     def load_lap_records(self, blob_name: str) -> List[Dict]:
         """Load lap records payload from blob storage."""
+        warnings.warn(
+            "Lap record blobs are deprecated; use laps.json.gz artifacts.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if not blob_name:
             return []
         blob_client = self._blob_service_client.get_blob_client(
-            container=LAP_RECORDS_CONTAINER,
+            container=WORKOUTS_CONTAINER,
             blob=blob_name,
         )
         payload = blob_client.download_blob().readall()
@@ -659,6 +728,7 @@ class WorkoutTableStorage:
         source_info: Dict,
         *,
         workout_id: Optional[str] = None,
+        canonical_schema_version: Optional[str] = None,
         canonical_records_blob: Optional[str] = None,
         canonical_laps_blob: Optional[str] = None,
         records_count: Optional[int] = None,
@@ -715,6 +785,7 @@ class WorkoutTableStorage:
             athlete_id=athlete_id,
             source_system=source_info.get("source_system", "HealthFit"),
             source_item_id=source_info.get("source_item_id"),
+            canonical_schema_version=canonical_schema_version,
             canonical_records_blob=canonical_records_blob,
             canonical_laps_blob=canonical_laps_blob,
             records_count=records_count,
