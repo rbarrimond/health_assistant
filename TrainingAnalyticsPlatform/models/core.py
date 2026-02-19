@@ -414,7 +414,7 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
 
         if is_1hz:
             working = self._add_elapsed_sec_column(working)
-            self.__dict__["df"] = working
+            object.__setattr__(self, "df", working)
             return self
 
         # Not 1 Hz - check if resampling is allowed
@@ -425,7 +425,7 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
             )
 
         resampled = self._resample_to_1hz(working)
-        self.__dict__["df"] = resampled
+        object.__setattr__(self, "df", resampled)
         return self
 
     def _establish_temporal_index(self, df: pd.DataFrame) -> pd.DataFrame:
