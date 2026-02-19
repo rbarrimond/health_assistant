@@ -350,15 +350,15 @@ class WorkoutMetricsModel(BaseModel):
     @classmethod
     def _build_artifacts(cls, metrics: Dict[str, Any]) -> Optional[StructuredArtifactsModel]:
         if not cls._has_any([
-            metrics.get("intervals_json"),
-            metrics.get("climbs_json"),
-            metrics.get("power_curve_json"),
+            metrics.get("intervals"),
+            metrics.get("climbs"),
+            metrics.get("power_curve"),
         ]):
             return None
         return StructuredArtifactsModel(
-            intervals_json=metrics.get("intervals_json"),
-            climbs_json=metrics.get("climbs_json"),
-            power_curve_json=metrics.get("power_curve_json"),
+            intervals=metrics.get("intervals"),
+            climbs=metrics.get("climbs"),
+            power_curve=metrics.get("power_curve"),
         )
 
 
@@ -644,9 +644,9 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
             "fatigue_rate_power": self.fatigue_rate_power,
             "hr_power_lag_sec": self.hr_power_lag_sec,
             "power_curve_watts": self.power_curve_watts,
-            "intervals_json": self.intervals_json,
-            "climbs_json": self.climbs_json,
-            "power_curve_json": self.power_curve_json,
+            "intervals": self.intervals,
+            "climbs": self.climbs,
+            "power_curve": self.power_curve,
         }
         return {key: value for key, value in values.items() if value is not None}
 
@@ -1271,18 +1271,18 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
 
     @computed_field
     @property
-    def intervals_json(self) -> List[Dict[str, Any]]:
-        return self._intervals_json()
+    def intervals(self) -> List[Dict[str, Any]]:
+        return self._intervals()
 
     @computed_field
     @property
-    def climbs_json(self) -> List[Dict[str, Any]]:
-        return self._climbs_json()
+    def climbs(self) -> List[Dict[str, Any]]:
+        return self._climbs()
 
     @computed_field
     @property
-    def power_curve_json(self) -> List[Dict[str, Any]]:
-        return self._power_curve_json()
+    def power_curve(self) -> List[Dict[str, Any]]:
+        return self._power_curve()
 
     # ========== Private Helper Methods ==========
     # pylint: disable=missing-function-docstring
@@ -1398,14 +1398,14 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
         hr_values = hr_raw[base_mask].to_numpy(dtype=float) if hr_raw is not None else np.array([])
         return elapsed, power, hr_values
 
-    def _intervals_json(self) -> List[Dict[str, Any]]:
+    def _intervals(self) -> List[Dict[str, Any]]:
         ftp = self.ftp_watts
         return self._compute_intervals_artifact(self.df, ftp) if ftp else []
 
-    def _climbs_json(self) -> List[Dict[str, Any]]:
+    def _climbs(self) -> List[Dict[str, Any]]:
         return self._compute_climbs_artifact(self.df)
 
-    def _power_curve_json(self) -> List[Dict[str, Any]]:
+    def _power_curve(self) -> List[Dict[str, Any]]:
         power = self._numeric_series(self.df, "power_watts")
         return self._compute_power_curve_artifact(power)
 

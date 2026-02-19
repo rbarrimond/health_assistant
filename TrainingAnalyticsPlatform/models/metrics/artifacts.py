@@ -16,6 +16,6 @@ class StructuredArtifactsModel(BaseModel):
     Optional - presence depends on workout characteristics and data availability.
     """
 
-    intervals_json: Optional[List[Dict[str, Any]]] = None
-    climbs_json: Optional[List[Dict[str, Any]]] = None
-    power_curve_json: Optional[List[Dict[str, Any]]] = None
+    intervals: Optional[List[Dict[str, Any]]] = None
+    climbs: Optional[List[Dict[str, Any]]] = None
+    power_curve: Optional[List[Dict[str, Any]]] = None
