@@ -1,11 +1,14 @@
 """Original parsed workout structures (Legacy API).
 
-These models represent the original parsed FIT file format before canonical
-substrate conversion. Still used by some ingestion code and maintained for
-backward compatibility.
+Deprecated: these models are retained for backward compatibility during the
+fitdecode migration and artifact-first ingestion refactor. Prefer canonical
+substrate models and artifact payloads.
 """
 
+# pylint: disable=arguments-differ
+
 from datetime import datetime, timezone
+import warnings
 from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -14,11 +17,25 @@ from pydantic import BaseModel, Field, field_validator
 class DeviceInfo(BaseModel):
     """Device/manufacturer metadata."""
 
+    def model_post_init(self, __context) -> None:
+        warnings.warn(
+            "DeviceInfo is deprecated; prefer canonical substrate metadata.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     manufacturer_name: Optional[str] = None
 
 
 class WorkoutSession(BaseModel):
     """Session-level attributes and summaries."""
+
+    def model_post_init(self, __context) -> None:
+        warnings.warn(
+            "WorkoutSession is deprecated; prefer canonical metadata artifacts.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     sport: Optional[str] = None
     sub_sport: Optional[str] = None
@@ -62,6 +79,13 @@ class WorkoutSession(BaseModel):
 class RecordSample(BaseModel):
     """Per-sample data points from FIT records."""
 
+    def model_post_init(self, __context) -> None:
+        warnings.warn(
+            "RecordSample is deprecated; prefer canonical record substrate.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     heart_rate: Optional[int] = None
     power: Optional[int] = None
     cadence: Optional[int] = None
@@ -71,6 +95,13 @@ class RecordSample(BaseModel):
 
 class Workout(BaseModel):
     """Aggregated workout consisting of session summary, device, and samples."""
+
+    def model_post_init(self, __context) -> None:
+        warnings.warn(
+            "Workout is deprecated; prefer canonical substrate and artifacts.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     session: WorkoutSession
     device: DeviceInfo = Field(default_factory=DeviceInfo)

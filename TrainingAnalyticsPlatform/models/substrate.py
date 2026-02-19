@@ -12,14 +12,15 @@ from .constants import ISO_8601_UTC_DESC
 
 
 class CanonicalRecord(BaseModel):
-    """1 Hz time-series record for canonical substrate (Canonical Analytics Surface substrate section).
-    
+    """1 Hz time-series record for canonical substrate.
+
     This is the primary storage format for workout telemetry at 1 Hz resolution.
-    Stored in Parquet format for efficient querying. All analytics are computed from
-    this canonical substrate by CanonicalAnalyticsEngine.
-    
+    Stored in Parquet format for efficient querying. All analytics are computed
+    from this canonical substrate by CanonicalAnalyticsEngine.
+
     Core telemetry: power_watts, heart_rate_bpm, cadence_rpm, speed_mps
-    Extended telemetry: distance_m, elevation_m, temperature_c, respiration_rate_brpm, lr_balance_pct, rr_interval_sec
+    Extended telemetry: distance_m, elevation_m, temperature_c,
+    respiration_rate_brpm, lr_balance_pct, rr_interval_sec
     """
 
     timestamp_utc: str = Field(description=ISO_8601_UTC_DESC)
@@ -38,7 +39,8 @@ class CanonicalRecord(BaseModel):
 
 class CanonicalLap(BaseModel):
     """Lap-level summary record for canonical substrate.
-    
+
+    Deprecated: prefer laps.json.gz artifacts for lap payloads.
     Stores lap summaries in Parquet format for querying multi-lap workouts.
     Complements CanonicalRecord time-series data with segment-level aggregates.
     """
