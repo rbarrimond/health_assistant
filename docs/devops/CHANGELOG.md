@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-19
+
+- Add `TrainingAnalyticsPlatform/ingestion/code_mappings.py` with FIT protocol manufacturer and product code mappings extracted from fitdecode SDK v21.171 (330+ manufacturer codes, Garmin, Favero, and Apple product models with bidirectional helper functions).
+- Update `config/README.md` documentation for application-level constants.
+- Bump ingestion schema to 5.1.0 for Apple Watch device model integration (non-breaking feature addition).
+
 ## 2026-02-18
 
 - Migrate FIT ingestion to fitdecode with a compatibility shim and update JSON dump utility to decoded-only output.
