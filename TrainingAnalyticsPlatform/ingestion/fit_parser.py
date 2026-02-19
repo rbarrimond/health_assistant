@@ -20,6 +20,12 @@ from TrainingAnalyticsPlatform.models import Workout
 
 from .adapter import FitAdapter
 from .apple_workout_types import AppleWorkoutTypeResolver
+from .code_mappings import (
+    get_apple_product_name,
+    get_garmin_product_name,
+    get_favero_product_name,
+    MANUFACTURER_CODES,
+)
 from .timezone_utils import (
     infer_timezone_from_activity,
     infer_timezone_from_session,
@@ -794,28 +800,205 @@ class FitParser:
             file_name = file_name[:-3]
         return Path(file_name).stem or None
 
+    def _extract_code_and_name(self, field: Optional[Any]) -> tuple[Optional[int], Optional[str]]:
+        """Extract numeric code and enum name from a FIT field.
+
+        Args:
+            field: fitdecode field object or int
+
+        Returns:
+            Tuple of (code, name) where both may be None
+        """
+        code = None
+        name = None
+
+        if field is None:
+            return None, None
+        if isinstance(field, int):
+            return field, None
+
+        if hasattr(field, "value"):
+            code = field.value
+        if hasattr(field, "name"):
+            name = str(field.name)
+
+        return code, name
+
+    def _validate_and_get_manufacturer_name(
+        self,
+        manufacturer: Optional[Any],
+    ) -> Optional[str]:
+        """Validate manufacturer code and return name from code_mappings."""
+        if manufacturer is None:
+            return None
+
+        manufacturer_code, manufacturer_name = self._extract_code_and_name(manufacturer)
+
+        if manufacturer_code is None:
+            return manufacturer_name or str(manufacturer)
+
+        expected_name = MANUFACTURER_CODES.get(manufacturer_code)
+        if expected_name and manufacturer_name:
+            if expected_name.lower() != manufacturer_name.lower().replace("_", ""):
+                logger.warning(
+                    "Manufacturer code mismatch for code %d: "
+                    "fitdecode says '%s', code_mappings says '%s'",
+                    manufacturer_code,
+                    manufacturer_name,
+                    expected_name,
+                )
+
+        return expected_name if expected_name else str(manufacturer_code)
+
+    def _validate_and_get_product_name(
+        self,
+        product: Optional[Any],
+        manufacturer: Optional[Any],
+    ) -> Optional[str]:
+        """Validate product code and return name from code_mappings."""
+        if product is None:
+            return None
+
+        product_code, product_name = self._extract_code_and_name(product)
+
+        if product_code is None:
+            return product_name or str(product)
+
+        # Get manufacturer code
+        if manufacturer is None:
+            return product_name or str(product_code)
+
+        manufacturer_code, _ = self._extract_code_and_name(manufacturer)
+
+        if manufacturer_code is None:
+            return product_name or str(product_code)
+
+        # Determine which product code mapping to use
+        expected_product_name = None
+        if manufacturer_code == 32:  # Apple
+            expected_product_name = get_apple_product_name(product_code)
+        elif manufacturer_code == 1:  # Garmin
+            expected_product_name = get_garmin_product_name(product_code)
+        elif manufacturer_code == 263:  # Favero Electronics
+            expected_product_name = get_favero_product_name(product_code)
+
+        # Log if we have a mismatch
+        if expected_product_name and product_name:
+            if expected_product_name.lower() != product_name.lower().replace("_", ""):
+                logger.warning(
+                    "Product code mismatch for manufacturer %d, product code %d: "
+                    "fitdecode says '%s', code_mappings says '%s'",
+                    manufacturer_code,
+                    product_code,
+                    product_name,
+                    expected_product_name,
+                )
+            return expected_product_name
+
+        return product_name or str(product_code)
+
     def _get_device_name(self) -> Optional[str]:
-        """Get device/manufacturer info."""
+        """Get device/manufacturer and product info with mismatch detection.
+
+        Validates that FIT manufacturer/product codes match our code_mappings
+        and logs any discrepancies for investigation. Also checks device_info
+        messages for collisions with the file_id device.
+        """
         file_msg = self.file_id_msg
         manufacturer = self._get_field_from_msg(file_msg, "manufacturer")
         product = self._get_field_from_msg(file_msg, "product")
 
         parts: List[str] = []
-        if manufacturer is not None:
-            parts.append(
-                str(cast(Any, manufacturer).name)
-                if hasattr(manufacturer, "name")
-                else str(manufacturer)
-            )
-        if product is not None:
-            parts.append(
-                str(cast(Any, product).name)
-                if hasattr(product, "name")
-                else str(product)
-            )
+
+        # Validate and get manufacturer name
+        mfr_name = self._validate_and_get_manufacturer_name(manufacturer)
+        if mfr_name:
+            parts.append(mfr_name)
+
+        # Validate and get product name
+        prod_name = self._validate_and_get_product_name(product, manufacturer)
+        if prod_name:
+            parts.append(prod_name)
+
+        # Validate device_info entries for collisions with file_id device
+        self._validate_device_info_collisions(manufacturer, product)
+
         if parts:
             return " ".join(parts)
         return None
+
+    def _validate_device_info_collisions(
+        self,
+        file_id_manufacturer: Optional[Any],
+        file_id_product: Optional[Any],
+    ) -> None:
+        """Check device_info messages for collisions with the file_id device.
+
+        If a device_info entry appears to be the same device as in file_id,
+        validate consistency and log any mismatches.
+        """
+        if not self.messages or (
+            file_id_manufacturer is None and file_id_product is None
+        ):
+            return
+
+        # Extract numeric codes from file_id
+        file_id_mfr_code, _ = self._extract_code_and_name(file_id_manufacturer)
+        file_id_prod_code, _ = self._extract_code_and_name(file_id_product)
+
+        # Check all device_info messages for collisions
+        for device_info_msg in self._get_messages("device_info"):
+            device_mfr = self._get_field_from_msg(device_info_msg, "manufacturer")
+            device_prod = self._get_field_from_msg(device_info_msg, "product")
+
+            # Extract numeric codes from device_info
+            device_mfr_code, _ = self._extract_code_and_name(device_mfr)
+            device_prod_code, _ = self._extract_code_and_name(device_prod)
+
+            # Check if this device_info appears to be the same device as file_id
+            if (
+                device_mfr_code is not None
+                and file_id_mfr_code is not None
+                and device_mfr_code == file_id_mfr_code
+            ):
+                # Manufacturer collision - check product codes too if available
+                if device_prod_code and file_id_prod_code:
+                    if device_prod_code == file_id_prod_code:
+                        # Complete collision: same manufacturer and product
+                        logger.info(
+                            "Device collision detected: file_id device (mfr=%d, prod=%d) "
+                            "also appears in device_info message",
+                            file_id_mfr_code,
+                            file_id_prod_code,
+                        )
+                    else:
+                        # Manufacturer collision but different product
+                        logger.warning(
+                            "Device manufacturer collision: file_id has product %d, "
+                            "but device_info message has product %d "
+                            "(same manufacturer %d)",
+                            file_id_prod_code,
+                            device_prod_code,
+                            file_id_mfr_code,
+                        )
+                elif not device_prod_code and file_id_prod_code:
+                    # device_info missing product code
+                    logger.warning(
+                        "Device collision: file_id (mfr=%d, prod=%d) has product code, "
+                        "but device_info message only has manufacturer (mfr=%d)",
+                        file_id_mfr_code,
+                        file_id_prod_code,
+                        device_mfr_code,
+                    )
+                elif device_prod_code and not file_id_prod_code:
+                    # file_id missing product code
+                    logger.warning(
+                        "Device collision: device_info (mfr=%d, prod=%d) "
+                        "has product code, but file_id only has manufacturer (mfr=%d)",
+                        device_mfr_code,
+                        device_prod_code,
+                        file_id_mfr_code,
+                    )
 
     def _get_is_indoor(self) -> Optional[bool]:
         """Determine if workout is indoor."""
