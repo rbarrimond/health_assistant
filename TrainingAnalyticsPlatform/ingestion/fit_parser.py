@@ -927,6 +927,62 @@ class FitParser:
             return " ".join(parts)
         return None
 
+    def _log_product_collision(
+        self,
+        file_id_mfr_code: int,
+        file_id_prod_code: Optional[int],
+        device_mfr_code: int,
+        device_prod_code: Optional[int],
+    ) -> None:
+        """Log product code collision or mismatch between file_id and device_info.
+
+        Args:
+            file_id_mfr_code: Manufacturer code from file_id message
+            file_id_prod_code: Product code from file_id message (may be None)
+            device_mfr_code: Manufacturer code from device_info message
+            device_prod_code: Product code from device_info message (may be None)
+        """
+        # Both have product codes - check if they match
+        if device_prod_code and file_id_prod_code:
+            if device_prod_code == file_id_prod_code:
+                logger.info(
+                    "Device collision detected: file_id device (mfr=%d, prod=%d) "
+                    "also appears in device_info message",
+                    file_id_mfr_code,
+                    file_id_prod_code,
+                )
+            else:
+                logger.warning(
+                    "Device manufacturer collision: file_id has product %d, "
+                    "but device_info message has product %d "
+                    "(same manufacturer %d)",
+                    file_id_prod_code,
+                    device_prod_code,
+                    file_id_mfr_code,
+                )
+            return
+
+        # device_info missing product code
+        if not device_prod_code and file_id_prod_code:
+            logger.warning(
+                "Device collision: file_id (mfr=%d, prod=%d) has product code, "
+                "but device_info message only has manufacturer (mfr=%d)",
+                file_id_mfr_code,
+                file_id_prod_code,
+                device_mfr_code,
+            )
+            return
+
+        # file_id missing product code
+        if device_prod_code and not file_id_prod_code:
+            logger.warning(
+                "Device collision: device_info (mfr=%d, prod=%d) "
+                "has product code, but file_id only has manufacturer (mfr=%d)",
+                device_mfr_code,
+                device_prod_code,
+                file_id_mfr_code,
+            )
+
     def _validate_device_info_collisions(
         self,
         file_id_manufacturer: Optional[Any],
@@ -955,50 +1011,19 @@ class FitParser:
             device_mfr_code, _ = self._extract_code_and_name(device_mfr)
             device_prod_code, _ = self._extract_code_and_name(device_prod)
 
-            # Check if this device_info appears to be the same device as file_id
+            # Check if manufacturer codes match (collision candidate)
             if (
                 device_mfr_code is not None
                 and file_id_mfr_code is not None
                 and device_mfr_code == file_id_mfr_code
             ):
-                # Manufacturer collision - check product codes too if available
-                if device_prod_code and file_id_prod_code:
-                    if device_prod_code == file_id_prod_code:
-                        # Complete collision: same manufacturer and product
-                        logger.info(
-                            "Device collision detected: file_id device (mfr=%d, prod=%d) "
-                            "also appears in device_info message",
-                            file_id_mfr_code,
-                            file_id_prod_code,
-                        )
-                    else:
-                        # Manufacturer collision but different product
-                        logger.warning(
-                            "Device manufacturer collision: file_id has product %d, "
-                            "but device_info message has product %d "
-                            "(same manufacturer %d)",
-                            file_id_prod_code,
-                            device_prod_code,
-                            file_id_mfr_code,
-                        )
-                elif not device_prod_code and file_id_prod_code:
-                    # device_info missing product code
-                    logger.warning(
-                        "Device collision: file_id (mfr=%d, prod=%d) has product code, "
-                        "but device_info message only has manufacturer (mfr=%d)",
-                        file_id_mfr_code,
-                        file_id_prod_code,
-                        device_mfr_code,
-                    )
-                elif device_prod_code and not file_id_prod_code:
-                    # file_id missing product code
-                    logger.warning(
-                        "Device collision: device_info (mfr=%d, prod=%d) "
-                        "has product code, but file_id only has manufacturer (mfr=%d)",
-                        device_mfr_code,
-                        device_prod_code,
-                        file_id_mfr_code,
-                    )
+                # Manufacturer collision detected - delegate product analysis
+                self._log_product_collision(
+                    file_id_mfr_code,
+                    file_id_prod_code,
+                    device_mfr_code,
+                    device_prod_code,
+                )
 
     def _get_is_indoor(self) -> Optional[bool]:
         """Determine if workout is indoor."""
