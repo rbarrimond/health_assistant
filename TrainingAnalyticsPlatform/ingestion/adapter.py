@@ -1,4 +1,4 @@
-"""Adapter to map fitparse messages into pydantic workout entities."""
+"""Adapter to map FIT messages into pydantic workout entities."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import io
 from pathlib import Path
 from typing import Optional
 
-import fitparse
+from TrainingAnalyticsPlatform.ingestion import fitdecode_shim
 
 from TrainingAnalyticsPlatform.platform.exceptions import FitAdapterError
 from TrainingAnalyticsPlatform.models import DeviceInfo, RecordSample, Workout, WorkoutSession
@@ -55,9 +55,9 @@ class FitAdapter:
         try:
             if file_bytes is not None:
                 self._fit_source = io.BytesIO(file_bytes)
-                self.fit = fitparse.FitFile(self._fit_source)
+                self.fit = fitdecode_shim.FitFile(self._fit_source)
             else:
-                self.fit = fitparse.FitFile(file_path)
+                self.fit = fitdecode_shim.FitFile(file_path)
             self.file_id_msg, self.session_msg = self._cache_core_messages()
         except Exception as exc:  # pylint: disable=broad-exception-caught
             raise FitAdapterError(

@@ -7,8 +7,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, cast
 
-import fitparse
 import numpy as np
+
+from TrainingAnalyticsPlatform.ingestion import fitdecode_shim
 
 from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.platform.exceptions import (
@@ -27,8 +28,9 @@ from .timezone_utils import (
 
 logger = logging.getLogger(__name__)
 
-# Expose fitparse for tests that patch TrainingAnalyticsPlatform.ingestion.fit_parser.fitparse.
-_fitparse = fitparse
+# Expose fitdecode shim for tests that patch
+# TrainingAnalyticsPlatform.ingestion.fit_parser.fitdecode_shim.
+_fitdecode = fitdecode_shim
 
 
 class FitParser:
@@ -356,6 +358,113 @@ class FitParser:
         metadata.update(self._build_canonical_activity_metadata())
 
         return {k: v for k, v in metadata.items() if v is not None}
+
+    def extract_raw_fit_json(self) -> Dict[str, Any]:
+        """Return a decoded-only JSON representation of the full FIT file."""
+        if not self.fit:
+            self._load_fit_sources()
+
+        messages = []
+        message_index: Dict[str, int] = {}
+        for message in self.fit.get_messages():
+            msg_type = getattr(message, "name", type(message).__name__)
+            message_index[msg_type] = message_index.get(msg_type, 0) + 1
+            messages.append(
+                self._serialize_message(
+                    message,
+                    msg_type=msg_type,
+                    msg_index=message_index[msg_type],
+                )
+            )
+
+        metadata = {
+            "source_file": self.source_file_name or self.file_path,
+            "exported_at_utc": datetime.now(timezone.utc).isoformat(),
+            "message_counts": message_index,
+            "total_messages": len(messages),
+        }
+
+        return {
+            "metadata": metadata,
+            "messages": messages,
+        }
+
+    def extract_metadata_messages(self) -> Dict[str, Any]:
+        """Return structured FIT metadata messages for fast access."""
+        if not self.fit:
+            self._load_fit_sources()
+
+        message_types = [
+            "file_id",
+            "file_creator",
+            "device_info",
+            "sport",
+            "session",
+            "activity",
+            "event",
+        ]
+
+        payload: Dict[str, Any] = {}
+        for message_type in message_types:
+            messages = [
+                self._serialize_message(message)
+                for message in self.fit.get_messages(message_type)
+            ]
+            if messages:
+                payload[message_type] = messages
+
+        return payload
+
+    def extract_lap_messages(self) -> Dict[str, Any]:
+        """Return lap messages as a pass-through JSON artifact."""
+        if not self.fit:
+            self._load_fit_sources()
+
+        laps = [
+            self._serialize_message(message)
+            for message in self.fit.get_messages("lap")
+        ]
+        return {
+            "laps": laps,
+        }
+
+    def extract_fit_analysis(self) -> Dict[str, Any]:
+        """Return a placeholder analysis payload (advisory only)."""
+        return {
+            "analysis_version": "v0.1.0",
+            "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+            "notes": [],
+        }
+
+    @staticmethod
+    def _serialize_message(
+        message,
+        msg_type: Optional[str] = None,
+        msg_index: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        fields = getattr(message, "fields", [])
+        developer_fields = getattr(message, "developer_fields", [])
+        msg_payload = {
+            "message_type": msg_type or getattr(message, "name", type(message).__name__),
+            "fields": {},
+        }
+
+        if msg_index is not None:
+            msg_payload["message_index"] = msg_index
+
+        for field in fields:
+            msg_payload["fields"][field.name] = {
+                "value": getattr(field, "value", None),
+                "units": getattr(field, "units", None),
+            }
+
+        for field in developer_fields:
+            msg_payload["fields"][f"dev_{field.name}"] = {
+                "value": getattr(field, "value", None),
+                "units": getattr(field, "units", None),
+            }
+
+        return msg_payload
 
     def _canonical_start_dt(self) -> Optional[datetime]:
         start_time = self._get_start_time()
