@@ -368,6 +368,15 @@ class OneDriveSyncHandler:
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 self._record_error_result(results, item, exc)
 
+        # Update status based on results
+        if results["failed"] > 0:
+            if results["ingested"] > 0 or results["skipped"] > 0:
+                results["status"] = "partial"
+            else:
+                results["status"] = "failed"
+        elif results["ingested"] == 0:
+            results["status"] = "skipped"
+
         return results
 
     def _record_ingest_result(

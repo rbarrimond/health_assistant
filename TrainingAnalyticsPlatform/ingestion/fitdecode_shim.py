@@ -56,14 +56,16 @@ class FitFile:
         """Read FIT messages via fitdecode and cache them."""
         try:
             fitdecode = importlib.import_module("fitdecode")
-            processors = importlib.import_module("fitdecode.processors")
-            records = importlib.import_module("fitdecode.records")
             fit_reader_cls = fitdecode.FitReader
-            data_processor_cls = processors.StandardDataProcessor
-            data_message_cls = records.FitDataMessage
+            data_processor_cls = fitdecode.DefaultDataProcessor
+            data_message_cls = fitdecode.FitDataMessage
         except ImportError as exc:  # pragma: no cover - environment dependency
             raise ImportError(
                 "fitdecode is required for FIT parsing. Install it in the runtime."
+            ) from exc
+        except AttributeError as exc:  # pragma: no cover - version mismatch
+            raise RuntimeError(
+                "Incompatible fitdecode version. Ensure fitdecode>=0.10.0 is installed."
             ) from exc
 
         should_close = False
@@ -83,6 +85,11 @@ class FitFile:
                     name = getattr(frame, "name", None) or frame.__class__.__name__
                     fields, dev_fields = self._convert_fields(frame)
                     self._messages.append(FitMessage(name, fields, dev_fields))
+        except Exception as exc:
+            # Re-raise with context about what failed
+            raise RuntimeError(
+                f"FIT file parsing failed via fitdecode: {exc.__class__.__name__}: {exc}"
+            ) from exc
         finally:
             if should_close:
                 stream.close()

@@ -60,8 +60,10 @@ class FitAdapter:
                 self.fit = fitdecode_shim.FitFile(file_path)
             self.file_id_msg, self.session_msg = self._cache_core_messages()
         except Exception as exc:  # pylint: disable=broad-exception-caught
+            source_desc = f"bytes stream" if file_bytes is not None else f"file {file_path}"
             raise FitAdapterError(
-                f"Failed to initialize FitAdapter for {file_path}") from exc
+                f"Failed to initialize FitAdapter for {source_desc}: {exc}"
+            ) from exc
 
     def load_workout(self) -> Workout:
         """Parse the FIT file and map it into Workout entities."""
