@@ -317,7 +317,7 @@ class GarminConnectClient:
             header_hex,
         )
 
-        # According to garminconnect library docs: "For 'Original' will return the zip 
+        # According to garminconnect library docs: "For 'Original' will return the zip
         # file content, up to user to extract it." However, in practice the format varies.
         # Try extraction methods in order of likelihood:
 
