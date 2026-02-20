@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-02-20
+
+- Fix Garmin FIT file ingestion by adding proper format detection and extraction in `GarminConnectClient.download_activity_fit()` method. Investigation of garminconnect library source code revealed that Garmin's ORIGINAL format downloads return ZIP archives containing FIT files, not raw FIT files as initially assumed. Updated implementation to:
+  1. Always attempt ZIP extraction first (per garminconnect library documentation: "For 'Original' will return the zip file content, up to user to extract it")
+  2. Fall back gracefully if ZIP extraction fails (handles cases where API returns raw FIT or gzipped FIT despite documentation)
+  3. Check for and decompress gzip format (magic number `\x1f\x8b`) 
+  4. Validate final FIT file format with detailed diagnostic logging (first 32 bytes hex dump)
+- Refactor `download_activity_fit()` into focused helper methods (`_extract_fit_from_zip`, `_decompress_gzip`, `_validate_fit_format`) to reduce cognitive complexity and improve testability.
+- Improve exception handling: `_extract_fit_from_zip()` now returns original data on BadZipFile instead of raising, allowing graceful fallback to other format detection methods.
+- Add comprehensive diagnostic logging at INFO level for format detection steps (file size, header hex, extraction/decompression attempts, final validation).
+- Bump ingest version to v7.0.1 for Garmin ingestion fix (patch bump, no schema changes).
+
 ## 2026-02-19
 
 - Add `TrainingAnalyticsPlatform/ingestion/code_mappings.py` with FIT protocol manufacturer and product code mappings extracted from fitdecode SDK v21.171 (330+ manufacturer codes, Garmin, Favero, and Apple product models with bidirectional helper functions).
