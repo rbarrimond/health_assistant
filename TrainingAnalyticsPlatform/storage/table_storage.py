@@ -455,6 +455,7 @@ class WorkoutTableStorage:
             "Physiometrics",
             "WithingsTokens",
             "OneDriveTokens",
+            "GarminTokens",
             "WebhookDeduplication",
             "AgentPreferences",
             "AgentObservations",
@@ -1389,6 +1390,58 @@ class WorkoutTableStorage:
             scope=scope,
             drive_id=drive_id,
         )
+
+    # -------------------------------------------------------------------------
+    # Garmin OAuth Token Management
+    # -------------------------------------------------------------------------
+
+    def store_garmin_tokens(self, athlete_id: str,
+                           oauth1_token: str,
+                           oauth2_token: str) -> None:
+        """
+        Store Garmin OAuth tokens for an athlete.
+
+        Args:
+            athlete_id: Athlete identifier
+            oauth1_token: OAuth1 token (JSON string from garth)
+            oauth2_token: OAuth2 token (JSON string from garth)
+        """
+        entity = {
+            "PartitionKey": athlete_id,
+            "RowKey": "garmin",
+            "oauth1_token": oauth1_token,
+            "oauth2_token": oauth2_token,
+            "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+        }
+
+        try:
+            table_client = self._get_table_client("GarminTokens")
+            table_client.upsert_entity(entity)
+            logger.info("Stored Garmin tokens for %s", athlete_id)
+        except HttpResponseError as e:
+            logger.error("Error storing Garmin tokens: %s", e)
+            raise
+
+    def get_garmin_tokens(self, athlete_id: str) -> Optional[Dict]:
+        """
+        Get Garmin OAuth tokens for an athlete.
+
+        Args:
+            athlete_id: Athlete identifier
+
+        Returns:
+            Dict with token data, or None if not found
+        """
+        try:
+            table_client = self._get_table_client("GarminTokens")
+            query = f"PartitionKey eq '{athlete_id}' and RowKey eq 'garmin'"
+            entities = list(table_client.query_entities(query, top=1))
+            if not entities:
+                return None
+            return dict(entities[0])
+        except HttpResponseError as e:
+            logger.warning("Error retrieving Garmin tokens for %s: %s", athlete_id, e)
+            return None
 
     # -------------------------------------------------------------------------
     # Webhook Deduplication
