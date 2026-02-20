@@ -1,6 +1,6 @@
 # Health Assistant - Workout Intelligence System
 
-Azure Function App that parses FIT workout files from multiple sources (OneDrive Personal, direct upload), integrates body metrics from Withings, and provides a comprehensive Semantic API for training intelligence powered by ChatGPT.
+Azure Function App that parses FIT workout files from multiple sources (OneDrive Personal, Garmin Connect, direct upload), integrates body metrics from Withings, and provides a comprehensive Semantic API for training intelligence powered by ChatGPT.
 
 **Status**: ✅ Production Ready - Deployed with 31 Endpoints, 330 Tests, Agent Memory System
 
@@ -149,6 +149,13 @@ Read Interfaces
 - `WITHINGS_CLIENT_ID`: Withings app client ID
 - `WITHINGS_CLIENT_SECRET`: Withings app client secret
 - `WITHINGS_REDIRECT_URI`: OAuth redirect URI (points to `/api/withings/callback`)
+
+**Garmin Connect Integration** (see [BACKENDS.md](./docs/devops/BACKENDS.md) for setup):
+
+- `GARMIN_CLIENT_ID`: Garmin developer app client ID
+- `GARMIN_CLIENT_SECRET`: Garmin developer app client secret
+- `GARMIN_REDIRECT_URI`: OAuth redirect URI (points to `/api/garmin/callback`)
+- `GARMIN_SYNC_LOOKBACK_DAYS`: Activity sync window in days (default: `30`)
 
 **API Documentation** (for ChatGPT plugin):
 
@@ -362,6 +369,15 @@ health_assistant/
 - Time-series tracking with Azure Table Storage
 - CRUD endpoints for physiometrics data
 
+**Garmin Connect** (OAuth + garth library):
+
+- OAuth 1.0/2.0 hybrid authentication via garth
+- Automatic daily sync via timer trigger (3 AM UTC)
+- Configurable lookback window (default: 30 days)
+- HTTP endpoint for manual sync: `POST /api/garmin/sync`
+- FIT file download and parsing
+- Token persistence in Table Storage
+
 **Backup & Export**:
 
 - Daily backup export to Azure Blob Storage (2 AM UTC)
@@ -429,7 +445,7 @@ health_assistant/
 - `POST /api/config/update` - Update physiometrics configuration
 - `GET /api/config/history` - Configuration audit trail
 
-**Backend Integration** (7 endpoints):
+**Backend Integration** (10 endpoints):
 
 - `POST /api/process_fit` - Direct FIT file upload (admin)
 - `GET /api/onedrive/authorize` - OneDrive OAuth flow (admin)
@@ -438,6 +454,9 @@ health_assistant/
 - `GET /api/withings/authorize` - Withings OAuth flow (admin)
 - `GET /api/withings/callback` - Withings OAuth callback
 - `POST /api/withings/webhook` - Withings webhook receiver
+- `GET /api/garmin/authorize` - Garmin OAuth flow (admin)
+- `GET /api/garmin/callback` - Garmin OAuth callback handler
+- `POST /api/garmin/sync` - Manual sync trigger (admin)
 
 **ChatGPT Plugin** (3 endpoints):
 
@@ -445,9 +464,10 @@ health_assistant/
 - `GET /api/openapi.yaml` - OpenAPI specification
 - `GET /api/logo.svg` - Plugin logo
 
-**Timer Triggers** (2 background jobs):
+**Timer Triggers** (3 background jobs):
 
 - Hourly OneDrive sync (Microsoft Graph delta query)
+- Daily Garmin sync (3 AM UTC)
 - Daily backup export to Blob Storage (2 AM UTC)
 
 ### 🎯 API Design Principles
