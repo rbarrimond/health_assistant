@@ -450,6 +450,90 @@ paths:
                     type: integer
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/garmin/sync:
+    post:
+      summary: Sync Garmin Connect activities and ingest FIT files
+      operationId: garminSync
+      security:
+        - FunctionKey: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                athlete_id:
+                  type: string
+                  description: Athlete identifier (optional, defaults to DEFAULT_ATHLETE_ID)
+                lookback_days:
+                  type: integer
+                  description: Number of days to look back for activities (default 30)
+                async:
+                  type: boolean
+                  description: Queue sync as background task (default true)
+      responses:
+        '202':
+          description: Sync queued (async mode)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: queued
+                  athlete_id:
+                    type: string
+                  lookback_days:
+                    type: integer
+                  mode:
+                    type: string
+                    example: async
+                  queued_at_utc:
+                    type: string
+                    format: date-time
+        '200':
+          description: Sync completed (sync mode)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  athlete_id:
+                    type: string
+                  lookback_days:
+                    type: integer
+                  activities_found:
+                    type: integer
+                    description: Total activities retrieved from Garmin
+                  ingested:
+                    type: integer
+                    description: Successfully ingested FIT files
+                  skipped:
+                    type: integer
+                    description: Already processed activities
+                  failed:
+                    type: integer
+                    description: Failed ingestions
+                  errors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        activity_id:
+                          type: string
+                        activity_name:
+                          type: string
+                        error:
+                          type: string
+        '401':
+          description: Authentication failed - check GARMIN_EMAIL and GARMIN_PASSWORD
+        '500':
+          $ref: '#/components/responses/InternalError'
 components:
   parameters:
     AthleteId:
