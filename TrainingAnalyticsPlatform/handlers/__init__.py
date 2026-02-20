@@ -8,6 +8,12 @@ from .onedrive_sync_handler import (
     OneDriveSyncIngestionHandler,
     OneDriveSyncConfig,
 )
+from .garmin_sync_handler import (
+    GarminSyncHandler,
+    GarminSyncRequest,
+    GarminSyncIngestionHandler,
+    GarminSyncConfig,
+)
 from .query_handler import QueryHandler
 from .physiometrics_handler import PhysiometricsHandler
 from .withings_handler import WithingsHandler
@@ -22,6 +28,10 @@ __all__ = [
     "OneDriveSyncRequest",
     "OneDriveSyncIngestionHandler",
     "OneDriveSyncConfig",
+    "GarminSyncHandler",
+    "GarminSyncRequest",
+    "GarminSyncIngestionHandler",
+    "GarminSyncConfig",
     "QueryHandler",
     "PhysiometricsHandler",
     "WithingsHandler",

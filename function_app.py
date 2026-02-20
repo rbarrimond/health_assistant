@@ -38,6 +38,7 @@ from TrainingAnalyticsPlatform.handlers import (
     HealthHandler,
     AgentMemoryHandler,
 )
+from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import GarminSyncRequest
 from utils import endpoint, parse_ingest_payload
 
 logger = logging.getLogger(__name__)
@@ -718,6 +719,51 @@ def withings_webhook(req: func.HttpRequest) -> func.HttpResponse:
         userid, appli, startdate, enddate)
 
     return func.HttpResponse(result, status_code=status)
+
+
+# ============================================================================
+# Garmin Connect Sync Endpoints
+# ============================================================================
+
+@app.route(route="garmin/sync", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+@endpoint
+def garmin_sync_http(req: func.HttpRequest) -> func.HttpResponse:
+    """HTTP-triggered Garmin Connect sync."""
+    try:
+        body = req.get_json() if req.method == "POST" else {}
+    except ValueError:
+        body = {}
+
+    sync_req = GarminSyncRequest(body, dict(req.params))
+    handler = dependencies.garmin_service
+    response, status = handler.handle(sync_req)
+
+    return json_response(response, status)
+
+
+@app.timer_trigger(arg_name="timer", schedule="0 3 * * *")  # 3 AM UTC daily
+def garmin_sync_timer(timer: func.TimerRequest) -> None:
+    """Timer-triggered Garmin Connect sync."""
+    if timer.past_due:
+        logger.warning("Garmin sync timer is past due")
+
+    try:
+        athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
+        handler = dependencies.garmin_service
+
+        # Use handler with sync mode (async=False) to prevent thread leaks
+        sync_req = GarminSyncRequest({"athlete_id": athlete_id}, {})
+        response, status = handler.handle(sync_req)
+
+        if status == 200:
+            logger.info("Garmin sync completed: %s", response)
+        else:
+            logger.warning("Garmin sync failed: %s", response)
+
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error("Garmin timer failed: %s", exc, exc_info=True)
+    finally:
+        logger.debug("Garmin timer trigger completed")
 
 
 # ============================================================================

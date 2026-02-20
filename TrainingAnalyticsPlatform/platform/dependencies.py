@@ -17,9 +17,14 @@ from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import (
     OneDriveSyncHandler,
     OneDriveSyncConfig,
 )
+from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import (
+    GarminSyncHandler,
+    GarminSyncConfig,
+)
 from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
 from TrainingAnalyticsPlatform.storage.table_storage import WorkoutTableStorage
 from TrainingAnalyticsPlatform.integrations.withings_client import WithingsClient
+from TrainingAnalyticsPlatform.integrations.garmin_client import GarminConnectClient
 from TrainingAnalyticsPlatform.handlers import FitPayloadIngestionHandler
 
 logger = logging.getLogger(__name__)
@@ -67,6 +72,22 @@ class FunctionAppDependencies:
     def withings_client(self) -> WithingsClient:
         """Return a cached Withings client instance, creating it on first use."""
         return WithingsClient()
+
+    @cached_property
+    def garmin_service(self) -> GarminSyncHandler:
+        """Return a cached Garmin sync handler instance, creating it on first use."""
+        config = GarminSyncConfig.from_env()
+        handler = GarminSyncHandler(
+            config=config,
+            storage=self.storage,
+        )
+        logger.info("Garmin service initialized")
+        return handler
+
+    @cached_property
+    def garmin_client(self) -> GarminConnectClient:
+        """Return a cached Garmin Connect client instance, creating it on first use."""
+        return GarminConnectClient()
 
     def warmup(self) -> None:
         """Eagerly initialize core dependencies, deferring failures to runtime."""
