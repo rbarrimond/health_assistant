@@ -19,6 +19,7 @@ from TrainingAnalyticsPlatform.platform.exceptions import (
 from TrainingAnalyticsPlatform.models import Workout
 
 from .adapter import FitAdapter
+from .fit_analyzer import FitStructureAnalyzer
 from .apple_workout_types import AppleWorkoutTypeResolver
 from .code_mappings import (
     get_apple_product_name,
@@ -446,12 +447,11 @@ class FitParser:
         }
 
     def extract_fit_analysis(self) -> Dict[str, Any]:
-        """Return a placeholder analysis payload (advisory only)."""
-        return {
-            "analysis_version": "v0.1.0",
-            "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-            "notes": [],
-        }
+        """Return deterministic FIT structural analysis payload."""
+        if not self.messages:
+            self._load_fit_sources()
+        analyzer = FitStructureAnalyzer(self.messages)
+        return analyzer.analyze()
 
     @staticmethod
     @staticmethod

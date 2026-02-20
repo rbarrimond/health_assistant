@@ -249,6 +249,9 @@ def get_workout_detail(req: func.HttpRequest) -> func.HttpResponse:
     athlete_id = req.params.get("athlete_id", "rob")
     workout_id = req.route_params.get("workout_id")
     include_laps = req.params.get("laps", "false").lower() in {"1", "true", "yes", "y"}
+    include_developer_fields = req.params.get("developer_fields", "false").lower() in {
+        "1", "true", "yes", "y"
+    }
 
     if not workout_id:
         return json_response({"error": "workout_id required in route"}, 400)
@@ -258,6 +261,7 @@ def get_workout_detail(req: func.HttpRequest) -> func.HttpResponse:
         athlete_id,
         workout_id,
         include_laps=include_laps,
+        include_developer_fields=include_developer_fields,
     )
 
     return json_response(workout, status, req=req)

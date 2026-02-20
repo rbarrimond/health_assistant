@@ -7,7 +7,7 @@ It shapes data for reasoning, constrains scope, and encodes how humans think abo
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import gzip
 import numpy as np
@@ -17,11 +17,6 @@ from azure.core.exceptions import HttpResponseError
 
 from TrainingAnalyticsPlatform.ingestion.adapter import FitAdapter
 from TrainingAnalyticsPlatform.platform.config import Config
-from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import OneDriveSyncConfig
-from TrainingAnalyticsPlatform.integrations.onedrive_client import (
-    OneDriveGraphClient,
-    OneDriveGraphError,
-)
 from TrainingAnalyticsPlatform.storage.table_storage import WorkoutEntity, WorkoutTableStorage
 
 logger = logging.getLogger(__name__)
@@ -160,6 +155,7 @@ class SemanticLayer:
         athlete_id: str,
         workout_id: str,
         include_laps: bool = False,
+        include_developer_fields: bool = False,
     ) -> Optional[Dict]:
         """
         Get detailed workout data with optional lap summaries.
@@ -210,6 +206,15 @@ class SemanticLayer:
                     workout["laps_count"] = len(laps)
                 if errors:
                     workout.update(errors)
+
+            if include_developer_fields:
+                try:
+                    metadata_payload = self.storage.load_metadata_json(workout_id)
+                    workout["developer_fields_summary"] = self._summarize_developer_fields(
+                        metadata_payload
+                    )
+                except Exception as exc:  # pylint: disable=broad-exception-caught
+                    workout["developer_fields_error"] = str(exc)
 
             return workout
 
@@ -518,6 +523,7 @@ class SemanticLayer:
         # Source metadata
         workout.update({
             "source_system": workout_entity.source_system,
+            "normalized_source_system": workout_entity.normalized_source_system,
         })
 
         return workout
@@ -1071,6 +1077,13 @@ class SemanticLayer:
         source_system: Optional[str],
         source_item_id: str,
     ) -> Optional[bytes]:
+        # Lazy import avoids package-level circular dependency during test collection.
+        from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import OneDriveSyncConfig
+        from TrainingAnalyticsPlatform.integrations.onedrive_client import (
+            OneDriveGraphClient,
+            OneDriveGraphError,
+        )
+
         if source_system and source_system.lower() != "healthfit":
             raise ValueError("Unsupported source system for records lookup")
 
@@ -1107,7 +1120,7 @@ class SemanticLayer:
         self,
         *,
         athlete_id: str,
-        client: OneDriveGraphClient,
+        client: Any,
     ) -> str:
         tokens = self.storage.get_onedrive_tokens(athlete_id)
         if not tokens:
@@ -1210,6 +1223,59 @@ class SemanticLayer:
             if lap:
                 laps.append(lap)
         return laps
+
+    @staticmethod
+    def _summarize_developer_fields(metadata_payload: Dict) -> Dict:
+        """Build a compact developer-field summary from metadata artifact."""
+        fields_by_key: Dict[str, Dict[str, object]] = {}
+        for message_type, messages in metadata_payload.items():
+            if not isinstance(messages, list):
+                continue
+            for message in messages:
+                msg_fields = message.get("fields", {})
+                if not isinstance(msg_fields, dict):
+                    continue
+                for field_name, field_payload in msg_fields.items():
+                    if not str(field_name).startswith("dev_"):
+                        continue
+                    key = f"{message_type}.{field_name}"
+                    if key not in fields_by_key:
+                        fields_by_key[key] = {
+                            "message_type": message_type,
+                            "field": field_name,
+                            "count": 0,
+                            "units": set(),
+                            "sample_values": [],
+                        }
+                    entry = fields_by_key[key]
+                    entry["count"] = int(entry["count"]) + 1
+                    units = None
+                    if isinstance(field_payload, dict):
+                        units = field_payload.get("units")
+                        value = field_payload.get("value")
+                    else:
+                        value = None
+                    if units:
+                        entry["units"].add(units)
+                    if value is not None and len(entry["sample_values"]) < 3:
+                        entry["sample_values"].append(value)
+
+        fields = []
+        for entry in fields_by_key.values():
+            fields.append(
+                {
+                    "message_type": entry["message_type"],
+                    "field": entry["field"],
+                    "count": entry["count"],
+                    "units": sorted(entry["units"]),
+                    "sample_values": entry["sample_values"],
+                }
+            )
+        fields.sort(key=lambda item: (item["message_type"], item["field"]))
+        return {
+            "field_count": len(fields),
+            "fields": fields,
+        }
 
 
     @staticmethod

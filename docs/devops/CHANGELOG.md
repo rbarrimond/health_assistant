@@ -2,6 +2,11 @@
 
 ## 2026-02-20
 
+- Add deterministic FIT structural analyzer output (`fit_analysis.json` now `analysis_version: v1.0.0`) with classification evidence, developer-field summaries, and anomaly flags.
+- Add Garmin near-duplicate detection by rough start-time and duration window to reduce duplicate workout ingestion when Garmin activity IDs differ.
+- Change Garmin unchanged-content dedupe ordering to compute FIT SHA-256 before idempotency checks.
+- Add normalized source classification at ingestion (`normalized_source_system`) using device/manufacturer heuristics (Apple Watch FITs normalize to `HealthFit`, others to `Garmin`).
+- Add optional workout detail developer-field summary retrieval via `developer_fields=true` query parameter.
 - Fix Garmin FIT file ingestion by adding proper format detection and extraction in `GarminConnectClient.download_activity_fit()` method. Investigation of garminconnect library source code revealed that Garmin's ORIGINAL format downloads return ZIP archives containing FIT files, not raw FIT files as initially assumed. Updated implementation to:
   1. Always attempt ZIP extraction first (per garminconnect library documentation: "For 'Original' will return the zip file content, up to user to extract it")
   2. Fall back gracefully if ZIP extraction fails (handles cases where API returns raw FIT or gzipped FIT despite documentation)

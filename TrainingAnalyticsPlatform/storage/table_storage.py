@@ -40,6 +40,7 @@ class WorkoutEntity:
     workout_id: str
     athlete_id: str
     source_system: str
+    normalized_source_system: Optional[str]
     source_item_id: Optional[str]
     canonical_schema_version: Optional[str] = None
     canonical_records_blob: Optional[str] = None
@@ -57,6 +58,7 @@ class WorkoutEntity:
             "workout_id",
             "athlete_id",
             "source_system",
+            "normalized_source_system",
             "source_item_id",
             "canonical_schema_version",
             "canonical_records_blob",
@@ -87,6 +89,7 @@ class WorkoutEntity:
             workout_id=entity.get("workout_id", ""),
             athlete_id=entity.get("athlete_id", ""),
             source_system=entity.get("source_system", ""),
+            normalized_source_system=entity.get("normalized_source_system"),
             source_item_id=entity.get("source_item_id"),
             canonical_schema_version=entity.get("canonical_schema_version"),
             canonical_records_blob=entity.get("canonical_records_blob"),
@@ -110,6 +113,7 @@ class WorkoutEntity:
             "workout_id": self.workout_id,
             "athlete_id": self.athlete_id,
             "source_system": self.source_system,
+            "normalized_source_system": self.normalized_source_system,
             "source_item_id": self.source_item_id,
             "canonical_schema_version": self.canonical_schema_version,
             "canonical_records_blob": self.canonical_records_blob,
@@ -248,7 +252,7 @@ class IngestionContext:
         """Check if the ingestion state represents a terminal (non-reingest) outcome."""
         return bool(
             self.existing_state
-            and self.existing_state.get("status") in {"ingested", "skipped"}
+            and self.existing_state.get("status") in {"ingested", "skipped", "skipped_duplicate"}
         )
 
     @property
@@ -564,6 +568,16 @@ class WorkoutTableStorage:
         blob_client.upload_blob(body, overwrite=True)
         return blob_name
 
+    def _load_json_blob(self, blob_name: str, *, gzipped: bool = False) -> Dict:
+        blob_client = self._blob_service_client.get_blob_client(
+            container=WORKOUTS_CONTAINER,
+            blob=blob_name,
+        )
+        payload = blob_client.download_blob().readall()
+        if gzipped:
+            payload = gzip.decompress(payload)
+        return json.loads(payload)
+
     def _upload_json_gzip(self, blob_name: str, payload: Dict) -> str:
         body = json.dumps(payload, separators=(",", ":"), default=str)
         compressed = gzip.compress(body.encode("utf-8"))
@@ -585,6 +599,10 @@ class WorkoutTableStorage:
     def store_metadata_json(self, workout_id: str, payload: Dict) -> str:
         """Store structured FIT metadata messages artifact."""
         return self._upload_json_blob(self._metadata_blob_name(workout_id), payload)
+
+    def load_metadata_json(self, workout_id: str) -> Dict:
+        """Load structured FIT metadata messages artifact."""
+        return self._load_json_blob(self._metadata_blob_name(workout_id))
 
     def store_laps_json(self, workout_id: str, payload: Dict) -> str:
         """Store lap messages artifact as compressed JSON."""
@@ -785,6 +803,7 @@ class WorkoutTableStorage:
             workout_id=workout_id,
             athlete_id=athlete_id,
             source_system=source_info.get("source_system", "HealthFit"),
+            normalized_source_system=source_info.get("normalized_source_system"),
             source_item_id=source_info.get("source_item_id"),
             canonical_schema_version=canonical_schema_version,
             canonical_records_blob=canonical_records_blob,

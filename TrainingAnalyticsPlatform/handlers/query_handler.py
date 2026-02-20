@@ -56,6 +56,7 @@ class QueryHandler:
         athlete_id: str,
         workout_id: str,
         include_laps: bool = False,
+        include_developer_fields: bool = False,
     ) -> Tuple[Dict[str, Any], int]:
         """
         Get detailed workout data including time series.
@@ -72,6 +73,7 @@ class QueryHandler:
                 athlete_id,
                 workout_id,
                 include_laps=include_laps,
+                include_developer_fields=include_developer_fields,
             )
             if workout is None:
                 return {"error": "Workout not found"}, 404

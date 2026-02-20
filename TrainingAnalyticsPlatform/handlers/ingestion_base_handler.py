@@ -99,6 +99,9 @@ class FitIngestionBaseHandler(ABC):
             source_file_name=source_info.get("source_file_name"),
         )
         metadata = parser.extract_canonical_metadata()
+        source_info["normalized_source_system"] = self._normalize_source_system(
+            source_info, metadata
+        )
         workout_id = compute_workout_id(
             source_item_id=source_info.get("source_item_id"),
             file_sha256=source_info.get("file_sha256"),
@@ -139,6 +142,23 @@ class FitIngestionBaseHandler(ABC):
             workout_id=workout_id,
         )
         return metadata, workout_id
+
+    @staticmethod
+    def _normalize_source_system(
+        source_info: Dict[str, Any],
+        metadata: Dict[str, Any],
+    ) -> str:
+        """Normalize source classification for downstream processing.
+
+        Rule: Apple Watch generated FITs normalize to HealthFit, all others to Garmin.
+        """
+        manufacturer = str(metadata.get("file_manufacturer") or "").lower()
+        device_name = str(metadata.get("device_name") or "").lower()
+        if "apple" in manufacturer or "apple" in device_name or "watch" in device_name:
+            return "HealthFit"
+        if source_info.get("source_system"):
+            return "Garmin"
+        return "Garmin"
 
     def _record_failure(
         self,

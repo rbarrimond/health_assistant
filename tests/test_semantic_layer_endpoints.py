@@ -165,6 +165,7 @@ class TestGetWorkoutEndpoint:
             "rob",
             "abc123",
             include_laps=False,
+            include_developer_fields=False,
         )
 
     def test_workout_found(self, mock_request, mock_semantic_layer):
@@ -189,6 +190,7 @@ class TestGetWorkoutEndpoint:
             "alice",
             "xyz789",
             include_laps=False,
+            include_developer_fields=False,
         )
 
     def test_workout_not_found(self, mock_request, mock_semantic_layer):
@@ -228,6 +230,7 @@ class TestGetWorkoutEndpoint:
             "rob",
             "abc123",
             include_laps=True,
+            include_developer_fields=False,
         )
 
 

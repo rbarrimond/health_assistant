@@ -144,6 +144,7 @@ Workouts should only store minimal provenance and canonical parquet pointers.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | source_system | string | Yes | Source system name (e.g., `HealthFit`). |
+| normalized_source_system | string | No | Normalized source classification (`HealthFit` for Apple Watch FITs, otherwise `Garmin`). |
 | source_item_id | string | No | Stable source item ID (OneDrive item ID). |
 | canonical_schema_version | string | Yes | Canonical telemetry schema version. |
 | canonical_records_blob | string | Yes | Blob path to canonical records parquet. |
@@ -152,6 +153,17 @@ Workouts should only store minimal provenance and canonical parquet pointers.
 | laps_count | int | No | Count of canonical laps. |
 
 All other provenance fields belong in **IngestionState**.
+
+### FIT Analysis Artifact
+
+`{workout_id}/fit_analysis.json` stores deterministic FIT structure analysis output. Current schema includes:
+
+- `analysis_version`
+- `message_inventory`
+- `classification_evidence`
+- `developer_fields_summary`
+- `anomalies`
+- `summary_flags`
 
 ---
 

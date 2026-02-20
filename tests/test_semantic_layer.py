@@ -256,6 +256,42 @@ class TestWorkoutQueries:
 
         assert workout is None
 
+    def test_get_workout_detail_with_developer_fields(self, semantic_layer, mock_storage):
+        """Test workout detail can include summarized developer fields."""
+        mock_table_client = MagicMock()
+        mock_storage._get_table_client.return_value = mock_table_client
+
+        mock_entity = {
+            "PartitionKey": "rob|2026-02",
+            "RowKey": "20260220|abc",
+            "workout_id": "workout-001",
+            "athlete_id": "rob",
+            "source_system": "Garmin",
+            "normalized_source_system": "Garmin",
+            "sport": "Cycling",
+            "duration_sec": 3600,
+        }
+        mock_table_client.query_entities.return_value = [mock_entity]
+        mock_storage.load_metadata_json.return_value = {
+            "record": [
+                {
+                    "fields": {
+                        "dev_pedal_smoothness": {"value": 31.2, "units": "%"},
+                    }
+                }
+            ]
+        }
+
+        workout = semantic_layer.get_workout_detail(
+            "rob",
+            "workout-001",
+            include_developer_fields=True,
+        )
+
+        assert workout is not None
+        assert "developer_fields_summary" in workout
+        assert workout["developer_fields_summary"]["field_count"] == 1
+
 
 class TestAnalysisQueries:
     """Tests for analysis endpoints."""

@@ -10,7 +10,16 @@ import zipfile
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, cast
 
-from garminconnect import Garmin, GarminConnectAuthenticationError, GarminConnectConnectionError
+try:
+    from garminconnect import Garmin, GarminConnectAuthenticationError, GarminConnectConnectionError
+except ImportError:  # pragma: no cover - optional dependency in test/runtime variants
+    Garmin = None  # type: ignore[assignment]
+
+    class GarminConnectAuthenticationError(Exception):
+        """Fallback authentication exception when garminconnect is unavailable."""
+
+    class GarminConnectConnectionError(Exception):
+        """Fallback connection exception when garminconnect is unavailable."""
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +51,10 @@ class GarminConnectClient:
         if not self.email or not self.password:
             raise GarminConnectError(
                 "Missing credentials. Set GARMIN_EMAIL and GARMIN_PASSWORD environment variables."
+            )
+        if Garmin is None:
+            raise GarminConnectError(
+                "garminconnect dependency is not installed in this environment."
             )
 
         try:

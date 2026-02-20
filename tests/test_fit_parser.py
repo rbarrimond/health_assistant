@@ -744,3 +744,40 @@ class TestFitParserWithEntities:
         assert metrics["calories_kcal"] == pytest.approx(750.0)
         assert metrics["hr_avg_bpm"] == pytest.approx(150.0, rel=0.01)
         assert metrics["hr_max_bpm"] == pytest.approx(160.0, rel=0.01)
+
+
+class TestFitAnalysis:
+    """Tests for extract_fit_analysis payload."""
+
+    def test_extract_fit_analysis_contains_structured_sections(self, sample_fit_file: Path) -> None:
+        parser = FitParser(str(sample_fit_file))
+        dev_field = MagicMock()
+        dev_field.name = "pedal_smoothness"
+        dev_field.value = 23.5
+        dev_field.units = "%"
+        parser.messages = [
+            {
+                "name": "session",
+                "frame": MagicMock(developer_fields=[]),
+                "fields": {
+                    "sub_sport": MagicMock(value="virtual_activity"),
+                    "indoor": MagicMock(value=None),
+                },
+            },
+            {
+                "name": "record",
+                "frame": MagicMock(developer_fields=[dev_field]),
+                "fields": {
+                    "position_lat": MagicMock(value=1),
+                    "position_long": MagicMock(value=2),
+                },
+            },
+        ]
+
+        payload = parser.extract_fit_analysis()
+
+        assert payload["analysis_version"] == "v1.0.0"
+        assert "message_inventory" in payload
+        assert "classification_evidence" in payload
+        assert "developer_fields_summary" in payload
+        assert payload["developer_fields_summary"]["field_count"] >= 1

@@ -7,7 +7,7 @@ import logging
 import os
 import threading
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, Tuple
 
 from TrainingAnalyticsPlatform.integrations.garmin_client import (
@@ -94,7 +94,23 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
         # Build source info for ingestion tracking
         source_info = self._build_source_info(activity)
 
-        # Check for existing ingestion state
+        # Download FIT file
+        try:
+            fit_bytes = self._client.download_activity_fit(activity_id)
+        except GarminConnectError as exc:
+            logger.error(
+                "Failed to download FIT for activity %s: %s", activity_id, exc
+            )
+            return {
+                "status": "error",
+                "message": f"Failed to download FIT file: {exc}",
+                "activity_id": activity_id,
+            }, 500
+
+        # Compute hash for deduplication
+        source_info["file_sha256"] = compute_bytes_hash(fit_bytes)
+
+        # Check for unchanged ingestion state only after hash is available
         ingestion_key = f"garmin_{activity_id}"
         context = IngestionContext(
             athlete_id=athlete_id,
@@ -103,15 +119,12 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
             storage=self.storage,
             ingestion_key=ingestion_key,
         )
-
-        # Skip if unchanged
         skipped, workout_id = self._skip_if_unchanged(
             athlete_id,
             source_info,
             ingestion_key=context.ingestion_key,
             existing_state=context.existing_state,
         )
-        
         if skipped:
             workout_id = (
                 context.existing_state.get("workout_id")
@@ -132,21 +145,22 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
                 "message": "Unchanged content",
             }, 200
 
-        # Download FIT file
-        try:
-            fit_bytes = self._client.download_activity_fit(activity_id)
-        except GarminConnectError as exc:
-            logger.error(
-                "Failed to download FIT for activity %s: %s", activity_id, exc
+        duplicate_workout_id = self._find_near_duplicate_workout(athlete_id, activity)
+        if duplicate_workout_id:
+            self.storage.record_ingestion_state(
+                athlete_id,
+                source_info,
+                status="skipped_duplicate",
+                workout_id=duplicate_workout_id,
+                ingestion_key=context.ingestion_key,
+                existing_state=context.existing_state,
+                error=f"duplicate_of:{duplicate_workout_id}",
             )
             return {
-                "status": "error",
-                "message": f"Failed to download FIT file: {exc}",
-                "activity_id": activity_id,
-            }, 500
-
-        # Compute hash for deduplication
-        source_info["file_sha256"] = compute_bytes_hash(fit_bytes)
+                "status": "skipped_duplicate",
+                "workout_id": duplicate_workout_id,
+                "message": "Potential duplicate workout detected by start-time window",
+            }, 200
 
         # Parse and store
         _, workout_id = self._parse_and_store(
@@ -172,6 +186,68 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
             "source_duration_sec": activity.get("duration"),
             "source_distance_meters": activity.get("distance"),
         }
+
+    def _find_near_duplicate_workout(
+        self,
+        athlete_id: str,
+        activity: Dict,
+        *,
+        window_seconds: int = 600,
+        duration_tolerance_seconds: int = 180,
+    ) -> Optional[str]:
+        """Find existing workout within a rough start-time and duration window."""
+        start_time = activity.get("startTimeGMT")
+        if not start_time:
+            return None
+        try:
+            start_dt = datetime.fromisoformat(str(start_time).replace("Z", "+00:00")).astimezone(timezone.utc)
+        except ValueError:
+            return None
+
+        duration = activity.get("duration")
+        try:
+            duration_sec = float(duration) if duration is not None else None
+        except (TypeError, ValueError):
+            duration_sec = None
+
+        table_client = self.storage.get_table_client("Workouts")
+        partitions = {
+            f"{athlete_id}|{start_dt.strftime('%Y-%m')}",
+            f"{athlete_id}|{(start_dt - timedelta(days=1)).strftime('%Y-%m')}",
+            f"{athlete_id}|{(start_dt + timedelta(days=1)).strftime('%Y-%m')}",
+        }
+
+        for partition_key in partitions:
+            query = f"PartitionKey eq '{partition_key}'"
+            for entity in table_client.query_entities(query):
+                if entity.get("athlete_id") != athlete_id:
+                    continue
+                existing_start = entity.get("start_time_utc")
+                if not existing_start:
+                    continue
+                try:
+                    existing_dt = datetime.fromisoformat(
+                        str(existing_start).replace("Z", "+00:00")
+                    ).astimezone(timezone.utc)
+                except ValueError:
+                    continue
+                delta_sec = abs((existing_dt - start_dt).total_seconds())
+                if delta_sec > window_seconds:
+                    continue
+
+                if duration_sec is not None and entity.get("duration_sec") is not None:
+                    try:
+                        existing_duration = float(entity.get("duration_sec"))
+                    except (TypeError, ValueError):
+                        existing_duration = None
+                    if (
+                        existing_duration is not None
+                        and abs(existing_duration - duration_sec) > duration_tolerance_seconds
+                    ):
+                        continue
+                return entity.get("workout_id")
+
+        return None
 
 
 class GarminSyncRequest:
