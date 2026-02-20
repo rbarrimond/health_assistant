@@ -6,11 +6,11 @@ This document describes the external data source integrations for the Health Ass
 
 The Health Assistant supports multiple backend integrations to automatically collect training and physiological data:
 
-| Backend                  | Status     | Data Types                   | Protocol                       |
-| ------------------------ | ---------- | ---------------------------- | ------------------------------ |
-| **HealthFit (OneDrive)** | Production | FIT workout files            | OAuth (delegated) + Timer/HTTP |
-| **Withings**             | Production | Body composition, weight     | OAuth 2.0 + Webhooks           |
-| **Garmin**               | Planned    | Workout files, physiometrics | OAuth (via garth)              |
+| Backend                  | Status       | Data Types                   | Protocol                       |
+| ------------------------ | ------------ | ---------------------------- | ------------------------------ |
+| **HealthFit (OneDrive)** | Production   | FIT workout files            | OAuth (delegated) + Timer/HTTP |
+| **Withings**             | Production   | Body composition, weight     | OAuth 2.0 + Webhooks           |
+| **Garmin**               | Implemented  | Workout files, physiometrics | OAuth (via garth)              |
 
 ## HealthFit (OneDrive) Integration
 
@@ -432,94 +432,263 @@ traces
 
 ---
 
-## Garmin Integration (Planned)
+## Garmin Connect Integration
 
 ### Garmin Overview
 
-**Status:** 🔜 Planned for future implementation
+**Status:** ✅ Implemented
 
-The Garmin backend will provide access to workout data and physiological metrics directly from Garmin Connect using the [garth](https://github.com/matin/garth) Python library.
+The Garmin backend provides access to workout data directly from Garmin Connect using the [garminconnect](https://github.com/cyberjunky/python-garminconnect) Python library. It syncs activities as FIT files and reuses the existing FIT parsing pipeline.
 
-### Planned Capabilities
-
-**Data Sources:**
-
-- Activities (FIT files, TCX exports)
-- Daily physiological metrics (HRV, resting HR, stress, VO2max)
-- Training status and load
-- Body composition (if tracked via Garmin Index scale)
-
-**Integration Approach:**
+**Data Flow:**
 
 ```text
-Garmin Connect API (via garth)
+Garmin Connect API (via garminconnect)
     ↓
-OAuth 2.0 Authentication
+Email/Password Authentication  
     ↓
-Azure Function Endpoints
+Azure Function (Daily Timer + HTTP sync)
     ↓
-Activity Sync (scheduled)
+Activity List → FIT Download
     ↓
-Parse FIT/TCX files
-    ↓
-Store in Workouts/Physiometrics tables
+FIT Parser → Metrics → Azure Table Storage
 ```
 
-### Technical Considerations
+**Key Features:**
 
-**garth Library:**
+- Simple email/password authentication (no OAuth complexity)
+- Automatic token management via `garminconnect` library
+- Daily sync at 3 AM UTC
+- Configurable lookback window
+- Download original FIT files
 
-- Python library for Garmin Connect API access
-- Handles OAuth flow and token management
-- Provides activity download and stats retrieval
+### Garmin Prerequisites
 
-**Potential Architecture:**
+- Garmin Connect account with activities
+- Azure Function deployed with Garmin sync endpoint
+- garminconnect Python library (>=0.2.38)
 
-1. **OAuth Flow:** Similar to Withings (authorize → callback → token storage)
-2. **Scheduled Sync:** Timer-triggered function (daily/weekly)
-3. **Activity Download:** Bulk fetch recent activities
-4. **FIT Parsing:** Reuse existing `fit_parser.py` logic
-5. **Deduplication:** Check `IngestionState` table to avoid duplicate processing
+### Garmin Setup & Configuration
 
-**Environment Variables (Draft):**
+#### 1. Configure Garmin Environment Variables
+
+Set these in your Function App configuration:
 
 ```bash
-GARMIN_CLIENT_ID=your_client_id
-GARMIN_CLIENT_SECRET=your_client_secret
-GARMIN_REDIRECT_URI=https://<function-app>.azurewebsites.net/api/garmin/callback
+GARMIN_EMAIL=your_email@example.com
+GARMIN_PASSWORD=your_password_here
+GARMIN_SYNC_LOOKBACK_DAYS=30  # Optional, defaults to 30 days
+GARMIN_TOKEN_DIR=~/.garminconnect  # Optional, defaults to ~/.garminconnect
 ```
 
-### Implementation Roadmap
+⚠️ **Security Note:** Store credentials in Azure Key Vault and reference them via `@Microsoft.KeyVault(SecretUri=...)` syntax.
 
-1. **Phase 1: Authentication**
-   - OAuth endpoints (authorize, callback)
-   - Token storage in dedicated table
-   - Test with manual auth flow
+**Example with Key Vault:**
 
-2. **Phase 2: Activity Sync**
-   - Scheduled function to fetch recent activities
-   - Download FIT files
-   - Parse and store using existing pipeline
+```bash
+GARMIN_EMAIL=your_email@example.com
+GARMIN_PASSWORD=@Microsoft.KeyVault(SecretUri=https://your-vault.vault.azure.net/secrets/garmin-password/)
+```
 
-3. **Phase 3: Physiometrics**
-   - Fetch daily stats (HRV, resting HR, stress)
-   - Store in `Physiometrics` table
-   - Merge with Withings data
+#### 2. Run Sync
 
-4. **Phase 4: Advanced Features**
-   - Training status/load integration
-   - Workout recommendations sync
-   - Sleep data integration
+Manual sync (HTTP):
 
-### Resources
+```bash
+curl -X POST "https://<FUNCTION_APP>.azurewebsites.net/api/garmin/sync?code=<FUNCTION_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{"days": 30, "athlete_id": "rob", "async": true}'
+```
 
-- **garth GitHub:** [https://github.com/matin/garth](https://github.com/matin/garth)
-- **Garmin Connect API:** Unofficial (requires reverse engineering)
-- **Documentation:** Limited - relies on garth library abstractions
+By default the endpoint runs asynchronously and returns a 202 response. Set `async=false` to block and wait for results.
+
+Automatic sync (Timer):
+
+- Runs daily at 3 AM UTC
+- Uses `GARMIN_SYNC_LOOKBACK_DAYS` by default (30 days)
+- Downloads and parses FIT files for new activities
+
+### Garmin API Endpoints
+
+#### POST /api/garmin/sync
+
+Runs a sync of recent activities. Accepts JSON body:
+
+```json
+{
+  "days": 30,
+  "athlete_id": "rob",
+  "async": true
+}
+```
+
+**Response (async=true):**
+
+```json
+{
+  "status": "queued",
+  "athlete_id": "rob",
+  "lookback_days": 30
+}
+```
+
+**Response (async=false):**
+
+```json
+{
+  "status": "success",
+  "lookback_days": 30,
+  "found": 15,
+  "ingested": 12,
+  "skipped": 3,
+  "failed": 0,
+  "errors": [],
+  "items": [...]
+}
+```
+
+### Garmin Implementation Files
+
+| File | Purpose |
+| --- | --- |
+| [garmin_client.py](../../TrainingAnalyticsPlatform/integrations/garmin_client.py) | garminconnect library wrapper |
+| [garmin_sync_handler.py](../../TrainingAnalyticsPlatform/handlers/garmin_sync_handler.py) | Sync orchestration + ingestion handler |
+| [function_app.py](../../function_app.py) | HTTP sync endpoint + daily timer trigger |
+| [table_storage.py](../../TrainingAnalyticsPlatform/storage/table_storage.py) | Ingestion state tracking |
+
+### Garmin OAuth Token Management
+
+**Token Storage:**
+
+- Stored in `GarminTokens` table
+- PartitionKey: `athlete_id`
+- RowKey: `garmin`
+- Contains: `oauth1_token`, `oauth2_token` (JSON strings from garth)
+
+**Token Refresh:**
+
+- garth library handles token refresh automatically
+- Tokens loaded at sync time using `load_stored_tokens()`
+- Updated tokens persisted back to storage
+
+**Token Retrieval:**
+
+```python
+storage = WorkoutTableStorage()
+tokens = storage.get_garmin_tokens(athlete_id="rob")
+# Returns: {oauth1_token, oauth2_token, updated_at_utc}
+```
+
+### Activity Sync Workflow
+
+1. **Fetch Activity List:** Query Garmin Connect for activities within lookback window
+2. **Deduplicate:** Check `IngestionState` table to avoid reprocessing
+3. **Download FIT Files:** Get original FIT file for each new activity
+4. **Parse & Store:** Use standard FIT parser → canonical schema → Workouts table
+5. **Track State:** Record ingestion status in `IngestionState` with `source_system=Garmin`
+
+### Deduplication Strategy
+
+Activities are identified by:
+
+- `source_item_id`: Garmin activity ID
+- `source_system`: "Garmin"
+- `file_sha256`: Hash of FIT file content
+
+The ingestion handler checks `IngestionState` before processing each activity:
+
+- Skip if `source_item_id` + `file_sha256` match existing state
+- Reuse existing `workout_id` when reprocessing
+
+### Troubleshooting
+
+**"Authentication failed - check credentials"**:
+
+- Verify `GARMIN_EMAIL` and `GARMIN_PASSWORD` are set correctly
+- Test credentials by logging into Garmin Connect web UI
+- Check Application Insights for detailed error logs
+- Ensure Key Vault reference is working (if using Azure Key Vault)
+
+**"Failed to list Garmin activities"**:
+
+- Verify credentials are valid
+- Check Application Insights for detailed error logs
+- Test manual login locally with `garminconnect` library
+
+**"FIT file download failed"**:
+
+- Activity may not have exportable FIT file (e.g., manually entered)
+- Check Garmin Connect web UI to verify activity has downloadable file
+- Logs will show specific activity ID that failed
+
+**"Activities not syncing"**:
+
+- Check timer trigger is running (Application Insights)
+- Verify `GARMIN_SYNC_LOOKBACK_DAYS` covers target date range
+- Test manual sync: `POST /api/garmin/sync`
+- Check `IngestionState` table for skipped activities
+
+### Development Tips
+
+**Local Testing with garminconnect:**
+
+```python
+from garminconnect import Garmin
+import os
+
+# Initialize client
+client = Garmin(
+    os.getenv("GARMIN_EMAIL"),
+    os.getenv("GARMIN_PASSWORD"),
+    tokenstore="~/.garminconnect"
+)
+
+# Login and authenticate
+try:
+    client.login()
+    print("Authenticated successfully")
+    
+    # List recent activities
+    activities = client.get_activities(start=0, limit=10)
+    for activity in activities:
+        print(f"{activity['activityId']}: {activity['activityName']}")
+        
+    # Download FIT file
+    fit_data = client.download_activity(
+        activities[0]['activityId'],
+        dl_fmt=Garmin.ActivityDownloadFormat.ORIGINAL
+    )
+    print(f"Downloaded {len(fit_data)} bytes")
+    
+except Exception as exc:
+    print(f"Garmin API error: {exc}")
+```
+
+**Testing Sync Locally:**
+
+1. Set environment variables: `GARMIN_EMAIL`, `GARMIN_PASSWORD`
+2. Run Azure Functions locally: `func start`
+3. Trigger sync: `curl -X POST http://localhost:7071/api/garmin/sync -d '{"athlete_id":"rob"}'`
+4. Check Function logs for progress
 
 ---
 
-## Multi-Backend Strategy
+## Garmin vs. OneDrive Comparison
+
+| Feature | Garmin Connect | HealthFit (OneDrive) |
+| --- | --- | --- |
+| **Trigger** | Daily timer (3 AM) | 10-min timer |
+| **Authentication** | Email/Password | OAuth (Microsoft Graph) |
+| **Library** | garminconnect (v0.2.38) | microsoft-graph |
+| **File Format** | FIT (direct API) | FIT/FIT.gz (files) |
+| **Deduplication** | Activity ID + hash | Item ID + hash |
+| **Lookback** | 30 days default | 30 days default |
+| **Manual Sync** | `/api/garmin/sync` | `/api/onedrive/sync` |
+| **Token Storage** | Managed by library | `OneDriveTokens` table |
+
+---
+
+## Multi-Backend Strategy (Updated)
 
 ### Data Source Priority
 
@@ -527,7 +696,8 @@ When multiple backends provide overlapping data:
 
 1. **Workouts:**
    - Primary: HealthFit FIT files (most detailed)
-   - Secondary: Garmin activities (if HealthFit unavailable)
+   - Secondary: Garmin activities (native source, complete data)
+   - Tertiary: Manual upload
 
 2. **Body Composition:**
    - Primary: Withings (automatic, real-time)
@@ -539,44 +709,18 @@ When multiple backends provide overlapping data:
    - Weight: Withings (primary source)
    - Resting HR: Extracted from FIT files or Garmin daily stats
 
-### Deduplication Strategy
-
-**Workout Files:**
-
-- Use `file_identifier` (creation timestamp + serial number) as unique key
-- Store in `IngestionState` table with `data_source` field
-- Skip processing if already ingested from any source
-
-**Physiometrics:**
-
-- Use `effective_date` as deduplication key per athlete
-- Last write wins for same-day measurements
-- Preserve `data_source` for audit trail
-
-**Example Deduplication Logic:**
-
-```python
-def should_process_workout(file_id: str, data_source: str) -> bool:
-    """Check if workout already processed from any source."""
-    existing = storage.get_ingestion_state(file_id)
-    if existing:
-        logger.info("Workout %s already ingested from %s", 
-                   file_id, existing['data_source'])
-        return False
-    return True
-```
-
 ### Backend Health Monitoring
 
 **Recommended Alerts:**
 
 - Withings webhook failures (consecutive)
-- Token refresh failures (Withings/Garmin)
-- Sync job failures (Garmin scheduled tasks)
+- Token refresh failures (Withings/Garmin/OneDrive)
+- Sync job failures (Garmin/OneDrive scheduled tasks)
 - Missing data for >7 days (any backend)
 
 **Dashboard Tiles:**
 
-- Last successful sync timestamp per backend
+- Last successful sync timestamp per backend (OneDrive, Garmin, Withings)
 - Measurement count by data source (last 30 days)
 - Authorization status per athlete per backend
+- Failed ingestion count per backend (last 24 hours)
