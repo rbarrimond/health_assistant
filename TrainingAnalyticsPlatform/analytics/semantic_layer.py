@@ -560,12 +560,23 @@ class SemanticLayer:
         metrics.update(self._compute_time_bounds(df, metadata))
 
         duration_sec = metrics.get("duration_sec") or metadata.get("duration_sec")
+        # Narrow type for duration_sec to Optional[float]
+        if duration_sec and isinstance(duration_sec, (int, float)):
+            duration_sec = float(duration_sec)
+        else:
+            duration_sec = None
         metrics.update(self._compute_distance_metrics(df, metadata))
         metrics.update(self._compute_speed_metrics(df))
 
-        hr = pd.to_numeric(df.get("heart_rate_bpm"), errors="coerce").dropna()
-        power = pd.to_numeric(df.get("power_watts"), errors="coerce").dropna()
-        cadence = pd.to_numeric(df.get("cadence_rpm"), errors="coerce").dropna()
+        hr_series = df.get("heart_rate_bpm")
+        power_series = df.get("power_watts")
+        cadence_series = df.get("cadence_rpm")
+        assert hr_series is not None
+        assert power_series is not None
+        assert cadence_series is not None
+        hr = pd.to_numeric(hr_series, errors="coerce").dropna()
+        power = pd.to_numeric(power_series, errors="coerce").dropna()
+        cadence = pd.to_numeric(cadence_series, errors="coerce").dropna()
 
         metrics.update(self._compute_hr_metrics(hr))
         metrics.update(self._compute_power_metrics(power))
@@ -584,13 +595,17 @@ class SemanticLayer:
     @staticmethod
     def _compute_time_bounds(df: pd.DataFrame, metadata: Dict) -> Dict[str, float | str]:
         metrics: Dict[str, float | str] = {}
-        timestamps = pd.to_datetime(df.get("timestamp_utc"), errors="coerce", utc=True)
+        ts_series = df.get("timestamp_utc")
+        assert ts_series is not None
+        timestamps = pd.to_datetime(ts_series, errors="coerce", utc=True)
         timestamps = timestamps.dropna()
 
         if "start_time_utc" not in metadata and not timestamps.empty:
             metrics["start_time_utc"] = timestamps.min().isoformat()
 
-        elapsed = pd.to_numeric(df.get("elapsed_sec"), errors="coerce").dropna()
+        elapsed_series = df.get("elapsed_sec")
+        assert elapsed_series is not None
+        elapsed = pd.to_numeric(elapsed_series, errors="coerce").dropna()
         duration_sec = metadata.get("duration_sec")
         if duration_sec is None:
             if not elapsed.empty:
@@ -607,11 +622,15 @@ class SemanticLayer:
     @staticmethod
     def _compute_distance_metrics(df: pd.DataFrame, metadata: Dict) -> Dict[str, float]:
         metrics: Dict[str, float] = {}
-        distance = pd.to_numeric(df.get("distance_m"), errors="coerce").dropna()
+        distance_series = df.get("distance_m")
+        assert distance_series is not None
+        distance = pd.to_numeric(distance_series, errors="coerce").dropna()
         if metadata.get("distance_m") is None and not distance.empty:
             metrics["distance_m"] = float(distance.max())
 
-        elevation = pd.to_numeric(df.get("elevation_m"), errors="coerce").dropna()
+        elevation_series = df.get("elevation_m")
+        assert elevation_series is not None
+        elevation = pd.to_numeric(elevation_series, errors="coerce").dropna()
         if elevation.size >= 2:
             diffs = np.diff(elevation.to_numpy())
             metrics["elevation_gain_m"] = float(np.sum(diffs[diffs > 0]))
@@ -622,7 +641,9 @@ class SemanticLayer:
     @staticmethod
     def _compute_speed_metrics(df: pd.DataFrame) -> Dict[str, float]:
         metrics: Dict[str, float] = {}
-        speed = pd.to_numeric(df.get("speed_mps"), errors="coerce").dropna()
+        speed_series = df.get("speed_mps")
+        assert speed_series is not None
+        speed = pd.to_numeric(speed_series, errors="coerce").dropna()
         if not speed.empty:
             metrics["avg_speed_mps"] = float(np.round(speed.mean(), 2))
             metrics["max_speed_mps"] = float(speed.max())
@@ -691,7 +712,7 @@ class SemanticLayer:
             missing["pwr_missing_pct"] = round((1 - pwr_samples / expected) * 100, 1)
         return missing
 
-    def _compute_hr_zones_from_series(self, hr: pd.Series) -> Dict[str, float]:
+    def _compute_hr_zones_from_series(self, hr: pd.Series) -> Dict[str, float | str]:
         hr_cfg = Config.hr_config()
         zone_basis = hr_cfg.basis
         hr_rest = hr_cfg.resting_hr_bpm
@@ -724,7 +745,7 @@ class SemanticLayer:
         else:
             counts = np.zeros(len(highs), dtype=int)
 
-        metrics: Dict[str, float] = {}
+        metrics: Dict[str, float | str] = {}
         total_sec = 0
         for i, (zone_name, (low, high)) in enumerate(zones.items(), 1):
             count = int(counts[i - 1])
@@ -776,7 +797,7 @@ class SemanticLayer:
     def _compute_power_zones_from_series(
         self,
         power: pd.Series,
-    ) -> Dict[str, float]:
+    ) -> Dict[str, float | str]:
         pwr_cfg = Config.power_config()
         ftp = pwr_cfg.ftp_watts or 250
         zones = {
@@ -801,7 +822,7 @@ class SemanticLayer:
         else:
             counts = np.zeros(len(highs), dtype=int)
 
-        metrics: Dict[str, float] = {}
+        metrics: Dict[str, float | str] = {}
         total_sec = 0
         for i, (zone_name, (low, high)) in enumerate(zones.items(), 1):
             count = int(counts[i - 1])
@@ -811,9 +832,11 @@ class SemanticLayer:
             total_sec += count
 
         metrics["pwr_zone_total_sec"] = total_sec
-        metrics["low_aerobic_sec"] = metrics.get("pwr_z1_sec", 0) + metrics.get("pwr_z2_sec", 0)
+        pwr_z1 = metrics.get("pwr_z1_sec", 0)
+        pwr_z2 = metrics.get("pwr_z2_sec", 0)
+        metrics["low_aerobic_sec"] = float(pwr_z1) + float(pwr_z2)
         metrics["intensity_sec"] = sum(
-            metrics.get(f"pwr_z{i}_sec", 0) for i in range(4, 8)
+            float(metrics.get(f"pwr_z{i}_sec", 0)) for i in range(4, 8)
         )
         metrics["pwr_zone_model"] = "coggan_7"
         metrics["ftp_watts"] = ftp
@@ -1135,10 +1158,14 @@ class SemanticLayer:
             if pd.notna(start_dt):
                 if elapsed_sec is not None:
                     end_dt = start_dt + pd.to_timedelta(float(elapsed_sec), unit="s")
-                    ts = pd.to_datetime(filtered.get("timestamp_utc"), errors="coerce", utc=True)
+                    ts_series = filtered.get("timestamp_utc")
+                    assert ts_series is not None
+                    ts = pd.to_datetime(ts_series, errors="coerce", utc=True)
                     filtered = filtered[(ts >= start_dt) & (ts <= end_dt)]
                 else:
-                    ts = pd.to_datetime(filtered.get("timestamp_utc"), errors="coerce", utc=True)
+                    ts_series = filtered.get("timestamp_utc")
+                    assert ts_series is not None
+                    ts = pd.to_datetime(ts_series, errors="coerce", utc=True)
                     filtered = filtered[ts >= start_dt]
 
         records = []
@@ -1170,7 +1197,9 @@ class SemanticLayer:
             "avg_cadence",
             "max_cadence",
         ]
-        for msg in adapter.fit.get_messages("lap"):
+        for msg in adapter.messages:
+            if msg.get("name") != "lap":
+                continue
             lap: Dict[str, Optional[object]] = {}
             for field in fields:
                 value = adapter._get_field_value(msg, field)  # pylint: disable=protected-access
