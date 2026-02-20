@@ -544,6 +544,30 @@
       ]
     },
     {
+      "name": "Garmin Connect",
+      "item": [
+        {
+          "name": "POST /garmin/sync",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lookback_days\": 30,\n  \"athlete_id\": \"{{athlete_id}}\",\n  \"async\": false\n}"
+            },
+            "url": "{{base_url}}/api/garmin/sync?code={{function_key}}",
+            "description": "Run Garmin Connect sync (function key required). Downloads FIT files from recent activities. Defaults to async=true; set async=false for blocking."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Workouts & Planning",
       "item": [
         {
