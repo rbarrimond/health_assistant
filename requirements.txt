@@ -13,3 +13,4 @@ pandas>=2.2.0
 pyarrow>=14.0.0
 pydantic>=2.6.0
 requests>=2.31.0
+garminconnect>=0.2.38
