@@ -608,14 +608,16 @@ class FitParser:
         if not activity_msg:
             return None
         for field_name in ("event_name", "name"):
-            name = activity_msg.get_value(field_name)
+            name = self._safe_get_value(activity_msg, field_name)
             if name is not None:
                 return str(name)
         return None
 
     def _get_session_workout_name(self) -> Optional[str]:
         session = self.session_msg
-        name = session.get_value("session_name") if session is not None else None
+        if session is None:
+            return None
+        name = self._safe_get_value(session, "session_name")
         return str(name) if name is not None else None
 
     def _get_constructed_workout_name(self) -> Optional[str]:
@@ -640,9 +642,9 @@ class FitParser:
         """Extract activity ID from file_id message or source_file_name."""
         # Try to get from file_id message if available
         if self.file_id_msg:
-            file_id = self.file_id_msg.get_value("file_id")
-            if file_id is not None:
-                return str(file_id)
+            activity_number = self._safe_get_value(self.file_id_msg, "number")
+            if activity_number is not None:
+                return str(activity_number)
         
         # Try to extract numeric ID from filename (e.g., "12345.fit")
         if self.source_file_name:
@@ -652,6 +654,16 @@ class FitParser:
                 return file_name
         
         return None
+
+    @staticmethod
+    def _safe_get_value(
+        message: fitdecode.FitDataMessage,
+        field_name: str,
+    ) -> Optional[Any]:
+        try:
+            return message.get_value(field_name)
+        except KeyError:
+            return None
     
     def _get_sport_name(self) -> Optional[str]:
         """Extract sport name from session or file_id message."""
