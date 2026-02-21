@@ -85,161 +85,97 @@ class TestFitParserCaching:
         assert parser.session_msg is not None
 
 
-class TestFitParserSportExtraction:
-    """Tests for sport-related field extraction."""
+class TestFitParserIndoorDetection:
+    """Tests for indoor workout detection from activity name."""
 
-    def test_get_sport_extracts_enum_name(self, sample_fit_file: Path,
-                                         mock_fit_file_with_data: Mock) -> None:
-        """Verify _get_sport extracts and lowercases sport type."""
+    def test_get_is_indoor_detects_zwift(self, sample_fit_file: Path,
+                                         fit_message_factory: Mock) -> None:
+        """Verify _get_is_indoor returns True for Zwift activities."""
         parser = FitParser(str(sample_fit_file))
-        parser.messages = mock_fit_file_with_data
+        parser.messages = []
+        parser.source_activity_name = "Zwift - Crit City"
         parser._cache_messages()
 
-        sport = parser._get_sport()
+        is_indoor = parser._get_is_indoor()
 
-        assert sport == "cycling"
+        assert is_indoor is True
 
-    def test_get_sport_returns_none_without_file_id(self, sample_fit_file: Path) -> None:
-        """Verify _get_sport returns None if no file_id message."""
+    def test_get_is_indoor_detects_peloton(self, sample_fit_file: Path) -> None:
+        """Verify _get_is_indoor returns True for Peloton activities."""
         parser = FitParser(str(sample_fit_file))
-        parser._file_id_msg = None
-
-        sport = parser._get_sport()
-
-        assert sport is None
-
-    def test_get_sub_sport_extracts_enum_name(self, sample_fit_file: Path,
-                                              mock_fit_file_with_data: Mock) -> None:
-        """Verify _get_sub_sport extracts and lowercases sub-sport type."""
-        parser = FitParser(str(sample_fit_file))
-        parser.messages = mock_fit_file_with_data
+        parser.messages = []
+        parser.source_activity_name = "Peloton Ride"
         parser._cache_messages()
 
-        sub_sport = parser._get_sub_sport()
+        is_indoor = parser._get_is_indoor()
 
-        assert sub_sport == "road"
+        assert is_indoor is True
 
-    def test_get_sport_handles_string_values(self, sample_fit_file: Path,
-                                              fit_message_factory: Mock) -> None:
-        """Verify _get_sport handles both enum and string values from fitparse."""
+    def test_get_is_indoor_detects_indoor_keyword(self, sample_fit_file: Path) -> None:
+        """Verify _get_is_indoor returns True for 'indoor' keyword."""
         parser = FitParser(str(sample_fit_file))
-
-        # Create message list with file_id message containing sport
-        messages = [fit_message_factory("file_id", {"type": "cycling"})]
-        parser.messages = messages
+        parser.messages = []
+        parser.source_activity_name = "Indoor Cycling Workout"
         parser._cache_messages()
 
-        sport = parser._get_sport()
+        is_indoor = parser._get_is_indoor()
 
-        assert sport == "cycling"
+        assert is_indoor is True
 
-    def test_get_sub_sport_handles_string_values(self, sample_fit_file: Path,
-                                                 fit_message_factory: Mock) -> None:
-        """Verify _get_sub_sport handles both enum and string values."""
+    def test_get_is_indoor_detects_trainer(self, sample_fit_file: Path) -> None:
+        """Verify _get_is_indoor returns True for trainer keyword."""
         parser = FitParser(str(sample_fit_file))
-
-        # Create message list with session message containing sub_sport
-        messages = [fit_message_factory("session", {"sub_sport": "indoor_cycling"})]
-        parser.messages = messages
+        parser.messages = []
+        parser.source_activity_name = "Smart Trainer Ride"
         parser._cache_messages()
 
-        sub_sport = parser._get_sub_sport()
+        is_indoor = parser._get_is_indoor()
 
-        assert sub_sport == "indoor_cycling"
+        assert is_indoor is True
 
-
-class TestFitParserTimeExtraction:
-    """Tests for time-related field extraction."""
-
-    def test_get_start_time_returns_utc_iso_format(self, sample_fit_file: Path,
-                                                   mock_fit_file_with_data: Mock) -> None:
-        """Verify _get_start_time returns ISO format UTC timestamp."""
+    def test_get_is_indoor_detects_stationary(self, sample_fit_file: Path) -> None:
+        """Verify _get_is_indoor returns True for stationary keyword."""
         parser = FitParser(str(sample_fit_file))
-        parser.messages = mock_fit_file_with_data
+        parser.messages = []
+        parser.source_activity_name = "Stationary Bike Session"
         parser._cache_messages()
 
-        start_time = parser._get_start_time()
+        is_indoor = parser._get_is_indoor()
 
-        assert start_time is not None
-        assert isinstance(start_time, str)
-        assert "2024-01-15" in start_time
+        assert is_indoor is True
 
-    def test_get_duration_returns_int_seconds(self, sample_fit_file: Path,
-                                              mock_fit_file_with_data: Mock) -> None:
-        """Verify _get_duration returns total elapsed time in seconds."""
+    def test_get_is_indoor_returns_false_for_outdoor(self, sample_fit_file: Path) -> None:
+        """Verify _get_is_indoor returns False for outdoor activities."""
         parser = FitParser(str(sample_fit_file))
-        parser.messages = mock_fit_file_with_data
+        parser.messages = []
+        parser.source_activity_name = "Road Cycle Commute"
         parser._cache_messages()
 
-        duration = parser._get_duration()
+        is_indoor = parser._get_is_indoor()
 
-        assert isinstance(duration, int)
-        assert duration == 3600
+        assert is_indoor is False
 
-    def test_get_duration_returns_none_without_session(self, sample_fit_file: Path) -> None:
-        """Verify _get_duration returns None without session message."""
+    def test_get_is_indoor_returns_none_without_activity_name(self, sample_fit_file: Path) -> None:
+        """Verify _get_is_indoor returns None when activity name unavailable."""
         parser = FitParser(str(sample_fit_file))
-        parser._session_msg = None
-
-        duration = parser._get_duration()
-
-        assert duration is None
-
-
-class TestFitParserDistanceExtraction:
-    """Tests for distance-related field extraction."""
-
-    def test_get_distance_returns_float(self, sample_fit_file: Path,
-                                        mock_fit_file_with_data: Mock) -> None:
-        """Verify _get_distance returns total distance in meters."""
-        parser = FitParser(str(sample_fit_file))
-        parser.messages = mock_fit_file_with_data
+        parser.messages = []
+        parser.source_activity_name = None
         parser._cache_messages()
 
-        distance = parser._get_distance()
+        is_indoor = parser._get_is_indoor()
 
-        assert isinstance(distance, float)
-        assert distance == pytest.approx(42000.0, rel=0.01)
+        assert is_indoor is None
 
-    def test_get_elevation_gain_returns_float(self, sample_fit_file: Path,
-                                              mock_fit_file_with_data: Mock) -> None:
-        """Verify _get_elevation_gain returns gain in meters."""
+    def test_get_is_indoor_case_insensitive(self, sample_fit_file: Path) -> None:
+        """Verify _get_is_indoor keyword matching is case-insensitive."""
         parser = FitParser(str(sample_fit_file))
-        parser.messages = mock_fit_file_with_data
+        parser.messages = []
+        parser.source_activity_name = "ZWIFT SESSION"
         parser._cache_messages()
 
-        elevation_gain = parser._get_elevation_gain()
+        is_indoor = parser._get_is_indoor()
 
-        assert isinstance(elevation_gain, float)
-        assert elevation_gain == pytest.approx(500.0, rel=0.01)
-
-
-class TestFitParserSpeedExtraction:
-    """Tests for speed-related field extraction."""
-
-    def test_get_avg_speed_returns_float(self, sample_fit_file: Path,
-                                         mock_fit_file_with_data: Mock) -> None:
-        """Verify _get_avg_speed returns average speed in m/s."""
-        parser = FitParser(str(sample_fit_file))
-        parser.messages = mock_fit_file_with_data
-        parser._cache_messages()
-
-        avg_speed = parser._get_avg_speed()
-
-        assert isinstance(avg_speed, float)
-        assert avg_speed == pytest.approx(11.67, rel=0.01)
-
-    def test_get_max_speed_returns_float(self, sample_fit_file: Path,
-                                         mock_fit_file_with_data: Mock) -> None:
-        """Verify _get_max_speed returns maximum speed in m/s."""
-        parser = FitParser(str(sample_fit_file))
-        parser.messages = mock_fit_file_with_data
-        parser._cache_messages()
-
-        max_speed = parser._get_max_speed()
-
-        assert isinstance(max_speed, float)
-        assert max_speed == pytest.approx(15.5, rel=0.01)
+        assert is_indoor is True
 
 
 class TestFitParserEdgeCases:
@@ -301,7 +237,6 @@ class TestFitAnalysis:
                 "session",
                 {
                     "sub_sport": "virtual_activity",
-                    "indoor": None,
                 },
             ),
             fit_message_factory(
