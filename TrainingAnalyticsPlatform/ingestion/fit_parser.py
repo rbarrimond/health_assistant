@@ -55,6 +55,7 @@ class FitParser:
         self.source_file_name = source_file_name
         self.source_activity_name = source_activity_name
         self.messages: List[fitdecode.FitDataMessage] = []
+        self._messages_by_type: Dict[str, List[fitdecode.FitDataMessage]] = {}
         self._file_id_msg = None
         self._session_msg = None
 
@@ -84,12 +85,14 @@ class FitParser:
                 source_desc = f"file {self.file_path}"
 
             messages: List[fitdecode.FitDataMessage] = []
+            messages_by_type: Dict[str, List[fitdecode.FitDataMessage]] = {}
             try:
                 with fitdecode.FitReader(stream, processor=fitdecode.DefaultDataProcessor()) as reader:
                     for frame in reader:
                         if not isinstance(frame, fitdecode.FitDataMessage):
                             continue
                         messages.append(frame)
+                        messages_by_type.setdefault(frame.name, []).append(frame)
             except Exception as exc:
                 raise RuntimeError(
                     f"FIT file parsing failed: {exc.__class__.__name__}: {exc}"
@@ -99,26 +102,38 @@ class FitParser:
                     stream.close()
 
             self.messages = messages
+            self._messages_by_type = messages_by_type
+            self._file_id_msg = (messages_by_type.get("file_id") or [None])[0]
+            self._session_msg = (messages_by_type.get("session") or [None])[0]
         except Exception as exc:
             if should_close and stream is not None:
                 stream.close()
             logger.error("Error parsing FIT file %s (%s): %s", self.file_path, source_desc, exc)
             raise
 
+    def _ensure_message_index(self) -> None:
+        if self._messages_by_type or not self.messages:
+            return
+        messages_by_type: Dict[str, List[fitdecode.FitDataMessage]] = {}
+        for message in self.messages:
+            messages_by_type.setdefault(message.name, []).append(message)
+        self._messages_by_type = messages_by_type
+
     def _cache_messages(self) -> None:
         """Cache frequently-accessed FIT messages for efficiency."""
         if not self.messages:
             return
-        for message in self.messages:
-            if message.name == "file_id" and not self._file_id_msg:
-                self._file_id_msg = message
-            elif message.name == "session" and not self._session_msg:
-                self._session_msg = message
+        self._ensure_message_index()
+        if not self._file_id_msg:
+            self._file_id_msg = (self._messages_by_type.get("file_id") or [None])[0]
+        if not self._session_msg:
+            self._session_msg = (self._messages_by_type.get("session") or [None])[0]
 
     def extract_canonical_records(self) -> List[Dict[str, Any]]:
         """Extract Section I canonical substrate records for parquet storage."""
         if not self.messages:
             self._load_fit_sources()
+        self._ensure_message_index()
         start_dt = self._canonical_start_dt()
 
         records: List[Dict[str, Any]] = []
@@ -182,7 +197,7 @@ class FitParser:
         if not self.messages:
             self._load_fit_sources()
 
-        message_types = [
+        message_types = {
             "file_id",
             "file_creator",
             "device_info",
@@ -191,17 +206,17 @@ class FitParser:
             "activity",
             "event",
             "workout",
-        ]
+        }
 
         raw_fit_messages: Dict[str, Any] = {}
         for message_type in message_types:
-            messages = [
+            typed_messages = self._messages_by_type.get(message_type)
+            if not typed_messages:
+                continue
+            raw_fit_messages[message_type] = [
                 self._serialize_message(message)
-                for message in self.messages
-                if message.name == message_type
+                for message in typed_messages
             ]
-            if messages:
-                raw_fit_messages[message_type] = messages
 
         # LLM enrichment placeholder - filled in by enrich_metadata_with_llm()
         llm_enrichment = {
@@ -230,8 +245,9 @@ class FitParser:
         """
         if not self.messages:
             self._load_fit_sources()
+        self._ensure_message_index()
 
-        lap_messages = [msg for msg in self.messages if msg.name == "lap"]
+        lap_messages = self._messages_by_type.get("lap", [])
         laps = [
             self._serialize_message(message, msg_index=idx)
             for idx, message in enumerate(lap_messages)
@@ -445,10 +461,8 @@ class FitParser:
 
     def _build_canonical_activity_metadata(self) -> Dict[str, Any]:
         metadata: Dict[str, Any] = {}
-        activity_msg = next(
-            (msg for msg in self.messages if msg.name == "activity"),
-            None,
-        )
+        self._ensure_message_index()
+        activity_msg = (self._messages_by_type.get("activity") or [None])[0]
         if not activity_msg:
             return metadata
 
@@ -523,10 +537,8 @@ class FitParser:
         return None
 
     def _get_activity_workout_name(self) -> Optional[str]:
-        activity_msg = next(
-            (msg for msg in self.messages if msg.name == "activity"),
-            None,
-        )
+        self._ensure_message_index()
+        activity_msg = (self._messages_by_type.get("activity") or [None])[0]
         if not activity_msg:
             return None
         for field_name in ("event_name", "name"):
@@ -805,15 +817,14 @@ class FitParser:
             file_id_manufacturer is None and file_id_product is None
         ):
             return
+        self._ensure_message_index()
 
         # Extract numeric codes from file_id
         file_id_mfr_code, _ = self._extract_code_and_name(file_id_manufacturer)
         file_id_prod_code, _ = self._extract_code_and_name(file_id_product)
 
         # Check all device_info messages for collisions
-        for device_info_msg in self.messages:
-            if device_info_msg.name != "device_info":
-                continue
+        for device_info_msg in self._messages_by_type.get("device_info", []):
             device_mfr = device_info_msg.get_value("manufacturer")
             device_prod = device_info_msg.get_value("product")
 
@@ -882,10 +893,10 @@ class FitParser:
         """Return time zone name from FIT messages, if present."""
         if not self.messages:
             return None
-        for msg in self.messages:
-            if msg.name != "time_zone":
-                continue
-            name = msg.get_value("name")
+        self._ensure_message_index()
+        time_zone_msg = (self._messages_by_type.get("time_zone") or [None])[0]
+        if time_zone_msg:
+            name = time_zone_msg.get_value("name")
             if name:
                 return str(name)
         return None
@@ -894,12 +905,12 @@ class FitParser:
         """Return device UTC offset in minutes from settings, if present."""
         if not self.messages:
             return None
-        for msg in self.messages:
-            if msg.name != "device_settings":
-                continue
+        self._ensure_message_index()
+        device_settings_msg = (self._messages_by_type.get("device_settings") or [None])[0]
+        if device_settings_msg:
             offset = (
-                msg.get_value("utc_offset")
-                or msg.get_value("timezone_offset")
+                device_settings_msg.get_value("utc_offset")
+                or device_settings_msg.get_value("timezone_offset")
             )
             if isinstance(offset, (int, float)):
                 # offset is typically seconds; convert to minutes
@@ -933,12 +944,8 @@ class FitParser:
         """Infer timezone from activity local_time vs UTC timestamp."""
         if not self.messages:
             return None
-        activity_msg = None
-        for msg in self.messages:
-            if msg.name != "activity":
-                continue
-            activity_msg = msg
-            break
+        self._ensure_message_index()
+        activity_msg = (self._messages_by_type.get("activity") or [None])[0]
         if not activity_msg:
             return None
 
@@ -969,9 +976,8 @@ class FitParser:
         """Check if GPS data (lat/lon) exists in records."""
         if not self.messages:
             return False
-        for record in self.messages:
-            if record.name != "record":
-                continue
+        self._ensure_message_index()
+        for record in self._messages_by_type.get("record", []):
             lat = record.get_value("position_lat")
             lon = record.get_value("position_long")
             if lat is not None and lon is not None:
