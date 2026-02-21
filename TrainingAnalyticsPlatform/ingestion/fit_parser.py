@@ -464,7 +464,7 @@ class FitParser:
         return {
             "sport": self._get_sport(),
             "sub_sport": self._get_sub_sport(),
-            "apple_workout_type": None,
+            "apple_workout_type": self._get_apple_workout_type(),
             "workout_name": self._get_workout_name(),
             "is_indoor": self._get_is_indoor(),
             "start_time_utc": self._get_start_time(),
