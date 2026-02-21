@@ -7,7 +7,7 @@ It shapes data for reasoning, constrains scope, and encodes how humans think abo
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TypedDict
 import numpy as np
 import pandas as pd
 
@@ -18,6 +18,14 @@ from TrainingAnalyticsPlatform.storage.table_storage import WorkoutEntity, Worko
 
 logger = logging.getLogger(__name__)
 UTC_OFFSET = "+00:00"
+
+
+class DevFieldSummary(TypedDict):
+    message_type: str
+    field: str
+    count: int
+    units: set[str]
+    sample_values: list[object]
 
 
 class SemanticLayer:
@@ -1110,19 +1118,21 @@ class SemanticLayer:
 
     def _summarize_developer_fields(self, metadata_payload: Dict) -> Dict:
         """Build a compact developer-field summary from metadata artifact."""
-        fields_by_key: Dict[str, Dict[str, object]] = {}
+        fields_by_key: Dict[str, DevFieldSummary] = {}
         for message_type, message in self._iter_metadata_messages(metadata_payload):
             for field_name, field_payload in self._iter_developer_fields(message):
                 key = f"{message_type}.{field_name}"
                 entry = fields_by_key.setdefault(
                     key,
-                    {
-                        "message_type": message_type,
-                        "field": field_name,
-                        "count": 0,
-                        "units": set(),
-                        "sample_values": [],
-                    },
+                    DevFieldSummary(
+                        {
+                            "message_type": message_type,
+                            "field": field_name,
+                            "count": 0,
+                            "units": set(),
+                            "sample_values": [],
+                        }
+                    ),
                 )
                 entry["count"] = int(entry["count"]) + 1
                 units, value = self._extract_units_and_value(field_payload)
@@ -1522,4 +1532,3 @@ class SemanticLayer:
             "workout_id": workout_id,
             "override": physiometrics_override,
         }
-

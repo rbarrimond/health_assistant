@@ -2,6 +2,7 @@
 
 ## 2026-02-20
 
+- **BREAKING CHANGE**: Remove `parse()` method and all metric computation code (~536 lines) from FitParser to enforce Canonical Data Architecture v2.2.0 principle: "Canonical Parquet stream is the single source of metric truth." FitParser is now a pure artifact extractor that only calls `extract_canonical_records()`, `extract_canonical_laps()`, `extract_metadata_messages()`, `extract_raw_fit_json()`, and `extract_fit_analysis()`. All metric computation (zones, TSS, IF, NP, VI, efficiency, decoupling) now occurs exclusively in `CanonicalAnalyticsEngine.from_dataframe()` which operates on `canonical.parquet` at read time with lazy-evaluated `@computed_field` properties. This architectural cleanup eliminates ~400 lines of duplicated computation logic, removes numpy and Config dependencies from ingestion, and enables recomputability—metrics can be recalculated with improved algorithms without re-ingesting FIT files. Migration: Any code calling `parser.parse()` must migrate to canonical extraction methods + CanonicalAnalyticsEngine. Bump ingest version to v9.0.0 for breaking API change.
 - Remove FitAdapter and legacy workout models, loading FIT messages directly via fitdecode utility; update semantic layer to load canonical records/laps parquet by workout id instead of parsing FIT messages.
 - Remove WorkoutLaps table storage and legacy per-lap record blobs; rely on canonical laps artifacts only.
 - Bump ingest version to v8.0.0 and ingestion schema to 6.0.0 for breaking ingestion/storage changes.

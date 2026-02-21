@@ -58,16 +58,6 @@ class TestFitParserInitialization:
 
         assert parser.file_path == str(sample_fit_file)
 
-    def test_init_initializes_empty_state(self, sample_fit_file: Path) -> None:
-        """Verify __init__ initializes parser state."""
-        parser = FitParser(str(sample_fit_file))
-
-        assert parser.messages is None
-        assert isinstance(parser.metrics, dict) and not parser.metrics
-        assert parser._file_id_msg is None
-        assert parser._session_msg is None
-        assert parser._records is None
-
 
 class TestFitParserCaching:
     """Tests for message caching."""
@@ -93,18 +83,6 @@ class TestFitParserCaching:
 
         assert parser._session_msg is not None
         assert parser.session_msg is not None
-
-    def test_get_records_caches_on_first_call(self, sample_fit_file: Path,
-                                              mock_fit_file_with_records: Mock) -> None:
-        """Verify _get_records caches results."""
-        parser = FitParser(str(sample_fit_file))
-        parser.messages = mock_fit_file_with_records
-
-        records1 = parser.records
-        records2 = parser.records
-
-        # Should return same object (cached)
-        assert records1 is records2
 
 
 class TestFitParserFieldExtraction:
@@ -307,210 +285,6 @@ class TestFitParserSpeedExtraction:
         assert max_speed == pytest.approx(15.5, rel=0.01)
 
 
-class TestFitParserHeartRateExtraction:
-    """Tests for heart rate field extraction."""
-
-    def test_get_hr_avg_returns_int(self, sample_fit_file: Path,
-                                    mock_fit_file_with_records: Mock) -> None:
-        """Verify _get_hr_avg returns average heart rate in bpm."""
-        parser = FitParser(str(sample_fit_file))
-        parser.messages = mock_fit_file_with_records
-        parser._cache_messages()
-
-        hr_avg = parser._get_hr_avg()
-
-        assert isinstance(hr_avg, float)
-        # Average computed from record data
-        assert 155 < hr_avg < 157
-
-    def test_get_hr_max_returns_int(self, sample_fit_file: Path,
-                                    mock_fit_file_with_records: Mock) -> None:
-        """Verify _get_hr_max returns maximum heart rate in bpm."""
-        parser = FitParser(str(sample_fit_file))
-        parser.messages = mock_fit_file_with_records
-        parser._cache_messages()
-
-        hr_max = parser._get_hr_max()
-
-        assert isinstance(hr_max, float)
-        # Max of [140, 145, 150, 155, 160, 165, 170, 165, 160, 155] = 170
-        assert hr_max == pytest.approx(170.0, rel=0.01)
-
-
-class TestFitParserRecordDataExtraction:
-    """Tests for record message data extraction."""
-
-    def test_get_record_data_extracts_all_values(self, sample_fit_file: Path,
-                                                 mock_fit_file_with_records: Mock) -> None:
-        """Verify _get_record_data extracts array of values from records."""
-        parser = FitParser(str(sample_fit_file))
-        parser.messages = mock_fit_file_with_records
-        parser._cache_messages()
-
-        heart_rates = parser._get_record_data("heart_rate")
-
-        assert len(heart_rates) == 10
-        assert all(isinstance(hr, int) for hr in heart_rates)
-        assert heart_rates[0] == 140
-
-    def test_get_record_data_returns_empty_list_no_data(self, sample_fit_file: Path,
-                                                        mock_fit_file_with_records: Mock) -> None:
-        """Verify _get_record_data returns empty list if field missing."""
-        parser = FitParser(str(sample_fit_file))
-        parser.messages = mock_fit_file_with_records
-        parser._cache_messages()
-
-        missing_field = parser._get_record_data("nonexistent_field")
-
-        assert isinstance(missing_field, list) and not missing_field
-
-
-class TestFitParserZoneComputation:
-    """Tests for HR and power zone computation."""
-
-    def test_get_hr_zones_hrmax_basis(self, sample_fit_file: Path) -> None:
-        """Verify _get_hr_zones returns correct zones for HRmax method."""
-        parser = FitParser(str(sample_fit_file))
-
-        zones = parser._get_hr_zones("HRmax", 200)
-
-        assert len(zones) == 5
-        assert zones["hr_z1"] == (100, 120)
-        assert zones["hr_z2"] == (120, 140)
-        assert zones["hr_z5"] == (180, 200)
-
-    def test_get_hr_zones_lthr_basis(self, sample_fit_file: Path) -> None:
-        """Verify _get_hr_zones returns correct zones for LTHR method."""
-        parser = FitParser(str(sample_fit_file))
-
-        zones = parser._get_hr_zones("LTHR", 180)
-
-        assert len(zones) == 5
-        assert zones["hr_z1"][0] == 117  # 180 * 0.65
-
-    def test_get_hr_zones_hrr_basis(self, sample_fit_file: Path) -> None:
-        """Verify _get_hr_zones returns correct zones for HRR (Karvonen) method."""
-        parser = FitParser(str(sample_fit_file))
-
-        zones = parser._get_hr_zones("HRR", 200, hr_rest=60)
-
-        assert len(zones) == 5
-        # HRR = 200 - 60 = 140  # noqa: S125
-        # Z1: 140 * 0.50 + 60 = 130
-        assert zones["hr_z1"][0] == 130
-
-    def test_get_reference_bpm_uses_provided_value(self, sample_fit_file: Path) -> None:
-        """Verify _get_reference_bpm returns provided reference_bpm."""
-        parser = FitParser(str(sample_fit_file))
-
-        ref = parser._get_reference_bpm("HRmax", reference_bpm=190)
-
-        assert ref == 190
-
-    def test_get_reference_bpm_derives_from_metrics(self, sample_fit_file: Path) -> None:
-        """Verify _get_reference_bpm derives from metrics if not provided."""
-        parser = FitParser(str(sample_fit_file))
-        parser.metrics = {"hr_max_bpm": 185}
-
-        ref = parser._get_reference_bpm("HRmax")
-
-        assert ref == 185
-
-    def test_get_reference_bpm_applies_lthr_factor(self, sample_fit_file: Path) -> None:
-        """Verify _get_reference_bpm applies 90% factor for LTHR."""
-        parser = FitParser(str(sample_fit_file))
-        parser.metrics = {"hr_max_bpm": 200}
-
-        ref = parser._get_reference_bpm("LTHR")
-
-        assert ref == pytest.approx(180.0, rel=0.01)  # 200 * 0.90
-
-    def test_compute_hr_zones_missing_data(self, sample_fit_file: Path) -> None:
-        """Verify _compute_hr_zones handles missing heart rate data."""
-        parser = FitParser(str(sample_fit_file))
-        parser.metrics = {}
-
-        # Should return early without error
-        parser._compute_hr_zones()
-
-        # No zones should be computed
-        assert not any(k.startswith("hr_z") for k in parser.metrics)
-
-
-class TestFitParserFullParse:
-    """Integration tests for full parse workflow."""
-
-    def test_parse_returns_dict(self, sample_fit_file: Path,
-                               mock_fit_file_with_records: Mock) -> None:
-        """Verify parse() returns a dictionary."""
-        parser = FitParser(str(sample_fit_file))
-
-        with patch(
-            "TrainingAnalyticsPlatform.ingestion.fit_parser.load_fit_messages",
-            return_value=(mock_fit_file_with_records, "mock_file"),
-        ):
-            result = parser.parse()
-
-        assert isinstance(result, dict)
-
-    def test_parse_includes_required_keys(self, sample_fit_file: Path,
-                                         mock_fit_file_with_records: Mock) -> None:
-        """Verify parse() includes expected metric keys."""
-        parser = FitParser(str(sample_fit_file))
-
-        with patch(
-            "TrainingAnalyticsPlatform.ingestion.fit_parser.load_fit_messages",
-            return_value=(mock_fit_file_with_records, "mock_file"),
-        ):
-            result = parser.parse()
-
-        required_keys = [
-            "sport", "sub_sport", "device_name",
-            "start_time_utc", "duration_sec", "distance_m",
-            "elevation_gain_m", "avg_speed_mps", "max_speed_mps",
-            "hr_avg_bpm", "hr_max_bpm"
-        ]
-
-        for key in required_keys:
-            assert key in result
-
-    def test_parse_extracts_sport_correctly(self, sample_fit_file: Path,
-                                           mock_fit_file_with_records: Mock) -> None:
-        """Verify parse() correctly extracts sport from file."""
-        parser = FitParser(str(sample_fit_file))
-
-        with patch(
-            "TrainingAnalyticsPlatform.ingestion.fit_parser.load_fit_messages",
-            return_value=(mock_fit_file_with_records, "mock_file"),
-        ):
-            result = parser.parse()
-
-        assert result["sport"] == "cycling"
-        assert result["sub_sport"] == "road"
-
-    def test_parse_computes_hr_zones_when_data_available(self, sample_fit_file: Path,
-                                                          mock_fit_file_with_records: Mock) -> None:
-        """Verify parse() computes HR zones when HR data exists."""
-        parser = FitParser(str(sample_fit_file))
-        parser.metrics = {"hr_max_bpm": 185}
-
-        with patch(
-            "TrainingAnalyticsPlatform.ingestion.fit_parser.load_fit_messages",
-            return_value=(mock_fit_file_with_records, "mock_file"),
-        ):
-            result = parser.parse()
-
-        # Should have computed HR zones
-        assert "hr_zone_basis" in result or result.get("hr_avg_bpm") is None
-
-    def test_parse_handles_missing_fit_file(self, tmp_path: Path) -> None:
-        """Verify parse() handles file not found error."""
-        parser = FitParser(str(tmp_path / "nonexistent.fit"))
-
-        with pytest.raises(Exception):
-            parser.parse()
-
-
 class TestFitParserEdgeCases:
     """Tests for edge cases and error conditions."""
 
@@ -541,31 +315,12 @@ class TestFitParserEdgeCases:
         # Should return 0, not None
         assert result == 0
 
-    def test_none_record_data_handling(self, sample_fit_file: Path) -> None:
-        """Verify _get_record_data filters out None values."""
-        parser = FitParser(str(sample_fit_file))
-
-        # Create record messages with None and valid values
-        messages = [
-            {"name": "record", "frame": MagicMock(developer_fields=[]), "fields": {"test_field": MagicMock(value=100)}},
-            {"name": "record", "frame": MagicMock(developer_fields=[]), "fields": {}},  # Missing field
-            {"name": "record", "frame": MagicMock(developer_fields=[]), "fields": {"test_field": MagicMock(value=150)}},
-            {"name": "record", "frame": MagicMock(developer_fields=[]), "fields": {"test_field": MagicMock(value=200)}},
-        ]
-        parser.messages = messages
-        parser._cache_messages()
-
-        data = parser._get_record_data("test_field")
-
-        # Should only include non-None values
-        assert len(data) == 3
-        assert data == [100, 150, 200]
-
 
 class TestFitMessageLoading:
     """Tests for FitParser loading FIT messages directly."""
 
     def test_load_fit_sources_sets_messages(self, tmp_path: Path) -> None:
+        """Verify _load_fit_sources loads messages and sets self.messages."""
         parser = FitParser(str(tmp_path / "sample.fit"))
 
         messages = [
@@ -586,6 +341,7 @@ class TestFitAnalysis:
     """Tests for extract_fit_analysis payload."""
 
     def test_extract_fit_analysis_contains_structured_sections(self, sample_fit_file: Path) -> None:
+        """Verify extract_fit_analysis returns payload with expected sections."""
         parser = FitParser(str(sample_fit_file))
         dev_field = MagicMock()
         dev_field.name = "pedal_smoothness"

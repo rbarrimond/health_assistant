@@ -1,5 +1,5 @@
 """Parse FIT files and extract workout metrics."""
-# pylint: disable=too-many-lines
+# pylint: disable=too-many-lines, trailing-whitespace
 
 import hashlib
 import logging
@@ -7,10 +7,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, cast
 
-import numpy as np
-
-
-from TrainingAnalyticsPlatform.platform.config import Config
 from .fit_message_utils import load_fit_messages
 from .constants import LAPS_SCHEMA_VERSION, METADATA_SCHEMA_VERSION
 from .fit_analyzer import FitStructureAnalyzer
@@ -58,10 +54,8 @@ class FitParser:
         self.source_file_name = source_file_name
         self.source_activity_name = source_activity_name
         self.messages = None
-        self.metrics = {}
         self._file_id_msg = None
         self._session_msg = None
-        self._records = None
 
     @property
     def file_id_msg(self):
@@ -73,46 +67,6 @@ class FitParser:
         """Cached session message (None if unavailable)."""
         return self._session_msg
 
-    @property
-    def records(self) -> List:
-        """Cached list of record messages (lazily loaded)."""
-        if self._records is None:
-            self._records = [msg for msg in (self.messages or []) if msg["name"] == "record"]
-        return self._records
-
-    def parse(self) -> Dict:
-        """
-        Parse FIT file and extract workout metrics.
-
-        Returns:
-            Dict with parsed workout data
-        """
-        self._load_fit_sources()
-        self._cache_messages()
-        self.metrics = self._build_metrics()
-
-        # Extract resting HR if available
-        hr_resting = self._extract_hr_resting()
-        if hr_resting:
-            self.metrics["hr_resting_bpm"] = hr_resting
-
-        # Capture physiometrics snapshot timestamp (before zone computation)
-        # This links the workout to the exact config used
-        self.metrics["physiometrics_snapshot_timestamp"] = (
-            datetime.now(timezone.utc).isoformat()
-        )
-
-        # Compute zones if data available
-        if self.metrics.get("hr_avg_bpm"):
-            self._compute_hr_zones()
-        if self.metrics.get("pwr_avg_watts"):
-            self._compute_power_zones()
-
-        # Compute aerobic efficiency metrics
-        self._compute_aerobic_efficiency()
-
-        return self.metrics
-
     def _load_fit_sources(self) -> None:
         """Load FIT messages from file or bytes."""
         try:
@@ -121,101 +75,6 @@ class FitParser:
         except Exception as e:
             logger.error("Error parsing FIT file %s: %s", self.file_path, e)
             raise
-
-    def _build_metrics(self) -> Dict:
-        """Assemble metric dictionary from raw messages."""
-        return self._build_base_metrics(None) | self._build_sample_metrics()
-
-    def _session_or_fallback(self, session_value, fallback_fn):
-        """Return session value if present, otherwise call fallback function."""
-        return session_value if session_value is not None else fallback_fn()
-
-    def _build_session_metrics(self, session) -> Dict:
-        """Build session-level time and identification metrics."""
-        return {
-            "sport": self._session_or_fallback(
-                session.sport if session else None, self._get_sport
-            ),
-            "sub_sport": self._session_or_fallback(
-                session.sub_sport if session else None, self._get_sub_sport
-            ),
-            "apple_workout_type": self._session_or_fallback(
-                session.apple_workout_type if session else None,
-                self._get_apple_workout_type
-            ),
-            "workout_name": self._session_or_fallback(
-                session.workout_name if session else None,
-                self._get_workout_name
-            ),
-            "device_name": self._get_device_name(),
-            "is_indoor": self._session_or_fallback(
-                session.is_indoor if session else None, self._get_is_indoor
-            ),
-            "start_time_utc": self._session_or_fallback(
-                session.start_time_utc if session else None,
-                self._get_start_time
-            ),
-            "timezone": self._session_or_fallback(
-                session.timezone if session else None, self._get_timezone
-            ),
-            "duration_sec": self._session_or_fallback(
-                session.duration_sec if session else None, self._get_duration
-            ),
-            "moving_time_sec": self._session_or_fallback(
-                session.moving_time_sec if session else None,
-                self._get_moving_time
-            ),
-        }
-
-    def _build_distance_metrics(self, session) -> Dict:
-        """Build distance, elevation, and speed metrics."""
-        return {
-            "has_gps": self._has_gps_data(),
-            "distance_m": self._session_or_fallback(
-                session.distance_m if session else None, self._get_distance
-            ),
-            "elevation_gain_m": self._session_or_fallback(
-                session.elevation_gain_m if session else None,
-                self._get_elevation_gain
-            ),
-            "elevation_loss_m": self._session_or_fallback(
-                session.elevation_loss_m if session else None,
-                self._get_elevation_loss
-            ),
-            "avg_speed_mps": self._session_or_fallback(
-                session.avg_speed_mps if session else None, self._get_avg_speed
-            ),
-            "max_speed_mps": self._session_or_fallback(
-                session.max_speed_mps if session else None, self._get_max_speed
-            ),
-            "calories_kcal": self._session_or_fallback(
-                session.calories_kcal if session else None, self._get_calories
-            ),
-        }
-
-    def _build_base_metrics(self, session) -> Dict:
-        """Build combined base metrics from session and distance data."""
-        metrics = self._build_session_metrics(session)
-        metrics.update(self._build_distance_metrics(session))
-        return metrics
-
-    def _build_sample_metrics(self) -> Dict:
-        """Build sample-based metrics from records."""
-        return {
-            "hr_avg_bpm": self._get_hr_avg(),
-            "hr_max_bpm": self._get_hr_max(),
-            "hr_samples_count": self._get_hr_samples_count(),
-            "hr_missing_pct": self._get_hr_missing_pct(),
-            "pwr_avg_watts": self._get_power_avg(),
-            "pwr_max_watts": self._get_power_max(),
-            "pwr_normalized_watts": self._get_power_normalized(),
-            "pwr_variability_index": self._get_power_vi(),
-            "pwr_samples_count": self._get_power_samples_count(),
-            "pwr_missing_pct": self._get_power_missing_pct(),
-            "cad_avg_rpm": self._get_cadence_avg(),
-            "cad_max_rpm": self._get_cadence_max(),
-            "cad_samples_count": self._get_cadence_samples_count(),
-        }
 
     def _cache_messages(self) -> None:
         """Cache frequently-accessed FIT messages for efficiency."""
@@ -234,18 +93,6 @@ class FitParser:
         if message_name is None:
             return list(self.messages)
         return [msg for msg in self.messages if msg["name"] == message_name]
-
-    # Removed Java-style getters in favor of properties above
-
-    def _get_record_data(self, field_name: str) -> List:
-        """Extract all values for a field from record messages."""
-        values: List = []
-        for record in self.records:
-            fields = record.get("fields", {})
-            field = fields.get(field_name)
-            if field:
-                values.append(field.value)
-        return values
 
     def _get_field_from_msg(self, msg: Optional[Dict], field_name: str) -> Optional[Any]:
         """Safely get a field value from a FIT message dict."""
@@ -484,7 +331,7 @@ class FitParser:
 
         _ = fit_analysis
         # LLM enrichment pending; prompt and output contract not finalized yet.
-        
+       
         logger.debug("LLM enrichment not yet implemented; returning metadata with pending status")
         return metadata_json
 
@@ -1249,7 +1096,7 @@ class FitParser:
 
     def _has_gps_data(self) -> bool:
         """Check if GPS data (lat/lon) exists in records."""
-        for record in self.records:
+        for record in self._get_messages("record"):
             fields = record.get("fields", {})
             lat = fields.get("position_lat")
             lon = fields.get("position_long")
@@ -1288,394 +1135,11 @@ class FitParser:
         speed = self._get_field_from_msg(session, "max_speed")
         return float(speed) if speed is not None else None
 
-    def _get_hr_avg(self) -> Optional[float]:
-        """Get average heart rate."""
-        hrs = self._get_record_data("heart_rate")
-        if not hrs:
-            return None
-        hrs_array = np.array(hrs)
-        return float(np.round(np.mean(hrs_array), 1))
-
-    def _get_hr_max(self) -> Optional[float]:
-        """Get max heart rate."""
-        hrs = self._get_record_data("heart_rate")
-        if not hrs:
-            return None
-        return float(np.max(hrs))
-
-    def _get_hr_samples_count(self) -> int:
-        """Get count of HR samples."""
-        return len(self._get_record_data("heart_rate"))
-
-    def _get_hr_missing_pct(self) -> Optional[float]:
-        """Calculate percent of missing HR samples."""
-        duration = self._get_duration()
-        samples = self._get_hr_samples_count()
-        if duration and samples:
-            expected = duration  # Typically sampled once per second
-            return round(
-                (1 - samples / expected) * 100,
-                1) if expected > 0 else 0.0
-        return None
-
-    def _get_power_avg(self) -> Optional[float]:
-        """Get average power."""
-        powers = self._get_record_data("power")
-        if not powers:
-            return None
-        powers_array = np.array(powers)
-        return float(np.round(np.mean(powers_array), 1))
-
-    def _get_power_max(self) -> Optional[float]:
-        """Get max power."""
-        powers = self._get_record_data("power")
-        if not powers:
-            return None
-        return float(np.max(powers))
-
-    def _get_power_normalized(self) -> Optional[float]:
-        """Compute Normalized Power (simplified 30s rolling avg)."""
-        powers = self._get_record_data("power")
-        if not powers or len(powers) < 30:
-            return None
-
-        # Simplified: use 4th power mean
-        powers_array = np.array(powers)
-        np_sum = np.mean(powers_array ** 4)
-        return float(np.round(np_sum ** 0.25, 1)) if np_sum > 0 else None
-
-    def _get_power_vi(self) -> Optional[float]:
-        """Calculate Variability Index (NP / AP)."""
-        normalized_power = self._get_power_normalized()
-        average_power = self._get_power_avg()
-        if normalized_power and average_power and average_power > 0:
-            return round(normalized_power / average_power, 2)
-        return None
-
-    def _get_power_samples_count(self) -> int:
-        """Get count of power samples."""
-        return len(self._get_record_data("power"))
-
-    def _get_power_missing_pct(self) -> Optional[float]:
-        """Calculate percent of missing power samples."""
-        duration = self._get_duration()
-        samples = self._get_power_samples_count()
-        if duration and samples:
-            expected = duration
-            return round(
-                (1 - samples / expected) * 100,
-                1) if expected > 0 else 0.0
-        return None
-
-    def _get_cadence_avg(self) -> Optional[float]:
-        """Get average cadence."""
-        cads = self._get_record_data("cadence")
-        if not cads:
-            return None
-        cads_array = np.array(cads)
-        return float(np.round(np.mean(cads_array), 1))
-
-    def _get_cadence_max(self) -> Optional[float]:
-        """Get max cadence."""
-        cads = self._get_record_data("cadence")
-        if not cads:
-            return None
-        return float(np.max(cads))
-
-    def _get_cadence_samples_count(self) -> int:
-        """Get count of cadence samples."""
-        return len(self._get_record_data("cadence"))
-
     def _get_calories(self) -> Optional[float]:
-        """Get total calories."""
+        """Get total calories from session message."""
         session = self.session_msg
         calories = self._get_field_from_msg(session, "total_calories")
         return float(calories) if calories is not None else None
-
-    def _get_hr_zones(self, zone_basis: str, reference_bpm: float,
-                      hr_rest: Optional[float] = None) -> Dict[str, tuple]:
-        """Get HR zone boundaries based on calculation method."""
-        if zone_basis == "HRmax":
-            return {
-                "hr_z1": (int(reference_bpm * 0.50), int(reference_bpm * 0.60)),
-                "hr_z2": (int(reference_bpm * 0.60), int(reference_bpm * 0.70)),
-                "hr_z3": (int(reference_bpm * 0.70), int(reference_bpm * 0.80)),
-                "hr_z4": (int(reference_bpm * 0.80), int(reference_bpm * 0.90)),
-                "hr_z5": (int(reference_bpm * 0.90), int(reference_bpm * 1.00)),
-            }
-        if zone_basis == "LTHR":
-            return {
-                "hr_z1": (int(reference_bpm * 0.65), int(reference_bpm * 0.81)),
-                "hr_z2": (int(reference_bpm * 0.81), int(reference_bpm * 0.90)),
-                "hr_z3": (int(reference_bpm * 0.90), int(reference_bpm * 0.94)),
-                "hr_z4": (int(reference_bpm * 0.94), int(reference_bpm * 1.00)),
-                "hr_z5": (int(reference_bpm * 1.00), int(reference_bpm * 1.06)),
-            }
-        if zone_basis == "HRR":
-            rest_hr = hr_rest if hr_rest else 60
-            hr_reserve = reference_bpm - rest_hr
-            return {
-                "hr_z1": (int(hr_reserve * 0.50 + rest_hr), int(hr_reserve * 0.60 + rest_hr)),
-                "hr_z2": (int(hr_reserve * 0.60 + rest_hr), int(hr_reserve * 0.70 + rest_hr)),
-                "hr_z3": (int(hr_reserve * 0.70 + rest_hr), int(hr_reserve * 0.80 + rest_hr)),
-                "hr_z4": (int(hr_reserve * 0.80 + rest_hr), int(hr_reserve * 0.90 + rest_hr)),
-                "hr_z5": (int(hr_reserve * 0.90 + rest_hr), int(hr_reserve * 1.00 + rest_hr)),
-            }
-        return {}
-
-    def _get_reference_bpm(
-            self,
-            zone_basis: str,
-            reference_bpm: Optional[float] = None) -> Optional[float]:
-        """Determine reference BPM for zone calculation."""
-        if reference_bpm is not None:
-            return reference_bpm
-
-        hr_max = self.metrics.get("hr_max_bpm")
-        if not hr_max:
-            return None
-
-        if zone_basis == "LTHR":
-            return hr_max * 0.90
-        return hr_max if zone_basis in ("HRmax", "HRR") else None
-
-    def _compute_hr_zones(self):
-        """
-        Compute time in HR zones using configured basis method.
-        Configuration is loaded from Config.hr_config().
-        """
-        hrs = self._get_record_data("heart_rate")
-        if not hrs:
-            return
-
-        # Load HR configuration
-        hr_cfg = Config.hr_config()
-        zone_basis = hr_cfg.basis
-        hr_rest = hr_cfg.resting_hr_bpm
-
-        # Determine reference BPM based on zone basis
-        if zone_basis == "LTHR":
-            ref_bpm = hr_cfg.lthr_bpm
-        elif zone_basis == "HRR":
-            ref_bpm = hr_cfg.hr_max_bpm
-        else:  # HRmax
-            ref_bpm = hr_cfg.hr_max_bpm
-
-        # Fallback to detected max HR if config value not available
-        if not ref_bpm:
-            ref_bpm = self.metrics.get("hr_max_bpm")
-        if not ref_bpm:
-            return
-
-        zones = self._get_hr_zones(zone_basis, ref_bpm, hr_rest)
-        if not zones:
-            return
-
-        # Calculate time in each zone with a single vectorized pass
-        total_sec = 0
-        hrs_array = np.asarray(hrs)
-        zone_bounds = list(zones.values())
-        lows = np.array([low for low, _ in zone_bounds], dtype=float)
-        highs = np.array([high for _, high in zone_bounds], dtype=float)
-        in_range = (hrs_array >= lows[0]) & (hrs_array <= highs[-1])
-        hrs_valid = hrs_array[in_range]
-        if hrs_valid.size:
-            bin_indices = np.digitize(hrs_valid, highs, right=True)
-            counts = np.bincount(bin_indices, minlength=len(highs))[:len(highs)]
-        else:
-            counts = np.zeros(len(highs), dtype=int)
-
-        for i, (zone_name, (low, high)) in enumerate(zones.items(), 1):
-            count = int(counts[i - 1])
-            self.metrics[f"{zone_name}_sec"] = count
-            self.metrics[f"hr_z{i}_low_bpm"] = float(low)
-            self.metrics[f"hr_z{i}_high_bpm"] = float(high)
-            total_sec += count
-
-        self.metrics["hr_zone_total_sec"] = total_sec
-
-        # Map zone basis to researcher/author name
-        basis_to_model = {
-            "LTHR": "coggan",
-            "HRmax": "karvonen",
-            "HRR": "karvonen",
-        }
-        self.metrics["hr_zone_model"] = basis_to_model.get(zone_basis, "unknown")
-        self.metrics["hr_zone_basis"] = zone_basis
-        self.metrics["hr_zone_reference_bpm"] = float(ref_bpm)
-
-    def _compute_power_zones(self):
-        """Compute time in power zones (simplified 7-zone Coggan model)."""
-        # Extract FTP from user profile or config, default to 250W
-        ftp = self._extract_ftp()
-        if not ftp:
-            pwr_cfg = Config.power_config()
-            ftp = pwr_cfg.ftp_watts or 250
-
-        powers = self._get_record_data("power")
-        if not powers:
-            return
-
-        zones = {
-            "pwr_z1": (0, int(ftp * 0.55)),
-            "pwr_z2": (int(ftp * 0.55), int(ftp * 0.75)),
-            "pwr_z3": (int(ftp * 0.75), int(ftp * 0.90)),
-            "pwr_z4": (int(ftp * 0.90), int(ftp * 1.05)),
-            "pwr_z5": (int(ftp * 1.05), int(ftp * 1.20)),
-            "pwr_z6": (int(ftp * 1.20), int(ftp * 1.50)),
-            "pwr_z7": (int(ftp * 1.50), 99999),
-        }
-
-        total_sec = 0
-        powers_array = np.asarray(powers)
-        zone_bounds = list(zones.values())
-        lows = np.array([low for low, _ in zone_bounds], dtype=float)
-        highs = np.array([high for _, high in zone_bounds], dtype=float)
-        in_range = (powers_array >= lows[0]) & (powers_array <= highs[-1])
-        powers_valid = powers_array[in_range]
-        if powers_valid.size:
-            bin_indices = np.digitize(powers_valid, highs, right=False)
-            counts = np.bincount(bin_indices, minlength=len(highs))[:len(highs)]
-        else:
-            counts = np.zeros(len(highs), dtype=int)
-
-        for i, (zone_name, (low, high)) in enumerate(zones.items(), 1):
-            count = int(counts[i - 1])
-            self.metrics[f"{zone_name}_sec"] = count
-            # Store zone boundaries for Power BI interpretability
-            self.metrics[f"pwr_z{i}_low_w"] = float(low)
-            self.metrics[f"pwr_z{i}_high_w"] = float(
-                high if high != 99999 else ftp * 2)
-            total_sec += count
-
-        self.metrics["pwr_zone_total_sec"] = total_sec
-        low_aerobic = self.metrics.get(
-            "pwr_z1_sec", 0) + self.metrics.get("pwr_z2_sec", 0)
-        intensity = sum(
-            self.metrics.get(
-                f"pwr_z{i}_sec",
-                0) for i in range(
-                4,
-                8))
-        self.metrics["low_aerobic_sec"] = low_aerobic
-        self.metrics["intensity_sec"] = intensity
-        self.metrics["pwr_zone_model"] = "coggan_7"
-        self.metrics["ftp_watts"] = ftp
-
-        # Compute training load metrics
-        self._compute_training_load(ftp)
-
-    def _compute_training_load(self, ftp: float) -> None:
-        """
-        Compute training load metrics (TSS, IF).
-
-        Args:
-            ftp: Functional Threshold Power in watts
-        """
-        normalized_power = self.metrics.get("pwr_normalized_watts")
-        duration_sec = self.metrics.get("duration_sec")
-
-        if not normalized_power or not duration_sec or not ftp or ftp <= 0:
-            return
-
-        # Intensity Factor (IF) = NP / FTP
-        intensity_factor = normalized_power / ftp
-        self.metrics["intensity_factor"] = round(intensity_factor, 3)
-
-        # Training Stress Score (TSS) = (duration_hours * NP * IF * 100) / FTP
-        duration_hours = duration_sec / 3600
-        tss = (duration_hours * normalized_power *
-               intensity_factor * 100) / ftp
-        self.metrics["tss"] = round(tss, 1)
-
-    def _compute_aerobic_efficiency(self) -> None:
-        """
-        Compute aerobic efficiency and decoupling metrics.
-        Requires minimum 30 minutes duration with HR and power data.
-        """
-        duration_sec = self.metrics.get("duration_sec")
-        if not duration_sec or duration_sec < 1800:  # 30 minutes minimum
-            return
-
-        hrs = self._get_record_data("heart_rate")
-        powers = self._get_record_data("power")
-
-        if not hrs or not powers or len(hrs) < 30 or len(powers) < 30:
-            return
-
-        # Ensure equal lengths
-        min_len = min(len(hrs), len(powers))
-        hrs_array = np.asarray(hrs[:min_len])
-        powers_array = np.asarray(powers[:min_len])
-
-        # Split into halves
-        mid_point = min_len // 2
-        hrs_first = hrs_array[:mid_point]
-        powers_first = powers_array[:mid_point]
-        hrs_second = hrs_array[mid_point:]
-        powers_second = powers_array[mid_point:]
-
-        # Compute average HR and power for each half
-        avg_hr_first = float(np.mean(hrs_first))
-        avg_pwr_first = float(np.mean(powers_first))
-        avg_hr_second = float(np.mean(hrs_second))
-        avg_pwr_second = float(np.mean(powers_second))
-
-        if avg_hr_first <= 0 or avg_hr_second <= 0:
-            return
-
-        # Efficiency Factor (EF) = Power / HR
-        ef_first = avg_pwr_first / avg_hr_first
-        ef_second = avg_pwr_second / avg_hr_second
-        ef_overall = (avg_pwr_first + avg_pwr_second) / \
-            (avg_hr_first + avg_hr_second)
-
-        self.metrics["ef_first_half"] = round(ef_first, 3)
-        self.metrics["ef_second_half"] = round(ef_second, 3)
-        self.metrics["ef_overall"] = round(ef_overall, 3)
-
-        # HR drift
-        hr_drift = avg_hr_second - avg_hr_first
-        self.metrics["hr_drift_bpm"] = round(hr_drift, 1)
-
-        # Decoupling % = ((EF_second / EF_first) - 1) * 100
-        # Negative decoupling = efficiency decreased (HR increased relative to
-        # power)
-        if ef_first > 0:
-            decoupling_pct = ((ef_second / ef_first) - 1) * 100
-            self.metrics["decoupling_pct"] = round(decoupling_pct, 2)
-
-    def _extract_hr_resting(self) -> Optional[float]:
-        """Extract resting heart rate from FIT file if available."""
-        if not self.messages:
-            return None
-
-        # Check user profile messages for resting HR
-        for msg in self._get_messages("user_profile"):
-            resting_hr = self._get_field_from_msg(msg, "resting_heart_rate")
-            if resting_hr:
-                return float(resting_hr)
-
-        # Check monitoring messages (less common in workout files)
-        for msg in self._get_messages("monitoring"):
-            resting_hr = self._get_field_from_msg(msg, "resting_heart_rate")
-            if resting_hr:
-                return float(resting_hr)
-
-        return None
-
-    def _extract_ftp(self) -> Optional[float]:
-        """Extract FTP (Functional Threshold Power) from FIT file if available."""
-        if not self.messages:
-            return None
-
-        # Check user profile messages for FTP
-        for msg in self._get_messages("user_profile"):
-            ftp = self._get_field_from_msg(msg, "functional_threshold_power")
-            if ftp:
-                return float(ftp)
-
-        return None
 
 
 def compute_file_hash(file_path: str) -> str:
