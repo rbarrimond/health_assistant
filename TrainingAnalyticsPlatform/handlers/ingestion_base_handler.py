@@ -97,8 +97,7 @@ class FitIngestionBaseHandler(ABC):
         parser = FitParser(
             file_path=file_path,
             file_bytes=file_bytes,
-            source_file_name=source_info.get("source_file_name"),
-            source_activity_name=source_info.get("source_activity_name"),
+            source_metadata=source_info,
         )
         metadata = parser.extract_canonical_metadata()
         source_info["normalized_source_system"] = self._normalize_source_system(

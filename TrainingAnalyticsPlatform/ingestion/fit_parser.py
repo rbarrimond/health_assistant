@@ -1,34 +1,22 @@
 """Parse FIT files and extract workout metrics."""
-# pylint: disable=too-many-lines, trailing-whitespace
+# Refactored to use fit_models Pydantic hierarchy
+# pylint: disable=trailing-whitespace, trailing-newlines
 
 import hashlib
-import io
 import logging
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, cast
+from typing import Any, Dict, List, Optional
 
-import fitdecode
-from .constants import LAPS_SCHEMA_VERSION, METADATA_SCHEMA_VERSION
+from .fit_models import BaseFitModel, create_fit_model
 from .fit_analyzer import FitStructureAnalyzer
-from .apple_workout_types import AppleWorkoutTypeResolver
-from .code_mappings import (
-    get_apple_product_name,
-    get_garmin_product_name,
-    get_favero_product_name,
-    MANUFACTURER_CODES,
-)
-from .timezone_utils import (
-    infer_timezone_from_activity,
-    infer_timezone_from_session,
-    resolve_timezone,
-)
 
 logger = logging.getLogger(__name__)
 
 
 class FitParser:
-    """Parser for FIT format workout files."""
+    """Lightweight facade for FIT parsing delegating to fit_models hierarchy.
+    
+    Maintains backward compatibility while delegating heavy logic to Pydantic models.
+    """
 
     def __init__(
         self,
@@ -36,314 +24,82 @@ class FitParser:
         source_file_name: Optional[str] = None,
         file_bytes: Optional[bytes] = None,
         source_activity_name: Optional[str] = None,
+        source_metadata: Optional[Dict[str, Any]] = None,
     ):
-        """Initialize FIT parser with file path or in-memory bytes.
+        """Initialize FIT parser by creating underlying model.
 
         Args:
             file_path: Path to the FIT file
-            source_file_name: Optional original filename
-                (e.g., from OneDrive) for metadata extraction
+            source_file_name: Optional original filename (legacy param, prefer source_metadata)
             file_bytes: Optional in-memory FIT bytes
-            source_activity_name: Optional activity name from source system
-                (e.g., Garmin Connect API activityName)
+            source_activity_name: Optional activity name (legacy param, prefer source_metadata)
+            source_metadata: Optional dict with source-specific fields (recommended)
         """
         if not file_path and file_bytes is None:
             raise ValueError("file_path or file_bytes must be provided")
-
+        
+        # Build source_metadata from kwargs for backward compatibility
+        if source_metadata is None:
+            source_metadata = {}
+        if source_file_name and "source_file_name" not in source_metadata:
+            source_metadata["source_file_name"] = source_file_name
+        if source_activity_name and "source_activity_name" not in source_metadata:
+            source_metadata["source_activity_name"] = source_activity_name
+        
+        self.model: BaseFitModel = create_fit_model(
+            source_metadata=source_metadata,
+            file_path=file_path,
+            file_bytes=file_bytes,
+        )
+        
+        # Legacy attributes for backward compatibility
         self.file_path = file_path or "<in-memory>"
         self.file_bytes = file_bytes
         self.source_file_name = source_file_name
         self.source_activity_name = source_activity_name
-        self.messages: List[fitdecode.FitDataMessage] = []
-        self._messages_by_type: Dict[str, List[fitdecode.FitDataMessage]] = {}
-        self._rr_interval_by_second: Dict[int, float] = {}
-        self._file_id_msg = None
-        self._session_msg = None
-
+    
     @property
     def file_id_msg(self):
-        """Cached file_id message (None if unavailable)."""
-        return self._file_id_msg
-
+        """Cached file_id message (delegates to model)."""
+        return self.model.file_id_msg
+    
     @property
     def session_msg(self):
-        """Cached session message (None if unavailable)."""
-        return self._session_msg
-
-    def _load_fit_sources(self) -> None:
-        """Load FIT messages from file or bytes."""
-        stream = None
-        should_close = False
-        source_desc = "unknown"
-
-        try:
-            if self.file_bytes is not None:
-                stream = io.BytesIO(self.file_bytes)
-                source_desc = "bytes stream"
-            else:
-                stream = open(self.file_path, "rb")
-                should_close = True
-                source_desc = f"file {self.file_path}"
-
-            messages: List[fitdecode.FitDataMessage] = []
-            messages_by_type: Dict[str, List[fitdecode.FitDataMessage]] = {}
-            try:
-                with fitdecode.FitReader(
-                    stream,
-                    processor=fitdecode.DefaultDataProcessor(),
-                ) as reader:
-                    for frame in reader:
-                        if not isinstance(frame, fitdecode.FitDataMessage):
-                            continue
-                        messages.append(frame)
-                        messages_by_type.setdefault(frame.name, []).append(frame)
-            except Exception as exc:
-                raise RuntimeError(
-                    f"FIT file parsing failed: {exc.__class__.__name__}: {exc}"
-                ) from exc
-            finally:
-                if should_close and stream is not None:
-                    stream.close()
-
-            self.messages = messages
-            self._messages_by_type = messages_by_type
-            self._file_id_msg = (messages_by_type.get("file_id") or [None])[0]
-            self._session_msg = (messages_by_type.get("session") or [None])[0]
-        except Exception as exc:
-            if should_close and stream is not None:
-                stream.close()
-            logger.error(
-                "Error parsing FIT file %s (%s): %s",
-                self.file_path,
-                source_desc,
-                exc,
-            )
-            raise
-
-    def _ensure_message_index(self) -> None:
-        if self._messages_by_type or not self.messages:
-            return
-        messages_by_type: Dict[str, List[fitdecode.FitDataMessage]] = {}
-        for message in self.messages:
-            messages_by_type.setdefault(message.name, []).append(message)
-        self._messages_by_type = messages_by_type
-
-    def _ensure_rr_interval_index(self) -> None:
-        """Index RR intervals from HRV messages by epoch timestamp.
-        
-        Garmin FIT files (and other devices) include HRV messages (type 78)
-        with time field containing RR intervals in milliseconds.
-        """
-        if self._rr_interval_by_second or not self.messages:
-            return
-        self._ensure_message_index()
-        rr_by_second: Dict[int, float] = {}
-        for hrv_msg in self._messages_by_type.get("hrv", []):
-            for epoch_sec, rr_sec in self._iter_hrv_rr_entries(hrv_msg):
-                rr_by_second[epoch_sec] = rr_sec
-        self._rr_interval_by_second = rr_by_second
-
-    def _iter_hrv_rr_entries(
-        self,
-        hrv_msg: fitdecode.FitDataMessage,
-    ) -> Iterable[tuple[int, float]]:
-        """Extract RR interval entries from HRV message.
-        
-        The HRV message (78) contains a time field with RR intervals in milliseconds.
-        """
-        time_values = hrv_msg.get_value("time", fallback=None)
-        base_timestamp = hrv_msg.get_value("timestamp", fallback=None)
-        
-        if isinstance(time_values, (list, tuple)):
-            if not isinstance(base_timestamp, datetime):
-                return
-            current_timestamp = base_timestamp
-            for rr_value in time_values:
-                rr_sec = self._coerce_float(rr_value)
-                if rr_sec is None:
-                    continue
-                # Convert milliseconds to seconds if needed (Garmin provides ms)
-                if rr_sec > 1000:  # Likely in milliseconds
-                    rr_sec = rr_sec / 1000.0
-                yield int(current_timestamp.timestamp()), rr_sec
-                current_timestamp = current_timestamp + timedelta(seconds=rr_sec)
-            return
-        
-        # Single RR interval value
-        rr_sec = self._coerce_float(time_values)
-        if rr_sec is None or not isinstance(base_timestamp, datetime):
-            return
-        # Convert milliseconds to seconds if needed (Garmin provides ms)
-        if rr_sec > 1000:  # Likely in milliseconds
-            rr_sec = rr_sec / 1000.0
-        yield int(base_timestamp.timestamp()), rr_sec
-
-    @staticmethod
-    def _coerce_float(value: Any) -> Optional[float]:
-        if value is None:
-            return None
-        if isinstance(value, (int, float)):
-            return float(value)
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
-    @staticmethod
-    def _get_record_value(
-        record: fitdecode.FitDataMessage,
-        *field_names: str,
-    ) -> Optional[Any]:
-        for field_name in field_names:
-            value = record.get_value(field_name, fallback=None)
-            if value is not None:
-                return value
-        return None
-
-    def _cache_messages(self) -> None:
-        """Cache frequently-accessed FIT messages for efficiency."""
-        if not self.messages:
-            return
-        self._ensure_message_index()
-        if not self._file_id_msg:
-            self._file_id_msg = (self._messages_by_type.get("file_id") or [None])[0]
-        if not self._session_msg:
-            self._session_msg = (self._messages_by_type.get("session") or [None])[0]
-
+        """Cached session message (delegates to model)."""
+        return self.model.session_msg
+    
+    @property
+    def messages(self) -> List[Any]:
+        """Cached FIT messages (delegates to model)."""
+        return self.model.messages
+    
+    # ========================================================================
+    # Public API: Extract Methods (delegate to model)
+    # ========================================================================
+    
     def extract_canonical_records(self) -> List[Dict[str, Any]]:
         """Extract Section I canonical substrate records for parquet storage."""
-        if not self.messages:
-            self._load_fit_sources()
-        self._ensure_message_index()
-        start_dt = self._canonical_start_dt()
-
-        records: List[Dict[str, Any]] = []
-        for record in self.messages:
-            if record.name != "record":
-                continue
-            payload = self._build_canonical_record(record, start_dt)
-            if payload:
-                records.append(payload)
-
-        return records
+        return self.model.build_canonical_records()
 
     def extract_canonical_metadata(self) -> Dict[str, Any]:
         """Extract canonical FIT metadata from file, device, event, activity, session."""
-        if not self.messages:
-            self._load_fit_sources()
-        metadata: Dict[str, Any] = {}
-        metadata.update(self._build_canonical_session_metadata())
-        metadata.update(self._build_canonical_file_metadata())
-        metadata.update(self._build_canonical_activity_metadata())
-
-        return {k: v for k, v in metadata.items() if v is not None}
+        return self.model.build_canonical_metadata()
 
     def extract_raw_fit_json(self) -> Dict[str, Any]:
-        """Return a decoded-only JSON representation of the full FIT file."""
-        if not self.messages:
-            self._load_fit_sources()
-
-        messages = []
-        message_index: Dict[str, int] = {}
-        for message in self.messages:
-            msg_type = message.name
-            message_index[msg_type] = message_index.get(msg_type, 0) + 1
-            messages.append(
-                self._serialize_message(
-                    message,
-                    msg_type=msg_type,
-                    msg_index=message_index[msg_type],
-                )
-            )
-
-        metadata = {
-            "source_file": self.source_file_name or self.file_path,
-            "exported_at_utc": datetime.now(timezone.utc).isoformat(),
-            "message_counts": message_index,
-            "total_messages": len(messages),
-        }
-
-        return {
-            "metadata": metadata,
-            "messages": messages,
-        }
+        """Return full-fidelity JSON using fitdecode's RecordJSONEncoder."""
+        return self.model.build_raw_fit_json()
 
     def extract_metadata_messages(self) -> Dict[str, Any]:
-        """Return structured FIT metadata.json with raw messages and LLM enrichment placeholder.
-        
-        Returns:
-            Dict with schema_version, extracted_at_utc, raw_fit_messages, and llm_enrichment fields.
-            The llm_enrichment section has status='pending' until enriched by LLM.
-        """
-        if not self.messages:
-            self._load_fit_sources()
-
-        message_types = {
-            "file_id",
-            "file_creator",
-            "device_info",
-            "sport",
-            "session",
-            "activity",
-            "event",
-            "workout",
-        }
-
-        raw_fit_messages: Dict[str, Any] = {}
-        for message_type in message_types:
-            typed_messages = self._messages_by_type.get(message_type)
-            if not typed_messages:
-                continue
-            raw_fit_messages[message_type] = [
-                self._serialize_message(message)
-                for message in typed_messages
-            ]
-
-        # LLM enrichment placeholder - filled in by enrich_metadata_with_llm()
-        llm_enrichment = {
-            "status": "pending",  # 'complete' after LLM enrichment
-            "inferred_workout_name": None,
-            "primary_activity": None,
-            "confidence_score": None,
-            "has_virtual_indicators": None,
-            "device_classifier": None,
-            "anomalies": [],
-            "semantic_flags": {},
-        }
-
-        return {
-            "metadata_schema_version": METADATA_SCHEMA_VERSION,
-            "extracted_at_utc": datetime.now(timezone.utc).isoformat(),
-            "raw_fit_messages": raw_fit_messages,
-            "llm_enrichment": llm_enrichment,
-        }
+        """Return structured FIT metadata.json with raw messages and LLM enrichment placeholder."""
+        return self.model.build_metadata_messages()
 
     def extract_laps_json(self) -> Dict[str, Any]:
-        """Return uncompressed lap messages JSON artifact with schema metadata.
-        
-        Returns:
-            Dict with schema_version, extracted_at_utc, and laps array.
-        """
-        if not self.messages:
-            self._load_fit_sources()
-        self._ensure_message_index()
-
-        lap_messages = self._messages_by_type.get("lap", [])
-        laps = [
-            self._serialize_message(message, msg_index=idx)
-            for idx, message in enumerate(lap_messages)
-        ]
-        return {
-            "schema_version": LAPS_SCHEMA_VERSION,
-            "extracted_at_utc": datetime.now(timezone.utc).isoformat(),
-            "laps": laps,
-        }
+        """Return lap messages JSON artifact with schema metadata."""
+        return self.model.build_laps_json()
 
     def extract_fit_analysis(self) -> Dict[str, Any]:
         """Return deterministic FIT structural analysis payload."""
-        if not self.messages:
-            self._load_fit_sources()
-        analyzer = FitStructureAnalyzer(self.messages)
+        analyzer = FitStructureAnalyzer(self.model.messages)
         return analyzer.analyze()
 
     def enrich_metadata_with_llm(
@@ -377,735 +133,10 @@ class FitParser:
         logger.debug("LLM enrichment not yet implemented; returning metadata with pending status")
         return metadata_json
 
-    @staticmethod
-    def _serialize_message(
-        message: fitdecode.FitDataMessage,
-        msg_type: Optional[str] = None,
-        msg_index: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        """Serialize a FIT message to JSON-friendly format.
-        
-        Args:
-            message: Dict with "name", "frame", "fields" keys from fitdecode reader
-            msg_type: Optional override for message type name
-            msg_index: Optional message index in sequence
-        """
-        msg_payload = {
-            "message_type": msg_type or message.name,
-            "fields": {},
-        }
 
-        if msg_index is not None:
-            msg_payload["message_index"] = msg_index
-
-        # Serialize standard fields
-        for field in message.fields:
-            field_name = field.name
-            msg_payload["fields"][field_name] = {
-                "value": field.value,
-                "units": getattr(field, "units", None),
-            }
-
-        # Serialize developer fields if present
-        for field in getattr(message, "developer_fields", []):
-            msg_payload["fields"][f"dev_{field.name}"] = {
-                "value": field.value,
-                "units": getattr(field, "units", None),
-            }
-
-        return msg_payload
-
-    def _canonical_start_dt(self) -> Optional[datetime]:
-        start_time = self._get_start_time()
-        if not start_time:
-            return None
-        try:
-            return datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-
-    @staticmethod
-    def _normalize_record_timestamp(
-        timestamp: Optional[datetime],
-    ) -> Optional[datetime]:
-        if isinstance(timestamp, datetime):
-            return timestamp.astimezone(timezone.utc)
-        return timestamp
-
-    def _build_canonical_record(
-        self,
-        record,
-        start_dt: Optional[datetime],
-    ) -> Optional[Dict[str, Any]]:
-        timestamp = self._normalize_record_timestamp(
-            record.get_value("timestamp", fallback=None)
-        )
-        if not timestamp:
-            return None
-
-        timestamp_utc = timestamp.astimezone(timezone.utc).isoformat()
-        elapsed_sec = None
-        if start_dt is not None:
-            elapsed_sec = (timestamp - start_dt).total_seconds()
-
-        power = self._get_record_value(record, "power")
-        heart_rate = self._get_record_value(record, "heart_rate")
-        cadence = self._get_record_value(record, "cadence")
-        speed = self._get_record_value(record, "speed")
-        distance = record.get_value("distance", fallback=None)
-        elevation = self._get_record_value(record, "altitude")
-        temperature = self._get_record_value(record, "temperature")
-        lr_balance = self._get_record_value(record, "left_right_balance")
-
-        return {
-            "timestamp_utc": timestamp_utc,
-            "elapsed_sec": self._coerce_float(elapsed_sec),
-            "power_watts": self._coerce_float(power),
-            "heart_rate_bpm": self._coerce_float(heart_rate),
-            "cadence_rpm": self._coerce_float(cadence),
-            "speed_mps": self._coerce_float(speed),
-            "distance_m": self._coerce_float(distance),
-            "elevation_m": self._coerce_float(elevation),
-            "temperature_c": self._coerce_float(temperature),
-            "lr_balance_pct": self._coerce_float(lr_balance),
-        }
-
-    def _build_canonical_session_metadata(self) -> Dict[str, Any]:
-        return {
-            "sport": self._get_sport(),
-            "sub_sport": self._get_sub_sport(),
-            "apple_workout_type": self._get_apple_workout_type(),
-            "workout_name": self._get_workout_name(),
-            "is_indoor": self._get_is_indoor(),
-            "start_time_utc": self._get_start_time(),
-            "timezone": self._get_timezone(),
-            "duration_sec": self._get_duration(),
-            "moving_time_sec": self._get_moving_time(),
-            "distance_m": self._get_distance(),
-            "elevation_gain_m": self._get_elevation_gain(),
-            "elevation_loss_m": self._get_elevation_loss(),
-            "avg_speed_mps": self._get_avg_speed(),
-            "max_speed_mps": self._get_max_speed(),
-            "calories_kcal": self._get_calories(),
-            "device_name": self._get_device_name(),
-        }
-
-    def _build_canonical_file_metadata(self) -> Dict[str, Any]:
-        """Extract canonical file-level metadata from file_id message."""
-        
-        metadata: Dict[str, Any] = {}
-        file_msg = self.file_id_msg
-        if file_msg is None:
-            return metadata
-        
-        file_created = file_msg.get_value("time_created", fallback=None)
-        if isinstance(file_created, datetime) and file_created.tzinfo is None:
-            file_created = file_created.replace(tzinfo=timezone.utc)
-        if isinstance(file_created, datetime):
-            metadata["file_time_created_utc"] = (
-                file_created.astimezone(timezone.utc).isoformat()
-            )
-
-        file_manufacturer = file_msg.get_value("manufacturer", fallback=None)
-        if file_manufacturer is not None:
-            manufacturer_name = getattr(file_manufacturer, "name", None)
-            metadata["file_manufacturer"] = (
-                str(manufacturer_name)
-                if manufacturer_name is not None
-                else str(file_manufacturer)
-            )
-
-        file_product = file_msg.get_value("product", fallback=None)
-        if file_product is not None:
-            metadata["file_product"] = str(file_product)
-
-        file_serial = file_msg.get_value("serial_number", fallback=None)
-        if file_serial is not None:
-            metadata["file_serial_number"] = str(file_serial)
-
-        return metadata
-
-    def _build_canonical_activity_metadata(self) -> Dict[str, Any]:
-        """Extract canonical activity-level metadata from activity message."""
-
-        metadata: Dict[str, Any] = {}
-        self._ensure_message_index()
-        activity_msg = (self._messages_by_type.get("activity") or [None])[0]
-        if not activity_msg:
-            return metadata
-
-        activity_timestamp = activity_msg.get_value("timestamp", fallback=None)
-        if isinstance(activity_timestamp, datetime) and activity_timestamp.tzinfo is None:
-            activity_timestamp = activity_timestamp.replace(tzinfo=timezone.utc)
-        if isinstance(activity_timestamp, datetime):
-            metadata["activity_timestamp_utc"] = (
-                activity_timestamp.astimezone(timezone.utc).isoformat()
-            )
-
-        activity_local = activity_msg.get_value("local_timestamp", fallback=None)
-        if isinstance(activity_local, datetime):
-            metadata["activity_local_time"] = activity_local.isoformat()
-
-        return metadata
-
-    def _get_sport(self) -> Optional[str]:
-        """Get sport type from file messages."""
-        file_msg = self.file_id_msg
-        sport = (
-            file_msg.get_value("type", fallback=None)
-            if file_msg is not None
-            else None
-        )
-        if sport:
-            if hasattr(sport, "name"):
-                return str(cast(Any, sport).name).lower()
-            return str(sport).lower()
-        return None
-
-    def _get_sub_sport(self) -> Optional[str]:
-        """Get sub-sport type."""
-        session = self.session_msg
-        sub_sport = (
-            session.get_value("sub_sport", fallback=None)
-            if session is not None
-            else None
-        )
-        if sub_sport:
-            if hasattr(sub_sport, "name"):
-                return str(cast(Any, sub_sport).name).lower()
-            return str(sub_sport).lower()
-        return None
-
-    def _get_apple_workout_type(self) -> Optional[str]:
-        """
-        Get Apple Watch workout type using the resolver.
-        
-        Passes all available inputs to AppleWorkoutTypeResolver for
-        clear, testable resolution logic.
-        """
-        resolver = AppleWorkoutTypeResolver(
-            workout_name=self._get_workout_name(),
-            sport=self._get_sport(),
-            sub_sport=self._get_sub_sport()
-        )
-        return resolver.resolve()
-
-    def _get_workout_name(self) -> Optional[str]:
-        """Get workout name from API source or construct from sport/subsport/ID.
-        
-        Priority:
-        1. API source activity name (e.g., Garmin Connect API activityName)
-        2. Constructed name: {sport}-{subsport}-{activityID}
-        """
-        # Priority 1: API-sourced name (highest priority)
-        if self.source_activity_name:
-            return self.source_activity_name
-        
-        # Priority 2: Constructed from FIT metadata
-        return self._get_constructed_workout_name()
-
-    def _get_constructed_workout_name(self) -> Optional[str]:
-        sport_name = self._get_sport_name()
-        sub_sport_name = self._get_sub_sport_name()
-        activity_id = self._get_activity_id()
-
-        parts = [part for part in (sport_name, sub_sport_name, activity_id) if part]
-        if parts:
-            return "-".join(str(part) for part in parts)
-        return None
-
-    def _get_activity_id(self) -> Optional[str]:
-        """Extract activity ID from file_id message or source_file_name."""
-        # Try to extract numeric ID from filename (e.g., "12345.fit")
-        if self.source_file_name:
-            file_name = Path(self.source_file_name).stem
-            # Check if filename is a pure number (Garmin activity ID)
-            if file_name.isdigit():
-                return file_name
-        
-        return None
-
-    
-    def _get_sport_name(self) -> Optional[str]:
-        """Extract sport name from session or file_id message."""
-        if self.session_msg:
-            sport = self.session_msg.get_value("sport", fallback=None)
-            if sport is not None:
-                sport_name = getattr(sport, "name", None)
-                if sport_name:
-                    return str(sport_name)
-                return str(sport)
-        
-        # Fallback to file_id sport
-        if self.file_id_msg:
-            sport = self.file_id_msg.get_value("type", fallback=None)
-            if sport is not None:
-                sport_name = getattr(sport, "name", None)
-                if sport_name:
-                    return str(sport_name)
-                return str(sport)
-        
-        return None
-    
-    def _get_sub_sport_name(self) -> Optional[str]:
-        """Extract subsport name from session message."""
-        if self.session_msg:
-            sub_sport = self.session_msg.get_value("sub_sport", fallback=None)
-            if sub_sport is not None:
-                subsport_name = getattr(sub_sport, "name", None)
-                if subsport_name:
-                    return str(subsport_name)
-                return str(sub_sport)
-        
-        return None
-
-    def _extract_code_and_name(self, field: Optional[Any]) -> tuple[Optional[int], Optional[str]]:
-        """Extract numeric code and enum name from a FIT field.
-
-        Args:
-            field: fitdecode field object or int
-
-        Returns:
-            Tuple of (code, name) where both may be None
-        """
-        code = None
-        name = None
-
-        if field is None:
-            return None, None
-        if isinstance(field, int):
-            return field, None
-
-        if hasattr(field, "value"):
-            code = field.value
-        if hasattr(field, "name"):
-            name = str(field.name)
-
-        return code, name
-
-    def _validate_and_get_manufacturer_name(
-        self,
-        manufacturer: Optional[Any],
-    ) -> Optional[str]:
-        """Validate manufacturer code and return name from code_mappings."""
-        if manufacturer is None:
-            return None
-
-        manufacturer_code, manufacturer_name = self._extract_code_and_name(manufacturer)
-
-        if manufacturer_code is None:
-            return manufacturer_name or str(manufacturer)
-
-        expected_name = MANUFACTURER_CODES.get(manufacturer_code)
-        if expected_name and manufacturer_name:
-            if expected_name.lower() != manufacturer_name.lower().replace("_", ""):
-                logger.warning(
-                    "Manufacturer code mismatch for code %d: "
-                    "fitdecode says '%s', code_mappings says '%s'",
-                    manufacturer_code,
-                    manufacturer_name,
-                    expected_name,
-                )
-
-        return expected_name if expected_name else str(manufacturer_code)
-
-    def _validate_and_get_product_name(
-        self,
-        product: Optional[Any],
-        manufacturer: Optional[Any],
-    ) -> Optional[str]:
-        """Validate product code and return name from code_mappings."""
-        if product is None:
-            return None
-
-        product_code, product_name = self._extract_code_and_name(product)
-
-        if product_code is None:
-            return product_name or str(product)
-
-        # Get manufacturer code
-        if manufacturer is None:
-            return product_name or str(product_code)
-
-        manufacturer_code, _ = self._extract_code_and_name(manufacturer)
-
-        if manufacturer_code is None:
-            return product_name or str(product_code)
-
-        # Determine which product code mapping to use
-        expected_product_name = None
-        if manufacturer_code == 32:  # Apple
-            expected_product_name = get_apple_product_name(product_code)
-        elif manufacturer_code == 1:  # Garmin
-            expected_product_name = get_garmin_product_name(product_code)
-        elif manufacturer_code == 263:  # Favero Electronics
-            expected_product_name = get_favero_product_name(product_code)
-
-        # Log if we have a mismatch
-        if expected_product_name and product_name:
-            if expected_product_name.lower() != product_name.lower().replace("_", ""):
-                logger.warning(
-                    "Product code mismatch for manufacturer %d, product code %d: "
-                    "fitdecode says '%s', code_mappings says '%s'",
-                    manufacturer_code,
-                    product_code,
-                    product_name,
-                    expected_product_name,
-                )
-            return expected_product_name
-
-        return product_name or str(product_code)
-
-    def _get_device_name(self) -> Optional[str]:
-        """Get device/manufacturer and product info with mismatch detection.
-
-        Validates that FIT manufacturer/product codes match our code_mappings
-        and logs any discrepancies for investigation. Also checks device_info
-        messages for collisions with the file_id device.
-        """
-        file_msg = self.file_id_msg
-        manufacturer = (
-            file_msg.get_value("manufacturer", fallback=None)
-            if file_msg is not None
-            else None
-        )
-        product = (
-            file_msg.get_value("product", fallback=None)
-            if file_msg is not None
-            else None
-        )
-
-        parts: List[str] = []
-
-        # Validate and get manufacturer name
-        mfr_name = self._validate_and_get_manufacturer_name(manufacturer)
-        if mfr_name:
-            parts.append(mfr_name)
-
-        # Validate and get product name
-        prod_name = self._validate_and_get_product_name(product, manufacturer)
-        if prod_name:
-            parts.append(prod_name)
-
-        # Validate device_info entries for collisions with file_id device
-        self._validate_device_info_collisions(manufacturer, product)
-
-        if parts:
-            return " ".join(parts)
-        return None
-
-    def _log_product_collision(
-        self,
-        file_id_mfr_code: int,
-        file_id_prod_code: Optional[int],
-        device_mfr_code: int,
-        device_prod_code: Optional[int],
-    ) -> None:
-        """Log product code collision or mismatch between file_id and device_info.
-
-        Args:
-            file_id_mfr_code: Manufacturer code from file_id message
-            file_id_prod_code: Product code from file_id message (may be None)
-            device_mfr_code: Manufacturer code from device_info message
-            device_prod_code: Product code from device_info message (may be None)
-        """
-        # Both have product codes - check if they match
-        if device_prod_code and file_id_prod_code:
-            if device_prod_code == file_id_prod_code:
-                logger.info(
-                    "Device collision detected: file_id device (mfr=%d, prod=%d) "
-                    "also appears in device_info message",
-                    file_id_mfr_code,
-                    file_id_prod_code,
-                )
-            else:
-                logger.warning(
-                    "Device manufacturer collision: file_id has product %d, "
-                    "but device_info message has product %d "
-                    "(same manufacturer %d)",
-                    file_id_prod_code,
-                    device_prod_code,
-                    file_id_mfr_code,
-                )
-            return
-
-        # device_info missing product code
-        if not device_prod_code and file_id_prod_code:
-            logger.warning(
-                "Device collision: file_id (mfr=%d, prod=%d) has product code, "
-                "but device_info message only has manufacturer (mfr=%d)",
-                file_id_mfr_code,
-                file_id_prod_code,
-                device_mfr_code,
-            )
-            return
-
-        # file_id missing product code
-        if device_prod_code and not file_id_prod_code:
-            logger.warning(
-                "Device collision: device_info (mfr=%d, prod=%d) "
-                "has product code, but file_id only has manufacturer (mfr=%d)",
-                device_mfr_code,
-                device_prod_code,
-                file_id_mfr_code,
-            )
-
-    def _validate_device_info_collisions(
-        self,
-        file_id_manufacturer: Optional[Any],
-        file_id_product: Optional[Any],
-    ) -> None:
-        """Check device_info messages for collisions with the file_id device.
-
-        If a device_info entry appears to be the same device as in file_id,
-        validate consistency and log any mismatches.
-        """
-        if not self.messages or (
-            file_id_manufacturer is None and file_id_product is None
-        ):
-            return
-        self._ensure_message_index()
-
-        # Extract numeric codes from file_id
-        file_id_mfr_code, _ = self._extract_code_and_name(file_id_manufacturer)
-        file_id_prod_code, _ = self._extract_code_and_name(file_id_product)
-
-        # Check all device_info messages for collisions
-        for device_info_msg in self._messages_by_type.get("device_info", []):
-            device_mfr = device_info_msg.get_value("manufacturer", fallback=None)
-            device_prod = device_info_msg.get_value("product", fallback=None)
-
-            # Extract numeric codes from device_info
-            device_mfr_code, _ = self._extract_code_and_name(device_mfr)
-            device_prod_code, _ = self._extract_code_and_name(device_prod)
-
-            # Check if manufacturer codes match (collision candidate)
-            if (
-                device_mfr_code is not None
-                and file_id_mfr_code is not None
-                and device_mfr_code == file_id_mfr_code
-            ):
-                # Manufacturer collision detected - delegate product analysis
-                self._log_product_collision(
-                    file_id_mfr_code,
-                    file_id_prod_code,
-                    device_mfr_code,
-                    device_prod_code,
-                )
-
-    def _get_is_indoor(self) -> Optional[bool]:
-        """Infer indoor status from activity name.
-        
-        Checks if the workout name contains common indoor indicators
-        such as 'zwift', 'peloton', 'indoor', 'trainer', 'stationary'.
-        
-        Returns:
-            True if activity name suggests indoor workout, False if outdoor,
-            None if activity name not available.
-        """
-        workout_name = self._get_workout_name()
-        if not workout_name:
-            return None
-        
-        indoor_keywords = {'zwift', 'peloton', 'indoor', 'trainer', 'stationary'}
-        name_lower = workout_name.lower()
-        
-        for keyword in indoor_keywords:
-            if keyword in name_lower:
-                return True
-        
-        return False
-
-    def _get_start_time(self) -> Optional[str]:
-        """Get workout start time as ISO string."""
-        session = self.session_msg
-        timestamp = (
-            session.get_value("start_time", fallback=None)
-            if session is not None
-            else None
-        )
-        if timestamp and isinstance(timestamp, datetime):
-            dt = timestamp
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(timezone.utc).isoformat()
-        return None
-
-    def _get_timezone(self) -> Optional[str]:
-        """Get timezone from device settings or infer from activity/session times.
-
-        FIT timestamps are UTC by spec. Timezone inference uses UTC offsets
-        from device_settings (utc_offset) or by comparing local vs UTC times
-        from activity/session messages.
-        
-        Returns:
-            Timezone name (e.g., 'America/New_York') or 'UTC' as default.
-        """
-        try:
-            if not self.messages:
-                return "UTC"
-
-            offset_minutes = self._get_device_utc_offset_minutes()
-            inferred_activity = self._infer_timezone_from_activity_times()
-            inferred_session = self._infer_timezone_from_session_times()
-            return resolve_timezone(
-                tz_name=None,  # Timezone name cannot be retrieved from FIT
-                offset_minutes=offset_minutes,
-                inferred_activity=inferred_activity,
-                inferred_session=inferred_session,
-            )
-        except (AttributeError, TypeError, ValueError):
-            # Be defensive; timezone is non-critical
-            pass
-        return "UTC"
-
-    def _get_device_utc_offset_minutes(self) -> Optional[int]:
-        """Return device UTC offset in minutes from settings, if present."""
-        if not self.messages:
-            return None
-        self._ensure_message_index()
-        device_settings_msg = (self._messages_by_type.get("device_settings") or [None])[0]
-        if device_settings_msg:
-            offset = (
-                device_settings_msg.get_value("utc_offset", fallback=None)
-            )
-            if isinstance(offset, (int, float)):
-                # offset is typically seconds; convert to minutes
-                return int(round(offset / 60))
-        return None
-
-    def _infer_timezone_from_session_times(self) -> Optional[str]:
-        """Infer timezone from session timestamp vs local start time."""
-        session = self.session_msg
-        if not session:
-            return None
-
-        start_time = session.get_value("start_time", fallback=None)
-        timestamp = session.get_value("timestamp", fallback=None)
-        duration = session.get_value("total_elapsed_time", fallback=None)
-
-        if not isinstance(start_time, datetime):
-            start_time = None
-        if not isinstance(timestamp, datetime):
-            timestamp = None
-        if not isinstance(duration, (int, float)):
-            return None
-        duration_sec = int(duration)
-        return infer_timezone_from_session(
-            start_time,
-            timestamp,
-            duration_sec,
-        )
-
-    def _infer_timezone_from_activity_times(self) -> Optional[str]:
-        """Infer timezone from activity local_time vs UTC timestamp."""
-        if not self.messages:
-            return None
-        self._ensure_message_index()
-        activity_msg = (self._messages_by_type.get("activity") or [None])[0]
-        if not activity_msg:
-            return None
-
-        local_time = activity_msg.get_value("local_timestamp", fallback=None)
-        timestamp = activity_msg.get_value("timestamp", fallback=None)
-        if not isinstance(local_time, datetime):
-            local_time = None
-        if not isinstance(timestamp, datetime):
-            timestamp = None
-        return infer_timezone_from_activity(local_time, timestamp)
-
-    def _get_duration(self) -> Optional[int]:
-        """Get total elapsed time in seconds."""
-        session = self.session_msg
-        elapsed = (
-            session.get_value("total_elapsed_time", fallback=None)
-            if session is not None
-            else None
-        )
-        return int(elapsed) if isinstance(elapsed, (int, float)) else None
-
-    def _get_moving_time(self) -> Optional[int]:
-        """Get moving time if available (for cycling usually equals duration)."""
-        session = self.session_msg
-        timer = (
-            session.get_value("total_timer_time", fallback=None)
-            if session is not None
-            else None
-        )
-        return int(timer) if isinstance(timer, (int, float)) else None
-
-    def _has_gps_data(self) -> bool:
-        """Check if GPS data (lat/lon) exists in records."""
-        if not self.messages:
-            return False
-        self._ensure_message_index()
-        for record in self._messages_by_type.get("record", []):
-            lat = record.get_value("position_lat", fallback=None)
-            lon = record.get_value("position_long", fallback=None)
-            if lat is not None and lon is not None:
-                return True
-        return False
-
-    def _get_distance(self) -> Optional[float]:
-        """Get total distance in meters."""
-        session = self.session_msg
-        distance = (
-            session.get_value("total_distance", fallback=None)
-            if session is not None
-            else None
-        )
-        return float(distance) if isinstance(distance, (int, float)) else None
-
-    def _get_elevation_gain(self) -> Optional[float]:
-        """Get total elevation gain in meters."""
-        session = self.session_msg
-        elev = (
-            session.get_value("total_ascent", fallback=None)
-            if session is not None
-            else None
-        )
-        return float(elev) if isinstance(elev, (int, float)) else None
-
-    def _get_elevation_loss(self) -> Optional[float]:
-        """Get total elevation loss in meters."""
-        session = self.session_msg
-        elev = (
-            session.get_value("total_descent", fallback=None)
-            if session is not None
-            else None
-        )
-        return float(elev) if isinstance(elev, (int, float)) else None
-
-    def _get_avg_speed(self) -> Optional[float]:
-        """Get average speed in m/s."""
-        session = self.session_msg
-        speed = (
-            session.get_value("avg_speed", fallback=None)
-            if session is not None
-            else None
-        )
-        return float(speed) if isinstance(speed, (int, float)) else None
-
-    def _get_max_speed(self) -> Optional[float]:
-        """Get max speed in m/s."""
-        session = self.session_msg
-        speed = (
-            session.get_value("max_speed", fallback=None)
-            if session is not None
-            else None
-        )
-        return float(speed) if isinstance(speed, (int, float)) else None
-
-    def _get_calories(self) -> Optional[float]:
-        """Get total calories from session message."""
-        session = self.session_msg
-        calories = (
-            session.get_value("total_calories", fallback=None)
-            if session is not None
-            else None
-        )
-        return float(calories) if isinstance(calories, (int, float)) else None
-
+# ============================================================================
+# Utility Functions
+# ============================================================================
 
 def compute_file_hash(file_path: str) -> str:
     """Compute SHA256 hash of file."""
@@ -1123,13 +154,14 @@ def compute_bytes_hash(file_bytes: bytes) -> str:
     return sha256_hash.hexdigest()
 
 
-def compute_workout_id(source_item_id: Optional[str] = None,
-                       file_sha256: Optional[str] = None,
-                       file_path: Optional[str] = None,
-                       file_name: Optional[str] = None,
-                       start_time: Optional[str] = None) -> str:
-    """
-    Generate deterministic workout_id.
+def compute_workout_id(
+    source_item_id: Optional[str] = None,
+    file_sha256: Optional[str] = None,
+    file_path: Optional[str] = None,
+    file_name: Optional[str] = None,
+    start_time: Optional[str] = None,
+) -> str:
+    """Generate deterministic workout_id.
 
     Priority:
     1. source_item_id (OneDrive itemId)
@@ -1145,4 +177,5 @@ def compute_workout_id(source_item_id: Optional[str] = None,
         return hashlib.sha1(combined.encode()).hexdigest()
     else:
         raise ValueError(
-            "Must provide at least source_item_id, file_sha256, or file path info")
+            "Must provide at least source_item_id, file_sha256, or file path info"
+        )

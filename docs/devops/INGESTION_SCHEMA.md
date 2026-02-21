@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 7.0.0
+Version: 11.0.0 (v10→v11: Major refactor - extracted Pydantic model hierarchy)
 
 This document defines the ingestion payloads and the IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -197,6 +197,65 @@ priority order is:
 
 This keeps FIT timestamps UTC by spec while recovering a local offset for
 workout display and grouping.
+
+---
+
+## FIT Parsing Architecture (v11.0.0+)
+
+As of `v11.0.0`, FIT parsing uses a hierarchical Pydantic model architecture:
+
+### Model Hierarchy
+
+```
+BaseFitModel (abstract)
+├── 50+ @computed_field properties (lazy-evaluated, cached)
+├── Message indexing & loading (_load_fit_messages, _ensure_message_index)
+├── Canonical format builders (build_canonical_records, build_canonical_metadata, etc.)
+│
+├── OneDriveFitModel (abstract)
+│   ├── HealthFit filename parsing (YYYY-MM-DD-HHMMSS-ActivityType-Source.fit[.gz])
+│   ├── Additional computed fields (filename_date, filename_time, filename_activity_type, etc.)
+│   │
+│   └── HealthFitModel (concrete)
+│       ├── normalized_source_system = "HealthFit"
+│       └── workout_name prioritizes filename_activity_type over source_activity_name
+│
+├── GarminFitModel (concrete)
+│   ├── normalized_source_system = "Garmin"
+│   └── workout_name always prioritizes source_activity_name (Garmin Connect API name)
+│
+└── PayloadFitModel (concrete)
+    ├── Flexible source_system (defaults to source_metadata['source_system'] or "HealthFit")
+    └── Generic fallback for non-OneDrive, non-Garmin sources
+```
+
+### Factory Function
+
+`create_fit_model(source_metadata, file_path, file_bytes)` inspects `source_metadata` to instantiate the appropriate concrete model class:
+
+- OneDrive `.fit` files → HealthFitModel
+- Garmin API sync → GarminFitModel
+- Other sources → PayloadFitModel
+
+### FitParser Facade
+
+`FitParser` is a lightweight facade (~136 lines) that:
+1. Accepts legacy kwargs (`source_file_name`, `source_activity_name`) and converts them to `source_metadata` dict
+2. Creates the appropriate model via `create_fit_model()`
+3. Delegates all extract_* methods to `self.model.build_*()` methods
+4. Maintains backward compatibility with existing handler code
+
+### Enhanced raw_fit.json
+
+As of `v11.0.0`, `build_raw_fit_json()` uses `fitdecode.cmd.fitjson.RecordJSONEncoder` to provide full-fidelity JSON serialization including:
+- Raw field values (alongside rendered values)
+- Definition numbers (def_num)
+- Frame headers (frame_type, header_size, protocol_version)
+- Chunk positions (chunk_data_offset, chunk_data_size)
+
+This eliminates custom serialization logic and ensures complete round-trip preservation of FIT binary semantics.
+
+---
 
 ## Timestamp Formatting
 
