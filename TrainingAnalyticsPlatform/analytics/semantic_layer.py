@@ -915,20 +915,19 @@ class SemanticLayer:
         return metrics
 
     def _load_stored_laps(self, workout_entity: WorkoutEntity) -> Optional[List[Dict]]:
-        if not workout_entity.canonical_laps_blob:
-            return None
         try:
-            df = self.storage.load_canonical_laps(workout_entity.canonical_laps_blob)
+            payload = self.storage.load_laps_json(workout_entity.workout_id)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.warning(
-                "Failed to load canonical laps %s: %s",
-                workout_entity.canonical_laps_blob,
+                "Failed to load laps.json for workout %s: %s",
+                workout_entity.workout_id,
                 exc,
             )
             return None
-        if df.empty:
+        laps = payload.get("laps") if isinstance(payload, dict) else None
+        if not isinstance(laps, list) or not laps:
             return None
-        return df.to_dict(orient="records")
+        return laps
 
     def get_workout_lap_detail(
         self,
@@ -948,35 +947,27 @@ class SemanticLayer:
             if entity.get("athlete_id") != athlete_id:
                 return None
 
-            workout_entity = WorkoutEntity.from_table_entity(entity)
+            laps_payload = self.storage.load_laps_json(workout_id)
+            laps = laps_payload.get("laps") if isinstance(laps_payload, dict) else None
+            if not isinstance(laps, list) or not laps:
+                return None
 
-            if workout_entity.canonical_laps_blob:
-                laps_df = self.storage.load_canonical_laps(workout_entity.canonical_laps_blob)
-                if laps_df.empty:
-                    return None
-                lap_rows = laps_df[laps_df["lap_index"] == lap_index]
-                if lap_rows.empty:
-                    return None
-                lap_payload = lap_rows.iloc[0].to_dict()
+            lap_payload = None
+            for lap in laps:
+                if lap.get("message_index") == lap_index:
+                    lap_payload = lap
+                    break
+            if lap_payload is None and 0 <= lap_index < len(laps):
+                lap_payload = laps[lap_index]
+            if lap_payload is None:
+                return None
 
-                records = []
-                if workout_entity.canonical_records_blob:
-                    records_df = self.storage.load_canonical_records(
-                        workout_entity.canonical_records_blob
-                    )
-                    if not records_df.empty:
-                        records = self._slice_records_for_lap(records_df, lap_payload)
-
-                return {
-                    "workout_id": workout_id,
-                    "athlete_id": athlete_id,
-                    "lap_index": lap_index,
-                    **lap_payload,
-                    "record_count": len(records),
-                    "records": records,
-                }
-
-            return None
+            return {
+                "workout_id": workout_id,
+                "athlete_id": athlete_id,
+                "lap_index": lap_index,
+                "lap": lap_payload,
+            }
 
         except HttpResponseError as e:
             logger.error("Error retrieving lap %s for workout %s: %s", lap_index, workout_id, e)
@@ -999,7 +990,7 @@ class SemanticLayer:
                 errors["records_error"] = error
 
         if include_laps:
-            laps, error = self._load_canonical_laps_payload(entity)
+            laps, error = self._load_laps_json_payload(entity)
             if error:
                 errors["laps_error"] = error
 
@@ -1022,22 +1013,22 @@ class SemanticLayer:
             return None, None
         return records_df.to_dict(orient="records"), None
 
-    def _load_canonical_laps_payload(
+    def _load_laps_json_payload(
         self, entity: Dict
     ) -> tuple[Optional[List[Dict]], Optional[str]]:
         workout_id = entity.get("workout_id")
         if not workout_id:
             return None, "No workout id available"
 
-        laps_blob = entity.get("canonical_laps_blob") or f"{workout_id}/canonical-laps.parquet"
         try:
-            laps_df = self.storage.load_canonical_laps(laps_blob)
+            payload = self.storage.load_laps_json(workout_id)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             return None, str(exc)
 
-        if laps_df.empty:
+        laps = payload.get("laps") if isinstance(payload, dict) else None
+        if not isinstance(laps, list) or not laps:
             return None, None
-        return laps_df.to_dict(orient="records"), None
+        return laps, None
 
     @staticmethod
     def _set_timeseries_error(
@@ -1050,48 +1041,6 @@ class SemanticLayer:
             errors["records_error"] = message
         if include_laps:
             errors["laps_error"] = message
-
-    def _slice_records_for_lap(
-        self,
-        records_df: pd.DataFrame,
-        lap_payload: Dict,
-    ) -> List[Dict]:
-        """Return canonical records that fall within a lap window."""
-        if records_df.empty:
-            return []
-
-        filtered = records_df
-        start_time = lap_payload.get("start_time_utc")
-        elapsed_sec = lap_payload.get("elapsed_sec")
-
-        if start_time:
-            start_dt = pd.to_datetime(start_time, errors="coerce", utc=True)
-            if pd.notna(start_dt):
-                if elapsed_sec is not None:
-                    end_dt = start_dt + pd.to_timedelta(float(elapsed_sec), unit="s")
-                    ts_series = filtered.get("timestamp_utc")
-                    assert ts_series is not None
-                    ts = pd.to_datetime(ts_series, errors="coerce", utc=True)
-                    filtered = filtered[(ts >= start_dt) & (ts <= end_dt)]
-                else:
-                    ts_series = filtered.get("timestamp_utc")
-                    assert ts_series is not None
-                    ts = pd.to_datetime(ts_series, errors="coerce", utc=True)
-                    filtered = filtered[ts >= start_dt]
-
-        records = []
-        for _, row in filtered.iterrows():
-            records.append({
-                "timestamp_utc": row.get("timestamp_utc"),
-                "elapsed_sec": row.get("elapsed_sec"),
-                "power_watts": row.get("power_watts"),
-                "heart_rate_bpm": row.get("heart_rate_bpm"),
-                "cadence_rpm": row.get("cadence_rpm"),
-                "speed_mps": row.get("speed_mps"),
-                "distance_m": row.get("distance_m"),
-                "elevation_m": row.get("elevation_m"),
-            })
-        return records
 
     @staticmethod
     def _iter_metadata_messages(metadata_payload: Dict):

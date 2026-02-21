@@ -68,7 +68,6 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     """Test parsing and storing records."""
     storage = Mock()
     storage.store_canonical_records.return_value = "records.parquet"
-    storage.store_canonical_laps.return_value = "laps.parquet"
     handler = _TestIngestionHandler(storage)
     source_info = {
         "source_file_name": "file.fit",
@@ -79,14 +78,14 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
         "start_time_utc": "2026-01-01T00:00:00+00:00",
     }
     records = [{"timestamp_utc": "2026-01-01T00:00:00+00:00"}]
-    laps = [{"lap_index": 0}]
+    laps_payload = {"laps": [{"message_index": 0}]}
     expected_workout_id = compute_workout_id(file_sha256="hash")
 
     with patch("TrainingAnalyticsPlatform.handlers.ingestion_base_handler.FitParser") as parser_cls:
         parser = parser_cls.return_value
         parser.extract_canonical_metadata.return_value = metadata
         parser.extract_canonical_records.return_value = records
-        parser.extract_canonical_laps.return_value = laps
+        parser.extract_laps_json.return_value = laps_payload
 
         metrics, workout_id = handler._parse_and_store(
             "rob",
@@ -103,9 +102,8 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
         workout_id=expected_workout_id,
         canonical_schema_version='1.1.0',
         canonical_records_blob="records.parquet",
-        canonical_laps_blob="laps.parquet",
         records_count=len(records),
-        laps_count=len(laps),
+        laps_count=len(laps_payload["laps"]),
     )
     storage.record_ingestion_state.assert_called_once_with(
         "rob",

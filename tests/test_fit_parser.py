@@ -85,39 +85,6 @@ class TestFitParserCaching:
         assert parser.session_msg is not None
 
 
-class TestFitParserFieldExtraction:
-    """Tests for field extraction methods."""
-
-    def test_get_field_from_msg_returns_value(self, sample_fit_file: Path) -> None:
-        """Verify _get_field_from_msg extracts field value."""
-        parser = FitParser(str(sample_fit_file))
-
-        field = MagicMock(value=42)
-        msg = {"name": "test", "fields": {"test_field": field}}
-
-        result = parser._get_field_from_msg(msg, "test_field")
-
-        assert result == 42
-
-    def test_get_field_from_msg_handles_none_message(self, sample_fit_file: Path) -> None:
-        """Verify _get_field_from_msg handles None message."""
-        parser = FitParser(str(sample_fit_file))
-
-        result = parser._get_field_from_msg(None, "test_field")
-
-        assert result is None
-
-    def test_get_field_from_msg_handles_missing_field(self, sample_fit_file: Path) -> None:
-        """Verify _get_field_from_msg handles missing field."""
-        parser = FitParser(str(sample_fit_file))
-
-        msg = {"name": "test", "fields": {}}
-
-        result = parser._get_field_from_msg(msg, "nonexistent_field")
-
-        assert result is None
-
-
 class TestFitParserSportExtraction:
     """Tests for sport-related field extraction."""
 
@@ -152,18 +119,13 @@ class TestFitParserSportExtraction:
 
         assert sub_sport == "road"
 
-    def test_get_sport_handles_string_values(self, sample_fit_file: Path) -> None:
+    def test_get_sport_handles_string_values(self, sample_fit_file: Path,
+                                              fit_message_factory: Mock) -> None:
         """Verify _get_sport handles both enum and string values from fitparse."""
         parser = FitParser(str(sample_fit_file))
 
         # Create message list with file_id message containing sport
-        messages = [
-            {
-                "name": "file_id",
-                "frame": MagicMock(developer_fields=[]),
-                "fields": {"type": MagicMock(value="cycling")},
-            }
-        ]
+        messages = [fit_message_factory("file_id", {"type": "cycling"})]
         parser.messages = messages
         parser._cache_messages()
 
@@ -171,18 +133,13 @@ class TestFitParserSportExtraction:
 
         assert sport == "cycling"
 
-    def test_get_sub_sport_handles_string_values(self, sample_fit_file: Path) -> None:
+    def test_get_sub_sport_handles_string_values(self, sample_fit_file: Path,
+                                                 fit_message_factory: Mock) -> None:
         """Verify _get_sub_sport handles both enum and string values."""
         parser = FitParser(str(sample_fit_file))
 
         # Create message list with session message containing sub_sport
-        messages = [
-            {
-                "name": "session",
-                "frame": MagicMock(developer_fields=[]),
-                "fields": {"sub_sport": MagicMock(value="indoor_cycling")},
-            }
-        ]
+        messages = [fit_message_factory("session", {"sub_sport": "indoor_cycling"})]
         parser.messages = messages
         parser._cache_messages()
 
@@ -297,50 +254,41 @@ class TestFitParserEdgeCases:
 
         assert device_name is None
 
-    def test_zero_values_handled_correctly(self, sample_fit_file: Path) -> None:
-        """Verify parser correctly handles zero metric values."""
-        parser = FitParser(str(sample_fit_file))
-
-        # Create a message dict with zero value field
-        msg = {
-            "name": "test",
-            "frame": MagicMock(developer_fields=[]),
-            "fields": {
-                "test_field": MagicMock(value=0)
-            }
-        }
-
-        result = parser._get_field_from_msg(msg, "test_field")
-
-        # Should return 0, not None
-        assert result == 0
-
-
 class TestFitMessageLoading:
     """Tests for FitParser loading FIT messages directly."""
 
-    def test_load_fit_sources_sets_messages(self, tmp_path: Path) -> None:
+    def test_load_fit_sources_sets_messages(self) -> None:
         """Verify _load_fit_sources loads messages and sets self.messages."""
-        parser = FitParser(str(tmp_path / "sample.fit"))
+        class DummyFitDataMessage:
+            def __init__(self) -> None:
+                self.name = "session"
+                self.fields = []
+                self.developer_fields = []
 
-        messages = [
-            {"name": "session", "frame": MagicMock(developer_fields=[]), "fields": {}},
-        ]
+        parser = FitParser(file_bytes=b"fit")
+        frame = DummyFitDataMessage()
+        reader = MagicMock()
+        reader.__enter__.return_value = [frame]
+        reader.__exit__.return_value = False
 
         with patch(
-            "TrainingAnalyticsPlatform.ingestion.fit_parser.load_fit_messages",
-            return_value=(messages, "test_file"),
-        ) as loader:
+            "TrainingAnalyticsPlatform.ingestion.fit_parser.fitdecode.FitReader",
+            return_value=reader,
+        ) as loader, patch(
+            "TrainingAnalyticsPlatform.ingestion.fit_parser.fitdecode.FitDataMessage",
+            DummyFitDataMessage,
+        ):
             parser._load_fit_sources()
 
         loader.assert_called_once()
-        assert parser.messages == messages
+        assert parser.messages == [frame]
 
 
 class TestFitAnalysis:
     """Tests for extract_fit_analysis payload."""
 
-    def test_extract_fit_analysis_contains_structured_sections(self, sample_fit_file: Path) -> None:
+    def test_extract_fit_analysis_contains_structured_sections(self, sample_fit_file: Path,
+                                                               fit_message_factory: Mock) -> None:
         """Verify extract_fit_analysis returns payload with expected sections."""
         parser = FitParser(str(sample_fit_file))
         dev_field = MagicMock()
@@ -348,22 +296,21 @@ class TestFitAnalysis:
         dev_field.value = 23.5
         dev_field.units = "%"
         parser.messages = [
-            {
-                "name": "session",
-                "frame": MagicMock(developer_fields=[]),
-                "fields": {
-                    "sub_sport": MagicMock(value="virtual_activity"),
-                    "indoor": MagicMock(value=None),
+            fit_message_factory(
+                "session",
+                {
+                    "sub_sport": "virtual_activity",
+                    "indoor": None,
                 },
-            },
-            {
-                "name": "record",
-                "frame": MagicMock(developer_fields=[dev_field]),
-                "fields": {
-                    "position_lat": MagicMock(value=1),
-                    "position_long": MagicMock(value=2),
+            ),
+            fit_message_factory(
+                "record",
+                {
+                    "position_lat": 1,
+                    "position_long": 2,
                 },
-            },
+                developer_fields=[dev_field],
+            ),
         ]
 
         payload = parser.extract_fit_analysis()

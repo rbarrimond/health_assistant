@@ -18,7 +18,7 @@ from azure.storage.blob import BlobServiceClient
 
 from TrainingAnalyticsPlatform.ingestion.fit_parser import compute_workout_id
 
-INGEST_VERSION = "v9.0.0"
+INGEST_VERSION = "v10.0.0"
 CANONICAL_SCHEMA_VERSION = "1.1.0"
 
 WORKOUTS_CONTAINER = "workouts"
@@ -39,7 +39,6 @@ class WorkoutEntity:
     source_item_id: Optional[str]
     canonical_schema_version: Optional[str] = None
     canonical_records_blob: Optional[str] = None
-    canonical_laps_blob: Optional[str] = None
     records_count: Optional[int] = None
     laps_count: Optional[int] = None
     metrics: Dict = field(default_factory=dict)
@@ -57,7 +56,6 @@ class WorkoutEntity:
             "source_item_id",
             "canonical_schema_version",
             "canonical_records_blob",
-            "canonical_laps_blob",
             "records_count",
             "laps_count",
             "source_file_name",
@@ -88,7 +86,6 @@ class WorkoutEntity:
             source_item_id=entity.get("source_item_id"),
             canonical_schema_version=entity.get("canonical_schema_version"),
             canonical_records_blob=entity.get("canonical_records_blob"),
-            canonical_laps_blob=entity.get("canonical_laps_blob"),
             records_count=entity.get("records_count"),
             laps_count=entity.get("laps_count"),
             metrics=metrics,
@@ -112,7 +109,6 @@ class WorkoutEntity:
             "source_item_id": self.source_item_id,
             "canonical_schema_version": self.canonical_schema_version,
             "canonical_records_blob": self.canonical_records_blob,
-            "canonical_laps_blob": self.canonical_laps_blob,
             "records_count": self.records_count,
             "laps_count": self.laps_count,
         }
@@ -499,9 +495,6 @@ class WorkoutTableStorage:
     def _canonical_records_blob_name(self, workout_id: str) -> str:
         return f"{workout_id}/canonical.parquet"
 
-    def _canonical_laps_blob_name(self, workout_id: str) -> str:
-        return f"{workout_id}/canonical-laps.parquet"
-
     def _raw_fit_blob_name(self, workout_id: str) -> str:
         return f"{workout_id}/raw_fit.json.gz"
 
@@ -529,28 +522,6 @@ class WorkoutTableStorage:
         buffer.seek(0)
 
         blob_name = self._canonical_records_blob_name(workout_id)
-        blob_client = self._blob_service_client.get_blob_client(
-            container=WORKOUTS_CONTAINER,
-            blob=blob_name,
-        )
-        blob_client.upload_blob(buffer.getvalue(), overwrite=True)
-        return blob_name
-
-    def store_canonical_laps(
-        self,
-        workout_id: str,
-        laps: List[Dict],
-    ) -> Optional[str]:
-        """Store canonical lap summaries to parquet blob."""
-        if not laps:
-            return None
-
-        df = pd.DataFrame(laps)
-        buffer = io.BytesIO()
-        df.to_parquet(buffer, index=False)
-        buffer.seek(0)
-
-        blob_name = self._canonical_laps_blob_name(workout_id)
         blob_client = self._blob_service_client.get_blob_client(
             container=WORKOUTS_CONTAINER,
             blob=blob_name,
@@ -603,23 +574,16 @@ class WorkoutTableStorage:
         """Load structured FIT metadata messages artifact."""
         return self._load_json_blob(self._metadata_blob_name(workout_id))
 
+    def load_laps_json(self, workout_id: str) -> Dict:
+        """Load lap messages artifact payload."""
+        return self._load_json_blob(self._laps_blob_name(workout_id))
+
     def store_laps_json(self, workout_id: str, payload: Dict) -> str:
         """Store lap messages artifact as uncompressed JSON."""
         return self._upload_json_blob(self._laps_blob_name(workout_id), payload)
 
     def load_canonical_records(self, blob_name: str) -> pd.DataFrame:
         """Load canonical substrate parquet into a DataFrame."""
-        if not blob_name:
-            return pd.DataFrame()
-        blob_client = self._blob_service_client.get_blob_client(
-            container=WORKOUTS_CONTAINER,
-            blob=blob_name,
-        )
-        payload = blob_client.download_blob().readall()
-        return pd.read_parquet(io.BytesIO(payload))
-
-    def load_canonical_laps(self, blob_name: str) -> pd.DataFrame:
-        """Load canonical laps parquet into a DataFrame."""
         if not blob_name:
             return pd.DataFrame()
         blob_client = self._blob_service_client.get_blob_client(
@@ -656,7 +620,6 @@ class WorkoutTableStorage:
         workout_id: Optional[str] = None,
         canonical_schema_version: Optional[str] = None,
         canonical_records_blob: Optional[str] = None,
-        canonical_laps_blob: Optional[str] = None,
         records_count: Optional[int] = None,
         laps_count: Optional[int] = None,
     ) -> str:
@@ -668,7 +631,6 @@ class WorkoutTableStorage:
             metadata: Canonical metadata from FIT messages
             source_info: OneDrive/source file info
             canonical_records_blob: Blob path for canonical substrate parquet
-            canonical_laps_blob: Blob path for canonical laps parquet
             records_count: Number of canonical records
             laps_count: Number of canonical laps
 
@@ -714,7 +676,6 @@ class WorkoutTableStorage:
             source_item_id=source_info.get("source_item_id"),
             canonical_schema_version=canonical_schema_version,
             canonical_records_blob=canonical_records_blob,
-            canonical_laps_blob=canonical_laps_blob,
             records_count=records_count,
             laps_count=laps_count,
             metrics=metadata,

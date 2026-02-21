@@ -6,17 +6,19 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+import fitdecode
+
 from .constants import FIT_ANALYSIS_VERSION
 
 
 class FitStructureAnalyzer:
     """Analyze decoded FIT message structure and emit normalized JSON."""
 
-    def __init__(self, messages: Optional[List[Dict[str, Any]]] = None):
+    def __init__(self, messages: Optional[List[fitdecode.FitDataMessage]] = None):
         self.messages = messages or []
 
     def analyze(self) -> Dict[str, Any]:
-        message_counts = Counter(msg.get("name", "unknown") for msg in self.messages)
+        message_counts = Counter(msg.name for msg in self.messages)
         has_records = message_counts.get("record", 0) > 0
         has_laps = message_counts.get("lap", 0) > 0
         virtual_indicators = self._virtual_indicators()
@@ -52,14 +54,12 @@ class FitStructureAnalyzer:
             },
         }
 
-    def _messages(self, name: str) -> List[Dict[str, Any]]:
-        return [msg for msg in self.messages if msg.get("name") == name]
+    def _messages(self, name: str) -> List[fitdecode.FitDataMessage]:
+        return [msg for msg in self.messages if msg.name == name]
 
     @staticmethod
-    def _value(msg: Dict[str, Any], field_name: str) -> Any:
-        fields = msg.get("fields", {})
-        field = fields.get(field_name)
-        return getattr(field, "value", None) if field is not None else None
+    def _value(msg: fitdecode.FitDataMessage, field_name: str) -> Any:
+        return msg.get_value(field_name)
 
     def _virtual_indicators(self) -> List[str]:
         indicators: List[str] = []
@@ -73,9 +73,9 @@ class FitStructureAnalyzer:
             ):
                 indicators.append("session.session_name=virtual_keyword")
         for msg in self.messages:
-            for field_name in msg.get("fields", {}).keys():
-                if str(field_name).startswith("dev_") and "virtual" in str(field_name).lower():
-                    indicators.append(f"{msg.get('name')}.{field_name}=virtual_keyword")
+            for field in getattr(msg, "developer_fields", []):
+                if "virtual" in str(field.name).lower():
+                    indicators.append(f"{msg.name}.dev_{field.name}=virtual_keyword")
         return sorted(set(indicators))
 
     def _indoor_indicators(self) -> List[str]:
@@ -132,10 +132,8 @@ class FitStructureAnalyzer:
             lambda: {"count": 0, "units": set(), "sample_values": []}
         )
         for msg in self.messages:
-            msg_name = msg.get("name", "unknown")
-            frame = msg.get("frame")
-            dev_fields = getattr(frame, "developer_fields", []) if frame is not None else []
-            for field in dev_fields:
+            msg_name = msg.name
+            for field in getattr(msg, "developer_fields", []):
                 key = f"{msg_name}.dev_{field.name}"
                 rec = fields_by_key[key]
                 rec["count"] += 1

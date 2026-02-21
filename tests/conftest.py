@@ -14,6 +14,34 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 
+def _build_fit_message(
+    name: str,
+    fields: Dict[str, Any],
+    developer_fields: Optional[list] = None,
+) -> Mock:
+    field_objects = []
+    field_map: Dict[str, Mock] = {}
+    for field_name, value in fields.items():
+        field = MagicMock()
+        field.name = field_name
+        field.value = value
+        field.units = getattr(value, "units", None)
+        field_objects.append(field)
+        field_map[field_name] = field
+
+    msg = MagicMock()
+    msg.name = name
+    msg.fields = field_objects
+    msg.developer_fields = developer_fields or []
+    msg.get_value.side_effect = (
+        lambda key: field_map.get(key).value if key in field_map else None
+    )
+    msg.get_raw_value.side_effect = (
+        lambda key: field_map.get(key).value if key in field_map else None
+    )
+    return msg
+
+
 def _env_enabled(name: str) -> bool:
     value = os.getenv(name, "").lower()
     return value in {"1", "true", "yes"}
@@ -66,6 +94,12 @@ def mocker():
 
 
 @pytest.fixture
+def fit_message_factory():
+    """Provide a helper for building fitdecode-like messages in tests."""
+    return _build_fit_message
+
+
+@pytest.fixture
 def sample_fit_file(tmp_path: Path) -> Path:
     """Create a temporary FIT file for testing."""
     fit_file = tmp_path / "sample.fit"
@@ -109,44 +143,35 @@ def fixture_mock_fit_file_with_data() -> list:
     session_sport_enum = MagicMock()
     session_sport_enum.name = 'cycling'
 
-    # Create field objects
     file_id_fields = {
-        'type': MagicMock(value=sport_enum, name='type'),
-        'manufacturer': MagicMock(value=manufacturer_enum, name='manufacturer'),
+        'type': sport_enum,
+        'manufacturer': manufacturer_enum,
     }
 
-    file_id_msg = {
-        "name": "file_id",
-        "frame": MagicMock(developer_fields=[]),
-        "fields": file_id_fields,
-    }
+    file_id_msg = _build_fit_message("file_id", file_id_fields)
 
     session_fields = {
-        'sub_sport': MagicMock(value=sub_sport_enum, name='sub_sport'),
-        'sport': MagicMock(value=session_sport_enum, name='sport'),
-        'start_time': MagicMock(value=datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc), name='start_time'),
-        'timestamp': MagicMock(value=datetime(2024, 1, 15, 11, 30, 0, tzinfo=timezone.utc), name='timestamp'),
-        'total_elapsed_time': MagicMock(value=3600, name='total_elapsed_time'),
-        'total_timer_time': MagicMock(value=3500, name='total_timer_time'),
-        'total_distance': MagicMock(value=42000, name='total_distance'),
-        'total_ascent': MagicMock(value=500, name='total_ascent'),
-        'total_descent': MagicMock(value=480, name='total_descent'),
-        'avg_speed': MagicMock(value=11.67, name='avg_speed'),
-        'max_speed': MagicMock(value=15.5, name='max_speed'),
-        'avg_heart_rate': MagicMock(value=150, name='avg_heart_rate'),
-        'max_heart_rate': MagicMock(value=185, name='max_heart_rate'),
-        'avg_power': MagicMock(value=250, name='avg_power'),
-        'max_power': MagicMock(value=1200, name='max_power'),
-        'avg_cadence': MagicMock(value=90, name='avg_cadence'),
-        'max_cadence': MagicMock(value=120, name='max_cadence'),
-        'total_calories': MagicMock(value=1500, name='total_calories'),
+        'sub_sport': sub_sport_enum,
+        'sport': session_sport_enum,
+        'start_time': datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+        'timestamp': datetime(2024, 1, 15, 11, 30, 0, tzinfo=timezone.utc),
+        'total_elapsed_time': 3600,
+        'total_timer_time': 3500,
+        'total_distance': 42000,
+        'total_ascent': 500,
+        'total_descent': 480,
+        'avg_speed': 11.67,
+        'max_speed': 15.5,
+        'avg_heart_rate': 150,
+        'max_heart_rate': 185,
+        'avg_power': 250,
+        'max_power': 1200,
+        'avg_cadence': 90,
+        'max_cadence': 120,
+        'total_calories': 1500,
     }
 
-    session_msg = {
-        "name": "session",
-        "frame": MagicMock(developer_fields=[]),
-        "fields": session_fields,
-    }
+    session_msg = _build_fit_message("session", session_fields)
 
     return [file_id_msg, session_msg]
 
@@ -164,15 +189,11 @@ def fixture_mock_fit_file_with_records(mock_fit_file_with_data: list) -> list:
 
     for hr, power, cadence in zip(heart_rates, powers, cadences):
         record_fields = {
-            'heart_rate': MagicMock(value=hr, name='heart_rate'),
-            'power': MagicMock(value=power, name='power'),
-            'cadence': MagicMock(value=cadence, name='cadence'),
+            'heart_rate': hr,
+            'power': power,
+            'cadence': cadence,
         }
-        record_msg = {
-            "name": "record",
-            "frame": MagicMock(developer_fields=[]),
-            "fields": record_fields,
-        }
+        record_msg = _build_fit_message("record", record_fields)
         messages.append(record_msg)
 
     return messages

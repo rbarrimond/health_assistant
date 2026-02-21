@@ -2,12 +2,13 @@
 # pylint: disable=too-many-lines, trailing-whitespace
 
 import hashlib
+import io
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, cast
 
-from .fit_message_utils import load_fit_messages
+import fitdecode
 from .constants import LAPS_SCHEMA_VERSION, METADATA_SCHEMA_VERSION
 from .fit_analyzer import FitStructureAnalyzer
 from .apple_workout_types import AppleWorkoutTypeResolver
@@ -53,7 +54,7 @@ class FitParser:
         self.file_bytes = file_bytes
         self.source_file_name = source_file_name
         self.source_activity_name = source_activity_name
-        self.messages = None
+        self.messages: List[fitdecode.FitDataMessage] = []
         self._file_id_msg = None
         self._session_msg = None
 
@@ -69,11 +70,39 @@ class FitParser:
 
     def _load_fit_sources(self) -> None:
         """Load FIT messages from file or bytes."""
+        stream = None
+        should_close = False
+        source_desc = "unknown"
+
         try:
-            file_input = self.file_bytes if self.file_bytes is not None else self.file_path
-            self.messages, _ = load_fit_messages(file_input)
-        except Exception as e:
-            logger.error("Error parsing FIT file %s: %s", self.file_path, e)
+            if self.file_bytes is not None:
+                stream = io.BytesIO(self.file_bytes)
+                source_desc = "bytes stream"
+            else:
+                stream = open(self.file_path, "rb")
+                should_close = True
+                source_desc = f"file {self.file_path}"
+
+            messages: List[fitdecode.FitDataMessage] = []
+            try:
+                with fitdecode.FitReader(stream, processor=fitdecode.DefaultDataProcessor()) as reader:
+                    for frame in reader:
+                        if not isinstance(frame, fitdecode.FitDataMessage):
+                            continue
+                        messages.append(frame)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"FIT file parsing failed: {exc.__class__.__name__}: {exc}"
+                ) from exc
+            finally:
+                if should_close and stream is not None:
+                    stream.close()
+
+            self.messages = messages
+        except Exception as exc:
+            if should_close and stream is not None:
+                stream.close()
+            logger.error("Error parsing FIT file %s (%s): %s", self.file_path, source_desc, exc)
             raise
 
     def _cache_messages(self) -> None:
@@ -81,60 +110,10 @@ class FitParser:
         if not self.messages:
             return
         for message in self.messages:
-            if message["name"] == "file_id" and not self._file_id_msg:
+            if message.name == "file_id" and not self._file_id_msg:
                 self._file_id_msg = message
-            elif message["name"] == "session" and not self._session_msg:
+            elif message.name == "session" and not self._session_msg:
                 self._session_msg = message
-
-    def _get_messages(self, message_name: Optional[str] = None) -> List[Dict]:
-        """Filter messages by name, or return all if name is None."""
-        if not self.messages:
-            return []
-        if message_name is None:
-            return list(self.messages)
-        return [msg for msg in self.messages if msg["name"] == message_name]
-
-    def _get_field_from_msg(self, msg: Optional[Dict], field_name: str) -> Optional[Any]:
-        """Safely get a field value from a FIT message dict."""
-        if not msg:
-            return None
-        fields = msg.get("fields", {})
-        field = fields.get(field_name)
-        if field:
-            value = field.value
-            if isinstance(value, datetime) and value.tzinfo is None:
-                return value.replace(tzinfo=timezone.utc)
-            return value
-        return None
-
-    def _extract_record_payload(self, record) -> Optional[Dict[str, Any]]:
-        """Extract a minimal record payload from a FIT record message."""
-        payload = {
-            "heart_rate": self._get_field_from_msg(record, "heart_rate"),
-            "power": self._get_field_from_msg(record, "power"),
-            "cadence": self._get_field_from_msg(record, "cadence"),
-            "position_lat": self._get_field_from_msg(record, "position_lat"),
-            "position_long": self._get_field_from_msg(record, "position_long"),
-        }
-        trimmed = {k: v for k, v in payload.items() if v is not None}
-        return trimmed or None
-
-    def extract_lap_records(self) -> List[Dict[str, Any]]:
-        """Extract lap summaries and per-lap record payloads.
-
-        Returns:
-            List of dicts: {"lap_index": int, "summary": {...}, "records": [...]}
-        """
-        if not self.messages:
-            self._load_fit_sources()
-
-        laps = self._get_messages("lap")
-        if not laps:
-            return []
-
-        lap_windows = self._build_lap_windows(laps)
-        self._assign_records_to_laps(lap_windows)
-        return self._finalize_lap_records(lap_windows)
 
     def extract_canonical_records(self) -> List[Dict[str, Any]]:
         """Extract Section I canonical substrate records for parquet storage."""
@@ -143,50 +122,14 @@ class FitParser:
         start_dt = self._canonical_start_dt()
 
         records: List[Dict[str, Any]] = []
-        for record in self._get_messages("record"):
+        for record in self.messages:
+            if record.name != "record":
+                continue
             payload = self._build_canonical_record(record, start_dt)
             if payload:
                 records.append(payload)
 
         return records
-
-    def extract_canonical_laps(self) -> List[Dict[str, Any]]:
-        """Extract lap summaries for parquet storage."""
-        if not self.messages:
-            self._load_fit_sources()
-
-        laps = self._get_messages("lap")
-        if not laps:
-            return []
-
-        canonical_laps: List[Dict[str, Any]] = []
-        for idx, msg in enumerate(laps):
-            start_time = self._get_field_from_msg(msg, "start_time")
-            start_iso = None
-            if isinstance(start_time, datetime):
-                start_iso = start_time.astimezone(timezone.utc).isoformat()
-
-            total_elapsed = self._get_field_from_msg(msg, "total_elapsed_time")
-            total_timer = self._get_field_from_msg(msg, "total_timer_time")
-            total_distance = self._get_field_from_msg(msg, "total_distance")
-            total_calories = self._get_field_from_msg(msg, "total_calories")
-
-            canonical_laps.append({
-                "lap_index": idx,
-                "start_time_utc": start_iso,
-                "elapsed_sec": float(total_elapsed) if total_elapsed is not None else None,
-                "moving_time_sec": float(total_timer) if total_timer is not None else None,
-                "distance_m": float(total_distance) if total_distance is not None else None,
-                "calories_kcal": float(total_calories) if total_calories is not None else None,
-                "avg_heart_rate_bpm": self._get_field_from_msg(msg, "avg_heart_rate"),
-                "max_heart_rate_bpm": self._get_field_from_msg(msg, "max_heart_rate"),
-                "avg_power_watts": self._get_field_from_msg(msg, "avg_power"),
-                "max_power_watts": self._get_field_from_msg(msg, "max_power"),
-                "avg_cadence_rpm": self._get_field_from_msg(msg, "avg_cadence"),
-                "max_cadence_rpm": self._get_field_from_msg(msg, "max_cadence"),
-            })
-
-        return canonical_laps
 
     def extract_canonical_metadata(self) -> Dict[str, Any]:
         """Extract canonical FIT metadata from file, device, event, activity, session."""
@@ -206,8 +149,8 @@ class FitParser:
 
         messages = []
         message_index: Dict[str, int] = {}
-        for message in self._get_messages():
-            msg_type = message["name"]
+        for message in self.messages:
+            msg_type = message.name
             message_index[msg_type] = message_index.get(msg_type, 0) + 1
             messages.append(
                 self._serialize_message(
@@ -254,7 +197,8 @@ class FitParser:
         for message_type in message_types:
             messages = [
                 self._serialize_message(message)
-                for message in self._get_messages(message_type)
+                for message in self.messages
+                if message.name == message_type
             ]
             if messages:
                 raw_fit_messages[message_type] = messages
@@ -287,9 +231,10 @@ class FitParser:
         if not self.messages:
             self._load_fit_sources()
 
+        lap_messages = [msg for msg in self.messages if msg.name == "lap"]
         laps = [
-            self._serialize_message(message)
-            for message in self._get_messages("lap")
+            self._serialize_message(message, msg_index=idx)
+            for idx, message in enumerate(lap_messages)
         ]
         return {
             "schema_version": LAPS_SCHEMA_VERSION,
@@ -337,22 +282,19 @@ class FitParser:
 
     @staticmethod
     def _serialize_message(
-        message: Dict[str, Any],
+        message: fitdecode.FitDataMessage,
         msg_type: Optional[str] = None,
         msg_index: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Serialize a FIT message dict to JSON-friendly format.
+        """Serialize a FIT message to JSON-friendly format.
         
         Args:
-            message: Dict with "name", "frame", "fields" keys from load_fit_messages
+            message: Dict with "name", "frame", "fields" keys from fitdecode reader
             msg_type: Optional override for message type name
             msg_index: Optional message index in sequence
         """
-        frame = message.get("frame")
-        fields_dict = message.get("fields", {})
-
         msg_payload = {
-            "message_type": msg_type or message.get("name", "unknown"),
+            "message_type": msg_type or message.name,
             "fields": {},
         }
 
@@ -360,19 +302,19 @@ class FitParser:
             msg_payload["message_index"] = msg_index
 
         # Serialize standard fields
-        for field_name, field in fields_dict.items():
+        for field in message.fields:
+            field_name = field.name
             msg_payload["fields"][field_name] = {
                 "value": field.value,
                 "units": getattr(field, "units", None),
             }
 
         # Serialize developer fields if present
-        if frame and hasattr(frame, "developer_fields"):
-            for field in frame.developer_fields:
-                msg_payload["fields"][f"dev_{field.name}"] = {
-                    "value": field.value,
-                    "units": getattr(field, "units", None),
-                }
+        for field in getattr(message, "developer_fields", []):
+            msg_payload["fields"][f"dev_{field.name}"] = {
+                "value": field.value,
+                "units": getattr(field, "units", None),
+            }
 
         return msg_payload
 
@@ -385,13 +327,21 @@ class FitParser:
         except ValueError:
             return None
 
+    @staticmethod
+    def _normalize_record_timestamp(
+        timestamp: Optional[datetime],
+    ) -> Optional[datetime]:
+        if isinstance(timestamp, datetime):
+            return timestamp.astimezone(timezone.utc)
+        return timestamp
+
     def _build_canonical_record(
         self,
         record,
         start_dt: Optional[datetime],
     ) -> Optional[Dict[str, Any]]:
         timestamp = self._normalize_record_timestamp(
-            self._get_field_from_msg(record, "timestamp")
+            record.get_value("timestamp")
         )
         if not timestamp:
             return None
@@ -401,20 +351,20 @@ class FitParser:
         if start_dt is not None:
             elapsed_sec = (timestamp - start_dt).total_seconds()
 
-        power = self._get_field_from_msg(record, "power")
-        heart_rate = self._get_field_from_msg(record, "heart_rate")
-        cadence = self._get_field_from_msg(record, "cadence")
+        power = record.get_value("power")
+        heart_rate = record.get_value("heart_rate")
+        cadence = record.get_value("cadence")
         speed = (
-            self._get_field_from_msg(record, "enhanced_speed")
-            or self._get_field_from_msg(record, "speed")
+            record.get_value("enhanced_speed")
+            or record.get_value("speed")
         )
         distance = (
-            self._get_field_from_msg(record, "enhanced_distance")
-            or self._get_field_from_msg(record, "distance")
+            record.get_value("enhanced_distance")
+            or record.get_value("distance")
         )
         elevation = (
-            self._get_field_from_msg(record, "enhanced_altitude")
-            or self._get_field_from_msg(record, "altitude")
+            record.get_value("enhanced_altitude")
+            or record.get_value("altitude")
         )
 
         return {
@@ -450,31 +400,44 @@ class FitParser:
 
     def _build_canonical_file_metadata(self) -> Dict[str, Any]:
         metadata: Dict[str, Any] = {}
-        file_created = self._get_field_from_msg(
-            self.file_id_msg,
-            "time_created",
+        file_created = (
+            self.file_id_msg.get_value("time_created")
+            if self.file_id_msg is not None
+            else None
         )
+        if isinstance(file_created, datetime) and file_created.tzinfo is None:
+            file_created = file_created.replace(tzinfo=timezone.utc)
         if isinstance(file_created, datetime):
             metadata["file_time_created_utc"] = (
                 file_created.astimezone(timezone.utc).isoformat()
             )
 
-        file_manufacturer = self._get_field_from_msg(
-            self.file_id_msg,
-            "manufacturer",
+        file_manufacturer = (
+            self.file_id_msg.get_value("manufacturer")
+            if self.file_id_msg is not None
+            else None
         )
         if file_manufacturer is not None:
+            manufacturer_name = getattr(file_manufacturer, "name", None)
             metadata["file_manufacturer"] = (
-                str(file_manufacturer.name)
-                if hasattr(file_manufacturer, "name")
+                str(manufacturer_name)
+                if manufacturer_name is not None
                 else str(file_manufacturer)
             )
 
-        file_product = self._get_field_from_msg(self.file_id_msg, "product")
+        file_product = (
+            self.file_id_msg.get_value("product")
+            if self.file_id_msg is not None
+            else None
+        )
         if file_product is not None:
             metadata["file_product"] = str(file_product)
 
-        file_serial = self._get_field_from_msg(self.file_id_msg, "serial_number")
+        file_serial = (
+            self.file_id_msg.get_value("serial_number")
+            if self.file_id_msg is not None
+            else None
+        )
         if file_serial is not None:
             metadata["file_serial_number"] = str(file_serial)
 
@@ -482,140 +445,34 @@ class FitParser:
 
     def _build_canonical_activity_metadata(self) -> Dict[str, Any]:
         metadata: Dict[str, Any] = {}
-        activity_msg = None
-        for msg in self._get_messages("activity"):
-            activity_msg = msg
-            break
+        activity_msg = next(
+            (msg for msg in self.messages if msg.name == "activity"),
+            None,
+        )
         if not activity_msg:
             return metadata
 
-        activity_timestamp = self._get_field_from_msg(activity_msg, "timestamp")
+        activity_timestamp = activity_msg.get_value("timestamp")
+        if isinstance(activity_timestamp, datetime) and activity_timestamp.tzinfo is None:
+            activity_timestamp = activity_timestamp.replace(tzinfo=timezone.utc)
         if isinstance(activity_timestamp, datetime):
             metadata["activity_timestamp_utc"] = (
                 activity_timestamp.astimezone(timezone.utc).isoformat()
             )
 
         activity_local = (
-            self._get_raw_field_from_msg(activity_msg, "local_time")
-            or self._get_raw_field_from_msg(activity_msg, "local_timestamp")
+            activity_msg.get_raw_value("local_time")
+            or activity_msg.get_raw_value("local_timestamp")
         )
         if isinstance(activity_local, datetime):
             metadata["activity_local_time"] = activity_local.isoformat()
 
         return metadata
 
-    def _build_lap_windows(self, laps: List) -> List[Dict[str, Any]]:
-        summary_fields = [
-            "start_time",
-            "total_elapsed_time",
-            "total_timer_time",
-            "total_distance",
-            "total_calories",
-            "avg_heart_rate",
-            "max_heart_rate",
-            "avg_power",
-            "max_power",
-            "avg_cadence",
-            "max_cadence",
-        ]
-
-        lap_windows: List[Dict[str, Any]] = []
-        for idx, msg in enumerate(laps):
-            summary: Dict[str, Any] = {}
-            start_time = self._get_field_from_msg(msg, "start_time")
-            end_time = None
-            total_elapsed = self._get_field_from_msg(msg, "total_elapsed_time")
-            if isinstance(start_time, datetime) and total_elapsed is not None:
-                end_time = start_time + timedelta(seconds=float(total_elapsed))
-
-            for field in summary_fields:
-                value = self._get_field_from_msg(msg, field)
-                if isinstance(value, datetime):
-                    value = value.astimezone(timezone.utc).isoformat()
-                if value is not None:
-                    summary[field] = value
-
-            lap_windows.append({
-                "lap_index": idx,
-                "start_time": start_time,
-                "end_time": end_time,
-                "summary": summary,
-                "records": [],
-                "record_index": 0,
-            })
-
-        return lap_windows
-
-    def _assign_records_to_laps(self, lap_windows: List[Dict[str, Any]]) -> None:
-        if not self.messages:
-            return
-
-        current_idx = 0
-        for record in self._get_messages("record"):
-            timestamp = self._normalize_record_timestamp(
-                self._get_field_from_msg(record, "timestamp")
-            )
-            current_idx = self._advance_lap_index(
-                timestamp,
-                lap_windows,
-                current_idx,
-            )
-
-            payload = self._extract_record_payload(record)
-            if not payload:
-                continue
-
-            payload["record_index"] = lap_windows[current_idx]["record_index"]
-            lap_windows[current_idx]["record_index"] += 1
-            lap_windows[current_idx]["records"].append(payload)
-
-    def _advance_lap_index(
-        self,
-        timestamp: Optional[datetime],
-        lap_windows: List[Dict[str, Any]],
-        current_idx: int,
-    ) -> int:
-        while timestamp and current_idx < len(lap_windows) - 1:
-            end_time = lap_windows[current_idx].get("end_time")
-            if end_time and timestamp >= end_time:
-                current_idx += 1
-                continue
-            break
-        return current_idx
-
-    @staticmethod
-    def _normalize_record_timestamp(
-        timestamp: Optional[datetime],
-    ) -> Optional[datetime]:
-        if isinstance(timestamp, datetime):
-            return timestamp.astimezone(timezone.utc)
-        return timestamp
-
-    @staticmethod
-    def _finalize_lap_records(
-        lap_windows: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
-        lap_records: List[Dict[str, Any]] = []
-        for lap in lap_windows:
-            lap_records.append({
-                "lap_index": lap["lap_index"],
-                "summary": lap["summary"],
-                "records": lap["records"],
-            })
-        return lap_records
-
-    def _get_raw_field_from_msg(self, msg, field_name: str) -> Optional[Any]:
-        """Return raw field value (no timezone coercion)."""
-        if msg:
-            field = msg.get(field_name)
-            if field:
-                return field.value
-        return None
-
     def _get_sport(self) -> Optional[str]:
         """Get sport type from file messages."""
         file_msg = self.file_id_msg
-        sport = self._get_field_from_msg(file_msg, "type")
+        sport = file_msg.get_value("type") if file_msg is not None else None
         if sport:
             if hasattr(sport, "name"):
                 return str(cast(Any, sport).name).lower()
@@ -625,7 +482,7 @@ class FitParser:
     def _get_sub_sport(self) -> Optional[str]:
         """Get sub-sport type."""
         session = self.session_msg
-        sub_sport = self._get_field_from_msg(session, "sub_sport")
+        sub_sport = session.get_value("sub_sport") if session is not None else None
         if sub_sport:
             if hasattr(sub_sport, "name"):
                 return str(cast(Any, sub_sport).name).lower()
@@ -666,19 +523,21 @@ class FitParser:
         return None
 
     def _get_activity_workout_name(self) -> Optional[str]:
-        activity_msgs = self._get_messages("activity")
-        if not activity_msgs:
+        activity_msg = next(
+            (msg for msg in self.messages if msg.name == "activity"),
+            None,
+        )
+        if not activity_msg:
             return None
-        activity_msg = activity_msgs[0]
         for field_name in ("event_name", "name"):
-            name = self._get_field_from_msg(activity_msg, field_name)
+            name = activity_msg.get_value(field_name)
             if name is not None:
                 return str(name)
         return None
 
     def _get_session_workout_name(self) -> Optional[str]:
         session = self.session_msg
-        name = self._get_field_from_msg(session, "session_name")
+        name = session.get_value("session_name") if session is not None else None
         return str(name) if name is not None else None
 
     def _get_constructed_workout_name(self) -> Optional[str]:
@@ -703,7 +562,7 @@ class FitParser:
         """Extract activity ID from file_id message or source_file_name."""
         # Try to get from file_id message if available
         if self.file_id_msg:
-            file_id = self._get_field_from_msg(self.file_id_msg, "file_id")
+            file_id = self.file_id_msg.get_value("file_id")
             if file_id is not None:
                 return str(file_id)
         
@@ -719,7 +578,7 @@ class FitParser:
     def _get_sport_name(self) -> Optional[str]:
         """Extract sport name from session or file_id message."""
         if self.session_msg:
-            sport = self._get_field_from_msg(self.session_msg, "sport")
+            sport = self.session_msg.get_value("sport")
             if sport is not None:
                 sport_name = getattr(sport, "name", None)
                 if sport_name:
@@ -728,7 +587,7 @@ class FitParser:
         
         # Fallback to file_id sport
         if self.file_id_msg:
-            sport = self._get_field_from_msg(self.file_id_msg, "type")
+            sport = self.file_id_msg.get_value("type")
             if sport is not None:
                 sport_name = getattr(sport, "name", None)
                 if sport_name:
@@ -740,7 +599,7 @@ class FitParser:
     def _get_sub_sport_name(self) -> Optional[str]:
         """Extract subsport name from session message."""
         if self.session_msg:
-            sub_sport = self._get_field_from_msg(self.session_msg, "sub_sport")
+            sub_sport = self.session_msg.get_value("sub_sport")
             if sub_sport is not None:
                 subsport_name = getattr(sub_sport, "name", None)
                 if subsport_name:
@@ -854,8 +713,8 @@ class FitParser:
         messages for collisions with the file_id device.
         """
         file_msg = self.file_id_msg
-        manufacturer = self._get_field_from_msg(file_msg, "manufacturer")
-        product = self._get_field_from_msg(file_msg, "product")
+        manufacturer = file_msg.get_value("manufacturer") if file_msg is not None else None
+        product = file_msg.get_value("product") if file_msg is not None else None
 
         parts: List[str] = []
 
@@ -952,9 +811,11 @@ class FitParser:
         file_id_prod_code, _ = self._extract_code_and_name(file_id_product)
 
         # Check all device_info messages for collisions
-        for device_info_msg in self._get_messages("device_info"):
-            device_mfr = self._get_field_from_msg(device_info_msg, "manufacturer")
-            device_prod = self._get_field_from_msg(device_info_msg, "product")
+        for device_info_msg in self.messages:
+            if device_info_msg.name != "device_info":
+                continue
+            device_mfr = device_info_msg.get_value("manufacturer")
+            device_prod = device_info_msg.get_value("product")
 
             # Extract numeric codes from device_info
             device_mfr_code, _ = self._extract_code_and_name(device_mfr)
@@ -977,13 +838,13 @@ class FitParser:
     def _get_is_indoor(self) -> Optional[bool]:
         """Determine if workout is indoor."""
         session = self.session_msg
-        indoor = self._get_field_from_msg(session, "indoor")
+        indoor = session.get_value("indoor") if session is not None else None
         return bool(indoor) if indoor is not None else None
 
     def _get_start_time(self) -> Optional[str]:
         """Get workout start time as ISO string."""
         session = self.session_msg
-        timestamp = self._get_field_from_msg(session, "start_time")
+        timestamp = session.get_value("start_time") if session is not None else None
         if timestamp and isinstance(timestamp, datetime):
             dt = timestamp
             if dt.tzinfo is None:
@@ -1021,8 +882,10 @@ class FitParser:
         """Return time zone name from FIT messages, if present."""
         if not self.messages:
             return None
-        for msg in self._get_messages("time_zone"):
-            name = self._get_field_from_msg(msg, "name")
+        for msg in self.messages:
+            if msg.name != "time_zone":
+                continue
+            name = msg.get_value("name")
             if name:
                 return str(name)
         return None
@@ -1031,10 +894,12 @@ class FitParser:
         """Return device UTC offset in minutes from settings, if present."""
         if not self.messages:
             return None
-        for msg in self._get_messages("device_settings"):
+        for msg in self.messages:
+            if msg.name != "device_settings":
+                continue
             offset = (
-                self._get_field_from_msg(msg, "utc_offset")
-                or self._get_field_from_msg(msg, "timezone_offset")
+                msg.get_value("utc_offset")
+                or msg.get_value("timezone_offset")
             )
             if isinstance(offset, (int, float)):
                 # offset is typically seconds; convert to minutes
@@ -1047,17 +912,17 @@ class FitParser:
         if not session:
             return None
 
-        start_time = self._get_raw_field_from_msg(session, "start_time")
-        timestamp = self._get_field_from_msg(session, "timestamp")
-        duration = self._get_field_from_msg(session, "total_elapsed_time")
+        start_time = session.get_raw_value("start_time")
+        timestamp = session.get_value("timestamp")
+        duration = session.get_value("total_elapsed_time")
 
-        if duration is None:
+        if not isinstance(start_time, datetime):
+            start_time = None
+        if not isinstance(timestamp, datetime):
+            timestamp = None
+        if not isinstance(duration, (int, float)):
             return None
-
-        try:
-            duration_sec = int(duration)
-        except (TypeError, ValueError):
-            return None
+        duration_sec = int(duration)
         return infer_timezone_from_session(
             start_time,
             timestamp,
@@ -1069,77 +934,85 @@ class FitParser:
         if not self.messages:
             return None
         activity_msg = None
-        for msg in self._get_messages("activity"):
+        for msg in self.messages:
+            if msg.name != "activity":
+                continue
             activity_msg = msg
             break
         if not activity_msg:
             return None
 
         local_time = (
-            self._get_raw_field_from_msg(activity_msg, "local_time")
-            or self._get_raw_field_from_msg(activity_msg, "local_timestamp")
+            activity_msg.get_raw_value("local_time")
+            or activity_msg.get_raw_value("local_timestamp")
         )
-        timestamp = self._get_field_from_msg(activity_msg, "timestamp")
+        timestamp = activity_msg.get_value("timestamp")
+        if not isinstance(local_time, datetime):
+            local_time = None
+        if not isinstance(timestamp, datetime):
+            timestamp = None
         return infer_timezone_from_activity(local_time, timestamp)
 
     def _get_duration(self) -> Optional[int]:
         """Get total elapsed time in seconds."""
         session = self.session_msg
-        elapsed = self._get_field_from_msg(session, "total_elapsed_time")
-        return int(elapsed) if elapsed is not None else None
+        elapsed = session.get_value("total_elapsed_time") if session is not None else None
+        return int(elapsed) if isinstance(elapsed, (int, float)) else None
 
     def _get_moving_time(self) -> Optional[int]:
         """Get moving time if available (for cycling usually equals duration)."""
         session = self.session_msg
-        timer = self._get_field_from_msg(session, "total_timer_time")
-        return int(timer) if timer is not None else None
+        timer = session.get_value("total_timer_time") if session is not None else None
+        return int(timer) if isinstance(timer, (int, float)) else None
 
     def _has_gps_data(self) -> bool:
         """Check if GPS data (lat/lon) exists in records."""
-        for record in self._get_messages("record"):
-            fields = record.get("fields", {})
-            lat = fields.get("position_lat")
-            lon = fields.get("position_long")
+        if not self.messages:
+            return False
+        for record in self.messages:
+            if record.name != "record":
+                continue
+            lat = record.get_value("position_lat")
+            lon = record.get_value("position_long")
             if lat is not None and lon is not None:
-                if lat.value is not None and lon.value is not None:
-                    return True
+                return True
         return False
 
     def _get_distance(self) -> Optional[float]:
         """Get total distance in meters."""
         session = self.session_msg
-        distance = self._get_field_from_msg(session, "total_distance")
-        return float(distance) if distance is not None else None
+        distance = session.get_value("total_distance") if session is not None else None
+        return float(distance) if isinstance(distance, (int, float)) else None
 
     def _get_elevation_gain(self) -> Optional[float]:
         """Get total elevation gain in meters."""
         session = self.session_msg
-        elev = self._get_field_from_msg(session, "total_ascent")
-        return float(elev) if elev is not None else None
+        elev = session.get_value("total_ascent") if session is not None else None
+        return float(elev) if isinstance(elev, (int, float)) else None
 
     def _get_elevation_loss(self) -> Optional[float]:
         """Get total elevation loss in meters."""
         session = self.session_msg
-        elev = self._get_field_from_msg(session, "total_descent")
-        return float(elev) if elev is not None else None
+        elev = session.get_value("total_descent") if session is not None else None
+        return float(elev) if isinstance(elev, (int, float)) else None
 
     def _get_avg_speed(self) -> Optional[float]:
         """Get average speed in m/s."""
         session = self.session_msg
-        speed = self._get_field_from_msg(session, "avg_speed")
-        return float(speed) if speed is not None else None
+        speed = session.get_value("avg_speed") if session is not None else None
+        return float(speed) if isinstance(speed, (int, float)) else None
 
     def _get_max_speed(self) -> Optional[float]:
         """Get max speed in m/s."""
         session = self.session_msg
-        speed = self._get_field_from_msg(session, "max_speed")
-        return float(speed) if speed is not None else None
+        speed = session.get_value("max_speed") if session is not None else None
+        return float(speed) if isinstance(speed, (int, float)) else None
 
     def _get_calories(self) -> Optional[float]:
         """Get total calories from session message."""
         session = self.session_msg
-        calories = self._get_field_from_msg(session, "total_calories")
-        return float(calories) if calories is not None else None
+        calories = session.get_value("total_calories") if session is not None else None
+        return float(calories) if isinstance(calories, (int, float)) else None
 
 
 def compute_file_hash(file_path: str) -> str:

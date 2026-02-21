@@ -117,13 +117,12 @@ class FitIngestionBaseHandler(ABC):
         analysis_payload = parser.extract_fit_analysis()
 
         records = parser.extract_canonical_records()
-        laps = parser.extract_canonical_laps()
         records_blob = self.storage.store_canonical_records(workout_id, records)
-        laps_blob = self.storage.store_canonical_laps(workout_id, laps)
         self.storage.store_raw_fit_json(workout_id, raw_fit_payload)
         self.storage.store_metadata_json(workout_id, metadata_payload)
         self.storage.store_laps_json(workout_id, laps_payload)
         self.storage.store_fit_analysis(workout_id, analysis_payload)
+        laps_count = len(laps_payload.get("laps", []))
 
         self.storage.store_workout(
             athlete_id,
@@ -132,9 +131,8 @@ class FitIngestionBaseHandler(ABC):
             workout_id=workout_id,
             canonical_schema_version=CANONICAL_SCHEMA_VERSION,
             canonical_records_blob=records_blob,
-            canonical_laps_blob=laps_blob,
             records_count=len(records),
-            laps_count=len(laps),
+            laps_count=laps_count,
         )
         self.storage.record_ingestion_state(
             athlete_id,

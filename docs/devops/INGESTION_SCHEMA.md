@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 6.0.0
+Version: 7.0.0
 
 This document defines the ingestion payloads and the IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -11,7 +11,7 @@ It is intentionally explicit to avoid ambiguity between ingestion metadata and w
 - **IngestionState** table schema (idempotency + provenance + operational tracking).
 - **Workouts** provenance policy (what stays vs what moves to IngestionState).
 
-Ingestion writes canonical parquet payloads (records + laps) and stores
+Ingestion writes canonical parquet payloads (records) and stores
 metadata + blob pointers in the Workouts table. Derived metrics are
 computed on read, with additional canonical artifacts persisted for
 archival and semantic use.
@@ -50,7 +50,6 @@ from the semantic API.
 
 - `workouts` — canonical artifacts and telemetry
   - `{workout_id}/canonical.parquet`
-  - `{workout_id}/canonical-laps.parquet`
   - `{workout_id}/raw_fit.json.gz`
   - `{workout_id}/fit_analysis.json`
   - `{workout_id}/metadata.json`
@@ -152,9 +151,8 @@ Workouts should only store minimal provenance and canonical parquet pointers.
 | source_item_id | string | No | Stable source item ID (OneDrive item ID). |
 | canonical_schema_version | string | Yes | Canonical telemetry schema version. |
 | canonical_records_blob | string | Yes | Blob path to canonical records parquet. |
-| canonical_laps_blob | string | No | Blob path to canonical laps parquet. |
 | records_count | int | No | Count of canonical records. |
-| laps_count | int | No | Count of canonical laps. |
+| laps_count | int | No | Count of laps in laps.json. |
 
 All other provenance fields belong in **IngestionState**.
 
@@ -232,5 +230,5 @@ currently enforce a single winner for these cases.
 ## Lap Record Storage (Legacy)
 
 Legacy ingestion stored lap summaries in `WorkoutLaps` and per-lap record
-payloads as JSON blobs in `lap-records`. New ingestion writes canonical laps
-to parquet in `canonical-laps` and slices canonical records for lap detail.
+payloads as JSON blobs in `lap-records`. Current ingestion stores laps only
+in `laps.json` and does not materialize canonical laps parquet.
