@@ -4,9 +4,9 @@
 import hashlib
 import io
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, Iterable, List, Optional, cast
 
 import fitdecode
 from .constants import LAPS_SCHEMA_VERSION, METADATA_SCHEMA_VERSION
@@ -56,6 +56,7 @@ class FitParser:
         self.source_activity_name = source_activity_name
         self.messages: List[fitdecode.FitDataMessage] = []
         self._messages_by_type: Dict[str, List[fitdecode.FitDataMessage]] = {}
+        self._rr_interval_by_second: Dict[int, float] = {}
         self._file_id_msg = None
         self._session_msg = None
 
@@ -87,7 +88,10 @@ class FitParser:
             messages: List[fitdecode.FitDataMessage] = []
             messages_by_type: Dict[str, List[fitdecode.FitDataMessage]] = {}
             try:
-                with fitdecode.FitReader(stream, processor=fitdecode.DefaultDataProcessor()) as reader:
+                with fitdecode.FitReader(
+                    stream,
+                    processor=fitdecode.DefaultDataProcessor(),
+                ) as reader:
                     for frame in reader:
                         if not isinstance(frame, fitdecode.FitDataMessage):
                             continue
@@ -108,7 +112,12 @@ class FitParser:
         except Exception as exc:
             if should_close and stream is not None:
                 stream.close()
-            logger.error("Error parsing FIT file %s (%s): %s", self.file_path, source_desc, exc)
+            logger.error(
+                "Error parsing FIT file %s (%s): %s",
+                self.file_path,
+                source_desc,
+                exc,
+            )
             raise
 
     def _ensure_message_index(self) -> None:
@@ -118,6 +127,63 @@ class FitParser:
         for message in self.messages:
             messages_by_type.setdefault(message.name, []).append(message)
         self._messages_by_type = messages_by_type
+
+    def _ensure_rr_interval_index(self) -> None:
+        if self._rr_interval_by_second or not self.messages:
+            return
+        self._ensure_message_index()
+        rr_by_second: Dict[int, float] = {}
+        for hrv_msg in self._messages_by_type.get("hrv", []):
+            for epoch_sec, rr_sec in self._iter_hrv_rr_entries(hrv_msg):
+                rr_by_second[epoch_sec] = rr_sec
+        self._rr_interval_by_second = rr_by_second
+
+    def _iter_hrv_rr_entries(
+        self,
+        hrv_msg: fitdecode.FitDataMessage,
+    ) -> Iterable[tuple[int, float]]:
+        time_values = (
+            hrv_msg.get_value("time")
+            or hrv_msg.get_value("rr_interval")
+        )
+        base_timestamp = hrv_msg.get_value("timestamp")
+        if isinstance(time_values, (list, tuple)):
+            if not isinstance(base_timestamp, datetime):
+                return
+            current_timestamp = base_timestamp
+            for rr_value in time_values:
+                rr_sec = self._coerce_float(rr_value)
+                if rr_sec is None:
+                    continue
+                yield int(current_timestamp.timestamp()), rr_sec
+                current_timestamp = current_timestamp + timedelta(seconds=rr_sec)
+            return
+        rr_sec = self._coerce_float(time_values)
+        if rr_sec is None or not isinstance(base_timestamp, datetime):
+            return
+        yield int(base_timestamp.timestamp()), rr_sec
+
+    @staticmethod
+    def _coerce_float(value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _get_record_value(
+        record: fitdecode.FitDataMessage,
+        *field_names: str,
+    ) -> Optional[Any]:
+        for field_name in field_names:
+            value = record.get_value(field_name)
+            if value is not None:
+                return value
+        return None
 
     def _cache_messages(self) -> None:
         """Cache frequently-accessed FIT messages for efficiency."""
@@ -367,31 +433,31 @@ class FitParser:
         if start_dt is not None:
             elapsed_sec = (timestamp - start_dt).total_seconds()
 
-        power = record.get_value("power")
-        heart_rate = record.get_value("heart_rate")
-        cadence = record.get_value("cadence")
-        speed = (
-            record.get_value("enhanced_speed")
-            or record.get_value("speed")
-        )
-        distance = (
-            record.get_value("enhanced_distance")
-            or record.get_value("distance")
-        )
-        elevation = (
-            record.get_value("enhanced_altitude")
-            or record.get_value("altitude")
-        )
+        power = self._get_record_value(record, "power")
+        heart_rate = self._get_record_value(record, "heart_rate")
+        cadence = self._get_record_value(record, "cadence")
+        speed = self._get_record_value(record, "enhanced_speed", "speed")
+        distance = self._get_record_value(record, "enhanced_distance", "distance")
+        elevation = self._get_record_value(record, "enhanced_altitude", "altitude")
+        temperature = self._get_record_value(record, "temperature")
+        respiration_rate = self._get_record_value(record, "respiration_rate")
+        lr_balance = self._get_record_value(record, "left_right_balance")
+        self._ensure_rr_interval_index()
+        rr_interval = self._rr_interval_by_second.get(int(timestamp.timestamp()))
 
         return {
             "timestamp_utc": timestamp_utc,
-            "elapsed_sec": float(elapsed_sec) if elapsed_sec is not None else None,
-            "power_watts": float(power) if power is not None else None,
-            "heart_rate_bpm": float(heart_rate) if heart_rate is not None else None,
-            "cadence_rpm": float(cadence) if cadence is not None else None,
-            "speed_mps": float(speed) if speed is not None else None,
-            "distance_m": float(distance) if distance is not None else None,
-            "elevation_m": float(elevation) if elevation is not None else None,
+            "elapsed_sec": self._coerce_float(elapsed_sec),
+            "power_watts": self._coerce_float(power),
+            "heart_rate_bpm": self._coerce_float(heart_rate),
+            "cadence_rpm": self._coerce_float(cadence),
+            "speed_mps": self._coerce_float(speed),
+            "distance_m": self._coerce_float(distance),
+            "elevation_m": self._coerce_float(elevation),
+            "temperature_c": self._coerce_float(temperature),
+            "respiration_rate_brpm": self._coerce_float(respiration_rate),
+            "lr_balance_pct": self._coerce_float(lr_balance),
+            "rr_interval_sec": self._coerce_float(rr_interval),
         }
 
     def _build_canonical_session_metadata(self) -> Dict[str, Any]:
