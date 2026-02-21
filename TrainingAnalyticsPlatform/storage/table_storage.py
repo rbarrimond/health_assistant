@@ -16,9 +16,8 @@ from azure.data.tables import TableClient, TableServiceClient
 from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
 
+from TrainingAnalyticsPlatform.ingestion.constants import INGEST_VERSION
 from TrainingAnalyticsPlatform.ingestion.fit_parser import compute_workout_id
-
-INGEST_VERSION = "v10.0.5"
 CANONICAL_SCHEMA_VERSION = "1.1.0"
 
 WORKOUTS_CONTAINER = "workouts"

@@ -4,6 +4,7 @@ import base64
 import logging
 from typing import Any, Dict, Optional, Tuple
 
+from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.platform.exceptions import (
     WorkoutTypeResolutionError,
 )
@@ -74,7 +75,7 @@ class FitPayloadIngestionHandler(FitIngestionBaseHandler):
         file_bytes: bytes,
     ) -> Dict[str, Any]:
         return {
-            "source_system": payload.get("source_system", "HealthFit"),
+            "source_system": payload.get("source_system", Config.ONEDRIVE_SOURCE_SYSTEM),
             "source_file_name": payload.get("source_file_name"),
             "source_file_path": payload.get("source_file_path"),
             "source_item_id": payload.get("source_item_id"),

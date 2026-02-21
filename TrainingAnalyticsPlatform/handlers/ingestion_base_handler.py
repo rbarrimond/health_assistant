@@ -4,6 +4,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Tuple
 
+from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.ingestion.fit_parser import FitParser, compute_workout_id
 from TrainingAnalyticsPlatform.storage.table_storage import (
     CANONICAL_SCHEMA_VERSION,
@@ -149,12 +150,12 @@ class FitIngestionBaseHandler(ABC):
     ) -> str:
         """Normalize source classification for downstream processing.
 
-        Rule: Apple Watch generated FITs normalize to HealthFit, all others to Garmin.
+        Rule: Apple Watch generated FITs normalize to ONEDRIVE_SOURCE_SYSTEM, all others to Garmin.
         """
         manufacturer = str(metadata.get("file_manufacturer") or "").lower()
         device_name = str(metadata.get("device_name") or "").lower()
         if "apple" in manufacturer or "apple" in device_name or "watch" in device_name:
-            return "HealthFit"
+            return Config.ONEDRIVE_SOURCE_SYSTEM
         if source_info.get("source_system"):
             return "Garmin"
         return "Garmin"

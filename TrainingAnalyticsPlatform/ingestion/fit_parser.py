@@ -451,14 +451,11 @@ class FitParser:
         power = self._get_record_value(record, "power")
         heart_rate = self._get_record_value(record, "heart_rate")
         cadence = self._get_record_value(record, "cadence")
-        speed = self._get_record_value(record, "enhanced_speed", "speed")
+        speed = self._get_record_value(record, "speed")
         distance = record.get_value("distance", fallback=None)
-        elevation = self._get_record_value(record, "enhanced_altitude", "altitude")
+        elevation = self._get_record_value(record, "altitude")
         temperature = self._get_record_value(record, "temperature")
-        respiration_rate = self._get_record_value(record, "respiration_rate")
         lr_balance = self._get_record_value(record, "left_right_balance")
-        self._ensure_rr_interval_index()
-        rr_interval = self._rr_interval_by_second.get(int(timestamp.timestamp()))
 
         return {
             "timestamp_utc": timestamp_utc,
@@ -470,9 +467,7 @@ class FitParser:
             "distance_m": self._coerce_float(distance),
             "elevation_m": self._coerce_float(elevation),
             "temperature_c": self._coerce_float(temperature),
-            "respiration_rate_brpm": self._coerce_float(respiration_rate),
             "lr_balance_pct": self._coerce_float(lr_balance),
-            "rr_interval_sec": self._coerce_float(rr_interval),
         }
 
     def _build_canonical_session_metadata(self) -> Dict[str, Any]:
@@ -596,41 +591,18 @@ class FitParser:
         return resolver.resolve()
 
     def _get_workout_name(self) -> Optional[str]:
-        """Get workout name from activity message or construct from sport/subsport/ID.
+        """Get workout name from API source or construct from sport/subsport/ID.
         
         Priority:
-        1. Activity message name field
-        2. Session message session_name field
-        3. Constructed name: {sport}-{subsport}-{activityID}
-        4. Filename stem (last resort)
+        1. API source activity name (e.g., Garmin Connect API activityName)
+        2. Constructed name: {sport}-{subsport}-{activityID}
         """
-        for candidate in (
-            self._get_activity_workout_name(),
-            self._get_session_workout_name(),
-            self._get_constructed_workout_name(),
-            self._get_filename_stem_workout_name(),
-        ):
-            if candidate:
-                return candidate
-        return None
-
-    def _get_activity_workout_name(self) -> Optional[str]:
-        self._ensure_message_index()
-        activity_msg = (self._messages_by_type.get("activity") or [None])[0]
-        if not activity_msg:
-            return None
-        for field_name in ("event_name", "name"):
-            name = activity_msg.get_value(field_name, fallback=None)
-            if name is not None:
-                return str(name)
-        return None
-
-    def _get_session_workout_name(self) -> Optional[str]:
-        session = self.session_msg
-        if session is None:
-            return None
-        name = session.get_value("session_name", fallback=None)
-        return str(name) if name is not None else None
+        # Priority 1: API-sourced name (highest priority)
+        if self.source_activity_name:
+            return self.source_activity_name
+        
+        # Priority 2: Constructed from FIT metadata
+        return self._get_constructed_workout_name()
 
     def _get_constructed_workout_name(self) -> Optional[str]:
         sport_name = self._get_sport_name()
@@ -642,22 +614,8 @@ class FitParser:
             return "-".join(str(part) for part in parts)
         return None
 
-    def _get_filename_stem_workout_name(self) -> Optional[str]:
-        if not self.source_file_name:
-            return None
-        file_name = Path(self.source_file_name).name
-        if file_name.lower().endswith(".gz"):
-            file_name = file_name[:-3]
-        return Path(file_name).stem or None
-    
     def _get_activity_id(self) -> Optional[str]:
         """Extract activity ID from file_id message or source_file_name."""
-        # Try to get from file_id message if available
-        if self.file_id_msg:
-            activity_number = self.file_id_msg.get_value("number", fallback=None)
-            if activity_number is not None:
-                return str(activity_number)
-        
         # Try to extract numeric ID from filename (e.g., "12345.fit")
         if self.source_file_name:
             file_name = Path(self.source_file_name).stem
@@ -936,14 +894,27 @@ class FitParser:
                 )
 
     def _get_is_indoor(self) -> Optional[bool]:
-        """Determine if workout is indoor."""
-        session = self.session_msg
-        indoor = (
-            session.get_value("indoor", fallback=None)
-            if session is not None
-            else None
-        )
-        return bool(indoor) if indoor is not None else None
+        """Infer indoor status from activity name.
+        
+        Checks if the workout name contains common indoor indicators
+        such as 'zwift', 'peloton', 'indoor', 'trainer', 'stationary'.
+        
+        Returns:
+            True if activity name suggests indoor workout, False if outdoor,
+            None if activity name not available.
+        """
+        workout_name = self._get_workout_name()
+        if not workout_name:
+            return None
+        
+        indoor_keywords = {'zwift', 'peloton', 'indoor', 'trainer', 'stationary'}
+        name_lower = workout_name.lower()
+        
+        for keyword in indoor_keywords:
+            if keyword in name_lower:
+                return True
+        
+        return False
 
     def _get_start_time(self) -> Optional[str]:
         """Get workout start time as ISO string."""
@@ -961,42 +932,32 @@ class FitParser:
         return None
 
     def _get_timezone(self) -> Optional[str]:
-        """Get timezone if present; default to 'UTC'.
+        """Get timezone from device settings or infer from activity/session times.
 
-        Prefers explicit `time_zone` message name; otherwise uses device
-        settings offsets when available. FIT timestamps are UTC by spec,
-        so the default is 'UTC'.
+        FIT timestamps are UTC by spec. Timezone inference uses UTC offsets
+        from device_settings (utc_offset) or by comparing local vs UTC times
+        from activity/session messages.
+        
+        Returns:
+            Timezone name (e.g., 'America/New_York') or 'UTC' as default.
         """
         try:
             if not self.messages:
                 return "UTC"
 
-            tz_name = self._get_time_zone_name()
             offset_minutes = self._get_device_utc_offset_minutes()
             inferred_activity = self._infer_timezone_from_activity_times()
             inferred_session = self._infer_timezone_from_session_times()
             return resolve_timezone(
-                tz_name,
-                offset_minutes,
-                inferred_activity,
-                inferred_session,
+                tz_name=None,  # Timezone name cannot be retrieved from FIT
+                offset_minutes=offset_minutes,
+                inferred_activity=inferred_activity,
+                inferred_session=inferred_session,
             )
         except (AttributeError, TypeError, ValueError):
             # Be defensive; timezone is non-critical
             pass
         return "UTC"
-
-    def _get_time_zone_name(self) -> Optional[str]:
-        """Return time zone name from FIT messages, if present."""
-        if not self.messages:
-            return None
-        self._ensure_message_index()
-        time_zone_msg = (self._messages_by_type.get("time_zone") or [None])[0]
-        if time_zone_msg:
-            name = time_zone_msg.get_value("name", fallback=None)
-            if name:
-                return str(name)
-        return None
 
     def _get_device_utc_offset_minutes(self) -> Optional[int]:
         """Return device UTC offset in minutes from settings, if present."""
@@ -1007,7 +968,6 @@ class FitParser:
         if device_settings_msg:
             offset = (
                 device_settings_msg.get_value("utc_offset", fallback=None)
-                or device_settings_msg.get_value("timezone_offset", fallback=None)
             )
             if isinstance(offset, (int, float)):
                 # offset is typically seconds; convert to minutes

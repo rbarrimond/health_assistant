@@ -13,6 +13,7 @@ from typing import Dict, Optional, Tuple
 
 from TrainingAnalyticsPlatform.integrations.onedrive_client import OneDriveGraphClient
 from TrainingAnalyticsPlatform.ingestion.fit_parser import compute_bytes_hash
+from TrainingAnalyticsPlatform.platform.config import Config as PlatformConfig
 from TrainingAnalyticsPlatform.storage.table_storage import IngestionContext, WorkoutTableStorage
 
 from .ingestion_base_handler import FitIngestionBaseHandler
@@ -161,7 +162,7 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
     def _build_source_info(self, item: Dict, item_meta: Dict) -> Dict:
         """Build source info metadata for ingestion state tracking."""
         return {
-            "source_system": "HealthFit",
+            "source_system": PlatformConfig.ONEDRIVE_SOURCE_SYSTEM,
             "source_file_name": item.get("name"),
             "source_file_path": item_meta["file_path"],
             "source_item_id": item_meta["source_item_id"],

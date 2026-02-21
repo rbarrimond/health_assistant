@@ -88,6 +88,7 @@ class Config:
 
     # OneDrive
     ONEDRIVE_FOLDER_PATH = os.getenv("ONEDRIVE_FOLDER_PATH", "/Apps/HealthFit")
+    ONEDRIVE_SOURCE_SYSTEM = os.getenv("ONEDRIVE_SOURCE_SYSTEM", "HealthFit")
 
     # Athlete
     DEFAULT_ATHLETE_ID = os.getenv("DEFAULT_ATHLETE_ID", "rob")

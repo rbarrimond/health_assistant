@@ -2,6 +2,11 @@
 
 ## 2026-02-21
 
+- Restore HRV RR interval indexing and extraction from HRV messages (type 78) using the `time` field with millisecond-to-seconds conversion. Bump ingest version to v10.0.11.
+- Enforce FIT field schema list by removing non-listed lookups. Record parsing now uses only schema-listed fields (drops `enhanced_speed`, `enhanced_altitude`, and `respiration_rate`), removes HRV RR interval indexing, disables `indoor` and `time_zone` lookups, and stops using file_id `number` for activity IDs. Bump ingest version to v10.0.10.
+- Remove fallback to non-existent `timezone_offset` in FIT device settings parsing. The FIT profile only defines `utc_offset`, so we now rely solely on that field. Bump ingest version to v10.0.9.
+- Simplify workout name extraction to only use reliable sources: API-provided names (e.g., Garmin Connect `activityName`) and constructed names from FIT metadata (sport-subsport-activityID). Remove unused fallback methods that attempted to extract names from non-existent FIT message fields (`_get_activity_workout_name()`, `_get_session_workout_name()`) and filename stem (`_get_filename_stem_workout_name()`). This clarifies the expected behavior: only API sources and FIT-constructed names are reliable for workout identification. Bump ingest version to v10.0.8.
+- Prioritize Garmin Connect API `activityName` in workout name extraction. Updated `_get_workout_name()` priority chain to check API-provided activity names first (highest priority), before falling back to FIT message fields. This ensures full user-specified workout names from Garmin are preserved during ingestion. Bump ingest version to v10.0.7.
 - Fix HRV RR interval processing for Garmin FIT files: Remove fallback to non-existent `rr_interval` field (only `time` field exists in HRV message 78). Add `fallback=None` to `get_value()` calls to avoid KeyErrors. Add proper millisecond-to-seconds conversion (Garmin provides RR intervals in milliseconds). Improve documentation to clarify HRV support for Garmin files. Bump ingest version to v10.0.6.
 
 ## 2026-02-20
