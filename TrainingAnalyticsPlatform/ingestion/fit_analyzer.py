@@ -1,4 +1,5 @@
 """Deterministic FIT structure analyzer."""
+# pylint: disable= line-too-long
 
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ class FitStructureAnalyzer:
         self.messages = messages or []
 
     def analyze(self) -> Dict[str, Any]:
+        """Analyze the FIT messages and return a structured summary."""
         message_counts = Counter(msg.name for msg in self.messages)
         has_records = message_counts.get("record", 0) > 0
         has_laps = message_counts.get("lap", 0) > 0

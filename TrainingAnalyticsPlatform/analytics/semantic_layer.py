@@ -21,6 +21,7 @@ UTC_OFFSET = "+00:00"
 
 
 class DevFieldSummary(TypedDict):
+    """Summary of developer fields in a workout."""
     message_type: str
     field: str
     count: int

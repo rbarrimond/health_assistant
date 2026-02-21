@@ -260,6 +260,7 @@ class TestFitMessageLoading:
     def test_load_fit_sources_sets_messages(self) -> None:
         """Verify _load_fit_sources loads messages and sets self.messages."""
         class DummyFitDataMessage:
+            """Dummy FitDataMessage for testing."""
             def __init__(self) -> None:
                 self.name = "session"
                 self.fields = []
