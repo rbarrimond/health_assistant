@@ -95,9 +95,11 @@ class FitAdapter:
         file_path: str,
         source_file_name: Optional[str] = None,
         file_bytes: Optional[bytes] = None,
+        source_activity_name: Optional[str] = None,
     ):
         self.file_path = file_path
         self.source_file_name = source_file_name
+        self.source_activity_name = source_activity_name
         self._gps_data_cache: Optional[bool] = None
         try:
             file_input = file_bytes if file_bytes is not None else file_path
@@ -361,12 +363,7 @@ class FitAdapter:
         (distance_m, elev_gain_m, elev_loss_m,
          avg_speed_mps, max_speed_mps) = self._extract_session_metrics(session_msg)
 
-        workout_name = self._get_field_value(session_msg, "session_name")
-        if workout_name is None and self.source_file_name:
-            file_name = Path(self.source_file_name).name
-            if file_name.lower().endswith(".gz"):
-                file_name = file_name[:-3]
-            workout_name = Path(file_name).stem or None
+        workout_name = self._get_workout_name()
         indoor = self._get_field_value(session_msg, "indoor")
         moving = self._get_field_value(session_msg, "total_timer_time")
         moving_sec = int(moving) if moving is not None else None
@@ -443,4 +440,104 @@ class FitAdapter:
                         position_long=lon,
                     )
                 )
+        return records
+    
+    def _get_workout_name(self) -> Optional[str]:
+        """Get workout name from activity message or construct from sport/subsport/ID.
+        
+        Priority:
+        1. Activity message name field
+        2. Session message session_name field
+        3. Constructed name: {sport}-{subsport}-{activityID}
+        4. Filename stem (last resort)
+        """
+        # Priority 1: Activity message name
+        for msg in self.messages:
+            if msg.get("name") == "activity":
+                # Check for name field in activity message
+                for field_name in ["event_name", "name"]:
+                    name = self._get_field_value(msg, field_name)
+                    if name is not None:
+                        return str(name)
+                # Only check first activity message
+                break
+        
+        # Priority 2: Session message session_name
+        session_name = self._get_field_value(self.session_msg, "session_name")
+        if session_name is not None:
+            return str(session_name)
+        
+        # Priority 3: Construct from sport-subsport-activityID
+        sport_name = self._get_sport_name()
+        sub_sport_name = self._get_sub_sport_name()
+        activity_id = self._get_activity_id()
+        
+        if sport_name or sub_sport_name or activity_id:
+            parts = []
+            if sport_name:
+                parts.append(sport_name)
+            if sub_sport_name:
+                parts.append(sub_sport_name)
+            if activity_id:
+                parts.append(activity_id)
+            if parts:
+                return "-".join(str(p) for p in parts)
+        
+        # Priority 4: Fallback to filename stem
+        if not self.source_file_name:
+            return None
+        file_name = Path(self.source_file_name).name
+        if file_name.lower().endswith(".gz"):
+            file_name = file_name[:-3]
+        return Path(file_name).stem or None
+    
+    def _get_activity_id(self) -> Optional[str]:
+        """Extract activity ID from file_id message or source_file_name."""
+        # Try to get from file_id message if available
+        if self.file_id_msg:
+            file_id = self._get_field_value(self.file_id_msg, "file_id")
+            if file_id is not None:
+                return str(file_id)
+        
+        # Try to extract numeric ID from filename (e.g., "12345.fit")
+        if self.source_file_name:
+            file_name = Path(self.source_file_name).stem
+            # Check if filename is a pure number (Garmin activity ID)
+            if file_name.isdigit():
+                return file_name
+        
+        return None
+    
+    def _get_sport_name(self) -> Optional[str]:
+        """Extract sport name from session or file_id message."""
+        if self.session_msg:
+            sport = self._get_field_value(self.session_msg, "sport")
+            if sport is not None:
+                sport_name = getattr(sport, "name", None)
+                if sport_name:
+                    return str(sport_name)
+                return str(sport)
+        
+        # Fallback to file_id sport
+        if self.file_id_msg:
+            sport = self._get_field_value(self.file_id_msg, "type")
+            if sport is not None:
+                sport_name = getattr(sport, "name", None)
+                if sport_name:
+                    return str(sport_name)
+                return str(sport)
+        
+        return None
+    
+    def _get_sub_sport_name(self) -> Optional[str]:
+        """Extract subsport name from session message."""
+        if self.session_msg:
+            sub_sport = self._get_field_value(self.session_msg, "sub_sport")
+            if sub_sport is not None:
+                subsport_name = getattr(sub_sport, "name", None)
+                if subsport_name:
+                    return str(subsport_name)
+                return str(sub_sport)
+        
+        return None
         return records

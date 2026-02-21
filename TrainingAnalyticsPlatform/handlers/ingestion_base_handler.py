@@ -97,6 +97,7 @@ class FitIngestionBaseHandler(ABC):
             file_path=file_path,
             file_bytes=file_bytes,
             source_file_name=source_info.get("source_file_name"),
+            source_activity_name=source_info.get("source_activity_name"),
         )
         metadata = parser.extract_canonical_metadata()
         source_info["normalized_source_system"] = self._normalize_source_system(
@@ -112,7 +113,7 @@ class FitIngestionBaseHandler(ABC):
 
         raw_fit_payload = parser.extract_raw_fit_json()
         metadata_payload = parser.extract_metadata_messages()
-        laps_payload = parser.extract_lap_messages()
+        laps_payload = parser.extract_laps_json()
         analysis_payload = parser.extract_fit_analysis()
 
         records = parser.extract_canonical_records()

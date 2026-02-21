@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 5.1.0
+Version: 5.2.0
 
 This document defines the ingestion payloads and the IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -54,7 +54,7 @@ from the semantic API.
   - `{workout_id}/raw_fit.json.gz`
   - `{workout_id}/fit_analysis.json`
   - `{workout_id}/metadata.json`
-  - `{workout_id}/laps.json.gz`
+  - `{workout_id}/laps.json`
   - `{workout_id}/laps/lap-0001.json` (legacy per-lap records, deprecated)
 
 ---
@@ -89,7 +89,12 @@ from the semantic API.
 - `source_item_id` and `file_sha256` are the preferred inputs for idempotency and
   `workout_id` creation.
 - If `file_sha256` is not supplied for direct uploads, ingestion computes it from the file.
-- `source_file_name` is used to **infer `workout_name`** when the FIT session name is missing.
+- `workout_name` is inferred from FIT messages with the following priority:
+  1. Activity message name field
+  2. Session message session_name field
+  3. Constructed from sport and subsport names (e.g., "Cycling-Indoor Cycling")
+  4. Activity ID from source system (e.g., Garmin activity ID)
+  5. Filename stem (fallback)
 - `workout_id` is deterministic and should be **treated as immutable once created**.
 
 ---
@@ -164,6 +169,23 @@ All other provenance fields belong in **IngestionState**.
 - `developer_fields_summary`
 - `anomalies`
 - `summary_flags`
+
+### Metadata Artifact
+
+`{workout_id}/metadata.json` stores deterministic metadata + LLM enrichment placeholders. Current schema includes:
+
+- `metadata_schema_version`
+- `extracted_at_utc`
+- `raw_fit_messages`
+- `llm_enrichment`
+
+### Laps Artifact
+
+`{workout_id}/laps.json` stores uncompressed lap messages. Current schema includes:
+
+- `schema_version`
+- `extracted_at_utc`
+- `laps`
 
 ---
 

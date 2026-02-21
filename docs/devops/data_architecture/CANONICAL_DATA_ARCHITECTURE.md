@@ -96,7 +96,7 @@ This file is the authoritative substrate for all metrics.
 ### 4. Lap Messages (Contextual)
 
 Path:
-/workouts/{workout_id}/laps.json.gz
+/workouts/{workout_id}/laps.json
 
 Purpose:
 
@@ -204,7 +204,7 @@ This section separates pass-through fields from deterministic projections.
 
 Pass-through fields (not computed):
 
-- intervals_json (sourced from laps.json.gz)
+- intervals_json (sourced from laps.json)
 
 Derived fields (computed from canonical.parquet):
 
@@ -303,7 +303,7 @@ FIT Source
     → raw_fit.json.gz
     → fit_analysis.json
     → canonical.parquet
-    → laps.json.gz
+    → laps.json
     → metadata.json
     → Insert Workout Table Row
 
@@ -351,7 +351,7 @@ Rules:
 Terminology Crosswalk:
 
 - `intervals_json` (analytics/API surface) = pass-through representation of
-  ingest lap artifact (`laps.json.gz`)
+  ingest lap artifact (`laps.json`)
 - `climbs_json` and `power_curve_json` = deterministic computed artifacts from
   canonical telemetry
 

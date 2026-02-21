@@ -6,6 +6,8 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from .constants import FIT_ANALYSIS_VERSION
+
 
 class FitStructureAnalyzer:
     """Analyze decoded FIT message structure and emit normalized JSON."""
@@ -24,7 +26,7 @@ class FitStructureAnalyzer:
         anomalies = self._anomalies(virtual_indicators, indoor_indicators, outdoor_indicators)
 
         return {
-            "analysis_version": "v1.0.0",
+            "analysis_version": FIT_ANALYSIS_VERSION,
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
             "file_profile": {
                 "total_messages": len(self.messages),

@@ -40,7 +40,7 @@ class CanonicalRecord(BaseModel):
 class CanonicalLap(BaseModel):
     """Lap-level summary record for canonical substrate.
 
-    Deprecated: prefer laps.json.gz artifacts for lap payloads.
+    Deprecated: prefer laps.json artifacts for lap payloads.
     Stores lap summaries in Parquet format for querying multi-lap workouts.
     Complements CanonicalRecord time-series data with segment-level aggregates.
     """

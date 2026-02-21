@@ -19,13 +19,13 @@ from azure.storage.blob import BlobServiceClient
 
 from TrainingAnalyticsPlatform.ingestion.fit_parser import compute_workout_id
 
-INGEST_VERSION = "v7.0.1"
+INGEST_VERSION = "v7.2.0"
 CANONICAL_SCHEMA_VERSION = "1.1.0"
 
 WORKOUTS_CONTAINER = "workouts"
 WORKOUT_LAPS_TABLE = "WorkoutLaps"
 DEPRECATED_LAPS_WARNING = (
-    "WorkoutLaps storage is deprecated; use laps.json.gz artifacts."
+    "WorkoutLaps storage is deprecated; use laps.json artifacts."
 )
 
 logger = logging.getLogger(__name__)
@@ -146,6 +146,7 @@ class IngestionStateEntity:
     source_ctag: Optional[str] = None
     source_quickxor_hash: Optional[str] = None
     source_modified_at_utc: Optional[str] = None
+    source_activity_name: Optional[str] = None
     file_sha256: Optional[str] = None
     ingest_version: Optional[str] = None
     ingested_at_utc: Optional[str] = None
@@ -180,6 +181,8 @@ class IngestionStateEntity:
             entity["source_quickxor_hash"] = self.source_quickxor_hash
         if self.source_modified_at_utc is not None:
             entity["source_modified_at_utc"] = self.source_modified_at_utc
+        if self.source_activity_name is not None:
+            entity["source_activity_name"] = self.source_activity_name
         if self.file_sha256 is not None:
             entity["file_sha256"] = self.file_sha256
         if self.ingest_version:
@@ -345,6 +348,7 @@ class IngestionContext:
             "file_sha256": self.file_info.get("file_sha256"),
             "source_file_name": self.file_info.get("source_file_name"),
             "source_drive_id": self.file_info.get("source_drive_id"),
+            "source_activity_name": self.file_info.get("source_activity_name"),
         }
         if status == "skipped" and self.existing_state:
             for key in state_fields:
@@ -372,6 +376,7 @@ class IngestionContext:
             source_ctag=state_fields["source_ctag"],
             source_quickxor_hash=state_fields["source_quickxor_hash"],
             source_modified_at_utc=state_fields["source_modified_at_utc"],
+            source_activity_name=state_fields["source_activity_name"],
             file_sha256=state_fields["file_sha256"],
             ingest_version=INGEST_VERSION,
             ingested_at_utc=ingested_at_utc,
@@ -513,7 +518,7 @@ class WorkoutTableStorage:
         return f"{workout_id}/metadata.json"
 
     def _laps_blob_name(self, workout_id: str) -> str:
-        return f"{workout_id}/laps.json.gz"
+        return f"{workout_id}/laps.json"
 
     def store_canonical_records(
         self,
@@ -605,8 +610,8 @@ class WorkoutTableStorage:
         return self._load_json_blob(self._metadata_blob_name(workout_id))
 
     def store_laps_json(self, workout_id: str, payload: Dict) -> str:
-        """Store lap messages artifact as compressed JSON."""
-        return self._upload_json_gzip(self._laps_blob_name(workout_id), payload)
+        """Store lap messages artifact as uncompressed JSON."""
+        return self._upload_json_blob(self._laps_blob_name(workout_id), payload)
 
     def load_canonical_records(self, blob_name: str) -> pd.DataFrame:
         """Load canonical substrate parquet into a DataFrame."""
@@ -709,7 +714,7 @@ class WorkoutTableStorage:
     def load_lap_records(self, blob_name: str) -> List[Dict]:
         """Load lap records payload from blob storage."""
         warnings.warn(
-            "Lap record blobs are deprecated; use laps.json.gz artifacts.",
+            "Lap record blobs are deprecated; use laps.json artifacts.",
             DeprecationWarning,
             stacklevel=2,
         )

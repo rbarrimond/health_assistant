@@ -19,6 +19,7 @@ from TrainingAnalyticsPlatform.platform.exceptions import (
 from TrainingAnalyticsPlatform.models import Workout
 
 from .adapter import FitAdapter
+from .constants import LAPS_SCHEMA_VERSION, METADATA_SCHEMA_VERSION
 from .fit_analyzer import FitStructureAnalyzer
 from .apple_workout_types import AppleWorkoutTypeResolver
 from .code_mappings import (
@@ -48,6 +49,7 @@ class FitParser:
         file_path: Optional[str] = None,
         source_file_name: Optional[str] = None,
         file_bytes: Optional[bytes] = None,
+        source_activity_name: Optional[str] = None,
     ):
         """Initialize FIT parser with file path or in-memory bytes.
 
@@ -56,6 +58,8 @@ class FitParser:
             source_file_name: Optional original filename
                 (e.g., from OneDrive) for metadata extraction
             file_bytes: Optional in-memory FIT bytes
+            source_activity_name: Optional activity name from source system
+                (e.g., Garmin Connect API activityName)
         """
         if not file_path and file_bytes is None:
             raise ValueError("file_path or file_bytes must be provided")
@@ -63,6 +67,7 @@ class FitParser:
         self.file_path = file_path or "<in-memory>"
         self.file_bytes = file_bytes
         self.source_file_name = source_file_name
+        self.source_activity_name = source_activity_name
         self.messages = None
         self.workout: Optional[Workout] = None
         self.metrics = {}
@@ -127,6 +132,7 @@ class FitParser:
                 file_path=self.file_path,
                 file_bytes=self.file_bytes,
                 source_file_name=self.source_file_name,
+                source_activity_name=self.source_activity_name,
             )
             self.workout = adapter.load_workout()
             self.messages = adapter.messages
@@ -408,7 +414,12 @@ class FitParser:
         }
 
     def extract_metadata_messages(self) -> Dict[str, Any]:
-        """Return structured FIT metadata messages for fast access."""
+        """Return structured FIT metadata.json with raw messages and LLM enrichment placeholder.
+        
+        Returns:
+            Dict with schema_version, extracted_at_utc, raw_fit_messages, and llm_enrichment fields.
+            The llm_enrichment section has status='pending' until enriched by LLM.
+        """
         if not self.messages:
             self._load_fit_sources()
 
@@ -420,21 +431,43 @@ class FitParser:
             "session",
             "activity",
             "event",
+            "workout",
         ]
 
-        payload: Dict[str, Any] = {}
+        raw_fit_messages: Dict[str, Any] = {}
         for message_type in message_types:
             messages = [
                 self._serialize_message(message)
                 for message in self._get_messages(message_type)
             ]
             if messages:
-                payload[message_type] = messages
+                raw_fit_messages[message_type] = messages
 
-        return payload
+        # LLM enrichment placeholder - filled in by enrich_metadata_with_llm()
+        llm_enrichment = {
+            "status": "pending",  # 'complete' after LLM enrichment
+            "inferred_workout_name": None,
+            "primary_activity": None,
+            "confidence_score": None,
+            "has_virtual_indicators": None,
+            "device_classifier": None,
+            "anomalies": [],
+            "semantic_flags": {},
+        }
 
-    def extract_lap_messages(self) -> Dict[str, Any]:
-        """Return lap messages as a pass-through JSON artifact."""
+        return {
+            "metadata_schema_version": METADATA_SCHEMA_VERSION,
+            "extracted_at_utc": datetime.now(timezone.utc).isoformat(),
+            "raw_fit_messages": raw_fit_messages,
+            "llm_enrichment": llm_enrichment,
+        }
+
+    def extract_laps_json(self) -> Dict[str, Any]:
+        """Return uncompressed lap messages JSON artifact with schema metadata.
+        
+        Returns:
+            Dict with schema_version, extracted_at_utc, and laps array.
+        """
         if not self.messages:
             self._load_fit_sources()
 
@@ -443,6 +476,8 @@ class FitParser:
             for message in self._get_messages("lap")
         ]
         return {
+            "schema_version": LAPS_SCHEMA_VERSION,
+            "extracted_at_utc": datetime.now(timezone.utc).isoformat(),
             "laps": laps,
         }
 
@@ -453,7 +488,41 @@ class FitParser:
         analyzer = FitStructureAnalyzer(self.messages)
         return analyzer.analyze()
 
-    @staticmethod
+    def enrich_metadata_with_llm(
+        self,
+        metadata_json: Dict[str, Any],
+        fit_analysis: Dict[str, Any],
+        llm_client: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Enrich metadata.json with semantic interpretation from LLM.
+        
+        Calls GPT-4o-mini to analyze raw_fit_messages + fit_analysis and provide
+        semantic interpretation: inferred workout name, activity classification,
+        virtual indicators, and anomalies.
+        
+        Args:
+            metadata_json: Output from extract_metadata_messages()
+            fit_analysis: Output from extract_fit_analysis()
+            llm_client: Optional Azure OpenAI client. If None, returns metadata unchanged.
+        
+        Returns:
+            metadata_json with llm_enrichment.status='complete' and filled fields.
+            If llm_client is None, returns with status='skipped'.
+        """
+        if not llm_client:
+            metadata_json["llm_enrichment"]["status"] = "skipped"
+            return metadata_json
+
+        # TODO: Implement LLM enrichment call
+        # 1. Build prompt from raw_fit_messages + fit_analysis
+        # 2. Call llm_client with structured output request
+        # 3. Parse response into llm_enrichment fields
+        # 4. Update status to 'complete'
+        # 5. Return enriched metadata_json
+        
+        logger.debug("LLM enrichment not yet implemented; returning metadata with pending status")
+        return metadata_json
+
     @staticmethod
     def _serialize_message(
         message: Dict[str, Any],
@@ -787,18 +856,103 @@ class FitParser:
         return resolver.resolve()
 
     def _get_workout_name(self) -> Optional[str]:
-        """Get workout/session name if available."""
+        """Get workout name from activity message or construct from sport/subsport/ID.
+        
+        Priority:
+        1. Activity message name field
+        2. Session message session_name field
+        3. Constructed name: {sport}-{subsport}-{activityID}
+        4. Filename stem (last resort)
+        """
+        # Priority 1: Activity message name
+        activity_msgs = self._get_messages("activity")
+        if activity_msgs:
+            activity_msg = activity_msgs[0]
+            # Check for name field in activity message
+            for field_name in ["event_name", "name"]:
+                name = self._get_field_from_msg(activity_msg, field_name)
+                if name is not None:
+                    return str(name)
+        
+        # Priority 2: Session message session_name
         session = self.session_msg
         name = self._get_field_from_msg(session, "session_name")
         if name is not None:
             return str(name)
+        
+        # Priority 3: Construct from sport-subsport-activityID
+        sport_name = self._get_sport_name()
+        sub_sport_name = self._get_sub_sport_name()
+        activity_id = self._get_activity_id()
+        
+        if sport_name or sub_sport_name or activity_id:
+            parts = []
+            if sport_name:
+                parts.append(sport_name)
+            if sub_sport_name:
+                parts.append(sub_sport_name)
+            if activity_id:
+                parts.append(activity_id)
+            if parts:
+                return "-".join(str(p) for p in parts)
+        
+        # Priority 4: Fallback to filename stem
         if not self.source_file_name:
             return None
-
         file_name = Path(self.source_file_name).name
         if file_name.lower().endswith(".gz"):
             file_name = file_name[:-3]
         return Path(file_name).stem or None
+    
+    def _get_activity_id(self) -> Optional[str]:
+        """Extract activity ID from file_id message or source_file_name."""
+        # Try to get from file_id message if available
+        if self.file_id_msg:
+            file_id = self._get_field_from_msg(self.file_id_msg, "file_id")
+            if file_id is not None:
+                return str(file_id)
+        
+        # Try to extract numeric ID from filename (e.g., "12345.fit")
+        if self.source_file_name:
+            file_name = Path(self.source_file_name).stem
+            # Check if filename is a pure number (Garmin activity ID)
+            if file_name.isdigit():
+                return file_name
+        
+        return None
+    
+    def _get_sport_name(self) -> Optional[str]:
+        """Extract sport name from session or file_id message."""
+        if self.session_msg:
+            sport = self._get_field_from_msg(self.session_msg, "sport")
+            if sport is not None:
+                sport_name = getattr(sport, "name", None)
+                if sport_name:
+                    return str(sport_name)
+                return str(sport)
+        
+        # Fallback to file_id sport
+        if self.file_id_msg:
+            sport = self._get_field_from_msg(self.file_id_msg, "type")
+            if sport is not None:
+                sport_name = getattr(sport, "name", None)
+                if sport_name:
+                    return str(sport_name)
+                return str(sport)
+        
+        return None
+    
+    def _get_sub_sport_name(self) -> Optional[str]:
+        """Extract subsport name from session message."""
+        if self.session_msg:
+            sub_sport = self._get_field_from_msg(self.session_msg, "sub_sport")
+            if sub_sport is not None:
+                subsport_name = getattr(sub_sport, "name", None)
+                if subsport_name:
+                    return str(subsport_name)
+                return str(sub_sport)
+        
+        return None
 
     def _extract_code_and_name(self, field: Optional[Any]) -> tuple[Optional[int], Optional[str]]:
         """Extract numeric code and enum name from a FIT field.

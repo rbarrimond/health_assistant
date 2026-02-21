@@ -2,6 +2,18 @@
 
 ## 2026-02-20
 
+- Add versioned constants for ingestion artifacts (metadata, laps, analysis), store laps.json uncompressed, and update metadata/laps schema wrappers; bump ingestion schema to 5.2.0 and ingest version to v7.2.0.
+- Enhance FIT activity name extraction with priority-based resolution:
+  1. Extract name from FIT activity message (most user-facing)
+  2. Construct from sport and subsport names (e.g., "Cycling-Indoor Cycling")
+  3. Use activity ID from source system (e.g., Garmin activity ID) or file
+  4. Fall back to filename stem as last resort
+  - Replace flat session_name-only approach with comprehensive multi-source strategy to improve workout identification for Garmin and other sources
+  - Add `source_activity_name` parameter to FitParser and FitAdapter for passing API activity names through ingestion pipeline
+  - Persist `source_activity_name` in IngestionState table for historical tracking and debugging
+  - Add extraction helper methods: `_get_activity_id()`, `_get_sport_name()`, `_get_sub_sport_name()`
+  - Update INGESTION_SCHEMA.md to document new workout name resolution priority chain
+  - Bump ingest version to v7.1.0 (minor enhancement to name extraction logic)
 - Add deterministic FIT structural analyzer output (`fit_analysis.json` now `analysis_version: v1.0.0`) with classification evidence, developer-field summaries, and anomaly flags.
 - Add Garmin near-duplicate detection by rough start-time and duration window to reduce duplicate workout ingestion when Garmin activity IDs differ.
 - Change Garmin unchanged-content dedupe ordering to compute FIT SHA-256 before idempotency checks.
