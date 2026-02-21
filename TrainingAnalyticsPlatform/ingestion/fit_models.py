@@ -23,6 +23,7 @@ from .code_mappings import (
     MANUFACTURER_CODES,
 )
 from .timezone_utils import (
+    format_utc_offset,
     infer_timezone_from_activity,
     infer_timezone_from_session,
     resolve_timezone,
@@ -988,10 +989,25 @@ class BaseFitModel(BaseModel, ABC):
 
 
 class OneDriveFitModel(BaseFitModel, ABC):
-    """Abstract model for OneDrive-sourced FIT files (HealthFit exports).
+    """Abstract model for OneDrive-sourced FIT files.
     
-    Handles OneDrive-specific metadata and HealthFit filename parsing.
-    Concrete subclasses distinguish between Apple Watch and other devices.
+    Handles OneDrive-specific metadata extraction.
+    Concrete subclasses implement app-specific logic (HealthFit, RunGap, etc.).
+    """
+    
+    @computed_field  # type: ignore[misc]
+    @property
+    def source_file_name(self) -> Optional[str]:
+        """Extract filename from source metadata."""
+        return self._metadata_dict.get("source_file_name")
+
+
+class HealthFitModel(OneDriveFitModel):
+    """Concrete model for Apple Watch FIT files exported via HealthFit.
+    
+    Handles HealthFit-specific filename parsing, timezone inference from local time,
+    and device source classification (true Apple Watch vs HealthKit synced).
+    HealthFit uses pattern: YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz]
     """
     
     # HealthFit filename pattern: YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz]
@@ -1001,9 +1017,9 @@ class OneDriveFitModel(BaseFitModel, ABC):
     
     @computed_field  # type: ignore[misc]
     @property
-    def source_file_name(self) -> Optional[str]:
-        """Extract filename from source metadata."""
-        return self._metadata_dict.get("source_file_name")
+    def normalized_source_system(self) -> str:
+        """Return normalized source system name."""
+        return "HealthFit"
     
     @computed_field  # type: ignore[misc]
     @property
@@ -1027,7 +1043,7 @@ class OneDriveFitModel(BaseFitModel, ABC):
     @computed_field  # type: ignore[misc]
     @property
     def filename_date(self) -> Optional[str]:
-        """Extract date from filename."""
+        """Extract date from HealthFit filename."""
         if self.filename_components:
             return self.filename_components["date"]
         return None
@@ -1035,7 +1051,7 @@ class OneDriveFitModel(BaseFitModel, ABC):
     @computed_field  # type: ignore[misc]
     @property
     def filename_time(self) -> Optional[str]:
-        """Extract time from filename."""
+        """Extract time from HealthFit filename."""
         if self.filename_components:
             return self.filename_components["time"]
         return None
@@ -1043,7 +1059,7 @@ class OneDriveFitModel(BaseFitModel, ABC):
     @computed_field  # type: ignore[misc]
     @property
     def filename_activity_type(self) -> Optional[str]:
-        """Extract activity type from filename."""
+        """Extract activity type from HealthFit filename."""
         if self.filename_components:
             return self.filename_components["activity_type"]
         return None
@@ -1051,7 +1067,7 @@ class OneDriveFitModel(BaseFitModel, ABC):
     @computed_field  # type: ignore[misc]
     @property
     def filename_source_device(self) -> Optional[str]:
-        """Extract source device from filename."""
+        """Extract source device from HealthFit filename."""
         if self.filename_components:
             return self.filename_components["source_device"]
         return None
@@ -1059,29 +1075,139 @@ class OneDriveFitModel(BaseFitModel, ABC):
     @computed_field  # type: ignore[misc]
     @property
     def is_gzipped(self) -> bool:
-        """Check if file is gzipped based on filename."""
+        """Check if file is gzipped based on HealthFit filename."""
         if self.filename_components:
             return self.filename_components["is_gzipped"] == "true"
         return False
-
-
-class HealthFitModel(OneDriveFitModel):
-    """Concrete model for Apple Watch FIT files exported via HealthFit.
-    
-    Handles Apple Watch-specific device validation and activity name resolution.
-    """
     
     @computed_field  # type: ignore[misc]
     @property
-    def normalized_source_system(self) -> str:
-        """Return normalized source system name."""
-        return "HealthFit"
+    def inferred_timezone_filename(self) -> Optional[str]:
+        """Infer timezone from HealthFit filename local time vs FIT UTC time.
+        
+        Compares filename's local datetime (YYYY-MM-DD-HHMMSS) with session
+        start_time_utc to calculate timezone offset as fallback when device_settings
+        or activity local_timestamp fields are missing.
+        """
+        if not self.filename_date or not self.filename_time or self.filename_time == "Nodata":
+            return None
+        
+        if not self.start_time_utc:
+            return None
+        
+        try:
+            # Parse filename local datetime
+            local_dt_str = f"{self.filename_date} {self.filename_time}"
+            local_dt = datetime.strptime(local_dt_str, "%Y-%m-%d %H%M%S")
+            
+            # Parse FIT UTC timestamp
+            utc_dt = datetime.fromisoformat(self.start_time_utc.replace("Z", "+00:00"))
+            utc_dt_naive = utc_dt.replace(tzinfo=None)
+            
+            # Calculate offset in minutes
+            offset_delta = local_dt - utc_dt_naive
+            offset_minutes = int(offset_delta.total_seconds() / 60)
+            
+            return format_utc_offset(offset_minutes)
+        except (ValueError, AttributeError, ImportError):
+            return None
+    
+    @computed_field  # type: ignore[misc]
+    @property
+    def timezone(self) -> Optional[str]:
+        """Override to add HealthFit filename-based timezone inference fallback.
+        
+        Priority order:
+        1. Device UTC offset (from device_settings message)
+        2. Activity local_timestamp vs UTC timestamp
+        3. Session start_time vs timestamp
+        4. HealthFit filename local time vs FIT UTC time (NEW fallback)
+        5. Default to "UTC"
+        """
+        try:
+            self._ensure_message_index()
+            if not self._messages:
+                return "UTC"
+            
+            offset_minutes = self.device_utc_offset_minutes
+            inferred_activity = self.inferred_timezone_activity
+            inferred_session = self.inferred_timezone_session
+            inferred_filename = self.inferred_timezone_filename
+            
+            # Use base resolve_timezone with filename as additional fallback
+            resolved = resolve_timezone(
+                tz_name=None,
+                offset_minutes=offset_minutes,
+                inferred_activity=inferred_activity,
+                inferred_session=inferred_session,
+            )
+            
+            # If base resolution didn't find anything, use filename inference
+            if resolved == "UTC" and inferred_filename:
+                return inferred_filename
+            
+            return resolved
+        except (AttributeError, TypeError, ValueError, ImportError):
+            pass
+        return "UTC"
+    
+    @computed_field  # type: ignore[misc]
+    @property
+    def is_healthkit_synced(self) -> bool:
+        """Detect if workout was synced into HealthKit from another app.
+        
+        HealthFit exports synced workouts with device_name="iPhone" (sentinel value).
+        Direct Apple Watch exports have device_name containing "Apple Watch" or "Watch".
+        
+        Returns:
+            True if device is "iPhone" (synced via HealthKit)
+            False if Apple Watch (true source workout)
+            False if device_name missing/None (conservatively assume true source)
+        """
+        if self.device_name is None:
+            return False
+        
+        device_lower = self.device_name.lower()
+        return "iphone" in device_lower
+    
+    @computed_field  # type: ignore[misc]
+    @property
+    def is_apple_watch_source(self) -> bool:
+        """Check if workout originated from Apple Watch (not synced via HealthKit).
+        
+        Returns:
+            True if Apple Watch is the source
+            False if HealthKit synced (iPhone sentinel)
+        """
+        return not self.is_healthkit_synced
+    
+    @computed_field  # type: ignore[misc]
+    @property
+    def device_source_type(self) -> str:
+        """Classify device source for downstream filtering.
+        
+        Returns:
+            "apple_watch" - Native Apple Watch export (true source)
+            "healthkit_synced" - Synced from another app via HealthKit (iPhone sentinel)
+            "unknown" - Device not detected or missing
+        """
+        if self.device_name is None:
+            return "unknown"
+        
+        device_lower = self.device_name.lower()
+        
+        if "iphone" in device_lower:
+            return "healthkit_synced"
+        if "watch" in device_lower:
+            return "apple_watch"
+        
+        return "unknown"
     
     @computed_field  # type: ignore[misc]
     @property
     def workout_name(self) -> Optional[str]:
-        """Override to prioritize filename activity type for Apple Watch."""
-        # Priority 1: Source activity name (if provided)
+        """Override to prioritize HealthFit filename activity type."""
+        # Priority 1: Source activity name (if explicitly provided)
         source_activity_name = self._metadata_dict.get("source_activity_name")
         if source_activity_name:
             return source_activity_name
