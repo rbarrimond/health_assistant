@@ -206,7 +206,7 @@ As of `v11.0.0`, FIT parsing uses a hierarchical Pydantic model architecture:
 
 ### Model Hierarchy
 
-```
+```plaintext
 BaseFitModel (abstract)
 ├── 50+ @computed_field properties (lazy-evaluated, cached)
 ├── Message indexing & loading (_load_fit_messages, _ensure_message_index)
@@ -240,6 +240,7 @@ BaseFitModel (abstract)
 ### FitParser Facade
 
 `FitParser` is a lightweight facade (~136 lines) that:
+
 1. Accepts legacy kwargs (`source_file_name`, `source_activity_name`) and converts them to `source_metadata` dict
 2. Creates the appropriate model via `create_fit_model()`
 3. Delegates all extract_* methods to `self.model.build_*()` methods
@@ -248,6 +249,7 @@ BaseFitModel (abstract)
 ### Enhanced raw_fit.json
 
 As of `v11.0.0`, `build_raw_fit_json()` uses `fitdecode.cmd.fitjson.RecordJSONEncoder` to provide full-fidelity JSON serialization including:
+
 - Raw field values (alongside rendered values)
 - Definition numbers (def_num)
 - Frame headers (frame_type, header_size, protocol_version)
