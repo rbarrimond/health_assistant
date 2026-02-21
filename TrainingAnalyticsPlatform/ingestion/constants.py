@@ -4,5 +4,5 @@
 METADATA_SCHEMA_VERSION = "1.0.0"
 LAPS_SCHEMA_VERSION = "1.0.0"
 FIT_ANALYSIS_VERSION = "v1.0.0"
-INGEST_VERSION = "v11.0.0"  # (v10→v11) Major refactor: extracted Pydantic model hierarchy
+INGEST_VERSION = "v11.1.0"  # (v11.0→v11.1) Add precise start time and semantic workout IDs
 

@@ -5,8 +5,8 @@ import io
 import json
 import logging
 import re
-from abc import ABC
-from datetime import datetime, timezone
+from abc import ABC, abstractmethod
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, ClassVar, Dict, Iterable, List, Optional, cast
 
@@ -352,6 +352,141 @@ class BaseFitModel(BaseModel, ABC):
                 dt = dt.replace(tzinfo=timezone.utc)
             return dt.astimezone(timezone.utc).isoformat()
         return None
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def start_time_utc_precise(self) -> Optional[str]:
+        """Get precise workout start time as ISO string.
+
+        Priority:
+        1. Event start timestamp
+        2. Session start_time
+        3. Source-specific UTC time (filename, API, etc.)
+        4. First record timestamp
+        """
+        start_dt = self._start_time_from_event()
+        if not start_dt:
+            start_dt = self._start_time_from_session()
+        if not start_dt:
+            candidate = self._start_time_from_source_specific_utc()  # type: ignore[misc]
+            if candidate:
+                start_dt = candidate
+        if not start_dt:
+            start_dt = self._start_time_from_first_record()
+
+        if not start_dt:
+            return None
+
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+        return start_dt.astimezone(timezone.utc).isoformat()
+
+    def _start_time_from_event(self) -> Optional[datetime]:
+        """Return earliest event start timestamp, if present."""
+        self._ensure_message_index()
+        event_messages = self._messages_by_type.get("event", [])
+        candidates: List[datetime] = []
+
+        for event_msg in event_messages:
+            event_type = self._field_to_lower(
+                event_msg.get_value("event_type", fallback=None)
+            )
+            if not event_type or not event_type.startswith("start"):
+                continue
+
+            timestamp = event_msg.get_value("timestamp", fallback=None)
+            if isinstance(timestamp, datetime):
+                if timestamp.tzinfo is None:
+                    timestamp = timestamp.replace(tzinfo=timezone.utc)
+                candidates.append(timestamp)
+
+        if candidates:
+            return min(candidates)
+        return None
+
+    def _start_time_from_session(self) -> Optional[datetime]:
+        """Return session start time if available."""
+        if self.session_msg is None:
+            return None
+
+        timestamp = self.session_msg.get_value("start_time", fallback=None)
+        if isinstance(timestamp, datetime):
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
+            return timestamp
+        return None
+
+    def _start_time_from_first_record(self) -> Optional[datetime]:
+        """Return the first record timestamp if present."""
+        self._ensure_message_index()
+        for record in self._messages_by_type.get("record", []):
+            timestamp = record.get_value("timestamp", fallback=None)
+            if isinstance(timestamp, datetime):
+                if timestamp.tzinfo is None:
+                    timestamp = timestamp.replace(tzinfo=timezone.utc)
+                return timestamp
+        return None
+
+    @abstractmethod
+    def _start_time_from_source_specific_utc(self) -> Optional[datetime]:
+        """Return source-specific UTC start time (e.g., from filename, API metadata).
+        
+        Subclasses implement source-specific logic to extract precise start times
+        from non-FIT sources (e.g., HealthFit filename, Garmin API).
+        
+        Returns:
+            UTC datetime or None if not available from this source.
+        """
+        raise NotImplementedError
+
+    @staticmethod
+    def _field_to_lower(value: Optional[Any]) -> Optional[str]:
+        """Normalize FIT enum fields to lowercase strings."""
+        if value is None:
+            return None
+
+        name = getattr(value, "name", None)
+        if name is not None:
+            return str(name).lower()
+        return str(value).lower()
+
+    @staticmethod
+    def _parse_utc_offset_minutes(value: Optional[str]) -> Optional[int]:
+        """Parse UTC offset strings like 'UTC+02:00' into minutes."""
+        if not value:
+            return None
+
+        normalized = value.strip().upper()
+        if normalized == "UTC":
+            return 0
+
+        if not normalized.startswith("UTC"):
+            return None
+
+        offset = normalized[3:]
+        if len(offset) < 3:
+            return None
+
+        sign = 1
+        if offset[0] == "+":
+            sign = 1
+            offset = offset[1:]
+        elif offset[0] == "-":
+            sign = -1
+            offset = offset[1:]
+
+        if ":" in offset:
+            hours_str, minutes_str = offset.split(":", 1)
+        else:
+            hours_str, minutes_str = offset, "0"
+
+        try:
+            hours = int(hours_str)
+            minutes = int(minutes_str)
+        except ValueError:
+            return None
+
+        return sign * (hours * 60 + minutes)
     
     @computed_field  # type: ignore[misc]
     @property
@@ -818,6 +953,7 @@ class BaseFitModel(BaseModel, ABC):
             "workout_name": self.workout_name,
             "is_indoor": self.is_indoor,
             "start_time_utc": self.start_time_utc,
+            "start_time_utc_precise": self.start_time_utc_precise,
             "timezone": self.timezone,
             "duration_sec": self.duration_sec,
             "moving_time_sec": self.moving_time_sec,
@@ -1111,6 +1247,35 @@ class HealthFitModel(OneDriveFitModel):
             return format_utc_offset(offset_minutes)
         except (ValueError, AttributeError, ImportError):
             return None
+
+    def _start_time_from_source_specific_utc(self) -> Optional[datetime]:
+        """Return UTC start time derived from HealthFit filename.
+        
+        Converts filename local datetime (YYYY-MM-DD-HHMMSS) to UTC using
+        inferred timezone offset for source-specific dedup key generation.
+        """
+        if not self.filename_date or not self.filename_time or self.filename_time == "Nodata":
+            return None
+
+        try:
+            local_dt_str = f"{self.filename_date} {self.filename_time}"
+            local_dt = datetime.strptime(local_dt_str, "%Y-%m-%d %H%M%S")
+        except ValueError:
+            return None
+
+        offset_minutes = self.device_utc_offset_minutes
+        if offset_minutes is None:
+            for inferred in (self.inferred_timezone_activity, self.inferred_timezone_session):
+                parsed = self._parse_utc_offset_minutes(inferred)
+                if parsed is not None:
+                    offset_minutes = parsed
+                    break
+
+        if offset_minutes is None:
+            offset_minutes = 0
+
+        utc_dt = local_dt - timedelta(minutes=offset_minutes)
+        return utc_dt.replace(tzinfo=timezone.utc)
     
     @computed_field  # type: ignore[misc]
     @property
@@ -1233,6 +1398,10 @@ class GarminFitModel(BaseFitModel):
         """Return normalized source system name."""
         return "Garmin"
     
+    def _start_time_from_source_specific_utc(self) -> Optional[datetime]:
+        """No source-specific start time extraction for Garmin."""
+        return None
+    
     @computed_field  # type: ignore[misc]
     @property
     def workout_name(self) -> Optional[str]:
@@ -1251,6 +1420,10 @@ class PayloadFitModel(BaseFitModel):
     
     Accepts flexible source metadata with minimal validation.
     """
+    
+    def _start_time_from_source_specific_utc(self) -> Optional[datetime]:
+        """No source-specific start time extraction for direct payloads."""
+        return None
     
     @computed_field  # type: ignore[misc]
     @property

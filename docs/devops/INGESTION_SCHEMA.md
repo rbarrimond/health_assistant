@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 11.0.0 (v10→v11: Major refactor - extracted Pydantic model hierarchy)
+Version: 11.1.0 (v11.0→v11.1: add precise start time + semantic workout ID)
 
 This document defines the ingestion payloads and the IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -149,6 +149,7 @@ Workouts should only store minimal provenance and canonical parquet pointers.
 | source_system | string | Yes | Source system name (e.g., `HealthFit`). |
 | normalized_source_system | string | No | Normalized source classification (`HealthFit` for Apple Watch FITs, otherwise `Garmin`). |
 | source_item_id | string | No | Stable source item ID (OneDrive item ID). |
+| semantic_workout_id | string | No | Semantic workout identifier based on start time + sport. |
 | canonical_schema_version | string | Yes | Canonical telemetry schema version. |
 | canonical_records_blob | string | Yes | Blob path to canonical records parquet. |
 | records_count | int | No | Count of canonical records. |
@@ -277,6 +278,20 @@ in this order:
 
 Once a `workout_id` has been assigned to a file, it is treated as immutable
 and should be reused for reprocessing via IngestionState lookup.
+
+---
+
+## semantic_workout_id Determinism
+
+The `semantic_workout_id` is computed from the most precise available start
+time (UTC) plus sport name. It is intended for deduplication across sources.
+
+Start time priority (UTC):
+
+1. Event start timestamp
+2. Session `start_time`
+3. HealthFit filename local time + inferred UTC offset
+4. First record timestamp
 
 ---
 

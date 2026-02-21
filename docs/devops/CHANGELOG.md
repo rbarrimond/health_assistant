@@ -2,6 +2,7 @@
 
 ## 2026-02-21
 
+- Add precise start time resolution (event → session → filename → record) and semantic workout IDs derived from start_time_utc_precise + sport. Persist semantic_workout_id in Workouts and include start_time_utc_precise in canonical metadata. Bump ingest version to v11.1.0 and ingestion schema to 11.1.0.
 - Restore HRV RR interval indexing and extraction from HRV messages (type 78) using the `time` field with millisecond-to-seconds conversion. Bump ingest version to v10.0.11.
 - Enforce FIT field schema list by removing non-listed lookups. Record parsing now uses only schema-listed fields (drops `enhanced_speed`, `enhanced_altitude`, and `respiration_rate`), removes HRV RR interval indexing, disables `indoor` and `time_zone` lookups, and stops using file_id `number` for activity IDs. Bump ingest version to v10.0.10.
 - Remove fallback to non-existent `timezone_offset` in FIT device settings parsing. The FIT profile only defines `utc_offset`, so we now rely solely on that field. Bump ingest version to v10.0.9.

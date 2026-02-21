@@ -36,6 +36,7 @@ class WorkoutEntity:
     source_system: str
     normalized_source_system: Optional[str]
     source_item_id: Optional[str]
+    semantic_workout_id: Optional[str] = None
     canonical_schema_version: Optional[str] = None
     canonical_records_blob: Optional[str] = None
     records_count: Optional[int] = None
@@ -49,6 +50,7 @@ class WorkoutEntity:
             "PartitionKey",
             "RowKey",
             "workout_id",
+            "semantic_workout_id",
             "athlete_id",
             "source_system",
             "normalized_source_system",
@@ -79,6 +81,7 @@ class WorkoutEntity:
             partition_key=entity.get("PartitionKey", ""),
             row_key=entity.get("RowKey", ""),
             workout_id=entity.get("workout_id", ""),
+            semantic_workout_id=entity.get("semantic_workout_id"),
             athlete_id=entity.get("athlete_id", ""),
             source_system=entity.get("source_system", ""),
             normalized_source_system=entity.get("normalized_source_system"),
@@ -102,6 +105,7 @@ class WorkoutEntity:
             "PartitionKey": self.partition_key,
             "RowKey": self.row_key,
             "workout_id": self.workout_id,
+            "semantic_workout_id": self.semantic_workout_id,
             "athlete_id": self.athlete_id,
             "source_system": self.source_system,
             "normalized_source_system": self.normalized_source_system,
@@ -617,6 +621,7 @@ class WorkoutTableStorage:
         source_info: Dict,
         *,
         workout_id: Optional[str] = None,
+        semantic_workout_id: Optional[str] = None,
         canonical_schema_version: Optional[str] = None,
         canonical_records_blob: Optional[str] = None,
         records_count: Optional[int] = None,
@@ -669,6 +674,7 @@ class WorkoutTableStorage:
             partition_key=partition_key,
             row_key=row_key,
             workout_id=workout_id,
+            semantic_workout_id=semantic_workout_id,
             athlete_id=athlete_id,
             source_system=source_info.get("source_system", "HealthFit"),
             normalized_source_system=source_info.get("normalized_source_system"),

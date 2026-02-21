@@ -179,3 +179,16 @@ def compute_workout_id(
         raise ValueError(
             "Must provide at least source_item_id, file_sha256, or file path info"
         )
+
+
+def compute_semantic_workout_id(
+    start_time_utc: Optional[str] = None,
+    sport: Optional[str] = None,
+) -> str:
+    """Generate semantic workout_id from precise start time and sport."""
+    if not start_time_utc or not sport:
+        raise ValueError("start_time_utc and sport are required")
+
+    normalized_sport = str(sport).strip().lower()
+    combined = f"{start_time_utc}#{normalized_sport}"
+    return hashlib.sha1(combined.encode()).hexdigest()

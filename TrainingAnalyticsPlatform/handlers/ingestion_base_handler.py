@@ -5,7 +5,11 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Tuple
 
 from TrainingAnalyticsPlatform.platform.config import Config
-from TrainingAnalyticsPlatform.ingestion.fit_parser import FitParser, compute_workout_id
+from TrainingAnalyticsPlatform.ingestion.fit_parser import (
+    FitParser,
+    compute_semantic_workout_id,
+    compute_workout_id,
+)
 from TrainingAnalyticsPlatform.storage.table_storage import (
     CANONICAL_SCHEMA_VERSION,
     WorkoutTableStorage,
@@ -110,6 +114,14 @@ class FitIngestionBaseHandler(ABC):
             file_name=source_info.get("source_file_name"),
             start_time=metadata.get("start_time_utc"),
         )
+        semantic_workout_id = None
+        try:
+            semantic_workout_id = compute_semantic_workout_id(
+                start_time_utc=metadata.get("start_time_utc_precise"),
+                sport=metadata.get("sport"),
+            )
+        except ValueError:
+            logger.warning("Unable to compute semantic_workout_id for %s", workout_id)
 
         raw_fit_payload = parser.extract_raw_fit_json()
         metadata_payload = parser.extract_metadata_messages()
@@ -129,6 +141,7 @@ class FitIngestionBaseHandler(ABC):
             metadata,
             source_info,
             workout_id=workout_id,
+            semantic_workout_id=semantic_workout_id,
             canonical_schema_version=CANONICAL_SCHEMA_VERSION,
             canonical_records_blob=records_blob,
             records_count=len(records),
