@@ -5,7 +5,6 @@ import logging
 from typing import Any, Dict, Optional, Tuple
 
 from TrainingAnalyticsPlatform.platform.exceptions import (
-    FitAdapterError,
     WorkoutTypeResolutionError,
 )
 from TrainingAnalyticsPlatform.ingestion.fit_parser import compute_bytes_hash
@@ -38,7 +37,7 @@ class FitPayloadIngestionHandler(FitIngestionBaseHandler):
                 file_path=source_info.get("source_file_path"),
             )
 
-        except (ValueError, TypeError, FitAdapterError) as exc:
+        except (ValueError, TypeError) as exc:
             logger.warning("FIT payload ingestion validation failed: %s", exc)
             self._record_failure(athlete_id, source_info, str(exc))
             return {"status": "error", "error": str(exc)}, 400

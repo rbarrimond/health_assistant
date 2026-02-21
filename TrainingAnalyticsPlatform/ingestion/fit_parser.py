@@ -9,16 +9,9 @@ from typing import Any, Dict, List, Optional, cast
 
 import numpy as np
 
-import fitdecode
 
 from TrainingAnalyticsPlatform.platform.config import Config
-from TrainingAnalyticsPlatform.platform.exceptions import (
-    FitAdapterError,
-    WorkoutTypeResolutionError,
-)
-from TrainingAnalyticsPlatform.models import Workout
-
-from .adapter import FitAdapter
+from .fit_message_utils import load_fit_messages
 from .constants import LAPS_SCHEMA_VERSION, METADATA_SCHEMA_VERSION
 from .fit_analyzer import FitStructureAnalyzer
 from .apple_workout_types import AppleWorkoutTypeResolver
@@ -35,10 +28,6 @@ from .timezone_utils import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Expose fitdecode for tests that patch
-# TrainingAnalyticsPlatform.ingestion.fit_parser.fitdecode
-_fitdecode = fitdecode
 
 
 class FitParser:
@@ -69,7 +58,6 @@ class FitParser:
         self.source_file_name = source_file_name
         self.source_activity_name = source_activity_name
         self.messages = None
-        self.workout: Optional[Workout] = None
         self.metrics = {}
         self._file_id_msg = None
         self._session_msg = None
@@ -126,27 +114,17 @@ class FitParser:
         return self.metrics
 
     def _load_fit_sources(self) -> None:
-        """Load structured entities and raw fit messages for fallbacks."""
+        """Load FIT messages from file or bytes."""
         try:
-            adapter = FitAdapter(
-                file_path=self.file_path,
-                file_bytes=self.file_bytes,
-                source_file_name=self.source_file_name,
-                source_activity_name=self.source_activity_name,
-            )
-            self.workout = adapter.load_workout()
-            self.messages = adapter.messages
-        except (FitAdapterError, WorkoutTypeResolutionError) as exc:
-            logger.error("FIT adapter failure for %s: %s", self.file_path, exc)
-            raise
+            file_input = self.file_bytes if self.file_bytes is not None else self.file_path
+            self.messages, _ = load_fit_messages(file_input)
         except Exception as e:
             logger.error("Error parsing FIT file %s: %s", self.file_path, e)
             raise
 
     def _build_metrics(self) -> Dict:
-        """Assemble metric dictionary from mapped session or raw messages."""
-        session = self.workout.session if self.workout else None
-        return self._build_base_metrics(session) | self._build_sample_metrics()
+        """Assemble metric dictionary from raw messages."""
+        return self._build_base_metrics(None) | self._build_sample_metrics()
 
     def _session_or_fallback(self, session_value, fallback_fn):
         """Return session value if present, otherwise call fallback function."""
@@ -260,17 +238,8 @@ class FitParser:
     # Removed Java-style getters in favor of properties above
 
     def _get_record_data(self, field_name: str) -> List:
-        """Extract all values for a field from record messages or mapped entities."""
+        """Extract all values for a field from record messages."""
         values: List = []
-        if self.workout:
-            for rec in self.workout.records:
-                val = getattr(rec, field_name, None)
-                if val is not None:
-                    values.append(val)
-            return values
-
-        # Fallback to raw message records
-        values = []
         for record in self.records:
             fields = record.get("fields", {})
             field = fields.get(field_name)
@@ -513,12 +482,8 @@ class FitParser:
             metadata_json["llm_enrichment"]["status"] = "skipped"
             return metadata_json
 
-        # TODO: Implement LLM enrichment call
-        # 1. Build prompt from raw_fit_messages + fit_analysis
-        # 2. Call llm_client with structured output request
-        # 3. Parse response into llm_enrichment fields
-        # 4. Update status to 'complete'
-        # 5. Return enriched metadata_json
+        _ = fit_analysis
+        # LLM enrichment pending; prompt and output contract not finalized yet.
         
         logger.debug("LLM enrichment not yet implemented; returning metadata with pending status")
         return metadata_json
@@ -532,7 +497,7 @@ class FitParser:
         """Serialize a FIT message dict to JSON-friendly format.
         
         Args:
-            message: Dict with "name", "frame", "fields" keys from _load_fit_messages
+            message: Dict with "name", "frame", "fields" keys from load_fit_messages
             msg_type: Optional override for message type name
             msg_index: Optional message index in sequence
         """
@@ -617,27 +582,6 @@ class FitParser:
         }
 
     def _build_canonical_session_metadata(self) -> Dict[str, Any]:
-        session = self.workout.session if self.workout else None
-        if session:
-            return {
-                "sport": session.sport,
-                "sub_sport": session.sub_sport,
-                "apple_workout_type": session.apple_workout_type,
-                "workout_name": session.workout_name,
-                "is_indoor": session.is_indoor,
-                "start_time_utc": session.start_time_utc,
-                "timezone": session.timezone,
-                "duration_sec": session.duration_sec,
-                "moving_time_sec": session.moving_time_sec,
-                "distance_m": session.distance_m,
-                "elevation_gain_m": session.elevation_gain_m,
-                "elevation_loss_m": session.elevation_loss_m,
-                "avg_speed_mps": session.avg_speed_mps,
-                "max_speed_mps": session.max_speed_mps,
-                "calories_kcal": session.calories_kcal,
-                "device_name": self._get_device_name(),
-            }
-
         return {
             "sport": self._get_sport(),
             "sub_sport": self._get_sub_sport(),
@@ -864,39 +808,43 @@ class FitParser:
         3. Constructed name: {sport}-{subsport}-{activityID}
         4. Filename stem (last resort)
         """
-        # Priority 1: Activity message name
+        for candidate in (
+            self._get_activity_workout_name(),
+            self._get_session_workout_name(),
+            self._get_constructed_workout_name(),
+            self._get_filename_stem_workout_name(),
+        ):
+            if candidate:
+                return candidate
+        return None
+
+    def _get_activity_workout_name(self) -> Optional[str]:
         activity_msgs = self._get_messages("activity")
-        if activity_msgs:
-            activity_msg = activity_msgs[0]
-            # Check for name field in activity message
-            for field_name in ["event_name", "name"]:
-                name = self._get_field_from_msg(activity_msg, field_name)
-                if name is not None:
-                    return str(name)
-        
-        # Priority 2: Session message session_name
+        if not activity_msgs:
+            return None
+        activity_msg = activity_msgs[0]
+        for field_name in ("event_name", "name"):
+            name = self._get_field_from_msg(activity_msg, field_name)
+            if name is not None:
+                return str(name)
+        return None
+
+    def _get_session_workout_name(self) -> Optional[str]:
         session = self.session_msg
         name = self._get_field_from_msg(session, "session_name")
-        if name is not None:
-            return str(name)
-        
-        # Priority 3: Construct from sport-subsport-activityID
+        return str(name) if name is not None else None
+
+    def _get_constructed_workout_name(self) -> Optional[str]:
         sport_name = self._get_sport_name()
         sub_sport_name = self._get_sub_sport_name()
         activity_id = self._get_activity_id()
-        
-        if sport_name or sub_sport_name or activity_id:
-            parts = []
-            if sport_name:
-                parts.append(sport_name)
-            if sub_sport_name:
-                parts.append(sub_sport_name)
-            if activity_id:
-                parts.append(activity_id)
-            if parts:
-                return "-".join(str(p) for p in parts)
-        
-        # Priority 4: Fallback to filename stem
+
+        parts = [part for part in (sport_name, sub_sport_name, activity_id) if part]
+        if parts:
+            return "-".join(str(part) for part in parts)
+        return None
+
+    def _get_filename_stem_workout_name(self) -> Optional[str]:
         if not self.source_file_name:
             return None
         file_name = Path(self.source_file_name).name
@@ -1301,14 +1249,13 @@ class FitParser:
 
     def _has_gps_data(self) -> bool:
         """Check if GPS data (lat/lon) exists in records."""
-        if self.workout:
-            for rec in self.workout.records:
-                if rec.position_lat is not None and rec.position_long is not None:
-                    return True
-            return False
         for record in self.records:
-            if record.get("position_lat") and record.get("position_long"):
-                return True
+            fields = record.get("fields", {})
+            lat = fields.get("position_lat")
+            lon = fields.get("position_long")
+            if lat is not None and lon is not None:
+                if lat.value is not None and lon.value is not None:
+                    return True
         return False
 
     def _get_distance(self) -> Optional[float]:

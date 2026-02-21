@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 5.2.0
+Version: 6.0.0
 
 This document defines the ingestion payloads and the IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -50,12 +50,11 @@ from the semantic API.
 
 - `workouts` — canonical artifacts and telemetry
   - `{workout_id}/canonical.parquet`
-  - `{workout_id}/canonical-laps.parquet` (deprecated)
+  - `{workout_id}/canonical-laps.parquet`
   - `{workout_id}/raw_fit.json.gz`
   - `{workout_id}/fit_analysis.json`
   - `{workout_id}/metadata.json`
   - `{workout_id}/laps.json`
-  - `{workout_id}/laps/lap-0001.json` (legacy per-lap records, deprecated)
 
 ---
 

@@ -2,6 +2,9 @@
 
 ## 2026-02-20
 
+- Remove FitAdapter and legacy workout models, loading FIT messages directly via fitdecode utility; update semantic layer to load canonical records/laps parquet by workout id instead of parsing FIT messages.
+- Remove WorkoutLaps table storage and legacy per-lap record blobs; rely on canonical laps artifacts only.
+- Bump ingest version to v8.0.0 and ingestion schema to 6.0.0 for breaking ingestion/storage changes.
 - Add versioned constants for ingestion artifacts (metadata, laps, analysis), store laps.json uncompressed, and update metadata/laps schema wrappers; bump ingestion schema to 5.2.0 and ingest version to v7.2.0.
 - Enhance FIT activity name extraction with priority-based resolution:
   1. Extract name from FIT activity message (most user-facing)

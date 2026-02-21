@@ -8,7 +8,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
-from TrainingAnalyticsPlatform.ingestion.adapter import _load_fit_messages
+from TrainingAnalyticsPlatform.ingestion.fit_message_utils import load_fit_messages
 
 
 def safe_value(field: Any) -> dict[str, Any]:
@@ -24,7 +24,7 @@ def safe_value(field: Any) -> dict[str, Any]:
 
 def dump_fit_to_json(fit_path, output_path):
     """Dumps all messages from a FIT file to a JSON file."""
-    messages, _ = _load_fit_messages(fit_path)
+    messages, _ = load_fit_messages(fit_path)
 
     all_messages = []
     message_index = defaultdict(int)

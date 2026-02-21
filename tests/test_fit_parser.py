@@ -3,14 +3,12 @@
 # Allow protected member access in tests to validate internal caching behavior.
 # pylint: disable=protected-access, line-too-long
 
-from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
 from TrainingAnalyticsPlatform.ingestion.fit_parser import FitParser, compute_file_hash
-from TrainingAnalyticsPlatform.models import DeviceInfo, RecordSample, Workout, WorkoutSession
 
 
 class TestComputeFileHash:
@@ -448,7 +446,7 @@ class TestFitParserFullParse:
         parser = FitParser(str(sample_fit_file))
 
         with patch(
-            "TrainingAnalyticsPlatform.ingestion.adapter._load_fit_messages",
+            "TrainingAnalyticsPlatform.ingestion.fit_parser.load_fit_messages",
             return_value=(mock_fit_file_with_records, "mock_file"),
         ):
             result = parser.parse()
@@ -461,7 +459,7 @@ class TestFitParserFullParse:
         parser = FitParser(str(sample_fit_file))
 
         with patch(
-            "TrainingAnalyticsPlatform.ingestion.adapter._load_fit_messages",
+            "TrainingAnalyticsPlatform.ingestion.fit_parser.load_fit_messages",
             return_value=(mock_fit_file_with_records, "mock_file"),
         ):
             result = parser.parse()
@@ -482,7 +480,7 @@ class TestFitParserFullParse:
         parser = FitParser(str(sample_fit_file))
 
         with patch(
-            "TrainingAnalyticsPlatform.ingestion.adapter._load_fit_messages",
+            "TrainingAnalyticsPlatform.ingestion.fit_parser.load_fit_messages",
             return_value=(mock_fit_file_with_records, "mock_file"),
         ):
             result = parser.parse()
@@ -497,7 +495,7 @@ class TestFitParserFullParse:
         parser.metrics = {"hr_max_bpm": 185}
 
         with patch(
-            "TrainingAnalyticsPlatform.ingestion.adapter._load_fit_messages",
+            "TrainingAnalyticsPlatform.ingestion.fit_parser.load_fit_messages",
             return_value=(mock_fit_file_with_records, "mock_file"),
         ):
             result = parser.parse()
@@ -564,186 +562,24 @@ class TestFitParserEdgeCases:
         assert data == [100, 150, 200]
 
 
-class TestAdapterIntegration:
-    """Tests for adapter-driven workout construction."""
+class TestFitMessageLoading:
+    """Tests for FitParser loading FIT messages directly."""
 
-    def test_load_workout_maps_messages(self, tmp_path: Path) -> None:
-        """Ensure adapter builds session, device, and records from FitFile."""
-        # pylint: disable=import-outside-toplevel
-        from TrainingAnalyticsPlatform.ingestion.adapter import FitAdapter
-
-        def create_field_getter(field_map):
-            """Create a getter function for mock field lookups."""
-            def getter(key):
-                if key not in field_map:
-                    return None
-                return field_map[key]
-            return getter
-
-        file_id_msg = MagicMock()
-        manufacturer_enum = MagicMock()
-        manufacturer_enum.name = "garmin"
-        file_id_msg.get = MagicMock(
-            side_effect=create_field_getter({
-                "manufacturer": MagicMock(value=manufacturer_enum),
-            })
-        )
-
-        session_msg = MagicMock()
-        sport_enum = MagicMock()
-        sport_enum.name = "cycling"
-        sub_sport_enum = MagicMock()
-        sub_sport_enum.name = "road"
-        session_msg.get = MagicMock(
-            side_effect=create_field_getter({
-                "sport": MagicMock(value=sport_enum),
-                "sub_sport": MagicMock(value=sub_sport_enum),
-                "session_name": MagicMock(value="Morning Ride"),
-                "indoor": MagicMock(value=True),
-                "start_time": MagicMock(
-                    value=datetime(2024, 1, 1, 6, 0, tzinfo=timezone.utc)
-                ),
-                "total_elapsed_time": MagicMock(value=3600),
-                "total_timer_time": MagicMock(value=3500),
-                "total_distance": MagicMock(value=12000),
-                "total_ascent": MagicMock(value=200),
-                "total_descent": MagicMock(value=180),
-                "avg_speed": MagicMock(value=3.33),
-                "max_speed": MagicMock(value=8.5),
-                "total_calories": MagicMock(value=600),
-            })
-        )
-
-        record_messages = []
-        for hr, pwr, cad in [(140, 200, 85), (150, 210, 90)]:
-            rec_field_map = {
-                "heart_rate": MagicMock(value=hr),
-                "power": MagicMock(value=pwr),
-                "cadence": MagicMock(value=cad),
-                "position_lat": MagicMock(value=1.0),
-                "position_long": MagicMock(value=2.0),
-            }
-            rec = MagicMock()
-            rec.get = MagicMock(side_effect=create_field_getter(rec_field_map))
-            record_messages.append(rec)
-
-        fit_file = MagicMock()
-
-        def get_messages(msg_type):
-            messages_map = {
-                "file_id": [file_id_msg],
-                "session": [session_msg],
-                "record": record_messages,
-            }
-            return messages_map.get(msg_type, [])
-
-        fit_file.get_messages = MagicMock(side_effect=get_messages)
-
-        # Convert MagicMock messages to dict format for _load_fit_messages
-        messages = []
-        messages.append({
-            "name": "file_id",
-            "frame": MagicMock(developer_fields=[]),
-            "fields": {"manufacturer": file_id_msg.get("manufacturer")},
-        })
-        messages.append({
-            "name": "session",
-            "frame": MagicMock(developer_fields=[]),
-            "fields": {
-                "sport": session_msg.get("sport"),
-                "sub_sport": session_msg.get("sub_sport"),
-                "session_name": session_msg.get("session_name"),
-                "indoor": session_msg.get("indoor"),
-                "start_time": session_msg.get("start_time"),
-                "total_elapsed_time": session_msg.get("total_elapsed_time"),
-                "total_timer_time": session_msg.get("total_timer_time"),
-                "total_distance": session_msg.get("total_distance"),
-                "total_ascent": session_msg.get("total_ascent"),
-                "total_descent": session_msg.get("total_descent"),
-                "avg_speed": session_msg.get("avg_speed"),
-                "max_speed": session_msg.get("max_speed"),
-                "total_calories": session_msg.get("total_calories"),
-            },
-        })
-        for rec in record_messages:
-            messages.append({
-                "name": "record",
-                "frame": MagicMock(developer_fields=[]),
-                "fields": {
-                    "heart_rate": rec.get("heart_rate"),
-                    "power": rec.get("power"),
-                    "cadence": rec.get("cadence"),
-                    "position_lat": rec.get("position_lat"),
-                    "position_long": rec.get("position_long"),
-                },
-            })
-
-        with patch(
-            "TrainingAnalyticsPlatform.ingestion.adapter._load_fit_messages",
-            return_value=(messages, "test_file"),
-        ):
-            adapter = FitAdapter(str(tmp_path / "sample.fit"))
-            workout = adapter.load_workout()
-
-        assert workout.session.sport == "cycling"
-        assert workout.session.sub_sport == "road"
-        assert workout.session.workout_name == "Morning Ride"
-        assert workout.session.is_indoor is True
-        assert workout.session.start_time_utc is not None
-        assert workout.session.start_time_utc.endswith("+00:00")
-        assert workout.session.duration_sec == 3600
-        # pylint: disable=no-member
-        assert workout.device.manufacturer_name == "garmin"
-        assert len(workout.records) == 2
-        assert workout.records[0].heart_rate == 140
-        assert workout.records[1].power == 210
-
-
-class TestFitParserWithEntities:
-    """Integration tests validating parser uses mapped entities."""
-
-    def test_parse_prefers_session_values_from_entities(self, tmp_path: Path) -> None:
-        """Parse should emit metrics directly from WorkoutSession when present."""
-        session = WorkoutSession(
-            sport="cycling",
-            sub_sport="road",
-            workout_name="Commute",
-            is_indoor=False,
-            start_time_utc="2024-02-01T07:00:00+00:00",
-            duration_sec=3600,
-            moving_time_sec=3500,
-            distance_m=15000.0,
-            elevation_gain_m=300.0,
-            elevation_loss_m=280.0,
-            avg_speed_mps=4.2,
-            max_speed_mps=9.1,
-            calories_kcal=750.0,
-        )
-        records = [
-            RecordSample(heart_rate=140, power=200, cadence=85),
-            RecordSample(heart_rate=160, power=230, cadence=92),
-        ]
-        device = DeviceInfo(manufacturer_name="wahoo")
-        workout = Workout(session=session, device=device, records=records)
-
+    def test_load_fit_sources_sets_messages(self, tmp_path: Path) -> None:
         parser = FitParser(str(tmp_path / "sample.fit"))
 
-        with patch("TrainingAnalyticsPlatform.ingestion.fit_parser.FitAdapter") as adapter_cls:
-            adapter_instance = adapter_cls.return_value
-            fit_instance = MagicMock()
-            fit_instance.get_messages.return_value = []
-            adapter_instance.fit = fit_instance
-            adapter_instance.load_workout.return_value = workout
+        messages = [
+            {"name": "session", "frame": MagicMock(developer_fields=[]), "fields": {}},
+        ]
 
-            metrics = parser.parse()
+        with patch(
+            "TrainingAnalyticsPlatform.ingestion.fit_parser.load_fit_messages",
+            return_value=(messages, "test_file"),
+        ) as loader:
+            parser._load_fit_sources()
 
-        assert metrics["sport"] == "cycling"
-        assert metrics["sub_sport"] == "road"
-        assert metrics["distance_m"] == pytest.approx(15000.0)
-        assert metrics["duration_sec"] == 3600
-        assert metrics["calories_kcal"] == pytest.approx(750.0)
-        assert metrics["hr_avg_bpm"] == pytest.approx(150.0, rel=0.01)
-        assert metrics["hr_max_bpm"] == pytest.approx(160.0, rel=0.01)
+        loader.assert_called_once()
+        assert parser.messages == messages
 
 
 class TestFitAnalysis:

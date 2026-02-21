@@ -7,15 +7,12 @@ It shapes data for reasoning, constrains scope, and encodes how humans think abo
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple
-
-import gzip
+from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
 from azure.core.exceptions import HttpResponseError
 
-from TrainingAnalyticsPlatform.ingestion.adapter import FitAdapter
 from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.storage.table_storage import WorkoutEntity, WorkoutTableStorage
 
@@ -193,7 +190,6 @@ class SemanticLayer:
                 errors: Dict[str, str] = {}
                 if laps is None:
                     _, fit_laps, fit_errors = self._load_fit_timeseries(
-                        athlete_id,
                         entity,
                         include_records=False,
                         include_laps=True,
@@ -911,27 +907,20 @@ class SemanticLayer:
         return metrics
 
     def _load_stored_laps(self, workout_entity: WorkoutEntity) -> Optional[List[Dict]]:
-        if workout_entity.canonical_laps_blob:
-            try:
-                df = self.storage.load_canonical_laps(workout_entity.canonical_laps_blob)
-            except Exception as exc:  # pylint: disable=broad-exception-caught
-                logger.warning(
-                    "Failed to load canonical laps %s: %s",
-                    workout_entity.canonical_laps_blob,
-                    exc,
-                )
-                df = pd.DataFrame()
-            if not df.empty:
-                return df.to_dict(orient="records")
-
-        laps = self.storage.get_workout_laps(workout_entity.workout_id)
-        if not laps:
+        if not workout_entity.canonical_laps_blob:
             return None
-
-        cleaned = []
-        for lap in laps:
-            cleaned.append(self._clean_lap_entity(lap))
-        return cleaned
+        try:
+            df = self.storage.load_canonical_laps(workout_entity.canonical_laps_blob)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.warning(
+                "Failed to load canonical laps %s: %s",
+                workout_entity.canonical_laps_blob,
+                exc,
+            )
+            return None
+        if df.empty:
+            return None
+        return df.to_dict(orient="records")
 
     def get_workout_lap_detail(
         self,
@@ -979,44 +968,14 @@ class SemanticLayer:
                     "records": records,
                 }
 
-            lap_entity = self.storage.get_workout_lap(workout_id, lap_index)
-            if not lap_entity:
-                return None
-
-            lap_payload = self._clean_lap_entity(lap_entity)
-            blob_name = lap_entity.get("blob_name") or ""
-            records = self.storage.load_lap_records(blob_name)
-
-            return {
-                "workout_id": workout_id,
-                "athlete_id": athlete_id,
-                "lap_index": lap_index,
-                **lap_payload,
-                "record_count": len(records),
-                "records": records,
-            }
+            return None
 
         except HttpResponseError as e:
             logger.error("Error retrieving lap %s for workout %s: %s", lap_index, workout_id, e)
             return None
 
-    @staticmethod
-    def _clean_lap_entity(entity: Dict) -> Dict:
-        ignore = {
-            "PartitionKey",
-            "RowKey",
-            "Timestamp",
-            "etag",
-            "odata.etag",
-            "workout_id",
-            "athlete_id",
-            "blob_name",
-        }
-        return {k: v for k, v in entity.items() if k not in ignore}
-
     def _load_fit_timeseries(
         self,
-        athlete_id: str,
         entity: Dict,
         *,
         include_records: bool,
@@ -1026,132 +985,63 @@ class SemanticLayer:
         laps: Optional[List[Dict]] = None
         errors: Dict[str, str] = {}
 
-        source_system = entity.get("source_system")
-        source_item_id = entity.get("source_item_id")
-        if not source_item_id:
-            errors["records_error"] = "No source item id available"
-            errors["laps_error"] = "No source item id available"
-            return records, laps, errors
-
-        try:
-            file_bytes = self._download_fit_bytes(
-                athlete_id=athlete_id,
-                source_system=source_system,
-                source_item_id=source_item_id,
-            )
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            if include_records:
-                errors["records_error"] = str(exc)
-            if include_laps:
-                errors["laps_error"] = str(exc)
-            return records, laps, errors
-
-        if not file_bytes:
-            if include_records:
-                errors["records_error"] = "Failed to load source file"
-            if include_laps:
-                errors["laps_error"] = "Failed to load source file"
-            return records, laps, errors
-
-        adapter = FitAdapter(
-            file_path="in-memory.fit",
-            file_bytes=file_bytes,
-        )
-
         if include_records:
-            workout = adapter.load_workout()
-            records = [
-                rec.model_dump(exclude_none=True)
-                for rec in workout.records
-            ]
+            records, error = self._load_canonical_records_payload(entity)
+            if error:
+                errors["records_error"] = error
 
         if include_laps:
-            laps = self._extract_laps(adapter)
+            laps, error = self._load_canonical_laps_payload(entity)
+            if error:
+                errors["laps_error"] = error
 
         return records, laps, errors
 
-    def _download_fit_bytes(
-        self,
-        *,
-        athlete_id: str,
-        source_system: Optional[str],
-        source_item_id: str,
-    ) -> Optional[bytes]:
-        # Lazy import avoids package-level circular dependency during test collection.
-        from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import OneDriveSyncConfig
-        from TrainingAnalyticsPlatform.integrations.onedrive_client import (
-            OneDriveGraphClient,
-            OneDriveGraphError,
-        )
+    def _load_canonical_records_payload(
+        self, entity: Dict
+    ) -> tuple[Optional[List[Dict]], Optional[str]]:
+        workout_id = entity.get("workout_id")
+        if not workout_id:
+            return None, "No workout id available"
 
-        if source_system and source_system.lower() != "healthfit":
-            raise ValueError("Unsupported source system for records lookup")
-
-        config = OneDriveSyncConfig.from_env()
-        client = OneDriveGraphClient(
-            client_id=config.client_id,
-            client_secret=config.client_secret,
-            redirect_uri=config.redirect_uri,
-            scopes=config.scopes,
-        )
-
-        access_token = self._get_onedrive_access_token(
-            athlete_id=athlete_id,
-            client=client,
-        )
-
-        item_id = source_item_id
-        if item_id.startswith("onedrive:"):
-            item_id = item_id.split("onedrive:", 1)[1]
-
+        records_blob = entity.get("canonical_records_blob") or f"{workout_id}/canonical.parquet"
         try:
-            content = client.download_file(
-                access_token=access_token,
-                item_id=item_id,
-            )
-        except OneDriveGraphError as exc:
-            raise ValueError("Failed to download source FIT file") from exc
+            records_df = self.storage.load_canonical_records(records_blob)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            return None, str(exc)
 
-        if _looks_like_gzip(content):
-            return gzip.decompress(content)
-        return content
+        if records_df.empty:
+            return None, None
+        return records_df.to_dict(orient="records"), None
 
-    def _get_onedrive_access_token(
-        self,
-        *,
-        athlete_id: str,
-        client: Any,
-    ) -> str:
-        tokens = self.storage.get_onedrive_tokens(athlete_id)
-        if not tokens:
-            raise ValueError("No OneDrive tokens stored")
+    def _load_canonical_laps_payload(
+        self, entity: Dict
+    ) -> tuple[Optional[List[Dict]], Optional[str]]:
+        workout_id = entity.get("workout_id")
+        if not workout_id:
+            return None, "No workout id available"
 
-        expires_at = tokens.get("expires_at_utc")
-        if expires_at:
-            try:
-                expires_at_dt = datetime.fromisoformat(
-                    str(expires_at).replace("Z", "+00:00")
-                ).astimezone(timezone.utc)
-                if datetime.now(timezone.utc) >= (
-                    expires_at_dt - timedelta(minutes=5)
-                ):
-                    token_data = client.refresh_access_token(
-                        tokens["refresh_token"]
-                    )
-                    self.storage.refresh_onedrive_token(
-                        athlete_id=athlete_id,
-                        new_access_token=token_data["access_token"],
-                        new_refresh_token=token_data.get(
-                            "refresh_token", tokens["refresh_token"]
-                        ),
-                        expires_in=int(token_data.get("expires_in", 3600)),
-                        scope=token_data.get("scope"),
-                    )
-                    return token_data["access_token"]
-            except ValueError:
-                pass
+        laps_blob = entity.get("canonical_laps_blob") or f"{workout_id}/canonical-laps.parquet"
+        try:
+            laps_df = self.storage.load_canonical_laps(laps_blob)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            return None, str(exc)
 
-        return str(tokens["access_token"])
+        if laps_df.empty:
+            return None, None
+        return laps_df.to_dict(orient="records"), None
+
+    @staticmethod
+    def _set_timeseries_error(
+        errors: Dict[str, str],
+        include_records: bool,
+        include_laps: bool,
+        message: str,
+    ) -> None:
+        if include_records:
+            errors["records_error"] = message
+        if include_laps:
+            errors["laps_error"] = message
 
     def _slice_records_for_lap(
         self,
@@ -1195,70 +1085,51 @@ class SemanticLayer:
             })
         return records
 
-    def _extract_laps(self, adapter: FitAdapter) -> List[Dict]:
-        laps: List[Dict] = []
-        fields = [
-            "start_time",
-            "total_elapsed_time",
-            "total_timer_time",
-            "total_distance",
-            "total_calories",
-            "avg_heart_rate",
-            "max_heart_rate",
-            "avg_power",
-            "max_power",
-            "avg_cadence",
-            "max_cadence",
-        ]
-        for msg in adapter.messages:
-            if msg.get("name") != "lap":
-                continue
-            lap: Dict[str, Optional[object]] = {}
-            for field in fields:
-                value = adapter._get_field_value(msg, field)  # pylint: disable=protected-access
-                if isinstance(value, datetime):
-                    value = value.astimezone(timezone.utc).isoformat()
-                if value is not None:
-                    lap[field] = value
-            if lap:
-                laps.append(lap)
-        return laps
-
     @staticmethod
-    def _summarize_developer_fields(metadata_payload: Dict) -> Dict:
-        """Build a compact developer-field summary from metadata artifact."""
-        fields_by_key: Dict[str, Dict[str, object]] = {}
+    def _iter_metadata_messages(metadata_payload: Dict):
         for message_type, messages in metadata_payload.items():
             if not isinstance(messages, list):
                 continue
             for message in messages:
-                msg_fields = message.get("fields", {})
-                if not isinstance(msg_fields, dict):
-                    continue
-                for field_name, field_payload in msg_fields.items():
-                    if not str(field_name).startswith("dev_"):
-                        continue
-                    key = f"{message_type}.{field_name}"
-                    if key not in fields_by_key:
-                        fields_by_key[key] = {
-                            "message_type": message_type,
-                            "field": field_name,
-                            "count": 0,
-                            "units": set(),
-                            "sample_values": [],
-                        }
-                    entry = fields_by_key[key]
-                    entry["count"] = int(entry["count"]) + 1
-                    units = None
-                    if isinstance(field_payload, dict):
-                        units = field_payload.get("units")
-                        value = field_payload.get("value")
-                    else:
-                        value = None
-                    if units:
-                        entry["units"].add(units)
-                    if value is not None and len(entry["sample_values"]) < 3:
-                        entry["sample_values"].append(value)
+                yield message_type, message
+
+    @staticmethod
+    def _iter_developer_fields(message: Dict):
+        msg_fields = message.get("fields", {})
+        if not isinstance(msg_fields, dict):
+            return
+        for field_name, field_payload in msg_fields.items():
+            if str(field_name).startswith("dev_"):
+                yield field_name, field_payload
+
+    @staticmethod
+    def _extract_units_and_value(field_payload: object) -> tuple[Optional[str], Optional[object]]:
+        if isinstance(field_payload, dict):
+            return field_payload.get("units"), field_payload.get("value")
+        return None, None
+
+    def _summarize_developer_fields(self, metadata_payload: Dict) -> Dict:
+        """Build a compact developer-field summary from metadata artifact."""
+        fields_by_key: Dict[str, Dict[str, object]] = {}
+        for message_type, message in self._iter_metadata_messages(metadata_payload):
+            for field_name, field_payload in self._iter_developer_fields(message):
+                key = f"{message_type}.{field_name}"
+                entry = fields_by_key.setdefault(
+                    key,
+                    {
+                        "message_type": message_type,
+                        "field": field_name,
+                        "count": 0,
+                        "units": set(),
+                        "sample_values": [],
+                    },
+                )
+                entry["count"] = int(entry["count"]) + 1
+                units, value = self._extract_units_and_value(field_payload)
+                if units:
+                    entry["units"].add(units)
+                if value is not None and len(entry["sample_values"]) < 3:
+                    entry["sample_values"].append(value)
 
         fields = []
         for entry in fields_by_key.values():
@@ -1652,6 +1523,3 @@ class SemanticLayer:
             "override": physiometrics_override,
         }
 
-
-def _looks_like_gzip(content: bytes) -> bool:
-    return len(content) >= 2 and content[0] == 0x1F and content[1] == 0x8B

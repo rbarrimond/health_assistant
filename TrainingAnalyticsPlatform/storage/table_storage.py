@@ -4,7 +4,6 @@
 import gzip
 import io
 import json
-import warnings
 import logging
 import os
 from dataclasses import dataclass, field
@@ -19,14 +18,10 @@ from azure.storage.blob import BlobServiceClient
 
 from TrainingAnalyticsPlatform.ingestion.fit_parser import compute_workout_id
 
-INGEST_VERSION = "v7.2.0"
+INGEST_VERSION = "v8.0.0"
 CANONICAL_SCHEMA_VERSION = "1.1.0"
 
 WORKOUTS_CONTAINER = "workouts"
-WORKOUT_LAPS_TABLE = "WorkoutLaps"
-DEPRECATED_LAPS_WARNING = (
-    "WorkoutLaps storage is deprecated; use laps.json artifacts."
-)
 
 logger = logging.getLogger(__name__)
 
@@ -468,7 +463,6 @@ class WorkoutTableStorage:
             "WebhookDeduplication",
             "AgentPreferences",
             "AgentObservations",
-            WORKOUT_LAPS_TABLE,
         ]
         for table_name in table_names:
             try:
@@ -634,98 +628,6 @@ class WorkoutTableStorage:
         )
         payload = blob_client.download_blob().readall()
         return pd.read_parquet(io.BytesIO(payload))
-
-    def store_workout_laps(
-        self,
-        athlete_id: str,
-        workout_id: str,
-        laps: List[Dict],
-    ) -> None:
-        """Store lap summaries in tables and per-lap record blobs."""
-        warnings.warn(
-            DEPRECATED_LAPS_WARNING,
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        if not laps:
-            return
-
-        table_client = self._get_table_client(WORKOUT_LAPS_TABLE)
-        for lap in laps:
-            lap_index = int(lap.get("lap_index", 0))
-            records = lap.get("records", [])
-            blob_name = None
-
-            if records:
-                blob_name = self._lap_blob_name(workout_id, lap_index)
-                json_payload = json.dumps(records, separators=(",", ":"))
-                blob_client = self._blob_service_client.get_blob_client(
-                    container=WORKOUTS_CONTAINER,
-                    blob=blob_name,
-                )
-                blob_client.upload_blob(json_payload, overwrite=True)
-
-            summary = lap.get("summary", {})
-            entity = {
-                "PartitionKey": workout_id,
-                "RowKey": f"{lap_index:04d}",
-                "workout_id": workout_id,
-                "athlete_id": athlete_id,
-                "lap_index": lap_index,
-                "record_count": len(records),
-                "blob_name": blob_name,
-            }
-            entity.update({k: v for k, v in summary.items() if v is not None})
-            table_client.upsert_entity(entity)
-
-    def get_workout_laps(self, workout_id: str) -> List[Dict]:
-        """Return all lap summaries for a workout."""
-        warnings.warn(
-            DEPRECATED_LAPS_WARNING,
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        table_client = self._get_table_client(WORKOUT_LAPS_TABLE)
-        query = f"PartitionKey eq '{workout_id}'"
-        entities = list(table_client.query_entities(query))
-        laps = []
-        for entity in entities:
-            laps.append(dict(entity))
-        laps.sort(key=lambda e: e.get("lap_index", 0))
-        return laps
-
-    def get_workout_lap(self, workout_id: str, lap_index: int) -> Optional[Dict]:
-        """Return a single lap summary for a workout."""
-        warnings.warn(
-            DEPRECATED_LAPS_WARNING,
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        table_client = self._get_table_client(WORKOUT_LAPS_TABLE)
-        row_key = f"{lap_index:04d}"
-        try:
-            return table_client.get_entity(partition_key=workout_id, row_key=row_key)
-        except ResourceNotFoundError:
-            return None
-        except HttpResponseError as e:
-            logger.warning("Error fetching lap %s for workout %s: %s", lap_index, workout_id, e)
-            return None
-
-    def load_lap_records(self, blob_name: str) -> List[Dict]:
-        """Load lap records payload from blob storage."""
-        warnings.warn(
-            "Lap record blobs are deprecated; use laps.json artifacts.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        if not blob_name:
-            return []
-        blob_client = self._blob_service_client.get_blob_client(
-            container=WORKOUTS_CONTAINER,
-            blob=blob_name,
-        )
-        payload = blob_client.download_blob().readall()
-        return json.loads(payload)
 
     def get_ingestion_context(
         self,
