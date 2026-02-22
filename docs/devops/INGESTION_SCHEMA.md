@@ -1,9 +1,11 @@
 # Ingestion Schema
 
-Version: 11.1.0 (v11.0→v11.1: add precise start time + semantic workout ID)
+Version: 13.0.0
 
-This document defines the ingestion payloads and the IngestionState table schema.
+This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
+
+For historical changes, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Scope
 
@@ -17,6 +19,94 @@ computed on read, with additional canonical artifacts persisted for
 archival and semantic use.
 
 This document does **not** define the workout metrics schema. See WORKOUT_SCHEMA.md for that.
+
+---
+
+## FIT Parsing Architecture (Current)
+
+FIT parsing uses a hierarchical Pydantic model architecture with factory-based instantiation.
+
+### Model Classes
+
+**BaseFitModel** (abstract Pydantic model)
+
+- Encapsulates FIT file parsing via fitdecode
+- Provides message indexing and caching
+- Implements all artifact builders (build_canonical_records, build_canonical_metadata, build_raw_fit, build_fit_analysis, build_metadata_messages, build_laps_json)
+- Computes `semantic_workout_id` as `@property` from start_time_utc_precise + normalized sport
+
+**OneDriveFitModel** (abstract subclass of BaseFitModel)
+
+- Handles OneDrive-sourced FIT files
+- Parses HealthFit filename pattern (YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz])
+- Extracts metadata from filename structure
+
+**Concrete Model Classes:**
+
+- **HealthFitModel**: Apple Watch FITs exported via HealthFit app
+- **GarminFitModel**: FIT files from Garmin Connect API sync
+- **PayloadFitModel**: Generic fallback for other sources
+
+### Factory Function
+
+`create_fit_model(source_metadata: Dict, file_bytes: bytes) -> BaseFitModel`
+
+Inspects `source_metadata` to select appropriate model class and instantiate it:
+
+- OneDrive source + .fit file → HealthFitModel
+- Garmin API → GarminFitModel
+- Other → PayloadFitModel
+
+**Key Design:**
+
+- No automatic file loading; callers read file_bytes before instantiation
+- `file_bytes` is required parameter
+- All source provenance consolidates into single `source_metadata` dict
+
+### Handlers Usage Pattern
+
+Handlers call `create_fit_model()` directly (no FitParser facade):
+
+```python
+# 1. Prepare source metadata
+source_info = {
+    "source_system": "Garmin",
+    "source_item_id": activity_id,
+    # ... additional provenance fields
+}
+
+# 2. Read file bytes (handler responsibility)
+file_bytes = file.read_bytes()  # or download_fit_bytes()
+
+# 3. Create model
+model = create_fit_model(source_metadata=source_info, file_bytes=file_bytes)
+
+# 4. Extract artifacts
+metadata = model.build_canonical_metadata()
+records = model.build_canonical_records()
+raw_fit = model.build_raw_fit(return_dict=True, return_json=False)
+metadata_msgs = model.build_metadata_messages()
+laps = model.build_laps_json()
+analysis = model.build_fit_analysis()
+
+# 5. Get semantic dedup key
+semantic_workout_id = model.semantic_workout_id  # Property on model
+```
+
+### Semantic Workout ID
+
+Computed as `@property` on BaseFitModel:
+
+```python
+semantic_workout_id = SHA1("{start_time_utc_precise}#{normalized_sport}")
+```
+
+Where:
+
+- `start_time_utc_precise` is the model's computed_field (best available UTC time)
+- `normalized_sport` is the FIT sport field normalized to lowercase
+
+Used as secondary dedup check across sources.
 
 ---
 
@@ -201,65 +291,6 @@ workout display and grouping.
 
 ---
 
-## FIT Parsing Architecture (v11.0.0+)
-
-As of `v11.0.0`, FIT parsing uses a hierarchical Pydantic model architecture:
-
-### Model Hierarchy
-
-```plaintext
-BaseFitModel (abstract)
-├── 50+ @computed_field properties (lazy-evaluated, cached)
-├── Message indexing & loading (_load_fit_messages, _ensure_message_index)
-├── Canonical format builders (build_canonical_records, build_canonical_metadata, etc.)
-│
-├── OneDriveFitModel (abstract)
-│   ├── HealthFit filename parsing (YYYY-MM-DD-HHMMSS-ActivityType-Source.fit[.gz])
-│   ├── Additional computed fields (filename_date, filename_time, filename_activity_type, etc.)
-│   │
-│   └── HealthFitModel (concrete)
-│       ├── normalized_source_system = "HealthFit"
-│       └── workout_name prioritizes filename_activity_type over source_activity_name
-│
-├── GarminFitModel (concrete)
-│   ├── normalized_source_system = "Garmin"
-│   └── workout_name always prioritizes source_activity_name (Garmin Connect API name)
-│
-└── PayloadFitModel (concrete)
-    ├── Flexible source_system (defaults to source_metadata['source_system'] or "HealthFit")
-    └── Generic fallback for non-OneDrive, non-Garmin sources
-```
-
-### Factory Function
-
-`create_fit_model(source_metadata, file_path, file_bytes)` inspects `source_metadata` to instantiate the appropriate concrete model class:
-
-- OneDrive `.fit` files → HealthFitModel
-- Garmin API sync → GarminFitModel
-- Other sources → PayloadFitModel
-
-### FitParser Facade
-
-`FitParser` is a lightweight facade (~136 lines) that:
-
-1. Accepts legacy kwargs (`source_file_name`, `source_activity_name`) and converts them to `source_metadata` dict
-2. Creates the appropriate model via `create_fit_model()`
-3. Delegates all extract_* methods to `self.model.build_*()` methods
-4. Maintains backward compatibility with existing handler code
-
-### Enhanced raw_fit.json
-
-As of `v11.0.0`, `build_raw_fit_json()` uses `fitdecode.cmd.fitjson.RecordJSONEncoder` to provide full-fidelity JSON serialization including:
-
-- Raw field values (alongside rendered values)
-- Definition numbers (def_num)
-- Frame headers (frame_type, header_size, protocol_version)
-- Chunk positions (chunk_data_offset, chunk_data_size)
-
-This eliminates custom serialization logic and ensures complete round-trip preservation of FIT binary semantics.
-
----
-
 ## Timestamp Formatting
 
 All stored timestamps use ISO 8601 with an explicit UTC offset
@@ -281,20 +312,6 @@ and should be reused for reprocessing via IngestionState lookup.
 
 ---
 
-## semantic_workout_id Determinism
-
-The `semantic_workout_id` is computed from the most precise available start
-time (UTC) plus sport name. It is intended for deduplication across sources.
-
-Start time priority (UTC):
-
-1. Event start timestamp
-2. Session `start_time`
-3. HealthFit filename local time + inferred UTC offset
-4. First record timestamp
-
----
-
 ## Data Hygiene (Deferred)
 
 Duplicate resolution for recordings that share the same `start_time_utc`
@@ -303,8 +320,17 @@ currently enforce a single winner for these cases.
 
 ---
 
-## Lap Record Storage (Legacy)
+## Enhanced raw_fit.json
 
+The `build_raw_fit()` method uses `fitdecode.cmd.fitjson.RecordJSONEncoder` to provide
+full-fidelity JSON serialization including:
+
+- Raw field values (alongside rendered values)
+- Definition numbers (def_num)
+- Frame headers (frame_type, header_size, protocol_version)
+- Chunk positions (chunk_data_offset, chunk_data_size)
+
+This ensures complete round-trip preservation of FIT binary semantics.
 Legacy ingestion stored lap summaries in `WorkoutLaps` and per-lap record
 payloads as JSON blobs in `lap-records`. Current ingestion stores laps only
 in `laps.json` and does not materialize canonical laps parquet.

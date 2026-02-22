@@ -1,6 +1,7 @@
 """Pydantic models for FIT file parsing and metadata extraction."""
 # pylint: disable=too-many-lines. trailing-whitespace
 
+import hashlib
 import io
 import json
 import logging
@@ -16,6 +17,7 @@ from pydantic import BaseModel, computed_field, ConfigDict, Field
 
 from .constants import LAPS_SCHEMA_VERSION, METADATA_SCHEMA_VERSION
 from .apple_workout_types import AppleWorkoutTypeResolver
+from .fit_analyzer import FitStructureAnalyzer
 from .code_mappings import (
     get_apple_product_name,
     get_garmin_product_name,
@@ -31,6 +33,9 @@ from .timezone_utils import (
 
 logger = logging.getLogger(__name__)
 
+# Constants
+ERROR_FILE_BYTES_REQUIRED = "file_bytes must be provided"
+
 
 class BaseFitModel(BaseModel, ABC):
     """Base model for FIT file parsing with fitdecode integration.
@@ -39,7 +44,6 @@ class BaseFitModel(BaseModel, ABC):
     using Pydantic computed fields. Subclasses handle source-specific quirks.
     """
     
-    file_path: Optional[str] = None
     file_bytes: Optional[bytes] = None
     source_metadata: Dict[str, Any] = Field(default_factory=dict)
     
@@ -63,8 +67,8 @@ class BaseFitModel(BaseModel, ABC):
         """Initialize computed state after model creation."""
         super().__init__(**data)
         
-        if not self.file_path and self.file_bytes is None:
-            raise ValueError("file_path or file_bytes must be provided")
+        if self.file_bytes is None:
+            raise ValueError(ERROR_FILE_BYTES_REQUIRED)
         
         # Initialize mutable default fields
         if not self._messages:
@@ -75,24 +79,16 @@ class BaseFitModel(BaseModel, ABC):
             object.__setattr__(self, '_rr_interval_by_second', {})
     
     def _load_fit_messages(self) -> None:
-        """Load FIT messages from file or bytes (lazy initialization)."""
+        """Load FIT messages from in-memory bytes (lazy initialization)."""
         if self._messages_loaded:
             return
         
         stream = None
-        should_close = False
-        source_desc = "unknown"
         
         try:
-            if self.file_bytes is not None:
-                stream = io.BytesIO(self.file_bytes)
-                source_desc = "bytes stream"
-            elif self.file_path:
-                stream = open(self.file_path, "rb")
-                should_close = True
-                source_desc = f"file {self.file_path}"
-            else:
-                raise ValueError("No file_path or file_bytes provided")
+            if self.file_bytes is None:
+                raise ValueError(ERROR_FILE_BYTES_REQUIRED)
+            stream = io.BytesIO(self.file_bytes)
             
             messages: List[fitdecode.FitDataMessage] = []
             messages_by_type: Dict[str, List[fitdecode.FitDataMessage]] = {}
@@ -109,7 +105,7 @@ class BaseFitModel(BaseModel, ABC):
                         messages_by_type.setdefault(frame.name, []).append(frame)
             except Exception as exc:
                 raise RuntimeError(
-                    f"Failed to parse FIT data from {source_desc}: {exc}"
+                    f"Failed to parse FIT data: {exc}"
                 ) from exc
             
             # Cache parsed messages
@@ -119,7 +115,7 @@ class BaseFitModel(BaseModel, ABC):
             self._messages_loaded = True
             
         finally:
-            if should_close and stream:
+            if stream:
                 stream.close()
     
     def _cache_core_messages(self) -> None:
@@ -380,6 +376,24 @@ class BaseFitModel(BaseModel, ABC):
         if start_dt.tzinfo is None:
             start_dt = start_dt.replace(tzinfo=timezone.utc)
         return start_dt.astimezone(timezone.utc).isoformat()
+
+    @property
+    def semantic_workout_id(self) -> Optional[str]:
+        """Generate deterministic semantic workout ID from start time + sport.
+        
+        Used for deduplication across sources. Computed from the most precise
+        start time available (from start_time_utc_precise) and normalized sport.
+        
+        Returns:
+            SHA1 hex digest of "{start_time_utc_precise}#{normalized_sport}" or None
+            if start_time or sport unavailable.
+        """
+        if not self.start_time_utc_precise or not self.sport:
+            return None
+        
+        normalized_sport = str(self.sport).strip().lower()
+        combined = f"{self.start_time_utc_precise}#{normalized_sport}"
+        return hashlib.sha1(combined.encode()).hexdigest()
 
     def _start_time_from_event(self) -> Optional[datetime]:
         """Return earliest event start timestamp, if present."""
@@ -1021,48 +1035,56 @@ class BaseFitModel(BaseModel, ABC):
         
         return metadata
     
-    def build_raw_fit_json(self) -> Dict[str, Any]:
-        """Return full-fidelity FIT JSON using fitdecode's RecordJSONEncoder."""
-        stream = None
-        should_close = False
+    def build_raw_fit(
+        self, return_dict: bool = True, return_json: bool = False
+    ) -> Dict[str, Any] | str | tuple[str, Dict[str, Any]]:
+        """Return full-fidelity FIT data as dict, JSON string, or both.
         
-        try:
-            if self.file_bytes is not None:
-                stream = io.BytesIO(self.file_bytes)
-            elif self.file_path:
-                stream = open(self.file_path, "rb")
-                should_close = True
-            else:
-                raise ValueError("No file_path or file_bytes provided")
-            
-            frames = []
-            with fitdecode.FitReader(
-                stream,
-                processor=fitdecode.StandardUnitsDataProcessor(),
-                keep_raw_chunks=True
-            ) as reader:
-                for frame in reader:
-                    frames.append(frame)
-            
-            # Serialize with RecordJSONEncoder for full fidelity
-            json_str = json.dumps(frames, cls=RecordJSONEncoder)
-            frames_dict = json.loads(json_str)
-            
-            source_file_name = self._metadata_dict.get("source_file_name")
-            metadata = {
-                "source_file": source_file_name or self.file_path or "<in-memory>",
-                "exported_at_utc": datetime.now(timezone.utc).isoformat(),
-                "total_frames": len(frames),
-            }
-            
-            return {
-                "metadata": metadata,
-                "frames": frames_dict,
-            }
-            
-        finally:
-            if should_close and stream:
-                stream.close()
+        Args:
+            return_dict: Return dict with frames and metadata (default True)
+            return_json: Return JSON-serialized string (default False)
+        
+        Returns:
+            - return_dict=True, return_json=False: Dict with frames and metadata
+            - return_dict=False, return_json=True: JSON string
+            - return_dict=True, return_json=True: Tuple of (json_string, dict)
+        """
+        if not self.file_bytes:
+            raise ValueError(ERROR_FILE_BYTES_REQUIRED)
+        
+        stream = io.BytesIO(self.file_bytes)
+        
+        frames = []
+        with fitdecode.FitReader(
+            stream,
+            processor=fitdecode.StandardUnitsDataProcessor(),
+            keep_raw_chunks=True
+        ) as reader:
+            for frame in reader:
+                frames.append(frame)
+        
+        # Serialize with RecordJSONEncoder for full fidelity
+        json_str = json.dumps(frames, cls=RecordJSONEncoder)
+        frames_dict = json.loads(json_str)
+        
+        source_file_name = self._metadata_dict.get("source_file_name")
+        metadata = {
+            "source_file": source_file_name or "<in-memory>",
+            "exported_at_utc": datetime.now(timezone.utc).isoformat(),
+            "total_frames": len(frames),
+        }
+        
+        result_dict = {
+            "metadata": metadata,
+            "frames": frames_dict,
+        }
+        
+        if return_dict and return_json:
+            return (json_str, result_dict)
+        elif return_json:
+            return json_str
+        else:
+            return result_dict
     
     def build_metadata_messages(self) -> Dict[str, Any]:
         """Return structured FIT metadata.json with LLM enrichment placeholder."""
@@ -1123,13 +1145,30 @@ class BaseFitModel(BaseModel, ABC):
             "laps": laps,
         }
 
+    def build_fit_analysis(self) -> Dict[str, Any]:
+        """Return FIT structure analysis using FitStructureAnalyzer."""
+        self._ensure_message_index()
+        analyzer = FitStructureAnalyzer(messages=self._messages)
+        return analyzer.analyze()
+
 
 class OneDriveFitModel(BaseFitModel, ABC):
     """Abstract model for OneDrive-sourced FIT files.
     
-    Handles OneDrive-specific metadata extraction.
+    Handles OneDrive-specific file I/O and metadata extraction.
     Concrete subclasses implement app-specific logic (HealthFit, RunGap, etc.).
     """
+    
+    file_path: Optional[str] = None
+    
+    def __init__(self, **data: Any) -> None:
+        """Load file_path into file_bytes before parent initialization."""
+        # If file_path provided, load it into file_bytes upfront
+        if data.get("file_path") and not data.get("file_bytes"):
+            with open(data["file_path"], "rb") as f:
+                data["file_bytes"] = f.read()
+        
+        super().__init__(**data)
     
     @computed_field  # type: ignore[misc]
     @property
@@ -1434,15 +1473,13 @@ class PayloadFitModel(BaseFitModel):
 
 def create_fit_model(
     source_metadata: Dict[str, Any],
-    file_path: Optional[str] = None,
-    file_bytes: Optional[bytes] = None,
+    file_bytes: bytes,
 ) -> BaseFitModel:
     """Factory function to create appropriate FIT model based on source metadata.
     
     Args:
         source_metadata: Dict containing source-specific metadata fields
-        file_path: Optional path to FIT file
-        file_bytes: Optional in-memory FIT bytes
+        file_bytes: In-memory FIT bytes (required)
     
     Returns:
         Appropriate concrete FIT model instance
@@ -1453,7 +1490,6 @@ def create_fit_model(
     
     if source_activity_name and str(source_item_id).isdigit():
         return GarminFitModel(
-            file_path=file_path,
             file_bytes=file_bytes,
             source_metadata=source_metadata,
         )
@@ -1463,14 +1499,12 @@ def create_fit_model(
         # Check manufacturer code to determine if it's Apple Watch
         # For now, default to HealthFitModel (can enhance later with device detection)
         return HealthFitModel(
-            file_path=file_path,
             file_bytes=file_bytes,
             source_metadata=source_metadata,
         )
     
     # Default: payload upload or unknown source
     return PayloadFitModel(
-        file_path=file_path,
         file_bytes=file_bytes,
         source_metadata=source_metadata,
     )

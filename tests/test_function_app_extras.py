@@ -387,18 +387,21 @@ class TestIngestionHelpersAndFlow:
         mock_context.existing_state = None
         mock_storage.get_ingestion_context.return_value = mock_context
 
-        mock_parser = MagicMock()
-        mock_parser.parse.return_value = {
+        mock_model = MagicMock()
+        mock_model.build_canonical_metadata.return_value = {
             "sport": "Cycling",
             "duration_sec": 3600,
             "start_time_utc": "2026-01-01T10:00:00+00:00",
             "pwr_avg_watts": 220,
             "hr_avg_bpm": 150,
         }
-
+        mock_model.build_canonical_records.return_value = []
+        mock_model.build_laps_json.return_value = {"laps": []}
+        mock_model.semantic_workout_id = "workout-456"
+        
         with patch("TrainingAnalyticsPlatform.handlers.fit_payload_handler.compute_bytes_hash", return_value="hash"):
             with _patch_dependency("storage", mock_storage):
-                with patch("TrainingAnalyticsPlatform.handlers.ingestion_base_handler.FitParser", return_value=mock_parser):
+                with patch("TrainingAnalyticsPlatform.handlers.ingestion_base_handler.create_fit_model", return_value=mock_model):
                     body, status_code = function_app.dependencies.ingest_fit_payload(payload)
 
         assert status_code == 200

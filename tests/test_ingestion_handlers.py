@@ -81,16 +81,19 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     laps_payload = {"laps": [{"message_index": 0}]}
     expected_workout_id = compute_workout_id(file_sha256="hash")
 
-    with patch("TrainingAnalyticsPlatform.handlers.ingestion_base_handler.FitParser") as parser_cls:
-        parser = parser_cls.return_value
-        parser.extract_canonical_metadata.return_value = metadata
-        parser.extract_canonical_records.return_value = records
-        parser.extract_laps_json.return_value = laps_payload
+    mock_model = Mock()
+    mock_model.build_canonical_metadata.return_value = metadata
+    mock_model.build_canonical_records.return_value = records
+    mock_model.build_laps_json.return_value = laps_payload
+    mock_model.semantic_workout_id = expected_workout_id
+
+    with patch("TrainingAnalyticsPlatform.handlers.ingestion_base_handler.create_fit_model") as create_model:
+        create_model.return_value = mock_model
 
         metrics, workout_id = handler._parse_and_store(
             "rob",
             source_info,
-            file_path="/tmp/file.fit",
+            file_bytes=b"dummy_fit_bytes",
         )
 
     assert metrics["sport"] == "Cycling"
@@ -100,6 +103,7 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
         metadata,
         source_info,
         workout_id=expected_workout_id,
+        semantic_workout_id=expected_workout_id,
         canonical_schema_version='1.1.0',
         canonical_records_blob="records.parquet",
         records_count=len(records),

@@ -167,7 +167,6 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
             athlete_id,
             source_info,
             file_bytes=fit_bytes,
-            file_path=f"garmin_{activity_id}.fit",
         )
         
         return {"status": "success", "workout_id": workout_id}, 200
@@ -196,58 +195,125 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
         duration_tolerance_seconds: int = 180,
     ) -> Optional[str]:
         """Find existing workout within a rough start-time and duration window."""
+        start_dt = self._parse_activity_start_time(activity)
+        if not start_dt:
+            return None
+
+        duration_sec = self._parse_activity_duration(activity)
+        partitions = self._get_search_partitions(athlete_id, start_dt)
+        
+        for partition_key in partitions:
+            workout_id = self._search_partition_for_duplicate(
+                partition_key, athlete_id, start_dt, duration_sec,
+                window_seconds, duration_tolerance_seconds
+            )
+            if workout_id:
+                return workout_id
+
+        return None
+
+    def _parse_activity_start_time(self, activity: Dict) -> Optional[datetime]:
+        """Parse and validate activity start time."""
         start_time = activity.get("startTimeGMT")
         if not start_time:
             return None
         try:
-            start_dt = datetime.fromisoformat(str(start_time).replace("Z", "+00:00")).astimezone(timezone.utc)
+            return datetime.fromisoformat(str(start_time).replace("Z", "+00:00")).astimezone(timezone.utc)
         except ValueError:
             return None
 
+    def _parse_activity_duration(self, activity: Dict) -> Optional[float]:
+        """Parse and validate activity duration."""
         duration = activity.get("duration")
         try:
-            duration_sec = float(duration) if duration is not None else None
+            return float(duration) if duration is not None else None
         except (TypeError, ValueError):
-            duration_sec = None
+            return None
 
-        table_client = self.storage.get_table_client("Workouts")
-        partitions = {
+    def _get_search_partitions(self, athlete_id: str, start_dt: datetime) -> set:
+        """Generate partition keys to search (current month ±1 day)."""
+        return {
             f"{athlete_id}|{start_dt.strftime('%Y-%m')}",
             f"{athlete_id}|{(start_dt - timedelta(days=1)).strftime('%Y-%m')}",
             f"{athlete_id}|{(start_dt + timedelta(days=1)).strftime('%Y-%m')}",
         }
 
-        for partition_key in partitions:
-            query = f"PartitionKey eq '{partition_key}'"
-            for entity in table_client.query_entities(query):
-                if entity.get("athlete_id") != athlete_id:
-                    continue
-                existing_start = entity.get("start_time_utc")
-                if not existing_start:
-                    continue
-                try:
-                    existing_dt = datetime.fromisoformat(
-                        str(existing_start).replace("Z", "+00:00")
-                    ).astimezone(timezone.utc)
-                except ValueError:
-                    continue
-                delta_sec = abs((existing_dt - start_dt).total_seconds())
-                if delta_sec > window_seconds:
-                    continue
-
-                if duration_sec is not None and entity.get("duration_sec") is not None:
-                    try:
-                        existing_duration = float(entity.get("duration_sec"))
-                    except (TypeError, ValueError):
-                        existing_duration = None
-                    if (
-                        existing_duration is not None
-                        and abs(existing_duration - duration_sec) > duration_tolerance_seconds
-                    ):
-                        continue
+    def _search_partition_for_duplicate(
+        self,
+        partition_key: str,
+        athlete_id: str,
+        start_dt: datetime,
+        duration_sec: Optional[float],
+        window_seconds: int,
+        duration_tolerance_seconds: int,
+    ) -> Optional[str]:
+        """Search a single partition for matching workout."""
+        table_client = self.storage.get_table_client("Workouts")
+        query = f"PartitionKey eq '{partition_key}'"
+        
+        for entity in table_client.query_entities(query):
+            if self._is_matching_workout(entity, athlete_id, start_dt, duration_sec, 
+                                        window_seconds, duration_tolerance_seconds):
                 return entity.get("workout_id")
-
         return None
+
+    def _is_matching_workout(
+        self,
+        entity: Dict,
+        athlete_id: str,
+        start_dt: datetime,
+        duration_sec: Optional[float],
+        window_seconds: int,
+        duration_tolerance_seconds: int,
+    ) -> bool:
+        """Check if entity matches the workout criteria."""
+        if entity.get("athlete_id") != athlete_id:
+            return False
+
+        existing_dt = self._parse_entity_start_time(entity)
+        if not existing_dt:
+            return False
+
+        if not self._is_within_time_window(start_dt, existing_dt, window_seconds):
+            return False
+
+        if not self._is_within_duration_tolerance(duration_sec, entity, duration_tolerance_seconds):
+            return False
+
+        return True
+
+    def _parse_entity_start_time(self, entity: Dict) -> Optional[datetime]:
+        """Parse entity start time safely."""
+        existing_start = entity.get("start_time_utc")
+        if not existing_start:
+            return None
+        try:
+            return datetime.fromisoformat(
+                str(existing_start).replace("Z", "+00:00")
+            ).astimezone(timezone.utc)
+        except ValueError:
+            return None
+
+    def _is_within_time_window(self, start_dt: datetime, existing_dt: datetime, window_seconds: int) -> bool:
+        """Check if two datetimes are within the specified window."""
+        delta_sec = abs((existing_dt - start_dt).total_seconds())
+        return delta_sec <= window_seconds
+
+    def _is_within_duration_tolerance(
+        self,
+        duration_sec: Optional[float],
+        entity: Dict,
+        duration_tolerance_seconds: int,
+    ) -> bool:
+        """Check if durations match within tolerance."""
+        if duration_sec is None or entity.get("duration_sec") is None:
+            return True
+        
+        try:
+            existing_duration = float(entity.get("duration_sec"))
+            return abs(existing_duration - duration_sec) <= duration_tolerance_seconds
+        except (TypeError, ValueError):
+            return True
 
 
 class GarminSyncRequest:

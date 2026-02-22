@@ -141,7 +141,6 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
             athlete_id,
             source_info,
             file_bytes=content,
-            file_path=source_info.get("source_file_path"),
         )
         return {"status": "success", "workout_id": workout_id}, 200
 

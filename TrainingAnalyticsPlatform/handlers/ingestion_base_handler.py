@@ -5,11 +5,8 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Tuple
 
 from TrainingAnalyticsPlatform.platform.config import Config
-from TrainingAnalyticsPlatform.ingestion.fit_parser import (
-    FitParser,
-    compute_semantic_workout_id,
-    compute_workout_id,
-)
+from TrainingAnalyticsPlatform.ingestion.fit_models import create_fit_model
+from TrainingAnalyticsPlatform.ingestion.fit_parser import compute_workout_id
 from TrainingAnalyticsPlatform.storage.table_storage import (
     CANONICAL_SCHEMA_VERSION,
     WorkoutTableStorage,
@@ -67,7 +64,7 @@ class FitIngestionBaseHandler(ABC):
         source_info: Dict[str, Any],
         file_bytes: bytes,
         *,
-        file_path: Optional[str] = None,
+        file_path: Optional[str] = None,  # pylint: disable=unused-argument
         ingestion_key: Optional[str] = None,
         existing_state: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Dict[str, Any], int]:
@@ -86,7 +83,6 @@ class FitIngestionBaseHandler(ABC):
             athlete_id,
             source_info,
             file_bytes=file_bytes,
-            file_path=file_path,
         )
         return {"status": "success", "workout_id": workout_id}, 200
 
@@ -95,15 +91,13 @@ class FitIngestionBaseHandler(ABC):
         athlete_id: str,
         source_info: Dict[str, Any],
         *,
-        file_path: Optional[str] = None,
-        file_bytes: Optional[bytes] = None,
+        file_bytes: bytes,
     ) -> Tuple[Dict[str, Any], str]:
-        parser = FitParser(
-            file_path=file_path,
-            file_bytes=file_bytes,
+        model = create_fit_model(
             source_metadata=source_info,
+            file_bytes=file_bytes,
         )
-        metadata = parser.extract_canonical_metadata()
+        metadata = model.build_canonical_metadata()
         source_info["normalized_source_system"] = self._normalize_source_system(
             source_info, metadata
         )
@@ -114,21 +108,14 @@ class FitIngestionBaseHandler(ABC):
             file_name=source_info.get("source_file_name"),
             start_time=metadata.get("start_time_utc"),
         )
-        semantic_workout_id = None
-        try:
-            semantic_workout_id = compute_semantic_workout_id(
-                start_time_utc=metadata.get("start_time_utc_precise"),
-                sport=metadata.get("sport"),
-            )
-        except ValueError:
-            logger.warning("Unable to compute semantic_workout_id for %s", workout_id)
+        semantic_workout_id = model.semantic_workout_id
 
-        raw_fit_payload = parser.extract_raw_fit_json()
-        metadata_payload = parser.extract_metadata_messages()
-        laps_payload = parser.extract_laps_json()
-        analysis_payload = parser.extract_fit_analysis()
+        raw_fit_payload = model.build_raw_fit(return_dict=True, return_json=False)
+        metadata_payload = model.build_metadata_messages()
+        laps_payload = model.build_laps_json()
+        analysis_payload = model.build_fit_analysis()
 
-        records = parser.extract_canonical_records()
+        records = model.build_canonical_records()
         records_blob = self.storage.store_canonical_records(workout_id, records)
         self.storage.store_raw_fit_json(workout_id, raw_fit_payload)
         self.storage.store_metadata_json(workout_id, metadata_payload)
