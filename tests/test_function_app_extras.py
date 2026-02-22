@@ -52,9 +52,12 @@ class TestDocsAssetEndpoints:
             "contact_email": "support@example.com",
             "legal_info_url": "https://legal.example.com",
         }
-        monkeypatch.setenv(function_app.ENV_PLUGIN_LOGO_URL, "https://logo.example.com")
-        monkeypatch.setenv(function_app.ENV_PLUGIN_CONTACT_EMAIL, "support@example.com")
-        monkeypatch.setenv(function_app.ENV_PLUGIN_LEGAL_URL, "https://legal.example.com")
+        monkeypatch.setenv(function_app.ENV_PLUGIN_LOGO_URL,
+                           "https://logo.example.com")
+        monkeypatch.setenv(
+            function_app.ENV_PLUGIN_CONTACT_EMAIL, "support@example.com")
+        monkeypatch.setenv(function_app.ENV_PLUGIN_LEGAL_URL,
+                           "https://legal.example.com")
 
         req = MagicMock(spec=func.HttpRequest)
         req.url = "https://health.example.com/.well-known/ai-plugin.json"
@@ -97,7 +100,8 @@ class TestDocsAssetEndpoints:
         assert response.status_code == 200
         body = response.get_body().decode("utf-8")
         assert "openapi: 3.0.1" in body
-        mock_handler.get_openapi_spec.assert_called_once_with("https://api.example.com")
+        mock_handler.get_openapi_spec.assert_called_once_with(
+            "https://api.example.com")
 
     def test_serve_logo_returns_svg(self):
         req = MagicMock(spec=func.HttpRequest)
@@ -367,7 +371,8 @@ class TestIngestionHelpersAndFlow:
         }
 
         with _patch_dependency("storage", MagicMock()):
-            body, status_code = function_app.dependencies.ingest_fit_payload(payload)
+            body, status_code = function_app.dependencies.ingest_fit_payload(
+                payload)
 
         assert status_code == 400
         assert body["error"] == "No file content"
@@ -398,11 +403,12 @@ class TestIngestionHelpersAndFlow:
         mock_model.build_canonical_records.return_value = []
         mock_model.build_laps_json.return_value = {"laps": []}
         mock_model.semantic_workout_id = "workout-456"
-        
+
         with patch("TrainingAnalyticsPlatform.handlers.fit_payload_handler.compute_bytes_hash", return_value="hash"):
             with _patch_dependency("storage", mock_storage):
                 with patch("TrainingAnalyticsPlatform.handlers.ingestion_base_handler.create_fit_model", return_value=mock_model):
-                    body, status_code = function_app.dependencies.ingest_fit_payload(payload)
+                    body, status_code = function_app.dependencies.ingest_fit_payload(
+                        payload)
 
         assert status_code == 200
         assert body["status"] == "success"
@@ -413,21 +419,24 @@ class TestOneDriveHelpersAndEndpoints:
     def test_onedrive_default_lookback_invalid(self, monkeypatch):
         monkeypatch.setenv(ONEDRIVE_CLIENT_ID, "client-id")
         monkeypatch.setenv(ONEDRIVE_CLIENT_SECRET, "client-secret")
-        monkeypatch.setenv(ONEDRIVE_REDIRECT_URI, "https://example.com/callback")
+        monkeypatch.setenv(ONEDRIVE_REDIRECT_URI,
+                           "https://example.com/callback")
         monkeypatch.setenv(ONEDRIVE_SYNC_LOOKBACK_DAYS, "invalid")
         assert OneDriveSyncConfig.from_env().lookback_days == 30
 
     def test_onedrive_default_lookback_minimum(self, monkeypatch):
         monkeypatch.setenv(ONEDRIVE_CLIENT_ID, "client-id")
         monkeypatch.setenv(ONEDRIVE_CLIENT_SECRET, "client-secret")
-        monkeypatch.setenv(ONEDRIVE_REDIRECT_URI, "https://example.com/callback")
+        monkeypatch.setenv(ONEDRIVE_REDIRECT_URI,
+                           "https://example.com/callback")
         monkeypatch.setenv(ONEDRIVE_SYNC_LOOKBACK_DAYS, "0")
         assert OneDriveSyncConfig.from_env().lookback_days == 1
 
     def test_onedrive_sync_http_calls_sync(self):
         req = MagicMock(spec=func.HttpRequest)
         req.method = "POST"
-        req.get_json.return_value = {"days": 7, "athlete_id": "rob", "async": False}
+        req.get_json.return_value = {"days": 7,
+                                     "athlete_id": "rob", "async": False}
         req.params = {}
 
         mock_handler = MagicMock()

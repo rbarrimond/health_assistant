@@ -275,23 +275,48 @@ class BaseFitModel(BaseModel, ABC):
         
         return None
     
+    def _get_workout_message_name(self) -> Optional[str]:
+        """Extract name field from Workout FIT message if available."""
+        workout_messages = self._messages_by_type.get("workout", [])
+        if not workout_messages:
+            return None
+        
+        for workout_msg in workout_messages:
+            if hasattr(workout_msg, "name") and workout_msg.name:
+                name_val = workout_msg.name.get("value") if isinstance(workout_msg.name, dict) else workout_msg.name
+                if name_val:
+                    return name_val
+        return None
+    
     @computed_field  # type: ignore[misc]
     @property
     def workout_name(self) -> Optional[str]:
-        """Get workout name from source or construct from metadata.
+        """Get workout name with priority-based lookup.
         
-        Priority:
-        1. API source activity name (e.g., Garmin Connect API activityName)
-        2. Constructed name: {sport}-{subsport}-{activityID}
+        Priority (in order of preference):
+        1. Workout message name field (from FIT file if available)
+        2. API source activity name (e.g., Garmin Connect API activityName)
+        3. Subclass-specific lookup (e.g., HealthFit filename activity type)
+        4. Constructed name from FIT metadata: {sport}-{subsport}-{activityID}
         
-        Subclasses may override this to implement source-specific logic.
+        This property ensures consistent naming priority across all source types.
         """
-        # Priority 1: API-sourced name
+        # Priority 1: Workout message name field
+        workout_msg_name = self._get_workout_message_name()
+        if workout_msg_name:
+            return workout_msg_name
+        
+        # Priority 2: API-sourced name
         source_activity_name = self._metadata_dict.get("source_activity_name")
         if source_activity_name:
             return source_activity_name
         
-        # Priority 2: Constructed from FIT metadata
+        # Priority 3: Subclass-specific lookup
+        subclass_name = self._get_subclass_specific_workout_name()
+        if subclass_name:
+            return subclass_name
+        
+        # Priority 4: Constructed from FIT metadata
         return self.constructed_workout_name
     
     @computed_field  # type: ignore[misc]
@@ -450,6 +475,17 @@ class BaseFitModel(BaseModel, ABC):
         
         Returns:
             UTC datetime or None if not available from this source.
+        """
+    
+    @abstractmethod
+    def _get_subclass_specific_workout_name(self) -> Optional[str]:
+        """Return subclass-specific workout name lookup (e.g., from filename).
+        
+        Subclasses implement source-specific logic to extract workout names
+        from non-FIT sources (e.g., HealthFit filename activity type).
+        
+        Returns:
+            Workout name string or None if not available from this source.
         """
         raise NotImplementedError
 
@@ -1407,20 +1443,29 @@ class HealthFitModel(OneDriveFitModel):
         
         return "unknown"
     
+    def _get_subclass_specific_workout_name(self) -> Optional[str]:
+        """Return HealthFit filename activity type as workout name source."""
+        return self.filename_activity_type
+    
     @computed_field  # type: ignore[misc]
     @property
     def workout_name(self) -> Optional[str]:
         """Override to prioritize HealthFit filename activity type."""
-        # Priority 1: Source activity name (if explicitly provided)
+        # Priority 1: Workout message name
+        workout_msg_name = self._get_workout_message_name()
+        if workout_msg_name:
+            return workout_msg_name
+        
+        # Priority 2: Source activity name
         source_activity_name = self._metadata_dict.get("source_activity_name")
         if source_activity_name:
             return source_activity_name
         
-        # Priority 2: Filename activity type (HealthFit pattern)
+        # Priority 3: Filename activity type (HealthFit pattern)
         if self.filename_activity_type:
             return self.filename_activity_type
         
-        # Priority 3: Constructed from FIT metadata
+        # Priority 4: Constructed from FIT metadata
         return self.constructed_workout_name
 
 
@@ -1441,17 +1486,9 @@ class GarminFitModel(BaseFitModel):
         """No source-specific start time extraction for Garmin."""
         return None
     
-    @computed_field  # type: ignore[misc]
-    @property
-    def workout_name(self) -> Optional[str]:
-        """Override to always prioritize Garmin API activity name."""
-        # Garmin API activity name has absolute priority
-        source_activity_name = self._metadata_dict.get("source_activity_name")
-        if source_activity_name:
-            return source_activity_name
-        
-        # Fallback to constructed name
-        return self.constructed_workout_name
+    def _get_subclass_specific_workout_name(self) -> Optional[str]:
+        """Return Garmin API activity name if available."""
+        return self._metadata_dict.get("source_activity_name")
 
 
 class PayloadFitModel(BaseFitModel):
@@ -1462,6 +1499,10 @@ class PayloadFitModel(BaseFitModel):
     
     def _start_time_from_source_specific_utc(self) -> Optional[datetime]:
         """No source-specific start time extraction for direct payloads."""
+        return None
+    
+    def _get_subclass_specific_workout_name(self) -> Optional[str]:
+        """No subclass-specific lookup for payload uploads."""
         return None
     
     @computed_field  # type: ignore[misc]
