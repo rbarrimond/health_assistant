@@ -19,7 +19,7 @@ def _utc_now() -> str:
 
 
 def _build_ingestion_key(entity: Dict) -> Optional[str]:
-    return entity.get("source_item_id") or entity.get("file_sha256") or entity.get("workout_id")
+    return entity.get("ingestion_id") or entity.get("source_item_id") or entity.get("file_sha256")
 
 
 def _merge_ingestion_state(

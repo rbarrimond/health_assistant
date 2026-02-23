@@ -18,6 +18,7 @@ from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
 
 from TrainingAnalyticsPlatform.ingestion.constants import INGEST_VERSION
+from TrainingAnalyticsPlatform.platform.exceptions import IngestionIdResolutionError
 CANONICAL_SCHEMA_VERSION = "1.1.0"
 
 WORKOUTS_CONTAINER = "workouts"
@@ -238,18 +239,18 @@ class IngestionContext:
             str: The generated ingestion key.
 
         Raises:
-            ValueError: If no valid key can be generated.
+            IngestionIdResolutionError: If no valid key can be generated.
         """
-        ingestion_key = (
-            self.file_info.get("ingestion_id")
-            or self.file_info.get("source_item_id")
-            or self.file_info.get("file_sha256")
-            or self.workout_id
-        )
+        ingestion_key = self.ingestion_id or self.file_info.get("ingestion_id")
 
         if ingestion_key is None:
-            logger.error("Ingestion key cannot be None. File info: %s", self.file_info)
-            raise ValueError("Ingestion key cannot be None")
+            logger.error(
+                "ingestion_id is required for ingestion state keying. File info: %s",
+                self.file_info,
+            )
+            raise IngestionIdResolutionError(
+                "ingestion_id is required for ingestion state keying"
+            )
 
         return ingestion_key
 
@@ -670,26 +671,8 @@ class WorkoutTableStorage:
         """
         if not ingestion_id:
             raise ValueError("ingestion_id is required to store a workout")
-
-        existing_workout_id = None
-        existing_stable_id = None
-        context = self.get_ingestion_context(
-            athlete_id,
-            source_info,
-            ingestion_id=ingestion_id,
-            ingestion_key=ingestion_id,
-        )
-        if context.existing_state:
-            existing_workout_id = context.existing_state.get("workout_id")
-            existing_stable_id = context.existing_state.get("stable_workout_id")
-
-        workout_id = (
-            workout_id
-            or stable_workout_id
-            or existing_stable_id
-            or existing_workout_id
-            or ingestion_id
-        )
+        if not workout_id:
+            raise ValueError("workout_id is required to store a workout")
 
         # Build partition and row keys
         start_time = metadata.get("start_time_utc", "")
@@ -710,7 +693,7 @@ class WorkoutTableStorage:
             row_key=row_key,
             workout_id=workout_id,
             ingestion_id=ingestion_id,
-            stable_workout_id=stable_workout_id or existing_stable_id,
+            stable_workout_id=stable_workout_id,
             semantic_workout_id=semantic_workout_id,
             athlete_id=athlete_id,
             source_system=source_info.get("source_system", "HealthFit"),

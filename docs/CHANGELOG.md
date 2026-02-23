@@ -8,6 +8,18 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-02-23
+
+### Ingestion Identity Simplification
+
+- **BREAKING:** Remove `IngestionIdentityPolicy`; concrete ingestion handlers now compute `ingestion_id` from source context (`source_item_id` then `file_sha256`) `[ingest v13.0.0]`
+- **BREAKING:** Enforce semantic-only `workout_id` with no fallback; ingestion fails when semantic identity cannot be computed `[INGESTION_SCHEMA v15.0.0, ingest v13.0.0]`
+- Use `ingestion_id` as the only ingestion state key source in shared idempotency context
+- Treat missing OneDrive `source_item_id` as catastrophic (no `file_sha256` fallback) `[INGESTION_SCHEMA v15.0.1, ingest v13.0.1]`
+- Raise typed ingestion identity exceptions for ID resolution/calculation failures `[ingest v13.0.2]`
+- Map typed ID failures to explicit ingestion handler `error_code` responses (`INGESTION_ID_RESOLUTION_FAILED`, `WORKOUT_ID_CALCULATION_FAILED`) `[ingest v13.0.3]`
+- Centralize typed exception-to-response serialization in exception classes for consistent OOP handler contracts `[ingest v13.0.4]`
+
 ## 2026-02-22
 
 ### Ingestion Schema & Instructions

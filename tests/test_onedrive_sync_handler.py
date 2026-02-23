@@ -10,9 +10,12 @@ import pytest
 
 from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import (
     OneDriveSyncConfig,
+    OneDriveSyncIngestionHandler,
     OneDriveSyncHandler,
     OneDriveSyncRequest,
 )
+from TrainingAnalyticsPlatform.platform.exceptions import IngestionIdResolutionError
+from TrainingAnalyticsPlatform.platform.exceptions import WorkoutIdCalculationError
 
 
 def _config(lookback_days: int = 30) -> OneDriveSyncConfig:
@@ -258,6 +261,77 @@ class TestOneDriveSyncHandler:
         time.sleep(0.1)
 
         handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=60)
+
+
+class TestOneDriveIngestionIdentity:
+    """Test OneDrive ingestion identity requirements."""
+
+    def test_resolve_ingestion_id_uses_source_item_id(self):
+        source_info = {"source_item_id": "onedrive:12345", "file_sha256": "abc"}
+
+        assert (
+            OneDriveSyncIngestionHandler._resolve_ingestion_id(source_info)
+            == "onedrive:12345"
+        )
+
+    def test_resolve_ingestion_id_requires_source_item_id(self):
+        source_info = {"file_sha256": "abc"}
+
+        with pytest.raises(
+            IngestionIdResolutionError,
+            match="OneDrive ingestion requires source_item_id",
+        ):
+            OneDriveSyncIngestionHandler._resolve_ingestion_id(source_info)
+
+    def test_handle_returns_error_code_on_ingestion_id_failure(self):
+        storage = MagicMock()
+        client = MagicMock()
+        handler = OneDriveSyncIngestionHandler(storage=storage, client=client)
+
+        with pytest.raises(IngestionIdResolutionError):
+            OneDriveSyncIngestionHandler._resolve_ingestion_id({"file_sha256": "abc"})
+
+        # Force source metadata missing source_item_id
+        handler._build_source_info = MagicMock(return_value={})  # type: ignore[attr-defined]
+
+        body, status = handler.handle(
+            athlete_id="rob",
+            access_token="token",
+            item={"id": "item-1", "name": "workout.fit", "parentReference": {}},
+            drive_id="drive-id",
+        )
+
+        assert status == 422
+        assert body["error_code"] == "INGESTION_ID_RESOLUTION_FAILED"
+
+    def test_handle_returns_error_code_on_workout_id_failure(self):
+        storage = MagicMock()
+        context = MagicMock()
+        context.should_skip.return_value = False
+        storage.get_ingestion_context.return_value = context
+
+        client = MagicMock()
+        client.download_file.return_value = b"fit-bytes"
+
+        handler = OneDriveSyncIngestionHandler(storage=storage, client=client)
+        handler._parse_and_store = MagicMock(  # type: ignore[attr-defined]
+            side_effect=WorkoutIdCalculationError("semantic id missing")
+        )
+
+        body, status = handler.handle(
+            athlete_id="rob",
+            access_token="token",
+            item={
+                "id": "item-1",
+                "name": "workout.fit",
+                "size": 1,
+                "parentReference": {"path": "/drive/root:/Apps/HealthFit", "driveId": "drive-id"},
+            },
+            drive_id="drive-id",
+        )
+
+        assert status == 422
+        assert body["error_code"] == "WORKOUT_ID_CALCULATION_FAILED"
 
     def test_handle_sync_with_query_params(self, handler):
         """Test sync with query parameters."""

@@ -5,8 +5,11 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Tuple
 
 from TrainingAnalyticsPlatform.platform.config import Config
+from TrainingAnalyticsPlatform.platform.exceptions import (
+    IngestionIdResolutionError,
+    WorkoutIdCalculationError,
+)
 from TrainingAnalyticsPlatform.ingestion.fit_models import create_fit_model
-from TrainingAnalyticsPlatform.handlers.ingestion_identity import IngestionIdentityPolicy
 from TrainingAnalyticsPlatform.storage.table_storage import (
     CANONICAL_SCHEMA_VERSION,
     WorkoutTableStorage,
@@ -48,17 +51,11 @@ class FitIngestionBaseHandler(ABC):
             if context.existing_state
             else None
         )
-        stable_workout_id = (
-            context.existing_state.get("stable_workout_id")
-            if context.existing_state
-            else None
-        )
         self.storage.record_ingestion_state(
             athlete_id,
             source_info,
             status="skipped",
             workout_id=workout_id,
-            stable_workout_id=stable_workout_id,
             ingestion_id=source_info.get("ingestion_id"),
             ingestion_key=context.ingestion_key,
             existing_state=context.existing_state,
@@ -77,19 +74,16 @@ class FitIngestionBaseHandler(ABC):
     ) -> Tuple[Dict[str, Any], int]:
         # Derived handlers normalize input then call this to run shared ingestion.
         """Ingest a FIT file already available as bytes."""
-        identity_policy = IngestionIdentityPolicy(source_info.get("source_system"))
-        if not source_info.get("ingestion_id"):
-            try:
-                source_info["ingestion_id"] = identity_policy.compute_ingestion_id(
-                    source_info
-                )
-            except ValueError:
-                source_info["ingestion_id"] = None
+        ingestion_id = source_info.get("ingestion_id")
+        if not ingestion_id:
+            raise IngestionIdResolutionError(
+                "ingestion_id is required and must be computed by concrete handlers"
+            )
 
         skipped, workout_id = self._skip_if_unchanged(
             athlete_id,
             source_info,
-            ingestion_key=ingestion_key or source_info.get("ingestion_id"),
+            ingestion_key=ingestion_key or ingestion_id,
             existing_state=existing_state,
         )
         if skipped:
@@ -117,18 +111,19 @@ class FitIngestionBaseHandler(ABC):
         source_info["normalized_source_system"] = self._normalize_source_system(
             source_info, metadata
         )
-        identity_policy = IngestionIdentityPolicy(source_info.get("source_system"))
-        ingestion_id = source_info.get("ingestion_id") or identity_policy.compute_ingestion_id(
-            source_info,
-            start_time_utc=metadata.get("start_time_utc"),
-        )
+        ingestion_id = source_info.get("ingestion_id")
+        if not ingestion_id:
+            raise IngestionIdResolutionError(
+                "ingestion_id is required and must be computed by concrete handlers"
+            )
         source_info["ingestion_id"] = ingestion_id
+
         semantic_workout_id = model.semantic_workout_id
-        stable_workout_id = identity_policy.compute_stable_workout_id(
-            semantic_workout_id,
-            fallback_ingestion_id=ingestion_id,
-        )
-        workout_id = stable_workout_id or ingestion_id
+        if not semantic_workout_id:
+            raise WorkoutIdCalculationError(
+                "Unable to compute workout_id from precise start time + sport code"
+            )
+        workout_id = semantic_workout_id
 
         raw_fit_payload = model.build_raw_fit(return_dict=True, return_json=False)
         metadata_payload = model.build_metadata_messages()
@@ -149,7 +144,6 @@ class FitIngestionBaseHandler(ABC):
             source_info,
             workout_id=workout_id,
             ingestion_id=ingestion_id,
-            stable_workout_id=stable_workout_id,
             semantic_workout_id=semantic_workout_id,
             canonical_schema_version=CANONICAL_SCHEMA_VERSION,
             canonical_records_blob=records_blob,
@@ -161,7 +155,6 @@ class FitIngestionBaseHandler(ABC):
             source_info,
             status="ingested",
             workout_id=workout_id,
-            stable_workout_id=stable_workout_id,
             ingestion_id=ingestion_id,
             ingestion_key=ingestion_id,
         )

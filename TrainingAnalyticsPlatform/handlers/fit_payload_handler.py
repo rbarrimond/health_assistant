@@ -6,9 +6,11 @@ from typing import Any, Dict, Optional, Tuple
 
 from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.platform.exceptions import (
+    IngestionIdResolutionError,
+    WorkoutIdCalculationError,
     WorkoutTypeResolutionError,
 )
-from TrainingAnalyticsPlatform.handlers.ingestion_identity import IngestionIdentityPolicy
+from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_bytes_hash
 from TrainingAnalyticsPlatform.handlers.ingestion_base_handler import FitIngestionBaseHandler
 
 logger = logging.getLogger(__name__)
@@ -38,7 +40,19 @@ class FitPayloadIngestionHandler(FitIngestionBaseHandler):
                 file_path=source_info.get("source_file_path"),
             )
 
-        except (ValueError, TypeError) as exc:
+        except IngestionIdResolutionError as exc:
+            logger.error("FIT payload ingestion_id resolution failed: %s", exc)
+            self._record_failure(athlete_id, source_info, str(exc))
+            return exc.to_response()
+        except WorkoutIdCalculationError as exc:
+            logger.error("FIT payload workout_id calculation failed: %s", exc)
+            self._record_failure(athlete_id, source_info, str(exc))
+            return exc.to_response()
+
+        except (
+            ValueError,
+            TypeError,
+        ) as exc:
             logger.warning("FIT payload ingestion validation failed: %s", exc)
             self._record_failure(athlete_id, source_info, str(exc))
             return {"status": "error", "error": str(exc)}, 400
@@ -74,7 +88,7 @@ class FitPayloadIngestionHandler(FitIngestionBaseHandler):
         payload: Dict[str, Any],
         file_bytes: bytes,
     ) -> Dict[str, Any]:
-        return {
+        source_info = {
             "source_system": payload.get("source_system", Config.ONEDRIVE_SOURCE_SYSTEM),
             "source_file_name": payload.get("source_file_name"),
             "source_file_path": payload.get("source_file_path"),
@@ -86,5 +100,21 @@ class FitPayloadIngestionHandler(FitIngestionBaseHandler):
             "source_modified_at_utc": payload.get("source_modified_at_utc"),
             "file_size_bytes": payload.get("file_size_bytes"),
             "file_sha256": payload.get("file_sha256")
-            or IngestionIdentityPolicy.compute_bytes_hash(file_bytes),
+            or compute_bytes_hash(file_bytes),
         }
+        source_info["ingestion_id"] = self._resolve_ingestion_id(source_info)
+        return source_info
+
+    @staticmethod
+    def _resolve_ingestion_id(source_info: Dict[str, Any]) -> str:
+        source_item_id = source_info.get("source_item_id")
+        if source_item_id:
+            return str(source_item_id)
+
+        file_sha256 = source_info.get("file_sha256")
+        if file_sha256:
+            return str(file_sha256)
+
+        raise IngestionIdResolutionError(
+            "Cannot compute ingestion_id without source_item_id or file_sha256"
+        )

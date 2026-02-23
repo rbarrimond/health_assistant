@@ -12,8 +12,12 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Dict, Optional, Tuple
 
 from TrainingAnalyticsPlatform.integrations.onedrive_client import OneDriveGraphClient
-from TrainingAnalyticsPlatform.handlers.ingestion_identity import IngestionIdentityPolicy
+from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_bytes_hash
 from TrainingAnalyticsPlatform.platform.config import Config as PlatformConfig
+from TrainingAnalyticsPlatform.platform.exceptions import (
+    IngestionIdResolutionError,
+    WorkoutIdCalculationError,
+)
 from TrainingAnalyticsPlatform.storage.table_storage import IngestionContext, WorkoutTableStorage
 
 from .ingestion_base_handler import FitIngestionBaseHandler
@@ -96,63 +100,66 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
         access_token = kwargs["access_token"]
         item = kwargs["item"]
         drive_id = kwargs.get("drive_id")
+        source_info: Optional[Dict] = None
 
-        item_meta = self._extract_item_metadata(item, drive_id)
-        source_info = self._build_source_info(item, item_meta)
-        identity_policy = IngestionIdentityPolicy(source_info.get("source_system"))
-        source_info["ingestion_id"] = identity_policy.compute_ingestion_id(source_info)
+        try:
+            item_meta = self._extract_item_metadata(item, drive_id)
+            source_info = self._build_source_info(item, item_meta)
+            source_info["ingestion_id"] = self._resolve_ingestion_id(source_info)
 
-        context = self.storage.get_ingestion_context(
-            athlete_id,
-            source_info,
-            ingestion_key=source_info["ingestion_id"],
-        )
-        should_skip = (
-            context.should_skip()
-            if isinstance(context, IngestionContext)
-            else False
-        )
-        if should_skip:
-            workout_id = (
-                context.existing_state.get("workout_id")
-                if context.existing_state
-                else None
-            )
-            stable_workout_id = (
-                context.existing_state.get("stable_workout_id")
-                if context.existing_state
-                else None
-            )
-            self.storage.record_ingestion_state(
+            context = self.storage.get_ingestion_context(
                 athlete_id,
                 source_info,
-                status="skipped",
-                workout_id=workout_id,
-                stable_workout_id=stable_workout_id,
-                ingestion_id=source_info.get("ingestion_id"),
-                ingestion_key=context.ingestion_key,
-                existing_state=context.existing_state,
+                ingestion_key=source_info["ingestion_id"],
             )
-            return {
-                "status": "skipped",
-                "workout_id": workout_id,
-                "message": "Unchanged content",
-            }, 200
+            should_skip = (
+                context.should_skip()
+                if isinstance(context, IngestionContext)
+                else False
+            )
+            if should_skip:
+                workout_id = (
+                    context.existing_state.get("workout_id")
+                    if context.existing_state
+                    else None
+                )
+                self.storage.record_ingestion_state(
+                    athlete_id,
+                    source_info,
+                    status="skipped",
+                    workout_id=workout_id,
+                    ingestion_id=source_info.get("ingestion_id"),
+                    ingestion_key=context.ingestion_key,
+                    existing_state=context.existing_state,
+                )
+                return {
+                    "status": "skipped",
+                    "workout_id": workout_id,
+                    "message": "Unchanged content",
+                }, 200
 
-        raw_content = self._client.download_file(
-            access_token=access_token, item_id=item["id"]
-        )
-        file_name, content = _maybe_decode_gzip(item["name"], raw_content)
-        source_info["source_file_name"] = file_name
-        source_info["file_sha256"] = IngestionIdentityPolicy.compute_bytes_hash(content)
-        source_info["ingestion_id"] = identity_policy.compute_ingestion_id(source_info)
+            raw_content = self._client.download_file(
+                access_token=access_token, item_id=item["id"]
+            )
+            file_name, content = _maybe_decode_gzip(item["name"], raw_content)
+            source_info["source_file_name"] = file_name
+            source_info["file_sha256"] = compute_bytes_hash(content)
+            source_info["ingestion_id"] = self._resolve_ingestion_id(source_info)
 
-        _, workout_id = self._parse_and_store(
-            athlete_id,
-            source_info,
-            file_bytes=content,
-        )
-        return {"status": "success", "workout_id": workout_id}, 200
+            _, workout_id = self._parse_and_store(
+                athlete_id,
+                source_info,
+                file_bytes=content,
+            )
+            return {"status": "success", "workout_id": workout_id}, 200
+        except IngestionIdResolutionError as exc:
+            logger.error("OneDrive ingestion_id resolution failed: %s", exc)
+            self._record_failure(athlete_id, source_info, str(exc))
+            return exc.to_response(include_message_alias=True)
+        except WorkoutIdCalculationError as exc:
+            logger.error("OneDrive workout_id calculation failed: %s", exc)
+            self._record_failure(athlete_id, source_info, str(exc))
+            return exc.to_response(include_message_alias=True)
 
     def _extract_item_metadata(self, item: Dict, drive_id: str | None) -> Dict:
         """Extract OneDrive fields used for ingest and state tracking."""
@@ -185,6 +192,14 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
 
     def _record_error(self, athlete_id: str, source_info: Dict, exc: Exception) -> None:
         self._record_failure(athlete_id, source_info, str(exc))
+
+    @staticmethod
+    def _resolve_ingestion_id(source_info: Dict) -> str:
+        source_item_id = source_info.get("source_item_id")
+        if source_item_id:
+            return str(source_item_id)
+
+        raise IngestionIdResolutionError("OneDrive ingestion requires source_item_id")
 
 
 class OneDriveSyncRequest:

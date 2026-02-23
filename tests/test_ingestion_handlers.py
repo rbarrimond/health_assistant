@@ -7,6 +7,10 @@ from unittest.mock import Mock, patch
 
 from TrainingAnalyticsPlatform.handlers.fit_payload_handler import FitPayloadIngestionHandler
 from TrainingAnalyticsPlatform.handlers.ingestion_base_handler import FitIngestionBaseHandler
+from TrainingAnalyticsPlatform.platform.exceptions import (
+    IngestionIdResolutionError,
+    WorkoutIdCalculationError,
+)
 from TrainingAnalyticsPlatform.storage.table_storage import IngestionContext
 
 
@@ -39,7 +43,6 @@ def test_ingestion_base_skips_unchanged_records_state() -> None:
         {"source_file_name": "file.fit"},
         status="skipped",
         workout_id="workout-1",
-        stable_workout_id=None,
         ingestion_id=None,
         ingestion_key="ingestion-key",
         existing_state=context.existing_state,
@@ -72,6 +75,7 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     source_info = {
         "source_file_name": "file.fit",
         "file_sha256": "hash",
+        "ingestion_id": "hash",
     }
     metadata = {
         "sport": "Cycling",
@@ -79,13 +83,13 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     }
     records = [{"timestamp_utc": "2026-01-01T00:00:00+00:00"}]
     laps_payload = {"laps": [{"message_index": 0}]}
-    expected_stable_workout_id = "2026-01-01T00:00:00+00:00_Cycling_hash"  # semantic_workout_id from FIT parser
+    expected_workout_id = "2026-01-01T00:00:00+00:00_Cycling_hash"  # semantic_workout_id from FIT parser
 
     mock_model = Mock()
     mock_model.build_canonical_metadata.return_value = metadata
     mock_model.build_canonical_records.return_value = records
     mock_model.build_laps_json.return_value = laps_payload
-    mock_model.semantic_workout_id = expected_stable_workout_id
+    mock_model.semantic_workout_id = expected_workout_id
 
     with patch("TrainingAnalyticsPlatform.handlers.ingestion_base_handler.create_fit_model") as create_model:
         create_model.return_value = mock_model
@@ -97,8 +101,8 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
         )
 
     assert metrics["sport"] == "Cycling"
-    # The returned workout_id should be the stable_workout_id (from semantic)
-    assert workout_id == expected_stable_workout_id
+    # The returned workout_id should be the semantic workout_id.
+    assert workout_id == expected_workout_id
     
     # Verify store_workout was called with correct params
     assert storage.store_workout.call_count == 1
@@ -106,10 +110,9 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     assert call_args[0][0] == "rob"  # athlete_id
     assert call_args[0][1] == metadata  # metadata
     assert call_args[0][2] == source_info  # source_info (updated with ingestion_id)
-    assert call_args[1]["workout_id"] == expected_stable_workout_id
-    assert call_args[1]["stable_workout_id"] == expected_stable_workout_id
+    assert call_args[1]["workout_id"] == expected_workout_id
     assert "ingestion_id" in call_args[1]  # Should have ingestion_id
-    assert call_args[1]["semantic_workout_id"] == expected_stable_workout_id
+    assert call_args[1]["semantic_workout_id"] == expected_workout_id
     assert call_args[1]["canonical_schema_version"] == '1.1.0'
     assert call_args[1]["canonical_records_blob"] == "records.parquet"
     assert call_args[1]["records_count"] == len(records)
@@ -124,7 +127,7 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     assert state_call_args[0][1]["file_sha256"] == "hash"
     assert "ingestion_id" in state_call_args[0][1]
     assert state_call_args[1]["status"] == "ingested"
-    assert state_call_args[1]["workout_id"] == expected_stable_workout_id
+    assert state_call_args[1]["workout_id"] == expected_workout_id
 
 
 def test_fit_payload_handler_missing_file_content() -> None:
@@ -155,7 +158,7 @@ def test_fit_payload_handler_skips_unchanged() -> None:
         patch.object(
             handler,
             "_build_payload_source_info",
-            return_value={"source_file_name": "file.fit"},
+            return_value={"source_file_name": "file.fit", "ingestion_id": "hash"},
         ), \
         patch.object(handler, "_skip_if_unchanged", return_value=(True, "workout-3")), \
         patch.object(handler, "_parse_and_store") as parse_and_store:
@@ -175,7 +178,7 @@ def test_fit_payload_handler_success_calls_parse_and_store() -> None:
         "source_system": "HealthFit",
     }
 
-    with patch("TrainingAnalyticsPlatform.handlers.ingestion_identity.IngestionIdentityPolicy.compute_bytes_hash", return_value="hash"), \
+    with patch("TrainingAnalyticsPlatform.handlers.fit_payload_handler.compute_bytes_hash", return_value="hash"), \
         patch.object(handler, "_skip_if_unchanged", return_value=(False, None)), \
         patch.object(
             handler,
@@ -191,6 +194,47 @@ def test_fit_payload_handler_success_calls_parse_and_store() -> None:
     parse_args = parse_and_store.call_args[0]
     assert parse_args[0] == "rob"
     assert parse_args[1]["file_sha256"] == "hash"
+
+
+def test_fit_payload_handler_ingestion_id_resolution_error() -> None:
+    """Test typed ingestion ID resolution error response mapping."""
+    handler = FitPayloadIngestionHandler(Mock())
+
+    with patch.object(handler, "_extract_payload_bytes", return_value=b"data"), \
+        patch.object(
+            handler,
+            "_build_payload_source_info",
+            side_effect=IngestionIdResolutionError("missing source identity"),
+        ):
+        body, status = handler.handle_payload({"file_content_b64": "ZGF0YQ=="})
+
+    assert status == 422
+    assert body["status"] == "error"
+    assert body["error_code"] == "INGESTION_ID_RESOLUTION_FAILED"
+    assert body["error"] == "missing source identity"
+
+
+def test_fit_payload_handler_workout_id_calculation_error() -> None:
+    """Test typed workout ID calculation error response mapping."""
+    handler = FitPayloadIngestionHandler(Mock())
+
+    with patch.object(handler, "_extract_payload_bytes", return_value=b"data"), \
+        patch.object(
+            handler,
+            "_build_payload_source_info",
+            return_value={"source_file_name": "file.fit", "ingestion_id": "ing-1"},
+        ), \
+        patch.object(
+            handler,
+            "ingest_bytes",
+            side_effect=WorkoutIdCalculationError("missing semantic identity"),
+        ):
+        body, status = handler.handle_payload({"file_content_b64": "ZGF0YQ=="})
+
+    assert status == 422
+    assert body["status"] == "error"
+    assert body["error_code"] == "WORKOUT_ID_CALCULATION_FAILED"
+    assert body["error"] == "missing semantic identity"
 
 
 def test_ingestion_context_skipped_unchanged_is_terminal() -> None:

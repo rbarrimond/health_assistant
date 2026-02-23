@@ -10,7 +10,7 @@ test_fit_models.py with the concrete model tests.
 
 from pathlib import Path
 
-from TrainingAnalyticsPlatform.handlers.ingestion_identity import IngestionIdentityPolicy
+from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_file_hash
 
 
 class TestComputeFileHash:
@@ -21,7 +21,7 @@ class TestComputeFileHash:
         test_file = tmp_path / "test.fit"
         test_file.write_bytes(b"test content")
 
-        hash_value = IngestionIdentityPolicy.compute_file_hash(str(test_file))
+        hash_value = compute_file_hash(str(test_file))
 
         assert isinstance(hash_value, str)
         assert len(hash_value) == 64
@@ -33,8 +33,8 @@ class TestComputeFileHash:
         content = b"identical content"
         test_file.write_bytes(content)
 
-        hash1 = IngestionIdentityPolicy.compute_file_hash(str(test_file))
-        hash2 = IngestionIdentityPolicy.compute_file_hash(str(test_file))
+        hash1 = compute_file_hash(str(test_file))
+        hash2 = compute_file_hash(str(test_file))
 
         assert hash1 == hash2
 
@@ -45,7 +45,7 @@ class TestComputeFileHash:
         file1.write_bytes(b"content1")
         file2.write_bytes(b"content2")
 
-        hash1 = IngestionIdentityPolicy.compute_file_hash(str(file1))
-        hash2 = IngestionIdentityPolicy.compute_file_hash(str(file2))
+        hash1 = compute_file_hash(str(file1))
+        hash2 = compute_file_hash(str(file2))
 
         assert hash1 != hash2

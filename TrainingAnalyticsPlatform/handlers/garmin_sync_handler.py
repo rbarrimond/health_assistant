@@ -14,7 +14,11 @@ from TrainingAnalyticsPlatform.integrations.garmin_client import (
     GarminConnectClient,
     GarminConnectError,
 )
-from TrainingAnalyticsPlatform.handlers.ingestion_identity import IngestionIdentityPolicy
+from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_bytes_hash
+from TrainingAnalyticsPlatform.platform.exceptions import (
+    IngestionIdResolutionError,
+    WorkoutIdCalculationError,
+)
 from TrainingAnalyticsPlatform.storage.table_storage import IngestionContext, WorkoutTableStorage
 
 from .ingestion_base_handler import FitIngestionBaseHandler
@@ -80,6 +84,7 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
         """
         athlete_id = kwargs["athlete_id"]
         activity = kwargs["activity"]
+        source_info: Optional[Dict] = None
 
         activity_id = str(activity.get("activityId"))
         activity_name = activity.get("activityName", "Unknown")
@@ -91,13 +96,12 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
             athlete_id,
         )
 
-        # Build source info for ingestion tracking
-        source_info = self._build_source_info(activity)
-        identity_policy = IngestionIdentityPolicy(source_info.get("source_system"))
-        source_info["ingestion_id"] = identity_policy.compute_ingestion_id(source_info)
-
-        # Download FIT file
         try:
+            # Build source info for ingestion tracking
+            source_info = self._build_source_info(activity)
+            source_info["ingestion_id"] = self._resolve_ingestion_id(source_info)
+
+            # Download FIT file
             fit_bytes = self._client.download_activity_fit(activity_id)
         except GarminConnectError as exc:
             logger.error(
@@ -108,10 +112,17 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
                 "message": f"Failed to download FIT file: {exc}",
                 "activity_id": activity_id,
             }, 500
+        except IngestionIdResolutionError as exc:
+            logger.error("Garmin ingestion_id resolution failed for %s: %s", activity_id, exc)
+            self._record_failure(athlete_id, source_info, str(exc))
+            return exc.to_response(
+                extra={"activity_id": activity_id},
+                include_message_alias=True,
+            )
 
         # Compute hash for deduplication
-        source_info["file_sha256"] = IngestionIdentityPolicy.compute_bytes_hash(fit_bytes)
-        source_info["ingestion_id"] = identity_policy.compute_ingestion_id(source_info)
+        source_info["file_sha256"] = compute_bytes_hash(fit_bytes)
+        source_info["ingestion_id"] = self._resolve_ingestion_id(source_info)
         # Check for unchanged ingestion state only after hash is available
         ingestion_key = source_info["ingestion_id"]
         context = IngestionContext(
@@ -119,7 +130,6 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
             file_info=source_info,
             workout_id=None,
             storage=self.storage,
-            stable_workout_id=None,
             ingestion_id=source_info.get("ingestion_id"),
             ingestion_key=ingestion_key,
         )
@@ -135,17 +145,11 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
                 if context.existing_state
                 else None
             )
-            stable_workout_id = (
-                context.existing_state.get("stable_workout_id")
-                if context.existing_state
-                else None
-            )
             self.storage.record_ingestion_state(
                 athlete_id,
                 source_info,
                 status="skipped",
                 workout_id=workout_id,
-                stable_workout_id=stable_workout_id,
                 ingestion_id=source_info.get("ingestion_id"),
                 ingestion_key=context.ingestion_key,
                 existing_state=context.existing_state,
@@ -163,7 +167,6 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
                 source_info,
                 status="skipped_duplicate",
                 workout_id=duplicate_workout_id,
-                stable_workout_id=duplicate_workout_id,
                 ingestion_id=source_info.get("ingestion_id"),
                 ingestion_key=context.ingestion_key,
                 existing_state=context.existing_state,
@@ -176,11 +179,19 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
             }, 200
 
         # Parse and store
-        _, workout_id = self._parse_and_store(
-            athlete_id,
-            source_info,
-            file_bytes=fit_bytes,
-        )
+        try:
+            _, workout_id = self._parse_and_store(
+                athlete_id,
+                source_info,
+                file_bytes=fit_bytes,
+            )
+        except WorkoutIdCalculationError as exc:
+            logger.error("Garmin workout_id calculation failed for %s: %s", activity_id, exc)
+            self._record_failure(athlete_id, source_info, str(exc))
+            return exc.to_response(
+                extra={"activity_id": activity_id},
+                include_message_alias=True,
+            )
         
         return {"status": "success", "workout_id": workout_id}, 200
 
@@ -198,6 +209,20 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
             "source_duration_sec": activity.get("duration"),
             "source_distance_meters": activity.get("distance"),
         }
+
+    @staticmethod
+    def _resolve_ingestion_id(source_info: Dict) -> str:
+        source_item_id = source_info.get("source_item_id")
+        if source_item_id:
+            return str(source_item_id)
+
+        file_sha256 = source_info.get("file_sha256")
+        if file_sha256:
+            return str(file_sha256)
+
+        raise IngestionIdResolutionError(
+            "Cannot compute ingestion_id without source_item_id or file_sha256"
+        )
 
     def _find_near_duplicate_workout(
         self,

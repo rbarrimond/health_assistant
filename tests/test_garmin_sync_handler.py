@@ -1,8 +1,11 @@
 """Tests for Garmin sync ingestion handler."""
 
+# pylint: disable=protected-access
+
 from unittest.mock import MagicMock
 
 from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import GarminSyncIngestionHandler
+from TrainingAnalyticsPlatform.platform.exceptions import WorkoutIdCalculationError
 
 
 def _build_activity(activity_id: str, start_time: str, duration: int) -> dict:
@@ -69,3 +72,43 @@ class TestGarminSyncIngestionHandler:
             _build_activity("a1", "not-a-date", 3600),
         )
         assert workout_id is None
+
+    def test_handle_returns_error_code_on_ingestion_id_failure(self):
+        storage = MagicMock()
+        client = MagicMock()
+        handler = GarminSyncIngestionHandler(storage=storage, client=client)
+
+        handler._build_source_info = MagicMock(return_value={})  # type: ignore[attr-defined]
+
+        body, status = handler.handle(
+            athlete_id="rob",
+            activity=_build_activity("a1", "2026-02-20T10:00:00+00:00", 3600),
+        )
+
+        assert status == 422
+        assert body["error_code"] == "INGESTION_ID_RESOLUTION_FAILED"
+
+    def test_handle_returns_error_code_on_workout_id_failure(self):
+        storage = MagicMock()
+        context = MagicMock()
+        context.should_skip.return_value = False
+        context.existing_state = None
+        context.ingestion_key = "a1"
+        storage.get_ingestion_context.return_value = context
+
+        client = MagicMock()
+        client.download_activity_fit.return_value = b"fit-bytes"
+
+        handler = GarminSyncIngestionHandler(storage=storage, client=client)
+        handler._find_near_duplicate_workout = MagicMock(return_value=None)  # type: ignore[attr-defined]
+        handler._parse_and_store = MagicMock(  # type: ignore[attr-defined]
+            side_effect=WorkoutIdCalculationError("semantic id missing")
+        )
+
+        body, status = handler.handle(
+            athlete_id="rob",
+            activity=_build_activity("a1", "2026-02-20T10:00:00+00:00", 3600),
+        )
+
+        assert status == 422
+        assert body["error_code"] == "WORKOUT_ID_CALCULATION_FAILED"

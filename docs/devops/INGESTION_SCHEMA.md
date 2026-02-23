@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 14.0.0
+Version: 15.0.1
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -108,6 +108,9 @@ Where:
 
 Used as secondary dedup check across sources.
 
+`workout_id` is set to `semantic_workout_id` and is required for successful ingestion.
+If semantic ID cannot be computed, ingestion must fail.
+
 ---
 
 ## Operational Storage Layout
@@ -177,6 +180,11 @@ from the semantic API.
 - `source_item_id` and `file_sha256` are the preferred inputs for idempotency and
   `ingestion_id` creation.
 - If `file_sha256` is not supplied for direct uploads, ingestion computes it from the file.
+- `ingestion_id` is computed in concrete source handlers (not in abstract/shared handlers)
+  with this precedence:
+  1. `source_item_id`
+  2. `file_sha256`
+- OneDrive ingestion requires `source_item_id`; missing ID is treated as a hard failure.
 - `workout_name` is inferred from FIT messages with the following priority:
   1. Activity message name field
   2. Session message session_name field
@@ -184,6 +192,7 @@ from the semantic API.
   4. Activity ID from source system (e.g., Garmin activity ID)
   5. Filename stem (fallback)
 - `workout_id` is the stable client-facing identifier and should be **treated as immutable once created**.
+- `workout_id` is computed from semantic identity and has **no fallback**.
 - `ingestion_id` is deterministic per-source and is used for idempotency and blob storage paths.
 
 ---
@@ -208,7 +217,6 @@ It is intentionally separate from Workouts to keep workout entities small and st
 | retry_count | int | Yes | Retry count (increments only on failures). |
 | workout_id | string | No | Stable workout ID linked to Workouts table. |
 | ingestion_id | string | No | Deterministic source-scoped ingestion identifier. |
-| stable_workout_id | string | No | Stable client-facing workout identifier. |
 | source_file_name | string | No | Original source filename (e.g., `2026-01-07-...fit`). |
 | source_drive_id | string | No | Source drive ID (OneDrive). |
 | source_etag | string | No | OneDrive eTag (version token). |
@@ -227,7 +235,6 @@ It is intentionally separate from Workouts to keep workout entities small and st
   `source_modified_at_utc` (in that order of preference).
 - Unchanged files with a prior status of `ingested` or `skipped` are skipped.
 - Skipped ingestions preserve prior provenance values.
-- `stable_workout_id` should be reused from existing ingestion state if present.
 
 ---
 
@@ -304,12 +311,25 @@ All stored timestamps use ISO 8601 with an explicit UTC offset
 
 ## workout_id Determinism
 
-The `workout_id` is computed deterministically using the best available inputs
-in this order:
+The `workout_id` is computed deterministically as semantic identity:
+
+1. `start_time_utc_precise`
+2. normalized FIT sport code/name
+
+Formula:
+
+`SHA1("{start_time_utc_precise}#{normalized_sport}")`
+
+There is no fallback. If semantic identity cannot be computed, ingestion fails.
+
+## ingestion_id Determinism
+
+`ingestion_id` is computed by concrete source handlers using source-specific context:
 
 1. `source_item_id`
 2. `file_sha256`
-3. `source_file_path` + `source_file_name` + `start_time_utc`
+
+For OneDrive sources, only `source_item_id` is valid; no fallback is applied.
 
 Once a `workout_id` has been assigned to a file, it is treated as immutable
 and should be reused for reprocessing via IngestionState lookup.
