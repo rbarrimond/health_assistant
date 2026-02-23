@@ -44,13 +44,13 @@ Ingest a FIT file payload from OneDrive or other sources.
 ```json
 {
   "athlete_id": "rob",
-  "source_filename": "activity_123.fit",
+  "source_file_name": "activity_123.fit",
   "file_content_b64": "base64_encoded_fit_data...",
-  "onedrive_drive_id": "optional_drive_id",
-  "onedrive_item_id": "optional_item_id",
-  "onedrive_ctag": "optional_ctag",
-  "onedrive_quickxorhash": "optional_hash",
-  "onedrive_modified_utc": "2026-01-15T10:00:00+00:00"
+  "source_drive_id": "optional_drive_id",
+  "source_item_id": "optional_item_id",
+  "source_ctag": "optional_ctag",
+  "source_quickxor_hash": "optional_hash",
+  "source_modified_at_utc": "2026-01-15T10:00:00+00:00"
 }
 ```
 
@@ -60,7 +60,7 @@ Ingest a FIT file payload from OneDrive or other sources.
 {
   "source_info": {
     "athlete_id": "rob",
-    "source_filename": "activity_123.fit",
+    "source_file_name": "activity_123.fit",
     "ingested_at_utc": "2026-01-15T10:05:00+00:00"
   },
   "workout_id": "abc123",
@@ -369,7 +369,7 @@ Returns the Health Assistant logo (SVG format).
 # Test FIT ingestion
 curl -X POST http://localhost:7071/api/process_fit \
   -H "Content-Type: application/json" \
-  -d '{"athlete_id":"rob","source_filename":"test.fit","file_content_b64":"..."}'
+  -d '{"athlete_id":"rob","source_file_name":"test.fit","file_content_b64":"..."}'
 
 # Test OneDrive sync
 curl -X POST http://localhost:7071/api/onedrive/sync \

@@ -228,6 +228,6 @@ For operational usage patterns, call order, and integration examples, see [GPT_A
 ## Implementation Details
 
 **Tables:** `AgentPreferences`, `AgentObservations`  
-**Handler:** `AgentMemoryHandler` (FitParser/handlers/agent_memory_handler.py)  
-**Models:** `AgentPreferences`, `AgentObservation` (FitParser/models/agent.py)  
+**Handler:** `AgentMemoryHandler` (TrainingAnalyticsPlatform/handlers/agent_memory_handler.py)  
+**Models:** `AgentPreferences`, `AgentObservation` (TrainingAnalyticsPlatform/models/agent.py)  
 **Storage:** Azure Table Storage (same as Workouts)

@@ -35,8 +35,9 @@ It uses Python's `sitecustomize` hook and only activates when `CHAOS_TARGET` is 
 ## Common targets
 
 - `function_app._ingest_fit_payload`: Fail early in the ingestion flow.
-- `FitParser.fit_parser.FitParser.parse`: Fail during FIT parsing.
-- `FitParser.table_storage.WorkoutTableStorage.store_workout`: Fail on Workouts write.
+- `TrainingAnalyticsPlatform.ingestion.fit_models.create_fit_model`: Fail during FIT model creation.
+- `TrainingAnalyticsPlatform.handlers.ingestion_base_handler.FitIngestionBaseHandler._parse_and_store`: Fail during parsing + artifact storage.
+- `TrainingAnalyticsPlatform.storage.table_storage.WorkoutTableStorage.store_workout`: Fail on Workouts write.
 
 ## Notes
 

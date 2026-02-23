@@ -16,6 +16,10 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Streamline copilot instructions to numbered outline with doc authority and non-recursive edit guardrail
 - Add OOP/OOAD preference to architectural discipline guidance
 
+### Ingestion Identity
+
+- **BREAKING:** Split stable workout identity from ingestion idempotency; add ingestion_id storage and keep workout_id as stable client identifier `[INGESTION_SCHEMA v14.0.0, ingest v12.0.0, WORKOUT_SCHEMA v11.0.0]`
+
 ### Type Safety
 
 - Add precise type overloads for `build_raw_fit()` to narrow return types based on flags

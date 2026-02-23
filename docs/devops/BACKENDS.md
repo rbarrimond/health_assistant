@@ -111,10 +111,10 @@ Runs a one-time sync of recent files. Accepts JSON body:
 
 | File                                                                        | Purpose                           |
 | --------------------------------------------------------------------------- | --------------------------------- |
-| [onedrive_client.py](FitParser/onedrive_client.py)                          | Microsoft Graph OAuth + API calls |
-| [onedrive_sync_handler.py](FitParser/handlers/onedrive_sync_handler.py)     | OAuth + sync service              |
-| [function_app.py](function_app.py)                                          | HTTP endpoints + timer trigger    |
-| [table_storage.py](FitParser/table_storage.py)                              | Token storage + ingestion state   |
+| [onedrive_client.py](../../TrainingAnalyticsPlatform/integrations/onedrive_client.py) | Microsoft Graph OAuth + API calls |
+| [onedrive_sync_handler.py](../../TrainingAnalyticsPlatform/handlers/onedrive_sync_handler.py) | OAuth + sync service |
+| [function_app.py](../../function_app.py)                                    | HTTP endpoints + timer trigger    |
+| [table_storage.py](../../TrainingAnalyticsPlatform/storage/table_storage.py) | Token storage + ingestion state  |
 
 ### OneDrive Troubleshooting
 
@@ -299,10 +299,10 @@ Measurements are stored in the `Physiometrics` table with the following schema:
 
 | File                                                                     | Purpose                                        |
 | ------------------------------------------------------------------------ | ---------------------------------------------- |
-| [withings_client.py](FitParser/withings_client.py)                       | OAuth client, API methods, measurement parsing |
-| [withings_webhook_processor.py](FitParser/withings_webhook_processor.py) | Async webhook processing logic                 |
-| [function_app.py](function_app.py)                                       | HTTP endpoints (authorize, callback, webhook)  |
-| [table_storage.py](FitParser/table_storage.py)                           | Token and measurement storage                  |
+| [withings_client.py](../../TrainingAnalyticsPlatform/integrations/withings_client.py) | OAuth client, API methods, measurement parsing |
+| [withings_webhook_processor.py](../../TrainingAnalyticsPlatform/integrations/withings_webhook_processor.py) | Async webhook processing logic |
+| [function_app.py](../../function_app.py)                                 | HTTP endpoints (authorize, callback, webhook)  |
+| [table_storage.py](../../TrainingAnalyticsPlatform/storage/table_storage.py) | Token and measurement storage                |
 
 ### OAuth Token Management
 

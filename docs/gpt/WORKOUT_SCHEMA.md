@@ -1,6 +1,6 @@
 # Workout Schema - Semantic API (Logical)
 
-Version: 10.0.0
+Version: 11.0.0
 
 This document defines the **logical workout schema** exposed by the semantic API.
 It avoids storage details (tables, blobs, partitions) and focuses on fields used
@@ -20,7 +20,7 @@ Returned by `GET /api/workouts` and embedded in planning contexts.
 
 |Field|Type|Required|Description|
 |---|---:|:---:|---|
-|workout_id|string|✅|Stable unique workout id|
+|workout_id|string|✅|Stable unique workout id (source-agnostic client identity)|
 |athlete_id|string|✅|Athlete identifier|
 |sport|string|✅|Generic sport (`cycling`, `running`, `strength_training`, etc.)|
 |sub_sport|string|⛔️|FIT sub-sport (`indoor_cycling`, `gravel`, etc.)|

@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 13.0.1
+Version: 14.0.0
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -130,7 +130,7 @@ from the semantic API.
 1. `IngestionState` — idempotency + provenance
 
     - `PartitionKey`: `athlete_id`
-    - `RowKey`: `source_item_id` OR `file_sha256` OR `workout_id`
+    - `RowKey`: `ingestion_id`
 
 1. `Physiometrics` — body + fitness metrics (FTP, weight, LTHR)
 1. `AgentPreferences` — user training preferences
@@ -139,11 +139,11 @@ from the semantic API.
 ### Azure Blob Storage
 
 - `workouts` — canonical artifacts and telemetry
-  - `{workout_id}/canonical.parquet`
-  - `{workout_id}/raw_fit.json.gz`
-  - `{workout_id}/fit_analysis.json`
-  - `{workout_id}/metadata.json`
-  - `{workout_id}/laps.json`
+  - `{ingestion_id}/canonical.parquet`
+  - `{ingestion_id}/raw_fit.json.gz`
+  - `{ingestion_id}/fit_analysis.json`
+  - `{ingestion_id}/metadata.json`
+  - `{ingestion_id}/laps.json`
 
 ---
 
@@ -175,7 +175,7 @@ from the semantic API.
 ### Notes
 
 - `source_item_id` and `file_sha256` are the preferred inputs for idempotency and
-  `workout_id` creation.
+  `ingestion_id` creation.
 - If `file_sha256` is not supplied for direct uploads, ingestion computes it from the file.
 - `workout_name` is inferred from FIT messages with the following priority:
   1. Activity message name field
@@ -183,7 +183,8 @@ from the semantic API.
   3. Constructed from sport and subsport names (e.g., "Cycling-Indoor Cycling")
   4. Activity ID from source system (e.g., Garmin activity ID)
   5. Filename stem (fallback)
-- `workout_id` is deterministic and should be **treated as immutable once created**.
+- `workout_id` is the stable client-facing identifier and should be **treated as immutable once created**.
+- `ingestion_id` is deterministic per-source and is used for idempotency and blob storage paths.
 
 ---
 
@@ -195,7 +196,7 @@ It is intentionally separate from Workouts to keep workout entities small and st
 ### Keys
 
 - PartitionKey: `athlete_id`
-- RowKey: `source_item_id` OR `file_sha256` OR `workout_id`
+- RowKey: `ingestion_id`
 
 ### Fields
 
@@ -205,7 +206,9 @@ It is intentionally separate from Workouts to keep workout entities small and st
 | first_seen_at_utc | string | Yes | ISO 8601 UTC timestamp when first observed. |
 | last_attempt_at_utc | string | Yes | ISO 8601 UTC timestamp for latest attempt. |
 | retry_count | int | Yes | Retry count (increments only on failures). |
-| workout_id | string | No | Workout ID linked to Workouts table. |
+| workout_id | string | No | Stable workout ID linked to Workouts table. |
+| ingestion_id | string | No | Deterministic source-scoped ingestion identifier. |
+| stable_workout_id | string | No | Stable client-facing workout identifier. |
 | source_file_name | string | No | Original source filename (e.g., `2026-01-07-...fit`). |
 | source_drive_id | string | No | Source drive ID (OneDrive). |
 | source_etag | string | No | OneDrive eTag (version token). |
@@ -224,7 +227,7 @@ It is intentionally separate from Workouts to keep workout entities small and st
   `source_modified_at_utc` (in that order of preference).
 - Unchanged files with a prior status of `ingested` or `skipped` are skipped.
 - Skipped ingestions preserve prior provenance values.
-- `workout_id` should be reused from existing ingestion state if present.
+- `stable_workout_id` should be reused from existing ingestion state if present.
 
 ---
 
@@ -239,6 +242,7 @@ Workouts should only store minimal provenance and canonical parquet pointers.
 | source_system | string | Yes | Source system name (e.g., `HealthFit`). |
 | normalized_source_system | string | No | Normalized source classification (`HealthFit` for Apple Watch FITs, otherwise `Garmin`). |
 | source_item_id | string | No | Stable source item ID (OneDrive item ID). |
+| ingestion_id | string | No | Deterministic source-scoped ingestion identifier. |
 | semantic_workout_id | string | No | Semantic workout identifier based on start time + sport. |
 | canonical_schema_version | string | Yes | Canonical telemetry schema version. |
 | canonical_records_blob | string | Yes | Blob path to canonical records parquet. |
