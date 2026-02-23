@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-22
+
+- Add precise type overloads for `build_raw_fit()` to narrow return types based on flags and satisfy static analysis (no behavior change).
+
 ## 2026-02-21
 
 - Add precise start time resolution (event → session → filename → record) and semantic workout IDs derived from start_time_utc_precise + sport. Persist semantic_workout_id in Workouts and include start_time_utc_precise in canonical metadata. Bump ingest version to v11.1.0 and ingestion schema to 11.1.0.

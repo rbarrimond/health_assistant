@@ -9,7 +9,7 @@ import re
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Iterable, List, Optional, cast
+from typing import Any, ClassVar, Dict, Iterable, List, Literal, Optional, cast, overload
 
 import fitdecode
 from fitdecode.cmd.fitjson import RecordJSONEncoder
@@ -1071,6 +1071,34 @@ class BaseFitModel(BaseModel, ABC):
         
         return metadata
     
+    @overload
+    def build_raw_fit(self) -> Dict[str, Any]:
+        ...
+
+    @overload
+    def build_raw_fit(
+        self,
+        return_dict: Literal[True],
+        return_json: Literal[False],
+    ) -> Dict[str, Any]:
+        ...
+
+    @overload
+    def build_raw_fit(
+        self,
+        return_dict: Literal[False],
+        return_json: Literal[True],
+    ) -> str:
+        ...
+
+    @overload
+    def build_raw_fit(
+        self,
+        return_dict: Literal[True],
+        return_json: Literal[True],
+    ) -> tuple[str, Dict[str, Any]]:
+        ...
+
     def build_raw_fit(
         self, return_dict: bool = True, return_json: bool = False
     ) -> Dict[str, Any] | str | tuple[str, Dict[str, Any]]:
