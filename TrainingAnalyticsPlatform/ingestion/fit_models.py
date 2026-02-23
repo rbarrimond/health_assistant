@@ -1,5 +1,5 @@
 """Pydantic models for FIT file parsing and metadata extraction."""
-# pylint: disable=too-many-lines. trailing-whitespace
+# pylint: disable=too-many-lines, trailing-whitespace, line-too-long
 
 import hashlib
 import io
