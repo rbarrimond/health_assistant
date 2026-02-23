@@ -1,11 +1,10 @@
-# pylint: disable=W0212,C0301
+# pylint: disable=W0212,C0301,C0303
 
 """Tests for ingestion handlers and shared base logic."""
 
 import base64
 from unittest.mock import Mock, patch
 
-from TrainingAnalyticsPlatform.handlers.ingestion_identity import IngestionIdentityPolicy
 from TrainingAnalyticsPlatform.handlers.fit_payload_handler import FitPayloadIngestionHandler
 from TrainingAnalyticsPlatform.handlers.ingestion_base_handler import FitIngestionBaseHandler
 from TrainingAnalyticsPlatform.storage.table_storage import IngestionContext
