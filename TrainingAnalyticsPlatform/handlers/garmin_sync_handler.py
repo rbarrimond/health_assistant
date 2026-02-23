@@ -14,7 +14,7 @@ from TrainingAnalyticsPlatform.integrations.garmin_client import (
     GarminConnectClient,
     GarminConnectError,
 )
-from TrainingAnalyticsPlatform.ingestion.fit_parser import compute_bytes_hash
+from TrainingAnalyticsPlatform.handlers.ingestion_identity import IngestionIdentityPolicy
 from TrainingAnalyticsPlatform.storage.table_storage import IngestionContext, WorkoutTableStorage
 
 from .ingestion_base_handler import FitIngestionBaseHandler
@@ -93,6 +93,8 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
 
         # Build source info for ingestion tracking
         source_info = self._build_source_info(activity)
+        identity_policy = IngestionIdentityPolicy(source_info.get("source_system"))
+        source_info["ingestion_id"] = identity_policy.compute_ingestion_id(source_info)
 
         # Download FIT file
         try:
@@ -108,15 +110,17 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
             }, 500
 
         # Compute hash for deduplication
-        source_info["file_sha256"] = compute_bytes_hash(fit_bytes)
-
+        source_info["file_sha256"] = IngestionIdentityPolicy.compute_bytes_hash(fit_bytes)
+        source_info["ingestion_id"] = identity_policy.compute_ingestion_id(source_info)
         # Check for unchanged ingestion state only after hash is available
-        ingestion_key = f"garmin_{activity_id}"
+        ingestion_key = source_info["ingestion_id"]
         context = IngestionContext(
             athlete_id=athlete_id,
             file_info=source_info,
             workout_id=None,
             storage=self.storage,
+            stable_workout_id=None,
+            ingestion_id=source_info.get("ingestion_id"),
             ingestion_key=ingestion_key,
         )
         skipped, workout_id = self._skip_if_unchanged(
@@ -131,11 +135,18 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
                 if context.existing_state
                 else None
             )
+            stable_workout_id = (
+                context.existing_state.get("stable_workout_id")
+                if context.existing_state
+                else None
+            )
             self.storage.record_ingestion_state(
                 athlete_id,
                 source_info,
                 status="skipped",
                 workout_id=workout_id,
+                stable_workout_id=stable_workout_id,
+                ingestion_id=source_info.get("ingestion_id"),
                 ingestion_key=context.ingestion_key,
                 existing_state=context.existing_state,
             )
@@ -152,6 +163,8 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
                 source_info,
                 status="skipped_duplicate",
                 workout_id=duplicate_workout_id,
+                stable_workout_id=duplicate_workout_id,
+                ingestion_id=source_info.get("ingestion_id"),
                 ingestion_key=context.ingestion_key,
                 existing_state=context.existing_state,
                 error=f"duplicate_of:{duplicate_workout_id}",

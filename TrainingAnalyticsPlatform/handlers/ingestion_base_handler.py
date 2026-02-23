@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.ingestion.fit_models import create_fit_model
-from TrainingAnalyticsPlatform.ingestion.fit_parser import compute_workout_id
+from TrainingAnalyticsPlatform.handlers.ingestion_identity import IngestionIdentityPolicy
 from TrainingAnalyticsPlatform.storage.table_storage import (
     CANONICAL_SCHEMA_VERSION,
     WorkoutTableStorage,
@@ -48,11 +48,18 @@ class FitIngestionBaseHandler(ABC):
             if context.existing_state
             else None
         )
+        stable_workout_id = (
+            context.existing_state.get("stable_workout_id")
+            if context.existing_state
+            else None
+        )
         self.storage.record_ingestion_state(
             athlete_id,
             source_info,
             status="skipped",
             workout_id=workout_id,
+            stable_workout_id=stable_workout_id,
+            ingestion_id=source_info.get("ingestion_id"),
             ingestion_key=context.ingestion_key,
             existing_state=context.existing_state,
         )
@@ -70,10 +77,19 @@ class FitIngestionBaseHandler(ABC):
     ) -> Tuple[Dict[str, Any], int]:
         # Derived handlers normalize input then call this to run shared ingestion.
         """Ingest a FIT file already available as bytes."""
+        identity_policy = IngestionIdentityPolicy(source_info.get("source_system"))
+        if not source_info.get("ingestion_id"):
+            try:
+                source_info["ingestion_id"] = identity_policy.compute_ingestion_id(
+                    source_info
+                )
+            except ValueError:
+                source_info["ingestion_id"] = None
+
         skipped, workout_id = self._skip_if_unchanged(
             athlete_id,
             source_info,
-            ingestion_key=ingestion_key,
+            ingestion_key=ingestion_key or source_info.get("ingestion_id"),
             existing_state=existing_state,
         )
         if skipped:
@@ -101,14 +117,18 @@ class FitIngestionBaseHandler(ABC):
         source_info["normalized_source_system"] = self._normalize_source_system(
             source_info, metadata
         )
-        workout_id = compute_workout_id(
-            source_item_id=source_info.get("source_item_id"),
-            file_sha256=source_info.get("file_sha256"),
-            file_path=source_info.get("source_file_path"),
-            file_name=source_info.get("source_file_name"),
-            start_time=metadata.get("start_time_utc"),
+        identity_policy = IngestionIdentityPolicy(source_info.get("source_system"))
+        ingestion_id = source_info.get("ingestion_id") or identity_policy.compute_ingestion_id(
+            source_info,
+            start_time_utc=metadata.get("start_time_utc"),
         )
+        source_info["ingestion_id"] = ingestion_id
         semantic_workout_id = model.semantic_workout_id
+        stable_workout_id = identity_policy.compute_stable_workout_id(
+            semantic_workout_id,
+            fallback_ingestion_id=ingestion_id,
+        )
+        workout_id = stable_workout_id or ingestion_id
 
         raw_fit_payload = model.build_raw_fit(return_dict=True, return_json=False)
         metadata_payload = model.build_metadata_messages()
@@ -116,11 +136,11 @@ class FitIngestionBaseHandler(ABC):
         analysis_payload = model.build_fit_analysis()
 
         records = model.build_canonical_records()
-        records_blob = self.storage.store_canonical_records(workout_id, records)
-        self.storage.store_raw_fit_json(workout_id, raw_fit_payload)
-        self.storage.store_metadata_json(workout_id, metadata_payload)
-        self.storage.store_laps_json(workout_id, laps_payload)
-        self.storage.store_fit_analysis(workout_id, analysis_payload)
+        records_blob = self.storage.store_canonical_records(ingestion_id, records)
+        self.storage.store_raw_fit_json(ingestion_id, raw_fit_payload)
+        self.storage.store_metadata_json(ingestion_id, metadata_payload)
+        self.storage.store_laps_json(ingestion_id, laps_payload)
+        self.storage.store_fit_analysis(ingestion_id, analysis_payload)
         laps_count = len(laps_payload.get("laps", []))
 
         self.storage.store_workout(
@@ -128,6 +148,8 @@ class FitIngestionBaseHandler(ABC):
             metadata,
             source_info,
             workout_id=workout_id,
+            ingestion_id=ingestion_id,
+            stable_workout_id=stable_workout_id,
             semantic_workout_id=semantic_workout_id,
             canonical_schema_version=CANONICAL_SCHEMA_VERSION,
             canonical_records_blob=records_blob,
@@ -139,6 +161,9 @@ class FitIngestionBaseHandler(ABC):
             source_info,
             status="ingested",
             workout_id=workout_id,
+            stable_workout_id=stable_workout_id,
+            ingestion_id=ingestion_id,
+            ingestion_key=ingestion_id,
         )
         return metadata, workout_id
 
@@ -172,4 +197,5 @@ class FitIngestionBaseHandler(ABC):
             source_info,
             status="failed",
             error=error_message,
+            ingestion_id=source_info.get("ingestion_id") if source_info else None,
         )

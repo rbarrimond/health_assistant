@@ -8,7 +8,7 @@ from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.platform.exceptions import (
     WorkoutTypeResolutionError,
 )
-from TrainingAnalyticsPlatform.ingestion.fit_parser import compute_bytes_hash
+from TrainingAnalyticsPlatform.handlers.ingestion_identity import IngestionIdentityPolicy
 from TrainingAnalyticsPlatform.handlers.ingestion_base_handler import FitIngestionBaseHandler
 
 logger = logging.getLogger(__name__)
@@ -86,5 +86,5 @@ class FitPayloadIngestionHandler(FitIngestionBaseHandler):
             "source_modified_at_utc": payload.get("source_modified_at_utc"),
             "file_size_bytes": payload.get("file_size_bytes"),
             "file_sha256": payload.get("file_sha256")
-            or compute_bytes_hash(file_bytes),
+            or IngestionIdentityPolicy.compute_bytes_hash(file_bytes),
         }

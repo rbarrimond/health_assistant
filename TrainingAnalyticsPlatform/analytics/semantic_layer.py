@@ -214,7 +214,8 @@ class SemanticLayer:
 
             if include_developer_fields:
                 try:
-                    metadata_payload = self.storage.load_metadata_json(workout_id)
+                    ingestion_id = entity.get("ingestion_id") or workout_id
+                    metadata_payload = self.storage.load_metadata_json(ingestion_id)
                     workout["developer_fields_summary"] = self._summarize_developer_fields(
                         metadata_payload
                     )
@@ -917,7 +918,8 @@ class SemanticLayer:
 
     def _load_stored_laps(self, workout_entity: WorkoutEntity) -> Optional[List[Dict]]:
         try:
-            payload = self.storage.load_laps_json(workout_entity.workout_id)
+            ingestion_id = workout_entity.ingestion_id or workout_entity.workout_id
+            payload = self.storage.load_laps_json(ingestion_id)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.warning(
                 "Failed to load laps.json for workout %s: %s",
@@ -948,7 +950,8 @@ class SemanticLayer:
             if entity.get("athlete_id") != athlete_id:
                 return None
 
-            laps_payload = self.storage.load_laps_json(workout_id)
+            ingestion_id = entity.get("ingestion_id") or workout_id
+            laps_payload = self.storage.load_laps_json(ingestion_id)
             laps = laps_payload.get("laps") if isinstance(laps_payload, dict) else None
             if not isinstance(laps, list) or not laps:
                 return None
@@ -1001,10 +1004,11 @@ class SemanticLayer:
         self, entity: Dict
     ) -> tuple[Optional[List[Dict]], Optional[str]]:
         workout_id = entity.get("workout_id")
-        if not workout_id:
+        ingestion_id = entity.get("ingestion_id") or workout_id
+        if not ingestion_id:
             return None, "No workout id available"
 
-        records_blob = entity.get("canonical_records_blob") or f"{workout_id}/canonical.parquet"
+        records_blob = entity.get("canonical_records_blob") or f"{ingestion_id}/canonical.parquet"
         try:
             records_df = self.storage.load_canonical_records(records_blob)
         except Exception as exc:  # pylint: disable=broad-exception-caught
@@ -1018,11 +1022,12 @@ class SemanticLayer:
         self, entity: Dict
     ) -> tuple[Optional[List[Dict]], Optional[str]]:
         workout_id = entity.get("workout_id")
-        if not workout_id:
+        ingestion_id = entity.get("ingestion_id") or workout_id
+        if not ingestion_id:
             return None, "No workout id available"
 
         try:
-            payload = self.storage.load_laps_json(workout_id)
+            payload = self.storage.load_laps_json(ingestion_id)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             return None, str(exc)
 

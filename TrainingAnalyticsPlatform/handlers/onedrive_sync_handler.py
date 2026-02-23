@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Dict, Optional, Tuple
 
 from TrainingAnalyticsPlatform.integrations.onedrive_client import OneDriveGraphClient
-from TrainingAnalyticsPlatform.ingestion.fit_parser import compute_bytes_hash
+from TrainingAnalyticsPlatform.handlers.ingestion_identity import IngestionIdentityPolicy
 from TrainingAnalyticsPlatform.platform.config import Config as PlatformConfig
 from TrainingAnalyticsPlatform.storage.table_storage import IngestionContext, WorkoutTableStorage
 
@@ -99,11 +99,13 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
 
         item_meta = self._extract_item_metadata(item, drive_id)
         source_info = self._build_source_info(item, item_meta)
+        identity_policy = IngestionIdentityPolicy(source_info.get("source_system"))
+        source_info["ingestion_id"] = identity_policy.compute_ingestion_id(source_info)
 
         context = self.storage.get_ingestion_context(
             athlete_id,
             source_info,
-            ingestion_key=item_meta["source_item_id"],
+            ingestion_key=source_info["ingestion_id"],
         )
         should_skip = (
             context.should_skip()
@@ -116,11 +118,18 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
                 if context.existing_state
                 else None
             )
+            stable_workout_id = (
+                context.existing_state.get("stable_workout_id")
+                if context.existing_state
+                else None
+            )
             self.storage.record_ingestion_state(
                 athlete_id,
                 source_info,
                 status="skipped",
                 workout_id=workout_id,
+                stable_workout_id=stable_workout_id,
+                ingestion_id=source_info.get("ingestion_id"),
                 ingestion_key=context.ingestion_key,
                 existing_state=context.existing_state,
             )
@@ -135,7 +144,8 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
         )
         file_name, content = _maybe_decode_gzip(item["name"], raw_content)
         source_info["source_file_name"] = file_name
-        source_info["file_sha256"] = compute_bytes_hash(content)
+        source_info["file_sha256"] = IngestionIdentityPolicy.compute_bytes_hash(content)
+        source_info["ingestion_id"] = identity_policy.compute_ingestion_id(source_info)
 
         _, workout_id = self._parse_and_store(
             athlete_id,
