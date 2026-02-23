@@ -1,5 +1,7 @@
 # Copilot Instructions — Workout Intelligence Agent
 
+These instructions govern how Copilot should analyze and edit code in this repository, which implements a workout intelligence agent that processes workout and physiometric data. The scope is limited to code analysis and edits related to the core data processing, modeling, and versioning logic. The instructions are designed to ensure that all code changes are consistent with the project's documentation and architectural principles, and that they maintain the integrity of the data models and processing pipelines. For queries beyond this scope, revert to default Copilot behavior.
+
 ## 1. Canonical Semantics
 
 - The `docs/` directory is the authoritative specification for data models, invariants, pipeline stages, storage schema, and versioning policy.
