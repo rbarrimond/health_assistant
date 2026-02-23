@@ -1,11 +1,11 @@
 # Ingestion Schema
 
-Version: 13.0.0
+Version: 13.0.1
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
 
-For historical changes, see [CHANGELOG.md](CHANGELOG.md).
+For historical changes, see [CHANGELOG.md](../CHANGELOG.md).
 
 ## Scope
 

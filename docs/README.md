@@ -50,7 +50,7 @@ Athlete-specific and training-specific knowledge:
 ### Development
 
 - **[devops/INGESTION_SCHEMA.md](./devops/INGESTION_SCHEMA.md)** — Ingestion versioning and schema requirements
-- **[devops/CHANGELOG.md](./devops/CHANGELOG.md)** — Version history and change log
+- **[CHANGELOG.md](./CHANGELOG.md)** — Version history and change log
 
 ---
 
