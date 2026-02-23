@@ -11,8 +11,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from TrainingAnalyticsPlatform.ingestion.fit_parser import \
-    compute_file_hash  # pylint: disable=unused-import
+from TrainingAnalyticsPlatform.handlers.ingestion_identity import \
+    IngestionIdentityPolicy  # pylint: disable=unused-import
 from function_app import parse_ingest_payload  # pylint: disable=unused-import
 
 # Silence pylint C warnings by disabling them globally for this file
@@ -46,7 +46,7 @@ def test_compute_file_hash(tmp_path: Path) -> None:
     test_file = tmp_path / "sample.fit"
     test_file.write_bytes(b"test file content")
 
-    file_hash = compute_file_hash(str(test_file))
+    file_hash = IngestionIdentityPolicy.compute_file_hash(str(test_file))
     assert isinstance(file_hash, str)
     assert len(file_hash) == 64
     # Verify it's valid hex

@@ -5,8 +5,7 @@
 import base64
 from unittest.mock import Mock, patch
 
-from TrainingAnalyticsPlatform.ingestion.fit_parser import compute_workout_id
-
+from TrainingAnalyticsPlatform.handlers.ingestion_identity import IngestionIdentityPolicy
 from TrainingAnalyticsPlatform.handlers.fit_payload_handler import FitPayloadIngestionHandler
 from TrainingAnalyticsPlatform.handlers.ingestion_base_handler import FitIngestionBaseHandler
 from TrainingAnalyticsPlatform.storage.table_storage import IngestionContext
@@ -41,6 +40,8 @@ def test_ingestion_base_skips_unchanged_records_state() -> None:
         {"source_file_name": "file.fit"},
         status="skipped",
         workout_id="workout-1",
+        stable_workout_id=None,
+        ingestion_id=None,
         ingestion_key="ingestion-key",
         existing_state=context.existing_state,
     )
@@ -79,13 +80,13 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     }
     records = [{"timestamp_utc": "2026-01-01T00:00:00+00:00"}]
     laps_payload = {"laps": [{"message_index": 0}]}
-    expected_workout_id = compute_workout_id(file_sha256="hash")
+    expected_stable_workout_id = "2026-01-01T00:00:00+00:00_Cycling_hash"  # semantic_workout_id from FIT parser
 
     mock_model = Mock()
     mock_model.build_canonical_metadata.return_value = metadata
     mock_model.build_canonical_records.return_value = records
     mock_model.build_laps_json.return_value = laps_payload
-    mock_model.semantic_workout_id = expected_workout_id
+    mock_model.semantic_workout_id = expected_stable_workout_id
 
     with patch("TrainingAnalyticsPlatform.handlers.ingestion_base_handler.create_fit_model") as create_model:
         create_model.return_value = mock_model
@@ -97,24 +98,34 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
         )
 
     assert metrics["sport"] == "Cycling"
-    assert workout_id == expected_workout_id
-    storage.store_workout.assert_called_once_with(
-        "rob",
-        metadata,
-        source_info,
-        workout_id=expected_workout_id,
-        semantic_workout_id=expected_workout_id,
-        canonical_schema_version='1.1.0',
-        canonical_records_blob="records.parquet",
-        records_count=len(records),
-        laps_count=len(laps_payload["laps"]),
-    )
-    storage.record_ingestion_state.assert_called_once_with(
-        "rob",
-        source_info,
-        status="ingested",
-        workout_id=expected_workout_id,
-    )
+    # The returned workout_id should be the stable_workout_id (from semantic)
+    assert workout_id == expected_stable_workout_id
+    
+    # Verify store_workout was called with correct params
+    assert storage.store_workout.call_count == 1
+    call_args = storage.store_workout.call_args
+    assert call_args[0][0] == "rob"  # athlete_id
+    assert call_args[0][1] == metadata  # metadata
+    assert call_args[0][2] == source_info  # source_info (updated with ingestion_id)
+    assert call_args[1]["workout_id"] == expected_stable_workout_id
+    assert call_args[1]["stable_workout_id"] == expected_stable_workout_id
+    assert "ingestion_id" in call_args[1]  # Should have ingestion_id
+    assert call_args[1]["semantic_workout_id"] == expected_stable_workout_id
+    assert call_args[1]["canonical_schema_version"] == '1.1.0'
+    assert call_args[1]["canonical_records_blob"] == "records.parquet"
+    assert call_args[1]["records_count"] == len(records)
+    assert call_args[1]["laps_count"] == len(laps_payload["laps"])
+    
+    # Verify record_ingestion_state was called with correct params
+    assert storage.record_ingestion_state.call_count == 1
+    state_call_args = storage.record_ingestion_state.call_args
+    assert state_call_args[0][0] == "rob"  # athlete_id
+    # source_info should be updated with ingestion_id
+    assert state_call_args[0][1]["source_file_name"] == "file.fit"
+    assert state_call_args[0][1]["file_sha256"] == "hash"
+    assert "ingestion_id" in state_call_args[0][1]
+    assert state_call_args[1]["status"] == "ingested"
+    assert state_call_args[1]["workout_id"] == expected_stable_workout_id
 
 
 def test_fit_payload_handler_missing_file_content() -> None:
@@ -165,7 +176,7 @@ def test_fit_payload_handler_success_calls_parse_and_store() -> None:
         "source_system": "HealthFit",
     }
 
-    with patch("TrainingAnalyticsPlatform.handlers.fit_payload_handler.compute_bytes_hash", return_value="hash"), \
+    with patch("TrainingAnalyticsPlatform.handlers.ingestion_identity.IngestionIdentityPolicy.compute_bytes_hash", return_value="hash"), \
         patch.object(handler, "_skip_if_unchanged", return_value=(False, None)), \
         patch.object(
             handler,

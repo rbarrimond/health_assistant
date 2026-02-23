@@ -404,7 +404,7 @@ class TestIngestionHelpersAndFlow:
         mock_model.build_laps_json.return_value = {"laps": []}
         mock_model.semantic_workout_id = "workout-456"
 
-        with patch("TrainingAnalyticsPlatform.handlers.fit_payload_handler.compute_bytes_hash", return_value="hash"):
+        with patch("TrainingAnalyticsPlatform.handlers.ingestion_identity.IngestionIdentityPolicy.compute_bytes_hash", return_value="hash"):
             with _patch_dependency("storage", mock_storage):
                 with patch("TrainingAnalyticsPlatform.handlers.ingestion_base_handler.create_fit_model", return_value=mock_model):
                     body, status_code = function_app.dependencies.ingest_fit_payload(
