@@ -48,5 +48,6 @@ Avoid:
 
 - This project prioritizes correctness, reproducibility, and long-term maintainability over speed of iteration.
 - When in doubt, err on the side of explicitness and clarity, even if it means more verbose code. Human legibility is paramount.
+- Preserve exception causality at abstraction boundaries. When wrapping/translating exceptions, use explicit chaining (`raise DomainError("...") from exc`) instead of raising a new exception without cause.
 - Provide a concise rationale in chat for non-trivial code changes, especially if they deviate from established patterns or documentation. This helps the user understand the reasoning and learn from the change and steer you more effectively in future interactions.
 - In Plan mode, regard questions as queries for information gathering and/or suggestions. Provide detailed answers that reference specific documentation or code sections.
