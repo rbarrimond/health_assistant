@@ -2,6 +2,7 @@
 # pylint: disable=too-many-lines
 
 import gzip
+import hashlib
 import io
 import json
 import logging
@@ -17,7 +18,6 @@ from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
 
 from TrainingAnalyticsPlatform.ingestion.constants import INGEST_VERSION
-from TrainingAnalyticsPlatform.ingestion.fit_parser import compute_workout_id
 CANONICAL_SCHEMA_VERSION = "1.1.0"
 
 WORKOUTS_CONTAINER = "workouts"
@@ -36,6 +36,8 @@ class WorkoutEntity:
     source_system: str
     normalized_source_system: Optional[str]
     source_item_id: Optional[str]
+    ingestion_id: Optional[str] = None
+    stable_workout_id: Optional[str] = None
     semantic_workout_id: Optional[str] = None
     canonical_schema_version: Optional[str] = None
     canonical_records_blob: Optional[str] = None
@@ -50,6 +52,8 @@ class WorkoutEntity:
             "PartitionKey",
             "RowKey",
             "workout_id",
+            "ingestion_id",
+            "stable_workout_id",
             "semantic_workout_id",
             "athlete_id",
             "source_system",
@@ -81,6 +85,8 @@ class WorkoutEntity:
             partition_key=entity.get("PartitionKey", ""),
             row_key=entity.get("RowKey", ""),
             workout_id=entity.get("workout_id", ""),
+            ingestion_id=entity.get("ingestion_id"),
+            stable_workout_id=entity.get("stable_workout_id"),
             semantic_workout_id=entity.get("semantic_workout_id"),
             athlete_id=entity.get("athlete_id", ""),
             source_system=entity.get("source_system", ""),
@@ -105,6 +111,8 @@ class WorkoutEntity:
             "PartitionKey": self.partition_key,
             "RowKey": self.row_key,
             "workout_id": self.workout_id,
+            "ingestion_id": self.ingestion_id,
+            "stable_workout_id": self.stable_workout_id,
             "semantic_workout_id": self.semantic_workout_id,
             "athlete_id": self.athlete_id,
             "source_system": self.source_system,
@@ -134,6 +142,8 @@ class IngestionStateEntity:
     last_attempt_at_utc: str
     retry_count: int
     workout_id: Optional[str]
+    ingestion_id: Optional[str] = None
+    stable_workout_id: Optional[str] = None
     source_file_name: Optional[str] = None
     source_drive_id: Optional[str] = None
     source_etag: Optional[str] = None
@@ -163,6 +173,10 @@ class IngestionStateEntity:
             "retry_count": self.retry_count,
             "workout_id": self.workout_id,
         }
+        if self.ingestion_id is not None:
+            entity["ingestion_id"] = self.ingestion_id
+        if self.stable_workout_id is not None:
+            entity["stable_workout_id"] = self.stable_workout_id
         if self.source_file_name is not None:
             entity["source_file_name"] = self.source_file_name
         if self.source_drive_id is not None:
@@ -197,12 +211,16 @@ class IngestionContext:
         file_info: Dict,
         workout_id: Optional[str],
         storage: "WorkoutTableStorage",
+        stable_workout_id: Optional[str] = None,
+        ingestion_id: Optional[str] = None,
         ingestion_key: Optional[str] = None,
         existing_state: Optional[Dict] = None,
     ):
         self.athlete_id = athlete_id
         self.file_info = file_info
         self.workout_id = workout_id
+        self.stable_workout_id = stable_workout_id
+        self.ingestion_id = ingestion_id
         self.storage = storage
 
         self.ingestion_key = ingestion_key or self._build_ingestion_key()
@@ -223,7 +241,8 @@ class IngestionContext:
             ValueError: If no valid key can be generated.
         """
         ingestion_key = (
-            self.file_info.get("source_item_id")
+            self.file_info.get("ingestion_id")
+            or self.file_info.get("source_item_id")
             or self.file_info.get("file_sha256")
             or self.workout_id
         )
@@ -275,20 +294,20 @@ class IngestionContext:
         if not self.existing_state:
             return False
 
-        existing_sha = self.existing_state.get("file_sha256")
-        incoming_sha = self.file_info.get("file_sha256")
-        if incoming_sha and existing_sha:
-            return incoming_sha == existing_sha
+        existing_ctag = self.existing_state.get("source_ctag")
+        incoming_ctag = self.file_info.get("source_ctag")
+        if incoming_ctag and existing_ctag:
+            return incoming_ctag == existing_ctag
 
         existing_qx = self.existing_state.get("source_quickxor_hash")
         incoming_qx = self.file_info.get("source_quickxor_hash")
         if incoming_qx and existing_qx:
             return incoming_qx == existing_qx
 
-        existing_ctag = self.existing_state.get("source_ctag")
-        incoming_ctag = self.file_info.get("source_ctag")
-        if incoming_ctag and existing_ctag:
-            return incoming_ctag == existing_ctag
+        existing_sha = self.existing_state.get("file_sha256")
+        incoming_sha = self.file_info.get("file_sha256")
+        if incoming_sha and existing_sha:
+            return incoming_sha == existing_sha
 
         existing_etag = self.existing_state.get("source_etag")
         incoming_etag = self.file_info.get("source_etag")
@@ -364,6 +383,8 @@ class IngestionContext:
             last_attempt_at_utc=now_utc,
             retry_count=self.next_retry_count(status),
             workout_id=self.workout_id,
+            ingestion_id=self.ingestion_id,
+            stable_workout_id=self.stable_workout_id,
             source_file_name=state_fields["source_file_name"],
             source_drive_id=state_fields["source_drive_id"],
             source_etag=state_fields["source_etag"],
@@ -601,6 +622,8 @@ class WorkoutTableStorage:
         athlete_id: str,
         file_info: Dict,
         workout_id: Optional[str] = None,
+        stable_workout_id: Optional[str] = None,
+        ingestion_id: Optional[str] = None,
         ingestion_key: Optional[str] = None,
         existing_state: Optional[Dict] = None,
     ) -> IngestionContext:
@@ -610,6 +633,8 @@ class WorkoutTableStorage:
             file_info=file_info,
             workout_id=workout_id,
             storage=self,
+            stable_workout_id=stable_workout_id,
+            ingestion_id=ingestion_id,
             ingestion_key=ingestion_key,
             existing_state=existing_state,
         )
@@ -621,6 +646,8 @@ class WorkoutTableStorage:
         source_info: Dict,
         *,
         workout_id: Optional[str] = None,
+        ingestion_id: Optional[str] = None,
+        stable_workout_id: Optional[str] = None,
         semantic_workout_id: Optional[str] = None,
         canonical_schema_version: Optional[str] = None,
         canonical_records_blob: Optional[str] = None,
@@ -641,19 +668,27 @@ class WorkoutTableStorage:
         Returns:
             workout_id of stored entity
         """
-        existing_workout_id = None
-        if source_info.get("source_item_id") or source_info.get("file_sha256"):
-            context = self.get_ingestion_context(athlete_id, source_info)
-            if context.existing_state:
-                existing_workout_id = context.existing_state.get("workout_id")
+        if not ingestion_id:
+            raise ValueError("ingestion_id is required to store a workout")
 
-        # Generate deterministic workout_id (reuse existing if available)
-        workout_id = workout_id or existing_workout_id or compute_workout_id(
-            source_item_id=source_info.get("source_item_id"),
-            file_sha256=source_info.get("file_sha256"),
-            file_path=source_info.get("source_file_path"),
-            file_name=source_info.get("source_file_name"),
-            start_time=metadata.get("start_time_utc"),
+        existing_workout_id = None
+        existing_stable_id = None
+        context = self.get_ingestion_context(
+            athlete_id,
+            source_info,
+            ingestion_id=ingestion_id,
+            ingestion_key=ingestion_id,
+        )
+        if context.existing_state:
+            existing_workout_id = context.existing_state.get("workout_id")
+            existing_stable_id = context.existing_state.get("stable_workout_id")
+
+        workout_id = (
+            workout_id
+            or stable_workout_id
+            or existing_stable_id
+            or existing_workout_id
+            or ingestion_id
         )
 
         # Build partition and row keys
@@ -674,6 +709,8 @@ class WorkoutTableStorage:
             partition_key=partition_key,
             row_key=row_key,
             workout_id=workout_id,
+            ingestion_id=ingestion_id,
+            stable_workout_id=stable_workout_id or existing_stable_id,
             semantic_workout_id=semantic_workout_id,
             athlete_id=athlete_id,
             source_system=source_info.get("source_system", "HealthFit"),
@@ -699,6 +736,8 @@ class WorkoutTableStorage:
     def record_ingestion_state(self, athlete_id: str, file_info: Dict,
                                status: str, error: Optional[str] = None,
                                workout_id: Optional[str] = None,
+                               stable_workout_id: Optional[str] = None,
+                               ingestion_id: Optional[str] = None,
                                ingestion_key: Optional[str] = None,
                                existing_state: Optional[Dict] = None):
         """
@@ -718,6 +757,8 @@ class WorkoutTableStorage:
             file_info=file_info,
             workout_id=workout_id,
             storage=self,
+            stable_workout_id=stable_workout_id,
+            ingestion_id=ingestion_id,
             ingestion_key=ingestion_key,
             existing_state=existing_state,
         )
@@ -1418,8 +1459,16 @@ class WorkoutTableStorage:
         # Source info defaults
         source_info = {"source_system": "HealthFit"}
 
+        payload = json.dumps(metrics, separators=(",", ":"), default=str, sort_keys=True)
+        ingestion_id = hashlib.sha256(payload.encode()).hexdigest()
+
         # Call store_workout with the flat metrics dict
-        return self.store_workout(athlete_id, metrics, source_info)
+        return self.store_workout(
+            athlete_id,
+            metrics,
+            source_info,
+            ingestion_id=ingestion_id,
+        )
 
     def _flatten_workout_metrics(self, metrics_model) -> Dict:
         """
