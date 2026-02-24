@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 from TrainingAnalyticsPlatform.handlers.fit_payload_handler import FitPayloadIngestionHandler
 from TrainingAnalyticsPlatform.handlers.ingestion_base_handler import FitIngestionBaseHandler
 from TrainingAnalyticsPlatform.platform.exceptions import (
+    FitParsingError,
     IngestionIdResolutionError,
     WorkoutIdCalculationError,
 )
@@ -235,6 +236,29 @@ def test_fit_payload_handler_workout_id_calculation_error() -> None:
     assert body["status"] == "error"
     assert body["error_code"] == "WORKOUT_ID_CALCULATION_FAILED"
     assert body["error"] == "missing semantic identity"
+
+
+def test_fit_payload_handler_fit_parsing_error() -> None:
+    """Test typed FIT parsing error response mapping."""
+    handler = FitPayloadIngestionHandler(Mock())
+
+    with patch.object(handler, "_extract_payload_bytes", return_value=b"data"), \
+        patch.object(
+            handler,
+            "_build_payload_source_info",
+            return_value={"source_file_name": "file.fit", "ingestion_id": "ing-1"},
+        ), \
+        patch.object(
+            handler,
+            "ingest_bytes",
+            side_effect=FitParsingError("invalid fit bytes"),
+        ):
+        body, status = handler.handle_payload({"file_content_b64": "ZGF0YQ=="})
+
+    assert status == 422
+    assert body["status"] == "error"
+    assert body["error_code"] == "FIT_PARSING_FAILED"
+    assert body["error"] == "invalid fit bytes"
 
 
 def test_ingestion_context_skipped_unchanged_is_terminal() -> None:

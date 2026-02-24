@@ -94,3 +94,10 @@ class WorkoutIdCalculationError(HealthAssistantError):
 
     error_code = "WORKOUT_ID_CALCULATION_FAILED"
     status_code = 422
+
+
+class FitParsingError(HealthAssistantError):
+    """Raised when FIT payload bytes cannot be parsed into FIT messages."""
+
+    error_code = "FIT_PARSING_FAILED"
+    status_code = 422

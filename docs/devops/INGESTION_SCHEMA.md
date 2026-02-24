@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 15.0.15
+Version: 15.0.16
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -207,6 +207,7 @@ from the semantic API.
   1. `source_item_id`
   2. `file_sha256`
 - OneDrive ingestion requires `source_item_id`; missing ID is treated as a hard failure.
+- FIT payloads that cannot be parsed (malformed or incompatible bytes) must fail with typed domain error `FIT_PARSING_FAILED` and HTTP 422.
 - `workout_name` is inferred with the following priority:
   1. Workout FIT message name (`wkt_name`, with `name` compatibility fallback)
   2. External source metadata activity name (e.g., Garmin API `source_activity_name`)

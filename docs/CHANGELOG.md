@@ -8,6 +8,13 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-02-24
+
+### FIT Parsing Domain Error Mapping
+
+- Replace generic `RuntimeError` FIT parse wrapper with typed `FitParsingError` domain exception and preserve explicit exception chaining from fitdecode parse failures `[ingest v13.0.20]`
+- Map malformed/unparseable FIT payload failures to explicit `FIT_PARSING_FAILED` handler responses (HTTP 422) across payload, OneDrive, and Garmin ingestion paths `[ingest v13.0.20, INGESTION_SCHEMA v15.0.16]`
+
 ## 2026-02-23
 
 ### Session UTC Start-Time Math

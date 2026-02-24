@@ -15,6 +15,7 @@ from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import (
     OneDriveSyncRequest,
 )
 from TrainingAnalyticsPlatform.platform.exceptions import IngestionIdResolutionError
+from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 from TrainingAnalyticsPlatform.platform.exceptions import WorkoutIdCalculationError
 
 
@@ -332,6 +333,38 @@ class TestOneDriveIngestionIdentity:
 
         assert status == 422
         assert body["error_code"] == "WORKOUT_ID_CALCULATION_FAILED"
+
+    def test_handle_returns_error_code_on_fit_parsing_failure(self):
+        storage = MagicMock()
+        context = MagicMock()
+        context.should_skip.return_value = False
+        storage.get_ingestion_context.return_value = context
+
+        client = MagicMock()
+        client.download_file.return_value = b"fit-bytes"
+
+        handler = OneDriveSyncIngestionHandler(storage=storage, client=client)
+        handler._parse_and_store = MagicMock(  # type: ignore[attr-defined]
+            side_effect=FitParsingError("invalid fit bytes")
+        )
+
+        body, status = handler.handle(
+            athlete_id="rob",
+            access_token="token",
+            item={
+                "id": "item-1",
+                "name": "workout.fit",
+                "size": 1,
+                "parentReference": {
+                    "path": "/drive/root:/Apps/HealthFit",
+                    "driveId": "drive-id",
+                },
+            },
+            drive_id="drive-id",
+        )
+
+        assert status == 422
+        assert body["error_code"] == "FIT_PARSING_FAILED"
 
     def test_handle_sync_with_query_params(self, handler):
         """Test sync with query parameters."""

@@ -5,6 +5,7 @@
 from unittest.mock import MagicMock
 
 from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import GarminSyncIngestionHandler
+from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 from TrainingAnalyticsPlatform.platform.exceptions import WorkoutIdCalculationError
 
 
@@ -112,3 +113,28 @@ class TestGarminSyncIngestionHandler:
 
         assert status == 422
         assert body["error_code"] == "WORKOUT_ID_CALCULATION_FAILED"
+
+    def test_handle_returns_error_code_on_fit_parsing_failure(self):
+        storage = MagicMock()
+        context = MagicMock()
+        context.should_skip.return_value = False
+        context.existing_state = None
+        context.ingestion_key = "a1"
+        storage.get_ingestion_context.return_value = context
+
+        client = MagicMock()
+        client.download_activity_fit.return_value = b"fit-bytes"
+
+        handler = GarminSyncIngestionHandler(storage=storage, client=client)
+        handler._find_near_duplicate_workout = MagicMock(return_value=None)  # type: ignore[attr-defined]
+        handler._parse_and_store = MagicMock(  # type: ignore[attr-defined]
+            side_effect=FitParsingError("invalid fit bytes")
+        )
+
+        body, status = handler.handle(
+            athlete_id="rob",
+            activity=_build_activity("a1", "2026-02-20T10:00:00+00:00", 3600),
+        )
+
+        assert status == 422
+        assert body["error_code"] == "FIT_PARSING_FAILED"

@@ -15,6 +15,7 @@ from TrainingAnalyticsPlatform.integrations.onedrive_client import OneDriveGraph
 from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_bytes_hash
 from TrainingAnalyticsPlatform.platform.config import Config as PlatformConfig
 from TrainingAnalyticsPlatform.platform.exceptions import (
+    FitParsingError,
     IngestionIdResolutionError,
     WorkoutIdCalculationError,
 )
@@ -158,6 +159,10 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
             return exc.to_response(include_message_alias=True)
         except WorkoutIdCalculationError as exc:
             logger.error("OneDrive workout_id calculation failed: %s", exc)
+            self._record_failure(athlete_id, source_info, str(exc))
+            return exc.to_response(include_message_alias=True)
+        except FitParsingError as exc:
+            logger.error("OneDrive FIT parsing failed: %s", exc)
             self._record_failure(athlete_id, source_info, str(exc))
             return exc.to_response(include_message_alias=True)
 

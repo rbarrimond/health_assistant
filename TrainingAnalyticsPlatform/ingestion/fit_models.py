@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import fitdecode
 from fitdecode.cmd.fitjson import RecordJSONEncoder
 from pydantic import BaseModel, computed_field, ConfigDict, Field
+from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 
 from .constants import LAPS_SCHEMA_VERSION, METADATA_SCHEMA_VERSION
 from .apple_workout_types import (
@@ -113,7 +114,7 @@ class BaseFitModel(BaseModel, ABC):
                         messages.append(frame)
                         messages_by_type.setdefault(frame.name, []).append(frame)
             except Exception as exc:
-                raise RuntimeError(
+                raise FitParsingError(
                     f"Failed to parse FIT data: {exc}"
                 ) from exc
             
