@@ -19,7 +19,7 @@ from azure.storage.blob import BlobServiceClient
 
 from TrainingAnalyticsPlatform.ingestion.constants import INGEST_VERSION
 from TrainingAnalyticsPlatform.platform.exceptions import IngestionIdResolutionError
-CANONICAL_SCHEMA_VERSION = "1.2.0"
+CANONICAL_SCHEMA_VERSION = "1.3.0"
 
 WORKOUTS_CONTAINER = "workouts"
 

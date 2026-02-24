@@ -20,6 +20,13 @@ class SessionMetricsModel(BaseModel):
     device_name: Optional[str] = Field(None, description="Device manufacturer")
     is_indoor: Optional[bool] = Field(None, description="Indoor vs outdoor")
     start_time_utc: Optional[str] = Field(None, description="ISO 8601 UTC start time")
-    timezone: str = Field(default="UTC", description="Timezone of workout")
+    local_tz_offset: Optional[str] = Field(
+        None,
+        description="Local wall-clock UTC offset (for example, 'UTC-05:00')",
+    )
+    timezone: Optional[str] = Field(
+        None,
+        description="Compatibility alias of local_tz_offset",
+    )
     duration_sec: Optional[float] = Field(None, ge=0, description="Total elapsed time seconds")
     moving_time_sec: Optional[float] = Field(None, ge=0, description="Active movement seconds")

@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 15.0.11
+Version: 15.0.12
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -117,6 +117,13 @@ Where:
 3. Source-specific UTC extraction (HealthFit converts filename device-local time to UTC)
 4. First record `timestamp`
 5. Session `timestamp` (fallback when `start_time` is missing)
+
+Timezone offset contract:
+
+- `start_time_utc` remains UTC and is never converted to local wall-clock time in storage.
+- `local_tz_offset` stores the local wall-clock UTC offset string when derivable (for example `UTC-05:00`).
+- `timezone` is retained as a compatibility alias of `local_tz_offset`.
+- Unknown local offsets must remain unset (`null`) and must not be defaulted to `UTC`.
 
 `workout_id` is required for successful ingestion and is derived from semantic identity.
 If semantic ID cannot be computed, ingestion must fail.

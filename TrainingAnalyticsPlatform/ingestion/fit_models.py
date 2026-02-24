@@ -633,12 +633,12 @@ class BaseFitModel(BaseModel, ABC):
     
     @computed_field  # type: ignore[misc]
     @property
-    def timezone(self) -> Optional[str]:
-        """Get timezone from device settings or infer from times."""
+    def local_tz_offset(self) -> Optional[str]:
+        """Get local wall-clock UTC offset from device settings or inferred signals."""
         try:
             self._ensure_message_index()
             if not self._messages:
-                return "UTC"
+                return None
             
             offset_minutes = self.device_utc_offset_minutes
             inferred_activity = self.inferred_timezone_activity
@@ -652,7 +652,16 @@ class BaseFitModel(BaseModel, ABC):
             )
         except (AttributeError, TypeError, ValueError):
             pass
-        return "UTC"
+        return None
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def timezone(self) -> Optional[str]:
+        """Compatibility alias for local_tz_offset.
+
+        Deprecated semantic name retained for downstream compatibility.
+        """
+        return self.local_tz_offset
     
     @computed_field  # type: ignore[misc]
     @property
@@ -1096,6 +1105,7 @@ class BaseFitModel(BaseModel, ABC):
             "workout_name": self.workout_name,
             "is_indoor": self.is_indoor,
             "start_time_utc": self.start_time_utc,
+            "local_tz_offset": self.local_tz_offset,
             "timezone": self.timezone,
             "duration_sec": self.duration_sec,
             "moving_time_sec": self.moving_time_sec,
@@ -1525,7 +1535,7 @@ class HealthFitModel(OneDriveFitModel):
     
     @computed_field  # type: ignore[misc]
     @property
-    def timezone(self) -> Optional[str]:
+    def local_tz_offset(self) -> Optional[str]:
         """Override to add HealthFit filename-based timezone inference fallback.
         
         Priority order:
@@ -1533,12 +1543,10 @@ class HealthFitModel(OneDriveFitModel):
         2. Activity local_timestamp vs UTC timestamp
         3. Session start_time vs timestamp
         4. HealthFit filename local time vs FIT UTC time (NEW fallback)
-        5. Default to "UTC"
+        5. Unknown -> None
         """
         try:
             self._ensure_message_index()
-            if not self._messages:
-                return "UTC"
             
             offset_minutes = self.device_utc_offset_minutes
             inferred_activity = self.inferred_timezone_activity
@@ -1554,13 +1562,22 @@ class HealthFitModel(OneDriveFitModel):
             )
             
             # If base resolution didn't find anything, use filename inference
-            if resolved == "UTC" and inferred_filename:
+            if resolved is None and inferred_filename:
                 return inferred_filename
             
             return resolved
         except (AttributeError, TypeError, ValueError, ImportError):
             pass
-        return "UTC"
+        return None
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def timezone(self) -> Optional[str]:
+        """Compatibility alias for local_tz_offset.
+
+        Deprecated semantic name retained for downstream compatibility.
+        """
+        return self.local_tz_offset
     
     @computed_field  # type: ignore[misc]
     @property

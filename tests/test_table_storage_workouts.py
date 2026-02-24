@@ -24,6 +24,7 @@ class TestStoreWorkoutPartitioning:
         }
         metadata = {
             "start_time_utc": "2026-02-14T16:38:37+00:00",
+            "local_tz_offset": "UTC+00:00",
             "timezone": "UTC+00:00",
             "sport": "functional",
         }
@@ -38,6 +39,7 @@ class TestStoreWorkoutPartitioning:
 
         entity = mock_table_client.upsert_entity.call_args[0][0]
         assert entity["PartitionKey"] == "rob|2026-02"
+        assert entity["local_tz_offset"] == "UTC+00:00"
         assert entity["timezone"] == "UTC+00:00"
 
     def test_store_workout_accepts_legacy_precise_only_start_time(self) -> None:

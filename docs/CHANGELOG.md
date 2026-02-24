@@ -10,6 +10,13 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-02-23
 
+### Local Timezone Offset Semantics
+
+- Add canonical `local_tz_offset` metadata to represent local wall-clock UTC offset (for example `UTC-05:00`) while preserving UTC storage for `start_time_utc` `[ingest v13.0.17, INGESTION_SCHEMA v15.0.12, WORKOUT_SCHEMA v11.1.0]`
+- Retain `timezone` as a backward-compatible alias of `local_tz_offset` in ingestion, semantic projections, and session models `[ingest v13.0.17]`
+- Remove implicit unknown->`UTC` defaulting in timezone resolution; unresolved local offsets now remain unset (`null`) `[ingest v13.0.17]`
+- Bump Workouts canonical schema to `1.3.0` for the new canonical metadata field `[ingest v13.0.17]`
+
 ### Observability & Telemetry
 
 - Add structured JSON logging bootstrap for Azure Functions with env-driven `LOG_LEVEL` / `LOG_FORMAT` configuration

@@ -50,8 +50,6 @@ def infer_timezone_from_activity(
     normalized = _normalize_offset_minutes(offset_minutes)
     if normalized is None:
         return None
-    if normalized == 0:
-        return "UTC"
     return format_utc_offset(normalized)
 
 
@@ -76,8 +74,6 @@ def infer_timezone_from_session(
     normalized = _normalize_offset_minutes(offset_minutes)
     if normalized is None:
         return None
-    if normalized == 0:
-        return "UTC"
     return format_utc_offset(normalized)
 
 
@@ -86,8 +82,12 @@ def resolve_timezone(
     offset_minutes: Optional[int],
     inferred_activity: Optional[str],
     inferred_session: Optional[str],
-) -> str:
-    """Resolve timezone in priority order with safe defaults."""
+) -> Optional[str]:
+    """Resolve local timezone offset in priority order.
+
+    Returns a UTC-offset string (for example, ``UTC-05:00``) when known,
+    otherwise ``None`` when the offset cannot be reliably derived.
+    """
     if tz_name:
         return tz_name
     if offset_minutes is not None:
@@ -96,4 +96,4 @@ def resolve_timezone(
         return inferred_activity
     if inferred_session:
         return inferred_session
-    return "UTC"
+    return None

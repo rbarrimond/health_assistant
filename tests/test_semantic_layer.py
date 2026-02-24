@@ -499,6 +499,7 @@ class TestHelperMethods:
         assert workout["workout_id"] == "workout-001"
         assert workout["sport"] == "Cycling"
         assert workout["hr_avg_bpm"] == 145
+        assert workout["local_tz_offset"] == "UTC-05:00"
         assert workout["timezone"] == "UTC-05:00"
 
     def test_entity_to_workout_dict_with_records(self, semantic_layer):

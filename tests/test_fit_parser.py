@@ -157,6 +157,8 @@ class TestHealthFitTimezoneInference:
         )
 
         assert model.inferred_timezone_filename == "UTC+00:00"
+        assert model.local_tz_offset == "UTC+00:00"
+        assert model.timezone == "UTC+00:00"
 
 
 class TestHealthFitWorkoutTypeParsing:
