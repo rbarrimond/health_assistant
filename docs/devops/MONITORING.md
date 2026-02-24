@@ -172,7 +172,7 @@ az monitor app-insights component create \
 az functionapp config appsettings set \
   --name $FUNCTION_APP \
   --resource-group $RESOURCE_GROUP \
-  --settings "APPINSIGHTS_INSTRUMENTATION_KEY=<key>"
+  --settings "APPLICATIONINSIGHTS_CONNECTION_STRING=<connection-string>"
 ```
 
 ### Step 2: Set Up Alerts
@@ -258,6 +258,23 @@ ChatGPT UI                    Power BI Dashboard
 - **Ingestion**: OneDrive (Microsoft Graph) sync + Azure Functions
 - **Storage**: Azure Table Storage
 - **Querying**: Semantic Layer API (real-time for ChatGPT)
+
+---
+
+## Structured Logging & Correlation Contract
+
+The Function App emits structured JSON logs to stdout for Azure log ingestion.
+
+- Primary distributed tracing source: `traceparent`
+- Fallback request correlation: `x-correlation-id`
+- Response propagation: `x-correlation-id` is always returned, `traceparent` is returned when present on request
+
+Recommended KQL filters include:
+
+- `event_name` (for endpoint and timer lifecycle events)
+- `operation_id`
+- `correlation_id`
+- `status_code`
 - **Analytics**: Power BI (dashboards, trends, alerts)
 - **Health**: Azure Monitor + Application Insights
 

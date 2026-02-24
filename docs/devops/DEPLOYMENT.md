@@ -298,15 +298,15 @@ az monitor app-insights component create \
   --resource-group $RESOURCE_GROUP
 
 # Link to Function App
-INSIGHTS_KEY=$(az monitor app-insights component show \
+INSIGHTS_CONNECTION_STRING=$(az monitor app-insights component show \
   --app fitprocessor-insights \
   --resource-group $RESOURCE_GROUP \
-  --query instrumentationKey -o tsv)
+  --query connectionString -o tsv)
 
 az functionapp config appsettings set \
   --name $FUNCTION_APP \
   --resource-group $RESOURCE_GROUP \
-  --settings "APPINSIGHTS_INSTRUMENTATION_KEY=$INSIGHTS_KEY"
+  --settings "APPLICATIONINSIGHTS_CONNECTION_STRING=$INSIGHTS_CONNECTION_STRING"
 ```
 
 ### Set Up Alerts

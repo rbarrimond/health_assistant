@@ -27,6 +27,7 @@ from config.constants import (
 )
 from TrainingAnalyticsPlatform.storage.backup_exporter import BackupExporter
 from TrainingAnalyticsPlatform.platform.dependencies import dependencies
+from TrainingAnalyticsPlatform.platform.logging_setup import setup_logging
 from TrainingAnalyticsPlatform.platform.http_utils import json_response, public_base_url
 from TrainingAnalyticsPlatform.handlers import (
     FitPayloadIngestionHandler,
@@ -42,7 +43,7 @@ from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import GarminSyncReq
 from utils import endpoint, parse_ingest_payload
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+setup_logging()
 
 app = func.FunctionApp()
 
@@ -174,7 +175,13 @@ def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
 def onedrive_sync_timer(timer: func.TimerRequest) -> None:
     """Timer-triggered OneDrive sync."""
     if timer.past_due:
-        logger.warning("OneDrive sync timer is past due")
+        logger.warning(
+            "timer_event",
+            extra={
+                "event_name": "timer.past_due",
+                "timer_name": "onedrive_sync_timer",
+            },
+        )
 
     try:
         athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
@@ -186,15 +193,42 @@ def onedrive_sync_timer(timer: func.TimerRequest) -> None:
         response, status = handler.handle(sync_req)
 
         if status == 200:
-            logger.info("OneDrive sync completed: %s", response)
+            logger.info(
+                "timer_event",
+                extra={
+                    "event_name": "timer.success",
+                    "timer_name": "onedrive_sync_timer",
+                    "status_code": status,
+                },
+            )
         else:
-            logger.warning("OneDrive sync failed: %s", response)
+            logger.warning(
+                "timer_event",
+                extra={
+                    "event_name": "timer.warning",
+                    "timer_name": "onedrive_sync_timer",
+                    "status_code": status,
+                    "response": response,
+                },
+            )
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error("OneDrive timer failed: %s", exc, exc_info=True)
+        logger.exception(
+            "timer_event",
+            extra={
+                "event_name": "timer.error",
+                "timer_name": "onedrive_sync_timer",
+                "error": str(exc),
+            },
+        )
     finally:
-        # Ensure function returns cleanly
-        logger.debug("OneDrive timer trigger completed")
+        logger.debug(
+            "timer_event",
+            extra={
+                "event_name": "timer.completed",
+                "timer_name": "onedrive_sync_timer",
+            },
+        )
 
 
 # ============================================================================

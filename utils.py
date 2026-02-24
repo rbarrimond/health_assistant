@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from functools import wraps
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, cast
@@ -14,7 +15,11 @@ from config.constants import (
     INTERNAL_SERVER_ERROR,
     TEXT_PLAIN_CONTENT_TYPE,
 )
-from TrainingAnalyticsPlatform.platform.http_utils import json_response
+from TrainingAnalyticsPlatform.platform.http_utils import (
+    apply_correlation_headers,
+    extract_correlation_context,
+    json_response,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +59,39 @@ def _build_response(response_kind: str, body: Any, status: int) -> func.HttpResp
     return func.HttpResponse(body, status_code=status, mimetype=TEXT_PLAIN_CONTENT_TYPE)
 
 
+def _resolve_http_request(args: tuple[Any, ...], kwargs: Dict[str, Any]) -> func.HttpRequest | None:
+    req = kwargs.get("req")
+    if isinstance(req, func.HttpRequest):
+        return req
+    for arg in args:
+        if isinstance(arg, func.HttpRequest):
+            return arg
+    return None
+
+
+def _log_event(
+    log: logging.Logger,
+    level: int,
+    event_name: str,
+    endpoint_name: str,
+    correlation: Dict[str, str],
+    duration_ms: int,
+    status_code: int,
+    **extra_fields: Any,
+) -> None:
+    payload: Dict[str, Any] = {
+        "event_name": event_name,
+        "endpoint": endpoint_name,
+        "operation_id": correlation["operation_id"],
+        "correlation_id": correlation["correlation_id"],
+        "traceparent": correlation["traceparent"],
+        "duration_ms": duration_ms,
+        "status_code": status_code,
+    }
+    payload.update(extra_fields)
+    log.log(level, "endpoint_event", extra=payload)
+
+
 @dataclass(frozen=True)
 class _EndpointConfig:
     name: str | None
@@ -76,25 +114,104 @@ def _execute_endpoint(
 ) -> func.HttpResponse | Any:
     endpoint_name = config.name or inner_fn.__name__
     log = config.logger_override or logger
+    request = _resolve_http_request(args, kwargs)
+    correlation = extract_correlation_context(request)
+    started = time.perf_counter()
     try:
         result = inner_fn(*args, **kwargs)
         if isinstance(result, func.HttpResponse):
-            return result
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            status_code = int(result.status_code)
+            _log_event(
+                log,
+                logging.INFO,
+                "endpoint.success",
+                endpoint_name,
+                correlation,
+                duration_ms,
+                status_code,
+            )
+            return apply_correlation_headers(
+                result,
+                correlation_id=correlation["correlation_id"],
+                traceparent=correlation["traceparent"],
+            )
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        _log_event(
+            log,
+            logging.INFO,
+            "endpoint.success",
+            endpoint_name,
+            correlation,
+            duration_ms,
+            200,
+        )
         return result
     except config.bad_request_exceptions as exc:
-        log.warning("%s (bad request): %s", endpoint_name, exc)
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        _log_event(
+            log,
+            logging.WARNING,
+            "endpoint.bad_request",
+            endpoint_name,
+            correlation,
+            duration_ms,
+            config.bad_request_status,
+            error=str(exc),
+        )
         body = _resolve_error_body(config.response_kind, exc, config.error_body)
-        return _build_response(config.response_kind, body, config.bad_request_status)
+        response = _build_response(config.response_kind, body, config.bad_request_status)
+        return apply_correlation_headers(
+            response,
+            correlation_id=correlation["correlation_id"],
+            traceparent=correlation["traceparent"],
+        )
     except config.not_found_exceptions as exc:
-        log.warning("%s (not found): %s", endpoint_name, exc)
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        _log_event(
+            log,
+            logging.WARNING,
+            "endpoint.not_found",
+            endpoint_name,
+            correlation,
+            duration_ms,
+            config.not_found_status,
+            error=str(exc),
+        )
         body = _resolve_error_body(config.response_kind, exc, config.error_body)
-        return _build_response(config.response_kind, body, config.not_found_status)
+        response = _build_response(config.response_kind, body, config.not_found_status)
+        return apply_correlation_headers(
+            response,
+            correlation_id=correlation["correlation_id"],
+            traceparent=correlation["traceparent"],
+        )
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        log.error("%s failed: %s", endpoint_name, exc, exc_info=True)
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        _log_event(
+            log,
+            logging.ERROR,
+            "endpoint.error",
+            endpoint_name,
+            correlation,
+            duration_ms,
+            config.error_status,
+            error=str(exc),
+        )
+        log.exception("Unhandled endpoint failure")
         if config.swallow_exceptions:
-            return _build_response(config.response_kind, "OK", 200)
+            response = _build_response(config.response_kind, "OK", 200)
+            return apply_correlation_headers(
+                response,
+                correlation_id=correlation["correlation_id"],
+                traceparent=correlation["traceparent"],
+            )
         body = _resolve_error_body(config.response_kind, exc, config.error_body)
-        return _build_response(config.response_kind, body, config.error_status)
+        response = _build_response(config.response_kind, body, config.error_status)
+        return apply_correlation_headers(
+            response,
+            correlation_id=correlation["correlation_id"],
+            traceparent=correlation["traceparent"],
+        )
 
 
 def _build_decorator(config: _EndpointConfig) -> Callable[[Callable[..., Any]], Callable[..., Any]]:

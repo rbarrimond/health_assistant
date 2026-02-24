@@ -10,6 +10,13 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-02-23
 
+### Observability & Telemetry
+
+- Add structured JSON logging bootstrap for Azure Functions with env-driven `LOG_LEVEL` / `LOG_FORMAT` configuration
+- Add endpoint lifecycle structured events (`endpoint.success`, `endpoint.bad_request`, `endpoint.not_found`, `endpoint.error`) with `operation_id` and `correlation_id`
+- Propagate correlation headers on HTTP responses using `traceparent` + `x-correlation-id` fallback behavior
+- Add structured timer trigger events for OneDrive sync lifecycle (`timer.past_due`, `timer.success`, `timer.warning`, `timer.error`, `timer.completed`)
+
 ### Ingestion Identity Simplification
 
 - **BREAKING:** Remove `IngestionIdentityPolicy`; concrete ingestion handlers now compute `ingestion_id` from source context (`source_item_id` then `file_sha256`) `[ingest v13.0.0]`
