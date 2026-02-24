@@ -118,12 +118,11 @@ class FitIngestionBaseHandler(ABC):
             )
         source_info["ingestion_id"] = ingestion_id
 
-        semantic_workout_id = model.semantic_workout_id
-        if not semantic_workout_id:
+        workout_id = model.semantic_workout_id
+        if not workout_id:
             raise WorkoutIdCalculationError(
                 "Unable to compute workout_id from precise start time + sport code"
             )
-        workout_id = semantic_workout_id
 
         raw_fit_payload = model.build_raw_fit(return_dict=True, return_json=False)
         metadata_payload = model.build_metadata_messages()
@@ -144,7 +143,6 @@ class FitIngestionBaseHandler(ABC):
             source_info,
             workout_id=workout_id,
             ingestion_id=ingestion_id,
-            semantic_workout_id=semantic_workout_id,
             canonical_schema_version=CANONICAL_SCHEMA_VERSION,
             canonical_records_blob=records_blob,
             records_count=len(records),

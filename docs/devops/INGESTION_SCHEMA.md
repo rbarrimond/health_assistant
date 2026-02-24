@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 15.0.1
+Version: 15.0.4
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -33,7 +33,7 @@ FIT parsing uses a hierarchical Pydantic model architecture with factory-based i
 - Encapsulates FIT file parsing via fitdecode
 - Provides message indexing and caching
 - Implements all artifact builders (build_canonical_records, build_canonical_metadata, build_raw_fit, build_fit_analysis, build_metadata_messages, build_laps_json)
-- Computes `semantic_workout_id` as `@property` from start_time_utc_precise + normalized sport
+- Computes semantic workout identity from start_time_utc_precise + normalized sport
 
 **OneDriveFitModel** (abstract subclass of BaseFitModel)
 
@@ -89,26 +89,35 @@ metadata_msgs = model.build_metadata_messages()
 laps = model.build_laps_json()
 analysis = model.build_fit_analysis()
 
-# 5. Get semantic dedup key
-semantic_workout_id = model.semantic_workout_id  # Property on model
+# 5. Compute workout_id from semantic identity
+workout_id = model.semantic_workout_id
 ```
 
-### Semantic Workout ID
+### Semantic Workout Identity
 
-Computed as `@property` on BaseFitModel:
+Computed as `model.semantic_workout_id` on BaseFitModel:
 
 ```python
-semantic_workout_id = SHA1("{start_time_utc_precise}#{normalized_sport}")
+workout_id = SHA1("{start_time_utc_precise}#{normalized_sport}")
 ```
 
 Where:
 
 - `start_time_utc_precise` is the model's computed_field (best available UTC time)
-- `normalized_sport` is the FIT sport field normalized to lowercase
+- `normalized_sport` is normalized in this priority order:
+  1. Session `sport`
+  2. File ID `type`
+  3. OneDrive HealthFit filename activity token (when FIT sport fields are missing)
 
-Used as secondary dedup check across sources.
+`start_time_utc_precise` resolves in this order:
 
-`workout_id` is set to `semantic_workout_id` and is required for successful ingestion.
+1. Event start `timestamp`
+2. Session `start_time`
+3. Source-specific UTC extraction
+4. First record `timestamp`
+5. Session `timestamp` (fallback when `start_time` is missing)
+
+`workout_id` is required for successful ingestion and is derived from semantic identity.
 If semantic ID cannot be computed, ingestion must fail.
 
 ---
@@ -250,7 +259,6 @@ Workouts should only store minimal provenance and canonical parquet pointers.
 | normalized_source_system | string | No | Normalized source classification (`HealthFit` for Apple Watch FITs, otherwise `Garmin`). |
 | source_item_id | string | No | Stable source item ID (OneDrive item ID). |
 | ingestion_id | string | No | Deterministic source-scoped ingestion identifier. |
-| semantic_workout_id | string | No | Semantic workout identifier based on start time + sport. |
 | canonical_schema_version | string | Yes | Canonical telemetry schema version. |
 | canonical_records_blob | string | Yes | Blob path to canonical records parquet. |
 | records_count | int | No | Count of canonical records. |

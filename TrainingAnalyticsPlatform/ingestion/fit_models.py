@@ -201,15 +201,23 @@ class BaseFitModel(BaseModel, ABC):
     @computed_field  # type: ignore[misc]
     @property
     def sport(self) -> Optional[str]:
-        """Get sport type from file messages."""
-        if self.file_id_msg is None:
-            return None
-        
-        sport = self.file_id_msg.get_value("type", fallback=None)
-        if sport:
+        """Get normalized sport value for semantic identity.
+
+        Priority:
+        1. Session message `sport`
+        2. File ID message `type`
+        """
+        sport: Optional[Any] = None
+        if self.session_msg is not None:
+            sport = self.session_msg.get_value("sport", fallback=None)
+
+        if sport is None and self.file_id_msg is not None:
+            sport = self.file_id_msg.get_value("type", fallback=None)
+
+        if sport is not None:
             if hasattr(sport, "name"):
-                return str(cast(Any, sport).name).lower()
-            return str(sport).lower()
+                return str(cast(Any, sport).name).strip().lower()
+            return str(sport).strip().lower()
         return None
     
     @computed_field  # type: ignore[misc]
@@ -444,11 +452,17 @@ class BaseFitModel(BaseModel, ABC):
         return None
 
     def _start_time_from_session(self) -> Optional[datetime]:
-        """Return session start time if available."""
+        """Return session start time if available.
+
+        Uses `start_time` first, then falls back to session `timestamp`.
+        """
         if self.session_msg is None:
             return None
 
         timestamp = self.session_msg.get_value("start_time", fallback=None)
+        if not isinstance(timestamp, datetime):
+            timestamp = self.session_msg.get_value("timestamp", fallback=None)
+
         if isinstance(timestamp, datetime):
             if timestamp.tzinfo is None:
                 timestamp = timestamp.replace(tzinfo=timezone.utc)
@@ -1259,6 +1273,26 @@ class HealthFitModel(OneDriveFitModel):
     def normalized_source_system(self) -> str:
         """Return normalized source system name."""
         return "HealthFit"
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def sport(self) -> Optional[str]:
+        """Get normalized sport with HealthFit filename fallback.
+
+        Priority:
+        1. FIT-derived sport from base model
+        2. HealthFit filename activity type
+        """
+        fit_sport = super().sport
+        if fit_sport:
+            return fit_sport
+
+        if not self.filename_activity_type:
+            return None
+
+        normalized = re.sub(r"[^a-z0-9]+", "_", self.filename_activity_type.strip().lower())
+        normalized = normalized.strip("_")
+        return normalized or None
     
     @computed_field  # type: ignore[misc]
     @property
@@ -1474,6 +1508,60 @@ class HealthFitModel(OneDriveFitModel):
     def _get_subclass_specific_workout_name(self) -> Optional[str]:
         """Return HealthFit filename activity type as workout name source."""
         return self.filename_activity_type
+
+    def _healthfit_activity_name_hint(self) -> Optional[str]:
+        """Build a richer activity hint from HealthFit filename tail.
+
+        HealthFit filenames encode date/time prefix followed by activity/source,
+        e.g. ``YYYY-MM-DD-HHMMSS-Indoor-Cycling-RunGap.fit``.
+        For compound indoor/outdoor activities, this method returns a two-token
+        phrase ("Indoor Cycling") to improve Apple workout type resolution.
+        """
+        source_file_name = self.source_file_name
+        if not source_file_name:
+            return None
+
+        stem = re.sub(r"\.fit(\.gz)?$", "", source_file_name, flags=re.IGNORECASE)
+        tail_match = re.match(r"^\d{4}-\d{2}-\d{2}-(\d{6}|Nodata)-(.+)$", stem)
+        if not tail_match:
+            return None
+
+        tail = tail_match.group(2)
+        tail_parts = [part for part in tail.split("-") if part]
+        if not tail_parts:
+            return None
+
+        if len(tail_parts) >= 2:
+            first = tail_parts[0].lower()
+            second = tail_parts[1].lower()
+            if first in {"indoor", "outdoor"} and second in {
+                "cycling",
+                "walking",
+                "run",
+                "running",
+            }:
+                return f"{tail_parts[0]} {tail_parts[1]}"
+
+        return tail_parts[0]
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def apple_workout_type(self) -> Optional[str]:
+        """Resolve Apple workout type with HealthFit filename-tail fallback."""
+        resolved = super().apple_workout_type
+        if resolved and resolved != "Other":
+            return resolved
+
+        hint = self._healthfit_activity_name_hint()
+        if not hint:
+            return resolved
+
+        hinted = AppleWorkoutTypeResolver(
+            workout_name=hint,
+            sport=self.sport,
+            sub_sport=self.sub_sport,
+        ).resolve()
+        return hinted if hinted else resolved
     
     @computed_field  # type: ignore[misc]
     @property

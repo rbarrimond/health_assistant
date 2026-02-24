@@ -38,8 +38,6 @@ class WorkoutEntity:
     normalized_source_system: Optional[str]
     source_item_id: Optional[str]
     ingestion_id: Optional[str] = None
-    stable_workout_id: Optional[str] = None
-    semantic_workout_id: Optional[str] = None
     canonical_schema_version: Optional[str] = None
     canonical_records_blob: Optional[str] = None
     records_count: Optional[int] = None
@@ -54,8 +52,6 @@ class WorkoutEntity:
             "RowKey",
             "workout_id",
             "ingestion_id",
-            "stable_workout_id",
-            "semantic_workout_id",
             "athlete_id",
             "source_system",
             "normalized_source_system",
@@ -87,8 +83,6 @@ class WorkoutEntity:
             row_key=entity.get("RowKey", ""),
             workout_id=entity.get("workout_id", ""),
             ingestion_id=entity.get("ingestion_id"),
-            stable_workout_id=entity.get("stable_workout_id"),
-            semantic_workout_id=entity.get("semantic_workout_id"),
             athlete_id=entity.get("athlete_id", ""),
             source_system=entity.get("source_system", ""),
             normalized_source_system=entity.get("normalized_source_system"),
@@ -113,8 +107,6 @@ class WorkoutEntity:
             "RowKey": self.row_key,
             "workout_id": self.workout_id,
             "ingestion_id": self.ingestion_id,
-            "stable_workout_id": self.stable_workout_id,
-            "semantic_workout_id": self.semantic_workout_id,
             "athlete_id": self.athlete_id,
             "source_system": self.source_system,
             "normalized_source_system": self.normalized_source_system,
@@ -144,7 +136,6 @@ class IngestionStateEntity:
     retry_count: int
     workout_id: Optional[str]
     ingestion_id: Optional[str] = None
-    stable_workout_id: Optional[str] = None
     source_file_name: Optional[str] = None
     source_drive_id: Optional[str] = None
     source_etag: Optional[str] = None
@@ -176,8 +167,6 @@ class IngestionStateEntity:
         }
         if self.ingestion_id is not None:
             entity["ingestion_id"] = self.ingestion_id
-        if self.stable_workout_id is not None:
-            entity["stable_workout_id"] = self.stable_workout_id
         if self.source_file_name is not None:
             entity["source_file_name"] = self.source_file_name
         if self.source_drive_id is not None:
@@ -212,7 +201,6 @@ class IngestionContext:
         file_info: Dict,
         workout_id: Optional[str],
         storage: "WorkoutTableStorage",
-        stable_workout_id: Optional[str] = None,
         ingestion_id: Optional[str] = None,
         ingestion_key: Optional[str] = None,
         existing_state: Optional[Dict] = None,
@@ -220,7 +208,6 @@ class IngestionContext:
         self.athlete_id = athlete_id
         self.file_info = file_info
         self.workout_id = workout_id
-        self.stable_workout_id = stable_workout_id
         self.ingestion_id = ingestion_id
         self.storage = storage
 
@@ -385,7 +372,6 @@ class IngestionContext:
             retry_count=self.next_retry_count(status),
             workout_id=self.workout_id,
             ingestion_id=self.ingestion_id,
-            stable_workout_id=self.stable_workout_id,
             source_file_name=state_fields["source_file_name"],
             source_drive_id=state_fields["source_drive_id"],
             source_etag=state_fields["source_etag"],
@@ -623,7 +609,6 @@ class WorkoutTableStorage:
         athlete_id: str,
         file_info: Dict,
         workout_id: Optional[str] = None,
-        stable_workout_id: Optional[str] = None,
         ingestion_id: Optional[str] = None,
         ingestion_key: Optional[str] = None,
         existing_state: Optional[Dict] = None,
@@ -634,7 +619,6 @@ class WorkoutTableStorage:
             file_info=file_info,
             workout_id=workout_id,
             storage=self,
-            stable_workout_id=stable_workout_id,
             ingestion_id=ingestion_id,
             ingestion_key=ingestion_key,
             existing_state=existing_state,
@@ -648,8 +632,6 @@ class WorkoutTableStorage:
         *,
         workout_id: Optional[str] = None,
         ingestion_id: Optional[str] = None,
-        stable_workout_id: Optional[str] = None,
-        semantic_workout_id: Optional[str] = None,
         canonical_schema_version: Optional[str] = None,
         canonical_records_blob: Optional[str] = None,
         records_count: Optional[int] = None,
@@ -693,8 +675,6 @@ class WorkoutTableStorage:
             row_key=row_key,
             workout_id=workout_id,
             ingestion_id=ingestion_id,
-            stable_workout_id=stable_workout_id,
-            semantic_workout_id=semantic_workout_id,
             athlete_id=athlete_id,
             source_system=source_info.get("source_system", "HealthFit"),
             normalized_source_system=source_info.get("normalized_source_system"),
@@ -719,7 +699,6 @@ class WorkoutTableStorage:
     def record_ingestion_state(self, athlete_id: str, file_info: Dict,
                                status: str, error: Optional[str] = None,
                                workout_id: Optional[str] = None,
-                               stable_workout_id: Optional[str] = None,
                                ingestion_id: Optional[str] = None,
                                ingestion_key: Optional[str] = None,
                                existing_state: Optional[Dict] = None):
@@ -740,7 +719,6 @@ class WorkoutTableStorage:
             file_info=file_info,
             workout_id=workout_id,
             storage=self,
-            stable_workout_id=stable_workout_id,
             ingestion_id=ingestion_id,
             ingestion_key=ingestion_key,
             existing_state=existing_state,

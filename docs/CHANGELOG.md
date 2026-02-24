@@ -27,6 +27,17 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Map typed ID failures to explicit ingestion handler `error_code` responses (`INGESTION_ID_RESOLUTION_FAILED`, `WORKOUT_ID_CALCULATION_FAILED`) `[ingest v13.0.3]`
 - Centralize typed exception-to-response serialization in exception classes for consistent OOP handler contracts `[ingest v13.0.4]`
 
+### Semantic Workout ID Fallback Hardening
+
+- Fix semantic `workout_id` calculation to prefer Session `sport` with File ID `type` as fallback, avoiding false failures when `file_id` is missing `[ingest v13.0.5, INGESTION_SCHEMA v15.0.2]`
+- Add precise start-time fallback to Session `timestamp` when Session `start_time` is unavailable, preserving deterministic semantic ID generation `[ingest v13.0.5]`
+- Add HealthFit semantic sport fallback from filename activity token for OneDrive files missing FIT sport fields, reducing `WORKOUT_ID_CALCULATION_FAILED` on historical exports `[ingest v13.0.6, INGESTION_SCHEMA v15.0.3]`
+
+### Two-ID Identity Model
+
+- **BREAKING:** Enforce two-ID ingestion identity model: only `ingestion_id` (source-scoped idempotency key) and `workout_id` (semantic stable identity) are persisted for ingestion identity `[ingest v13.0.7, INGESTION_SCHEMA v15.0.4]`
+- Remove persisted `stable_workout_id` and separate `semantic_workout_id` storage fields from Workouts/IngestionState entity contracts; semantic identity now exists only as the computation that produces `workout_id` `[ingest v13.0.7]`
+
 ## 2026-02-22
 
 ### Ingestion Schema & Instructions

@@ -8,9 +8,28 @@ test_fit_models.py with the concrete model tests.
 # Allow protected member access in tests to validate internal caching behavior.
 # pylint: disable=protected-access, line-too-long
 
+import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, cast
 
 from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_file_hash
+from TrainingAnalyticsPlatform.ingestion.apple_workout_types import INDOOR_CYCLE
+from TrainingAnalyticsPlatform.ingestion.fit_models import HealthFitModel, PayloadFitModel
+
+
+class _EnumLike:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
+class _MessageStub:
+    def __init__(self, values: dict[str, object]) -> None:
+        self._values = values
+
+    def get_value(self, field_name: str, fallback: object = None) -> object:
+        """Simulate FitMessage get_value method for testing."""
+        return self._values.get(field_name, fallback)
 
 
 class TestComputeFileHash:
@@ -49,3 +68,87 @@ class TestComputeFileHash:
         hash2 = compute_file_hash(str(file2))
 
         assert hash1 != hash2
+
+
+class TestSemanticWorkoutIdFallbacks:
+    """Regression tests for semantic workout ID input derivation."""
+
+    def test_semantic_workout_id_uses_session_sport_when_file_id_missing(self) -> None:
+        """Verify that when file_id message is missing, session sport and start time are used for workout ID."""
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
+        model._messages_loaded = True
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+            {
+                "sport": _EnumLike("cycling"),
+                "start_time": datetime(2026, 2, 23, 6, 30, 0, tzinfo=timezone.utc),
+            }
+            ),
+        )
+        model._file_id_msg = None
+
+        expected_start = "2026-02-23T06:30:00+00:00"
+        expected = hashlib.sha1(f"{expected_start}#cycling".encode()).hexdigest()
+
+        assert model.sport == "cycling"
+        assert model.semantic_workout_id == expected
+
+    def test_semantic_workout_id_uses_session_timestamp_when_start_time_missing(self) -> None:
+        """Verify that when start_time is missing, session timestamp is used for workout ID."""
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
+        model._messages_loaded = True
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+            {
+                "sport": "running",
+                "timestamp": datetime(2026, 2, 23, 7, 45, 0, tzinfo=timezone.utc),
+            }
+            ),
+        )
+        model._file_id_msg = None
+
+        expected_start = "2026-02-23T07:45:00+00:00"
+        expected = hashlib.sha1(f"{expected_start}#running".encode()).hexdigest()
+
+        assert model.start_time_utc_precise == expected_start
+        assert model.semantic_workout_id == expected
+
+    def test_healthfit_semantic_workout_id_falls_back_to_filename_activity_type(self) -> None:
+        """Verify that HealthFit model falls back to filename activity type for workout ID."""
+        model = HealthFitModel(
+            file_bytes=b"fit",
+            source_metadata={
+                "source_file_name": "2026-02-17-202435-Indoor-Cycling-RunGap.fit",
+            },
+        )
+        model._messages_loaded = True
+        model._session_msg = None
+        model._file_id_msg = None
+
+        expected_start = "2026-02-17T20:24:35+00:00"
+        expected = hashlib.sha1(f"{expected_start}#indoor".encode()).hexdigest()
+
+        assert model.sport == "indoor"
+        assert model.start_time_utc_precise == expected_start
+        assert model.semantic_workout_id == expected
+
+
+class TestHealthFitWorkoutTypeParsing:
+    """Integration checks for HealthFit-derived workout typing."""
+
+    def test_healthfit_apple_workout_type_resolves_from_filename_activity_type(self) -> None:
+        """Verify that HealthFit model derives Apple workout type from filename activity type when messages are missing."""
+        model = HealthFitModel(
+            file_bytes=b"fit",
+            source_metadata={
+                "source_file_name": "2026-02-17-202435-Indoor Cycling-RunGap.fit",
+            },
+        )
+        model._messages_loaded = True
+        model._session_msg = None
+        model._file_id_msg = None
+
+        assert model.workout_name == "Indoor"
+        assert model.apple_workout_type == INDOOR_CYCLE
