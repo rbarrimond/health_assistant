@@ -115,8 +115,8 @@ class TestSemanticWorkoutIdFallbacks:
         assert model.start_time_utc == expected_start
         assert model.semantic_workout_id == expected
 
-    def test_healthfit_semantic_workout_id_falls_back_to_filename_activity_type(self) -> None:
-        """Verify that HealthFit model falls back to filename activity type for workout ID."""
+    def test_healthfit_semantic_workout_id_requires_fit_start_time(self) -> None:
+        """Verify HealthFit semantic workout ID is unavailable when FIT start timestamp is missing."""
         model = HealthFitModel(
             file_bytes=b"fit",
             source_metadata={
@@ -127,12 +127,9 @@ class TestSemanticWorkoutIdFallbacks:
         model._session_msg = None
         model._file_id_msg = None
 
-        expected_start = "2026-02-17T20:24:35+00:00"
-        expected = hashlib.sha1(f"{expected_start}#indoor_cycling".encode()).hexdigest()
-
         assert model.sport == "indoor_cycling"
-        assert model.start_time_utc == expected_start
-        assert model.semantic_workout_id == expected
+        assert model.start_time_utc is None
+        assert model.semantic_workout_id is None
 
 
 class TestHealthFitTimezoneInference:
@@ -175,8 +172,8 @@ class TestHealthFitWorkoutTypeParsing:
 
         assert model.filename_activity_type == "Indoor Cycling"
 
-    def test_healthfit_filename_regex_treats_hyphen_as_field_delimiter(self) -> None:
-        """Verify hyphen splits activity/source fields and is not assumed inside activity token."""
+    def test_healthfit_filename_regex_normalizes_hyphenated_activity_type(self) -> None:
+        """Verify hyphenated activity labels normalize to spaced Apple activity tokens."""
         model = HealthFitModel(
             file_bytes=b"fit",
             source_metadata={
@@ -184,7 +181,8 @@ class TestHealthFitWorkoutTypeParsing:
             },
         )
 
-        assert model.filename_activity_type == "Indoor"
+        assert model.filename_activity_type == "Indoor Cycling"
+        assert model.filename_source_device == "RunGap"
 
     def test_healthfit_apple_workout_type_resolves_from_filename_activity_type(self) -> None:
         """Verify that HealthFit model derives Apple workout type from filename activity type when messages are missing."""
@@ -192,6 +190,21 @@ class TestHealthFitWorkoutTypeParsing:
             file_bytes=b"fit",
             source_metadata={
                 "source_file_name": "2026-02-17-202435-Indoor Cycling-RunGap.fit",
+            },
+        )
+        model._messages_loaded = True
+        model._session_msg = None
+        model._file_id_msg = None
+
+        assert model.workout_name == "Indoor Cycling"
+        assert model.apple_workout_type == INDOOR_CYCLE
+
+    def test_healthfit_apple_workout_type_resolves_from_hyphenated_filename_activity_type(self) -> None:
+        """Verify hyphenated filename activity labels normalize before Apple workout type resolution."""
+        model = HealthFitModel(
+            file_bytes=b"fit",
+            source_metadata={
+                "source_file_name": "2026-02-17-202435-Indoor-Cycling-RunGap.fit",
             },
         )
         model._messages_loaded = True

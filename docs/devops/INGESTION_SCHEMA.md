@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 15.0.12
+Version: 15.0.14
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -38,13 +38,13 @@ FIT parsing uses a hierarchical Pydantic model architecture with factory-based i
 **OneDriveFitModel** (abstract subclass of BaseFitModel)
 
 - Handles OneDrive-sourced FIT files
-- Parses HealthFit filename pattern (YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz])
-- Treats HealthFit filename `YYYY-MM-DD-HHMMSS` timestamp as recording-device local time (not UTC)
 - Extracts metadata from filename structure
 
 **Concrete Model Classes:**
 
 - **HealthFitModel**: Apple Watch FITs exported via HealthFit app
+  - Parses HealthFit filename pattern (YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz])
+  - Treats HealthFit filename `YYYY-MM-DD-HHMMSS` timestamp as recording-device local time (not UTC)
 - **GarminFitModel**: FIT files from Garmin Connect API sync
 - **PayloadFitModel**: Generic fallback for other sources
 
@@ -56,7 +56,7 @@ Inspects `source_metadata` to select appropriate model class and instantiate it:
 
 - OneDrive source + .fit file → HealthFitModel
 - Garmin API → GarminFitModel
-- Other → PayloadFitModel
+- HTTP → PayloadFitModel
 
 **Key Design:**
 
@@ -114,9 +114,14 @@ Where:
 
 1. Event start `timestamp`
 2. Session `start_time`
-3. Source-specific UTC extraction (HealthFit converts filename device-local time to UTC)
-4. First record `timestamp`
-5. Session `timestamp` (fallback when `start_time` is missing)
+3. First record `timestamp`
+4. Session `timestamp` (fallback when `start_time` is missing)
+
+Canonical start-time validity contract:
+
+- `start_time_utc` must come from FIT message timestamps only.
+- HealthFit filename local wall-clock timestamps must not be used to fabricate `start_time_utc`.
+- FIT files with no usable FIT-derived start timestamp are invalid for semantic identity and must be rejected.
 
 Timezone offset contract:
 

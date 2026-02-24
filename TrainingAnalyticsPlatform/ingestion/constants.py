@@ -4,5 +4,5 @@
 METADATA_SCHEMA_VERSION = "1.0.0"
 LAPS_SCHEMA_VERSION = "1.0.0"
 FIT_ANALYSIS_VERSION = "v1.0.0"
-INGEST_VERSION = "v13.0.17"  # (v13.0.16→v13.0.17) Enforce local_tz_offset semantics and remove unknown->UTC timezone defaulting
+INGEST_VERSION = "v13.0.18"  # (v13.0.17→v13.0.18) Reject semantic IDs without FIT-derived start timestamps; disallow filename-local -> UTC start-time fallback
 

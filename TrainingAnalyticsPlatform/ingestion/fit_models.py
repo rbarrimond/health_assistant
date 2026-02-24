@@ -461,17 +461,12 @@ class BaseFitModel(BaseModel, ABC):
 
         Priority:
         1. Event start timestamp
-        2. Session start_time
-        3. Source-specific UTC time (filename, API, etc.)
-        4. First record timestamp
+        2. Session start_time (with session timestamp fallback)
+        3. First record timestamp
         """
         start_dt = self._start_time_from_event()
         if not start_dt:
             start_dt = self._start_time_from_session()
-        if not start_dt:
-            candidate = self._start_time_from_source_specific_utc()  # type: ignore[misc]
-            if candidate:
-                start_dt = candidate
         if not start_dt:
             start_dt = self._start_time_from_first_record()
 
@@ -1349,17 +1344,18 @@ class HealthFitModel(OneDriveFitModel):
     Handles HealthFit-specific filename parsing, timezone inference from local time,
     and device source classification (true Apple Watch vs HealthKit synced).
     HealthFit uses pattern: YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz].
-    Hyphens are field separators; Apple activity labels are expected as spaced
-    tokens (e.g., "Indoor Cycling"), not hyphenated tokens.
+    Activity parsing treats the final hyphen-delimited token as source and
+    everything between HHMMSS and that final token as the activity label.
+    Activity hyphens are normalized to spaces for Apple label resolution.
     The YYYY-MM-DD-HHMMSS filename timestamp is device-local wall-clock time
     for the recording device, not UTC.
     """
     
     # HealthFit filename pattern: YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz]
-    # ActivityType token excludes '-' because '-' is the field delimiter.
+    # Parsing treats final '-' token as source and all middle tokens as activity.
     # The YYYY-MM-DD-HHMMSS token is device-local recording time.
     HEALTHFIT_FILENAME_PATTERN: ClassVar[re.Pattern] = re.compile(
-        r'^(\d{4}-\d{2}-\d{2})-(\d{6}|Nodata)-([^-]+)-(.+?)\.fit(\.gz)?$'
+        r'^(\d{4}-\d{2}-\d{2})-(\d{6}|Nodata)-(.+)\.fit(\.gz)?$'
     )
     HEALTHFIT_APPLE_TYPE_ALIASES: ClassVar[Dict[str, str]] = {
         "indoor cycling": INDOOR_CYCLE,
@@ -1408,13 +1404,24 @@ class HealthFitModel(OneDriveFitModel):
         match = self.HEALTHFIT_FILENAME_PATTERN.match(self.source_file_name)
         if not match:
             return None
+
+        activity_and_source = match.group(3)
+        if "-" not in activity_and_source:
+            return None
+
+        activity_raw, source_device = activity_and_source.rsplit("-", 1)
+        activity_type = re.sub(r"\s+", " ", activity_raw.replace("-", " ")).strip()
+        source_device = source_device.strip()
+
+        if not activity_type or not source_device:
+            return None
         
         return {
             "date": match.group(1),           # YYYY-MM-DD (device-local)
             "time": match.group(2),           # HHMMSS or "Nodata" (device-local)
-            "activity_type": match.group(3),  # e.g., "Indoor Cycling"
-            "source_device": match.group(4),  # e.g., "Robert's Apple Watch 7"
-            "is_gzipped": "true" if match.group(5) is not None else "false",
+            "activity_type": activity_type,   # e.g., "Indoor Cycling"
+            "source_device": source_device,   # e.g., "RunGap"
+            "is_gzipped": "true" if match.group(4) is not None else "false",
         }
     
     @computed_field  # type: ignore[misc]
@@ -1505,33 +1512,8 @@ class HealthFitModel(OneDriveFitModel):
         return start_dt.astimezone(timezone.utc).isoformat()
 
     def _start_time_from_source_specific_utc(self) -> Optional[datetime]:
-        """Return UTC start time derived from HealthFit filename.
-        
-        Converts filename device-local datetime (YYYY-MM-DD-HHMMSS) to UTC using
-        inferred timezone offset for source-specific dedup key generation.
-        """
-        if not self.filename_date or not self.filename_time or self.filename_time == "Nodata":
-            return None
-
-        try:
-            local_dt_str = f"{self.filename_date} {self.filename_time}"
-            local_dt = datetime.strptime(local_dt_str, "%Y-%m-%d %H%M%S")
-        except ValueError:
-            return None
-
-        offset_minutes = self.device_utc_offset_minutes
-        if offset_minutes is None:
-            for inferred in (self.inferred_timezone_activity, self.inferred_timezone_session):
-                parsed = self._parse_utc_offset_minutes(inferred)
-                if parsed is not None:
-                    offset_minutes = parsed
-                    break
-
-        if offset_minutes is None:
-            offset_minutes = 0
-
-        utc_dt = local_dt - timedelta(minutes=offset_minutes)
-        return utc_dt.replace(tzinfo=timezone.utc)
+        """HealthFit filename local time must not be used for canonical UTC start time."""
+        return None
     
     @computed_field  # type: ignore[misc]
     @property

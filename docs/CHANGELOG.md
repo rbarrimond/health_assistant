@@ -10,6 +10,11 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-02-23
 
+### FIT Start-Time Validity Enforcement
+
+- Enforce strict FIT-derived `start_time_utc` contract for semantic identity; remove source-specific filename local-time fallback from canonical start-time resolution `[ingest v13.0.18, INGESTION_SCHEMA v15.0.14]`
+- Treat FIT files with no usable FIT-derived start timestamp as invalid for semantic `workout_id` and reject ingestion rather than fabricating UTC start time from local filename text `[ingest v13.0.18]`
+
 ### Local Timezone Offset Semantics
 
 - Add canonical `local_tz_offset` metadata to represent local wall-clock UTC offset (for example `UTC-05:00`) while preserving UTC storage for `start_time_utc` `[ingest v13.0.17, INGESTION_SCHEMA v15.0.12, WORKOUT_SCHEMA v11.1.0]`
