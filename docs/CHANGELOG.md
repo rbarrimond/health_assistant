@@ -10,6 +10,10 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-02-23
 
+### Session UTC Start-Time Math
+
+- Derive session-based canonical UTC start as `session.timestamp - session.total_elapsed_time`; stop treating FIT session `start_time` (local wall-clock) as UTC for semantic identity computation `[ingest v13.0.19, INGESTION_SCHEMA v15.0.15]`
+
 ### FIT Start-Time Validity Enforcement
 
 - Enforce strict FIT-derived `start_time_utc` contract for semantic identity; remove source-specific filename local-time fallback from canonical start-time resolution `[ingest v13.0.18, INGESTION_SCHEMA v15.0.14]`

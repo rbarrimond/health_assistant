@@ -526,22 +526,30 @@ class BaseFitModel(BaseModel, ABC):
         return None
 
     def _start_time_from_session(self) -> Optional[datetime]:
-        """Return session start time if available.
+        """Return session-derived UTC start using FIT UTC timestamp and elapsed time.
 
-        Uses `start_time` first, then falls back to session `timestamp`.
+        Session `start_time` is local wall-clock context and is not used to
+        derive canonical UTC start. Canonical session start is computed as:
+            session.timestamp - total_elapsed_time
         """
         if self.session_msg is None:
             return None
 
-        timestamp = self.session_msg.get_value("start_time", fallback=None)
-        if not isinstance(timestamp, datetime):
-            timestamp = self.session_msg.get_value("timestamp", fallback=None)
+        timestamp = self.session_msg.get_value("timestamp", fallback=None)
+        duration = self.session_msg.get_value("total_elapsed_time", fallback=None)
 
-        if isinstance(timestamp, datetime):
-            if timestamp.tzinfo is None:
-                timestamp = timestamp.replace(tzinfo=timezone.utc)
-            return timestamp
-        return None
+        if not isinstance(timestamp, datetime):
+            return None
+        if not isinstance(duration, (int, float)):
+            return None
+
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+
+        start_time = timestamp - timedelta(seconds=float(duration))
+        if start_time.tzinfo is None:
+            start_time = start_time.replace(tzinfo=timezone.utc)
+        return start_time
 
     def _start_time_from_first_record(self) -> Optional[datetime]:
         """Return the first record timestamp if present."""

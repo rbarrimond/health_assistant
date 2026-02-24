@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 15.0.14
+Version: 15.0.15
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -113,13 +113,13 @@ Where:
 `start_time_utc` resolves in this order:
 
 1. Event start `timestamp`
-2. Session `start_time`
+2. Session-derived UTC start: `session.timestamp - session.total_elapsed_time`
 3. First record `timestamp`
-4. Session `timestamp` (fallback when `start_time` is missing)
 
 Canonical start-time validity contract:
 
 - `start_time_utc` must come from FIT message timestamps only.
+- Session `start_time` is local wall-clock context and must not be treated as UTC.
 - HealthFit filename local wall-clock timestamps must not be used to fabricate `start_time_utc`.
 - FIT files with no usable FIT-derived start timestamp are invalid for semantic identity and must be rejected.
 

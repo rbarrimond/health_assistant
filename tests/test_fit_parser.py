@@ -74,7 +74,7 @@ class TestSemanticWorkoutIdFallbacks:
     """Regression tests for semantic workout ID input derivation."""
 
     def test_semantic_workout_id_uses_session_sport_when_file_id_missing(self) -> None:
-        """Verify that when file_id message is missing, session sport and start time are used for workout ID."""
+        """Verify that when file_id is missing, session UTC timestamp math and session sport drive workout ID."""
         model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
         model._messages_loaded = True
         model._session_msg = cast(
@@ -82,7 +82,8 @@ class TestSemanticWorkoutIdFallbacks:
             _MessageStub(
             {
                 "sport": _EnumLike("cycling"),
-                "start_time": datetime(2026, 2, 23, 6, 30, 0, tzinfo=timezone.utc),
+                "timestamp": datetime(2026, 2, 23, 7, 45, 0, tzinfo=timezone.utc),
+                "total_elapsed_time": 4500,
             }
             ),
         )
@@ -95,7 +96,7 @@ class TestSemanticWorkoutIdFallbacks:
         assert model.semantic_workout_id == expected
 
     def test_semantic_workout_id_uses_session_timestamp_when_start_time_missing(self) -> None:
-        """Verify that when start_time is missing, session timestamp is used for workout ID."""
+        """Verify session-derived start uses timestamp minus elapsed duration."""
         model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
         model._messages_loaded = True
         model._session_msg = cast(
@@ -104,12 +105,13 @@ class TestSemanticWorkoutIdFallbacks:
             {
                 "sport": "running",
                 "timestamp": datetime(2026, 2, 23, 7, 45, 0, tzinfo=timezone.utc),
+                "total_elapsed_time": 900,
             }
             ),
         )
         model._file_id_msg = None
 
-        expected_start = "2026-02-23T07:45:00+00:00"
+        expected_start = "2026-02-23T07:30:00+00:00"
         expected = hashlib.sha1(f"{expected_start}#running".encode()).hexdigest()
 
         assert model.start_time_utc == expected_start
@@ -148,7 +150,8 @@ class TestHealthFitTimezoneInference:
             Any,
             _MessageStub(
                 {
-                    "start_time": datetime(2026, 2, 17, 20, 24, 35, tzinfo=timezone.utc),
+                    "timestamp": datetime(2026, 2, 17, 20, 24, 35, tzinfo=timezone.utc),
+                    "total_elapsed_time": 0,
                 }
             ),
         )
@@ -156,6 +159,28 @@ class TestHealthFitTimezoneInference:
         assert model.inferred_timezone_filename == "UTC+00:00"
         assert model.local_tz_offset == "UTC+00:00"
         assert model.timezone == "UTC+00:00"
+
+
+class TestSessionTimeMathSemantics:
+    """Regression tests for session UTC and local offset semantics."""
+
+    def test_session_uses_utc_math_for_start_and_local_math_for_offset(self) -> None:
+        """Ensure start_time_utc and local_tz_offset are derived from the correct session fields."""
+        model = HealthFitModel(file_bytes=b"fit", source_metadata={})
+        model._messages_loaded = True
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "timestamp": datetime(2026, 2, 24, 15, 0, 0, tzinfo=timezone.utc),
+                    "total_elapsed_time": 3600,
+                    "start_time": datetime(2026, 2, 24, 10, 0, 0),
+                }
+            ),
+        )
+
+        assert model.start_time_utc == "2026-02-24T14:00:00+00:00"
+        assert model.local_tz_offset == "UTC-04:00"
 
 
 class TestHealthFitWorkoutTypeParsing:
@@ -270,7 +295,8 @@ class TestConstructedWorkoutNameFallbacks:
                 {
                     "sport": "cycling",
                     "sub_sport": "indoor_cycling",
-                    "start_time": datetime(2026, 2, 23, 6, 30, 0, tzinfo=timezone.utc),
+                    "timestamp": datetime(2026, 2, 23, 6, 30, 0, tzinfo=timezone.utc),
+                    "total_elapsed_time": 0,
                 }
             ),
         )
@@ -287,7 +313,8 @@ class TestConstructedWorkoutNameFallbacks:
             _MessageStub(
                 {
                     "sport": "kayaking",
-                    "start_time": datetime(2026, 2, 23, 14, 30, 0, tzinfo=timezone.utc),
+                    "timestamp": datetime(2026, 2, 23, 14, 30, 0, tzinfo=timezone.utc),
+                    "total_elapsed_time": 0,
                 }
             ),
         )

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from TrainingAnalyticsPlatform.ingestion.timezone_utils import (
     infer_timezone_from_activity,
+    infer_timezone_from_session,
     resolve_timezone,
 )
 
@@ -19,3 +20,15 @@ def test_infer_timezone_from_activity_returns_explicit_zero_offset() -> None:
 def test_resolve_timezone_returns_none_when_unknown() -> None:
     """Unknown local timezone must remain unset (None)."""
     assert resolve_timezone(None, None, None, None) is None
+
+
+def test_infer_timezone_from_session_uses_local_vs_utc_start_math() -> None:
+    """Session offset should derive from local start vs UTC (timestamp-elapsed)."""
+    start_time_local = datetime(2026, 2, 24, 10, 0, 0)
+    timestamp_utc = datetime(2026, 2, 24, 15, 0, 0, tzinfo=timezone.utc)
+    duration_sec = 3600
+
+    assert (
+        infer_timezone_from_session(start_time_local, timestamp_utc, duration_sec)
+        == "UTC-04:00"
+    )
