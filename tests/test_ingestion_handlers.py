@@ -11,6 +11,7 @@ from TrainingAnalyticsPlatform.platform.exceptions import (
     IngestionIdResolutionError,
     WorkoutIdCalculationError,
 )
+from TrainingAnalyticsPlatform.storage.table_storage import CANONICAL_SCHEMA_VERSION
 from TrainingAnalyticsPlatform.storage.table_storage import IngestionContext
 
 
@@ -112,7 +113,7 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     assert call_args[0][2] == source_info  # source_info (updated with ingestion_id)
     assert call_args[1]["workout_id"] == expected_workout_id
     assert "ingestion_id" in call_args[1]  # Should have ingestion_id
-    assert call_args[1]["canonical_schema_version"] == '1.1.0'
+    assert call_args[1]["canonical_schema_version"] == CANONICAL_SCHEMA_VERSION
     assert call_args[1]["canonical_records_blob"] == "records.parquet"
     assert call_args[1]["records_count"] == len(records)
     assert call_args[1]["laps_count"] == len(laps_payload["laps"])

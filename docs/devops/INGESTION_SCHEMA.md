@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 15.0.10
+Version: 15.0.11
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -33,7 +33,7 @@ FIT parsing uses a hierarchical Pydantic model architecture with factory-based i
 - Encapsulates FIT file parsing via fitdecode
 - Provides message indexing and caching
 - Implements all artifact builders (build_canonical_records, build_canonical_metadata, build_raw_fit, build_fit_analysis, build_metadata_messages, build_laps_json)
-- Computes semantic workout identity from start_time_utc_precise + normalized sport
+- Computes semantic workout identity from start_time_utc + normalized sport
 
 **OneDriveFitModel** (abstract subclass of BaseFitModel)
 
@@ -99,18 +99,18 @@ workout_id = model.semantic_workout_id
 Computed as `model.semantic_workout_id` on BaseFitModel:
 
 ```python
-workout_id = SHA1("{start_time_utc_precise}#{normalized_sport}")
+workout_id = SHA1("{start_time_utc}#{normalized_sport}")
 ```
 
 Where:
 
-- `start_time_utc_precise` is the model's computed_field (best available UTC time)
+- `start_time_utc` is the model's computed_field (best available UTC time)
 - `normalized_sport` is normalized in this priority order:
   1. Session `sport`
   2. File ID `type`
   3. OneDrive HealthFit filename activity token (when FIT sport fields are missing)
 
-`start_time_utc_precise` resolves in this order:
+`start_time_utc` resolves in this order:
 
 1. Event start `timestamp`
 2. Session `start_time`
@@ -314,6 +314,9 @@ priority order is:
 This keeps FIT timestamps UTC by spec while recovering a local offset for
 workout display and grouping.
 
+`Workouts.timezone` stores this recovered offset as `UTC±HH:MM` and should be
+used together with `start_time_utc` by clients when rendering local start time.
+
 ---
 
 ## Timestamp Formatting
@@ -327,12 +330,12 @@ All stored timestamps use ISO 8601 with an explicit UTC offset
 
 The `workout_id` is computed deterministically as semantic identity:
 
-1. `start_time_utc_precise`
+1. `start_time_utc`
 2. normalized FIT sport code/name
 
 Formula:
 
-`SHA1("{start_time_utc_precise}#{normalized_sport}")`
+`SHA1("{start_time_utc}#{normalized_sport}")`
 
 There is no fallback. If semantic identity cannot be computed, ingestion fails.
 

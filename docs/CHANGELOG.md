@@ -51,6 +51,13 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Refactor `HealthFitModel.apple_workout_type` to resolve directly from HealthFit filename activity token inside `HealthFitModel` (source-owned semantics), removing shared name-resolver dependency from this path `[ingest v13.0.14]`
 - Clarify and align HealthFit filename datetime contract: `YYYY-MM-DD-HHMMSS` is recording-device local time (not UTC), and source-specific UTC extraction converts from that local value `[ingest v13.0.15, INGESTION_SCHEMA v15.0.10]`
 
+### Start Time, Timezone, and Partitioning Alignment
+
+- Canonicalize `start_time_utc` to use the full deterministic fallback chain (event → session → source-specific UTC → first record) and align semantic `workout_id` generation to this canonical field `[ingest v13.0.16, INGESTION_SCHEMA v15.0.11]`
+- Keep `start_time_utc_precise` as compatibility alias only; stop persisting it in new canonical workout metadata writes `[ingest v13.0.16]`
+- Harden HealthFit filename timezone fallback to compare filename local time against FIT-message UTC evidence (event/session/record), avoiding circular UTC collapse from source-specific fallback paths `[ingest v13.0.16]`
+- Bump Workouts canonical schema to `1.2.0` and align PartitionKey derivation with canonical start time (with legacy precise fallback support for compatibility) `[ingest v13.0.16]`
+
 ## 2026-02-22
 
 ### Ingestion Schema & Instructions

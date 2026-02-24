@@ -112,7 +112,7 @@ class TestSemanticWorkoutIdFallbacks:
         expected_start = "2026-02-23T07:45:00+00:00"
         expected = hashlib.sha1(f"{expected_start}#running".encode()).hexdigest()
 
-        assert model.start_time_utc_precise == expected_start
+        assert model.start_time_utc == expected_start
         assert model.semantic_workout_id == expected
 
     def test_healthfit_semantic_workout_id_falls_back_to_filename_activity_type(self) -> None:
@@ -131,8 +131,32 @@ class TestSemanticWorkoutIdFallbacks:
         expected = hashlib.sha1(f"{expected_start}#indoor_cycling".encode()).hexdigest()
 
         assert model.sport == "indoor_cycling"
-        assert model.start_time_utc_precise == expected_start
+        assert model.start_time_utc == expected_start
         assert model.semantic_workout_id == expected
+
+
+class TestHealthFitTimezoneInference:
+    """Regression tests for HealthFit timezone fallback behavior."""
+
+    def test_healthfit_filename_timezone_uses_fit_message_start_time(self) -> None:
+        """Verify filename timezone inference compares local filename time against FIT-message UTC time."""
+        model = HealthFitModel(
+            file_bytes=b"fit",
+            source_metadata={
+                "source_file_name": "2026-02-17-202435-Indoor Cycling-RunGap.fit",
+            },
+        )
+        model._messages_loaded = True
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "start_time": datetime(2026, 2, 17, 20, 24, 35, tzinfo=timezone.utc),
+                }
+            ),
+        )
+
+        assert model.inferred_timezone_filename == "UTC+00:00"
 
 
 class TestHealthFitWorkoutTypeParsing:

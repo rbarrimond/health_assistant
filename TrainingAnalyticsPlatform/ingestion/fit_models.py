@@ -387,8 +387,8 @@ class BaseFitModel(BaseModel, ABC):
             return None
 
     def _local_start_datetime(self) -> Optional[datetime]:
-        """Compute workout local datetime from precise UTC start and timezone."""
-        start = self.start_time_utc_precise
+        """Compute workout local datetime from canonical UTC start and timezone."""
+        start = self.start_time_utc
         if not start:
             return None
 
@@ -457,22 +457,7 @@ class BaseFitModel(BaseModel, ABC):
     @computed_field  # type: ignore[misc]
     @property
     def start_time_utc(self) -> Optional[str]:
-        """Get workout start time as ISO string."""
-        if self.session_msg is None:
-            return None
-        
-        timestamp = self.session_msg.get_value("start_time", fallback=None)
-        if timestamp and isinstance(timestamp, datetime):
-            dt = timestamp
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(timezone.utc).isoformat()
-        return None
-
-    @computed_field  # type: ignore[misc]
-    @property
-    def start_time_utc_precise(self) -> Optional[str]:
-        """Get precise workout start time as ISO string.
+        """Get canonical workout start time as ISO string in UTC.
 
         Priority:
         1. Event start timestamp
@@ -497,22 +482,29 @@ class BaseFitModel(BaseModel, ABC):
             start_dt = start_dt.replace(tzinfo=timezone.utc)
         return start_dt.astimezone(timezone.utc).isoformat()
 
+    @computed_field  # type: ignore[misc]
+    @property
+    def start_time_utc_precise(self) -> Optional[str]:
+        """Backward-compatible alias for canonical start_time_utc."""
+        return self.start_time_utc
+
     @property
     def semantic_workout_id(self) -> Optional[str]:
         """Generate deterministic semantic workout ID from start time + sport.
         
         Used for deduplication across sources. Computed from the most precise
-        start time available (from start_time_utc_precise) and normalized sport.
+        start time available (from start_time_utc) and normalized sport.
         
         Returns:
-            SHA1 hex digest of "{start_time_utc_precise}#{normalized_sport}" or None
+            SHA1 hex digest of "{start_time_utc}#{normalized_sport}" or None
             if start_time or sport unavailable.
         """
-        if not self.start_time_utc_precise or not self.sport:
+        start_time = self.start_time_utc
+        if not start_time or not self.sport:
             return None
         
         normalized_sport = str(self.sport).strip().lower()
-        combined = f"{self.start_time_utc_precise}#{normalized_sport}"
+        combined = f"{start_time}#{normalized_sport}"
         return hashlib.sha1(combined.encode()).hexdigest()
 
     def _start_time_from_event(self) -> Optional[datetime]:
@@ -1104,7 +1096,6 @@ class BaseFitModel(BaseModel, ABC):
             "workout_name": self.workout_name,
             "is_indoor": self.is_indoor,
             "start_time_utc": self.start_time_utc,
-            "start_time_utc_precise": self.start_time_utc_precise,
             "timezone": self.timezone,
             "duration_sec": self.duration_sec,
             "moving_time_sec": self.moving_time_sec,
@@ -1461,14 +1452,16 @@ class HealthFitModel(OneDriveFitModel):
     def inferred_timezone_filename(self) -> Optional[str]:
         """Infer timezone from HealthFit filename local time vs FIT UTC time.
         
-        Compares filename's device-local datetime (YYYY-MM-DD-HHMMSS) with session
-        start_time_utc to calculate timezone offset as fallback when device_settings
-        or activity local_timestamp fields are missing.
+        Compares filename's device-local datetime (YYYY-MM-DD-HHMMSS) with a FIT
+        message-derived UTC timestamp (event/session/record) to calculate timezone
+        offset as fallback when device_settings or activity/session inferences are
+        missing.
         """
         if not self.filename_date or not self.filename_time or self.filename_time == "Nodata":
             return None
-        
-        if not self.start_time_utc:
+
+        fit_start_utc = self._fit_message_start_time_utc()
+        if not fit_start_utc:
             return None
         
         try:
@@ -1477,7 +1470,7 @@ class HealthFitModel(OneDriveFitModel):
             local_dt = datetime.strptime(local_dt_str, "%Y-%m-%d %H%M%S")
             
             # Parse FIT UTC timestamp
-            utc_dt = datetime.fromisoformat(self.start_time_utc.replace("Z", UTC_OFFSET_SUFFIX))
+            utc_dt = datetime.fromisoformat(fit_start_utc.replace("Z", UTC_OFFSET_SUFFIX))
             utc_dt_naive = utc_dt.replace(tzinfo=None)
             
             # Calculate offset in minutes
@@ -1487,6 +1480,19 @@ class HealthFitModel(OneDriveFitModel):
             return format_utc_offset(offset_minutes)
         except (ValueError, AttributeError, ImportError):
             return None
+
+    def _fit_message_start_time_utc(self) -> Optional[str]:
+        """Return UTC start from FIT messages only (no source-specific fallback)."""
+        start_dt = self._start_time_from_event()
+        if not start_dt:
+            start_dt = self._start_time_from_session()
+        if not start_dt:
+            start_dt = self._start_time_from_first_record()
+        if not start_dt:
+            return None
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+        return start_dt.astimezone(timezone.utc).isoformat()
 
     def _start_time_from_source_specific_utc(self) -> Optional[datetime]:
         """Return UTC start time derived from HealthFit filename.
