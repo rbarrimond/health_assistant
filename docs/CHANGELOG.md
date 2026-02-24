@@ -38,6 +38,19 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - **BREAKING:** Enforce two-ID ingestion identity model: only `ingestion_id` (source-scoped idempotency key) and `workout_id` (semantic stable identity) are persisted for ingestion identity `[ingest v13.0.7, INGESTION_SCHEMA v15.0.4]`
 - Remove persisted `stable_workout_id` and separate `semantic_workout_id` storage fields from Workouts/IngestionState entity contracts; semantic identity now exists only as the computation that produces `workout_id` `[ingest v13.0.7]`
 
+### Workout Name Construction
+
+- Improve Workout FIT message name extraction by reading `wkt_name` with `name` compatibility fallback `[ingest v13.0.8]`
+- Add constructed workout-name fallback `"<Daypart> <Apple Workout Type>"` when explicit names are unavailable and Apple type can be inferred from FIT sport/sub-sport `[ingest v13.0.8]`
+- Fallback to `"<sport_name>-<sub_sport_name>-<local_start_datetime>"` when Apple workout type is unavailable `[ingest v13.0.8, INGESTION_SCHEMA v15.0.5]`
+- Enforce deterministic HealthFit `apple_workout_type` from filename activity token only (no FIT sport/sub-sport inference fallback for HealthFit sources) `[ingest v13.0.9]`
+- Restrict `AppleWorkoutTypeResolver` to FIT `sport`/`sub_sport` mapping only; move name-token mapping to source-specific path used by `HealthFitModel` filename semantics `[ingest v13.0.10, INGESTION_SCHEMA v15.0.6]`
+- Map FIT `cycling` + `virtual_cycling` (e.g., Zwift exports) to Apple `Indoor Cycle` in `AppleWorkoutTypeResolver` `[ingest v13.0.11, INGESTION_SCHEMA v15.0.7]`
+- Correct virtual sub-sport handling to map FIT `virtual_activity` by sport: `cycling -> Indoor Cycle`, `running -> Indoor Run`, `walking -> Indoor Walk` `[ingest v13.0.12, INGESTION_SCHEMA v15.0.8]`
+- Remove unsupported `virtual_cycling` mapping to align strictly with fitdecode profile enums `[ingest v13.0.13, INGESTION_SCHEMA v15.0.9]`
+- Refactor `HealthFitModel.apple_workout_type` to resolve directly from HealthFit filename activity token inside `HealthFitModel` (source-owned semantics), removing shared name-resolver dependency from this path `[ingest v13.0.14]`
+- Clarify and align HealthFit filename datetime contract: `YYYY-MM-DD-HHMMSS` is recording-device local time (not UTC), and source-specific UTC extraction converts from that local value `[ingest v13.0.15, INGESTION_SCHEMA v15.0.10]`
+
 ## 2026-02-22
 
 ### Ingestion Schema & Instructions

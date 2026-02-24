@@ -120,7 +120,7 @@ class TestSemanticWorkoutIdFallbacks:
         model = HealthFitModel(
             file_bytes=b"fit",
             source_metadata={
-                "source_file_name": "2026-02-17-202435-Indoor-Cycling-RunGap.fit",
+                "source_file_name": "2026-02-17-202435-Indoor Cycling-RunGap.fit",
             },
         )
         model._messages_loaded = True
@@ -128,15 +128,37 @@ class TestSemanticWorkoutIdFallbacks:
         model._file_id_msg = None
 
         expected_start = "2026-02-17T20:24:35+00:00"
-        expected = hashlib.sha1(f"{expected_start}#indoor".encode()).hexdigest()
+        expected = hashlib.sha1(f"{expected_start}#indoor_cycling".encode()).hexdigest()
 
-        assert model.sport == "indoor"
+        assert model.sport == "indoor_cycling"
         assert model.start_time_utc_precise == expected_start
         assert model.semantic_workout_id == expected
 
 
 class TestHealthFitWorkoutTypeParsing:
     """Integration checks for HealthFit-derived workout typing."""
+
+    def test_healthfit_filename_regex_parses_spaced_activity_type(self) -> None:
+        """Verify regex captures spaced Apple activity token correctly."""
+        model = HealthFitModel(
+            file_bytes=b"fit",
+            source_metadata={
+                "source_file_name": "2026-02-17-202435-Indoor Cycling-RunGap.fit",
+            },
+        )
+
+        assert model.filename_activity_type == "Indoor Cycling"
+
+    def test_healthfit_filename_regex_treats_hyphen_as_field_delimiter(self) -> None:
+        """Verify hyphen splits activity/source fields and is not assumed inside activity token."""
+        model = HealthFitModel(
+            file_bytes=b"fit",
+            source_metadata={
+                "source_file_name": "2026-02-17-202435-Indoor-Cycling-RunGap.fit",
+            },
+        )
+
+        assert model.filename_activity_type == "Indoor"
 
     def test_healthfit_apple_workout_type_resolves_from_filename_activity_type(self) -> None:
         """Verify that HealthFit model derives Apple workout type from filename activity type when messages are missing."""
@@ -150,5 +172,86 @@ class TestHealthFitWorkoutTypeParsing:
         model._session_msg = None
         model._file_id_msg = None
 
-        assert model.workout_name == "Indoor"
+        assert model.workout_name == "Indoor Cycling"
         assert model.apple_workout_type == INDOOR_CYCLE
+
+    def test_healthfit_apple_workout_type_prefers_filename_over_fit_signals(self) -> None:
+        """Verify that HealthFit model prefers filename-derived activity type for Apple workout type resolution over FIT session messages."""
+        model = HealthFitModel(
+            file_bytes=b"fit",
+            source_metadata={
+                "source_file_name": "2026-02-17-202435-Indoor Cycling-RunGap.fit",
+            },
+        )
+        model._messages_loaded = True
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "sport": "running",
+                    "sub_sport": "indoor_running",
+                }
+            ),
+        )
+        model._file_id_msg = None
+
+        assert model.apple_workout_type == INDOOR_CYCLE
+
+    def test_healthfit_apple_workout_type_does_not_infer_without_filename_token(self) -> None:
+        """Verify that HealthFit model does not infer Apple workout type when filename activity type token is missing, even if FIT session messages are present."""
+        model = HealthFitModel(
+            file_bytes=b"fit",
+            source_metadata={},
+        )
+        model._messages_loaded = True
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "sport": "running",
+                    "sub_sport": "indoor_running",
+                }
+            ),
+        )
+        model._file_id_msg = None
+
+        assert model.apple_workout_type is None
+
+
+class TestConstructedWorkoutNameFallbacks:
+    """Tests for constructed fallback naming semantics."""
+
+    def test_constructed_workout_name_uses_daypart_and_apple_type_when_available(self) -> None:
+        """Verify that constructed workout name uses daypart and Apple workout type when filename tokens are present."""
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
+        model._messages_loaded = True
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "sport": "cycling",
+                    "sub_sport": "indoor_cycling",
+                    "start_time": datetime(2026, 2, 23, 6, 30, 0, tzinfo=timezone.utc),
+                }
+            ),
+        )
+        model._file_id_msg = None
+
+        assert model.workout_name == "Morning Indoor Cycle"
+
+    def test_constructed_workout_name_falls_back_to_fit_fields_and_datetime(self) -> None:
+        """Verify that constructed workout name falls back to FIT fields and datetime when filename tokens are missing."""
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
+        model._messages_loaded = True
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "sport": "kayaking",
+                    "start_time": datetime(2026, 2, 23, 14, 30, 0, tzinfo=timezone.utc),
+                }
+            ),
+        )
+        model._file_id_msg = None
+
+        assert model.workout_name == "kayaking-2026-02-23 14:30"

@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 15.0.4
+Version: 15.0.10
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -39,6 +39,7 @@ FIT parsing uses a hierarchical Pydantic model architecture with factory-based i
 
 - Handles OneDrive-sourced FIT files
 - Parses HealthFit filename pattern (YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz])
+- Treats HealthFit filename `YYYY-MM-DD-HHMMSS` timestamp as recording-device local time (not UTC)
 - Extracts metadata from filename structure
 
 **Concrete Model Classes:**
@@ -113,7 +114,7 @@ Where:
 
 1. Event start `timestamp`
 2. Session `start_time`
-3. Source-specific UTC extraction
+3. Source-specific UTC extraction (HealthFit converts filename device-local time to UTC)
 4. First record `timestamp`
 5. Session `timestamp` (fallback when `start_time` is missing)
 
@@ -194,12 +195,17 @@ from the semantic API.
   1. `source_item_id`
   2. `file_sha256`
 - OneDrive ingestion requires `source_item_id`; missing ID is treated as a hard failure.
-- `workout_name` is inferred from FIT messages with the following priority:
-  1. Activity message name field
-  2. Session message session_name field
-  3. Constructed from sport and subsport names (e.g., "Cycling-Indoor Cycling")
-  4. Activity ID from source system (e.g., Garmin activity ID)
-  5. Filename stem (fallback)
+- `workout_name` is inferred with the following priority:
+  1. Workout FIT message name (`wkt_name`, with `name` compatibility fallback)
+  2. External source metadata activity name (e.g., Garmin API `source_activity_name`)
+  3. Source-specific subclass lookup (HealthFit filename activity type)
+  4. Constructed fallback:
+     - `"<Daypart> <Apple Workout Type>"` when Apple workout type can be derived from FIT sport/sub-sport
+     - otherwise `"<sport_name>-<sub_sport_name>-<local_start_datetime>"`
+- Apple workout typing contract:
+  - `AppleWorkoutTypeResolver` maps only FIT `sport` + `sub_sport`
+    - includes virtual mappings by sport: `("cycling", "virtual_activity") -> "Indoor Cycle"`, `("running", "virtual_activity") -> "Indoor Run"`, `("walking", "virtual_activity") -> "Indoor Walk"`
+  - `HealthFitModel` resolves Apple workout type from HealthFit filename activity token via source-specific logic
 - `workout_id` is the stable client-facing identifier and should be **treated as immutable once created**.
 - `workout_id` is computed from semantic identity and has **no fallback**.
 - `ingestion_id` is deterministic per-source and is used for idempotency and blob storage paths.

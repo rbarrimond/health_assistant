@@ -9,58 +9,38 @@ logger = logging.getLogger(__name__)
 
 class AppleWorkoutTypeResolver:
     """
-    Resolves Apple Watch workout type from various FIT file inputs.
-
-    This class takes all available inputs and applies a clear resolution
-    strategy to determine the Apple Watch workout type.
+    Resolves Apple Watch workout type from FIT sport/sub_sport signals.
     """
 
     def __init__(
         self,
-        workout_name: Optional[str] = None,
         sport: Optional[str] = None,
         sub_sport: Optional[str] = None,
     ):
         """
-        Initialize resolver with all available inputs.
+        Initialize resolver with FIT sport inputs.
 
         Args:
-            workout_name: Resolved workout name (session name or filename fallback)
             sport: FIT sport enum value
             sub_sport: FIT sub_sport enum value
         """
-        self.workout_name = workout_name
         self.sport = sport
         self.sub_sport = sub_sport
 
         logger.debug(
-            "AppleWorkoutTypeResolver initialized: workout_name=%r, "
-            "sport=%r, sub_sport=%r",
-            workout_name, sport, sub_sport
+            "AppleWorkoutTypeResolver initialized: sport=%r, sub_sport=%r",
+            sport,
+            sub_sport,
         )
 
     def resolve(self) -> Optional[str]:
         """
-        Resolve Apple Watch workout type with clear priority.
-
-        Resolution strategy:
-        1. Extract from workout_name (session name or filename fallback)
-        2. Map from FIT sport/sub_sport (final fallback)
+        Resolve Apple Watch workout type from FIT sport/sub_sport.
 
         Returns:
             Apple Watch workout type string or None
         """
         try:
-            # Strategy 1: Try workout_name first
-            if self.workout_name:
-                result = self._extract_from_name(self.workout_name)
-                if result:
-                    logger.debug("Resolved from workout_name: %r -> %r",
-                                 self.workout_name, result)
-                    return result
-                logger.debug("No match in workout_name: %r", self.workout_name)
-
-            # Strategy 2: Final fallback to FIT sport mapping
             if self.sport:
                 result = self._match_fit_sport(self.sport, self.sub_sport)
                 if result:
@@ -74,52 +54,6 @@ class AppleWorkoutTypeResolver:
             return None
         except Exception as exc:  # pylint: disable=broad-exception-caught
             raise WorkoutTypeResolutionError("Apple workout type resolution failed") from exc
-
-    @staticmethod
-    def _check_special_cases(normalized_name: str) -> Optional[str]:
-        """Check for special case workout name mappings."""
-        if "indoor cycling" in normalized_name:
-            return INDOOR_CYCLE
-        if "outdoor cycling" in normalized_name:
-            return OUTDOOR_CYCLE
-        if "outdoor walking" in normalized_name:
-            return OUTDOOR_WALK
-        if "indoor walking" in normalized_name:
-            return INDOOR_WALK
-        return None
-
-    @staticmethod
-    def _match_workout_name(normalized_name: str) -> Optional[str]:
-        """Match workout name against known Apple Watch types."""
-        for apple_type in APPLE_WORKOUT_TYPES:
-            if apple_type == "Other":
-                continue
-            if apple_type.lower() in normalized_name:
-                return apple_type
-        return None
-
-    @classmethod
-    def _extract_from_name(cls, name: str) -> Optional[str]:
-        """
-        Extract Apple Watch workout type from a name string.
-
-        This handles both session names and filename-derived names.
-
-        Args:
-            name: Name string to extract from (session or filename)
-
-        Returns:
-            Apple Watch workout type or None
-        """
-        normalized = name.replace("-", " ").lower()
-
-        # Check special cases first
-        result = cls._check_special_cases(normalized)
-        if result:
-            return result
-
-        # Try pattern matching
-        return cls._match_workout_name(normalized)
 
     @staticmethod
     def _match_fit_sport(sport: str, sub_sport: Optional[str]) -> Optional[str]:
@@ -141,6 +75,45 @@ class AppleWorkoutTypeResolver:
         return FIT_TO_APPLE_WORKOUT_TYPE.get(("generic", "generic"), "Other")
 
 
+def _check_special_cases(normalized_name: str) -> Optional[str]:
+    """Check for special case workout name mappings."""
+    if "indoor cycling" in normalized_name:
+        return INDOOR_CYCLE
+    if "outdoor cycling" in normalized_name:
+        return OUTDOOR_CYCLE
+    if "outdoor walking" in normalized_name:
+        return OUTDOOR_WALK
+    if "indoor walking" in normalized_name:
+        return INDOOR_WALK
+    return None
+
+
+def _match_workout_name(normalized_name: str) -> Optional[str]:
+    """Match workout name against known Apple Watch types."""
+    for apple_type in APPLE_WORKOUT_TYPES:
+        if apple_type == "Other":
+            continue
+        if apple_type.lower() in normalized_name:
+            return apple_type
+    return None
+
+
+def resolve_apple_workout_type_from_name(name: Optional[str]) -> Optional[str]:
+    """Resolve Apple workout type from a source-specific name token.
+
+    This is intentionally separate from `AppleWorkoutTypeResolver`, which maps
+    only FIT sport/sub_sport signals.
+    """
+    if not name:
+        return None
+
+    normalized = name.replace("-", " ").lower()
+    result = _check_special_cases(normalized)
+    if result:
+        return result
+    return _match_workout_name(normalized)
+
+
 # Apple Watch workout type constants (for reuse in methods)
 TRADITIONAL_STRENGTH = "Traditional Strength Training"
 FUNCTIONAL_STRENGTH = "Functional Strength Training"
@@ -148,6 +121,7 @@ INDOOR_CYCLE = "Indoor Cycle"
 OUTDOOR_CYCLE = "Outdoor Cycle"
 OUTDOOR_WALK = "Outdoor Walk"
 INDOOR_WALK = "Indoor Walk"
+INDOOR_RUN = "Indoor Run"
 
 # Comprehensive list of Apple Watch workout types
 APPLE_WORKOUT_TYPES = {
@@ -161,7 +135,7 @@ APPLE_WORKOUT_TYPES = {
     "Stationary Bike",
     # Running & Walking
     "Outdoor Run",
-    "Indoor Run",
+    INDOOR_RUN,
     "Trail Run",
     OUTDOOR_WALK,
     INDOOR_WALK,
@@ -220,11 +194,14 @@ FIT_TO_APPLE_WORKOUT_TYPE = {
     ("training", "core"): "Core Training",
     ("training", None): TRADITIONAL_STRENGTH,  # Default for training
     ("cycling", "indoor_cycling"): INDOOR_CYCLE,
+    ("cycling", "virtual_activity"): INDOOR_CYCLE,
     ("cycling", "stationary_bike"): "Stationary Bike",
     ("cycling", None): OUTDOOR_CYCLE,
-    ("running", "indoor_running"): "Indoor Run",
+    ("running", "virtual_activity"): INDOOR_RUN,
+    ("running", "indoor_running"): INDOOR_RUN,
     ("running", "trail_run"): "Trail Run",
     ("running", None): "Outdoor Run",
+    ("walking", "virtual_activity"): INDOOR_WALK,
     ("walking", "indoor_walk"): INDOOR_WALK,
     ("walking", None): OUTDOOR_WALK,
     ("walking", "hiking"): "Hiking",

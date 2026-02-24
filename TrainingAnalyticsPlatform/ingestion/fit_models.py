@@ -7,16 +7,24 @@ import json
 import logging
 import re
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 from typing import Any, ClassVar, Dict, Iterable, List, Literal, Optional, cast, overload
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import fitdecode
 from fitdecode.cmd.fitjson import RecordJSONEncoder
 from pydantic import BaseModel, computed_field, ConfigDict, Field
 
 from .constants import LAPS_SCHEMA_VERSION, METADATA_SCHEMA_VERSION
-from .apple_workout_types import AppleWorkoutTypeResolver
+from .apple_workout_types import (
+    APPLE_WORKOUT_TYPES,
+    AppleWorkoutTypeResolver,
+    INDOOR_CYCLE,
+    INDOOR_WALK,
+    OUTDOOR_CYCLE,
+    OUTDOOR_WALK,
+)
 from .fit_analyzer import FitStructureAnalyzer
 from .code_mappings import (
     get_apple_product_name,
@@ -35,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 # Constants
 ERROR_FILE_BYTES_REQUIRED = "file_bytes must be provided"
+UTC_OFFSET_SUFFIX = "+00:00"
 
 
 class BaseFitModel(BaseModel, ABC):
@@ -290,10 +299,10 @@ class BaseFitModel(BaseModel, ABC):
             return None
         
         for workout_msg in workout_messages:
-            if hasattr(workout_msg, "name") and workout_msg.name:
-                name_val = workout_msg.name.get("value") if isinstance(workout_msg.name, dict) else workout_msg.name
+            for field_name in ("wkt_name", "name"):
+                name_val = workout_msg.get_value(field_name, fallback=None)
                 if name_val:
-                    return name_val
+                    return str(name_val)
         return None
     
     @computed_field  # type: ignore[misc]
@@ -330,21 +339,99 @@ class BaseFitModel(BaseModel, ABC):
     @computed_field  # type: ignore[misc]
     @property
     def constructed_workout_name(self) -> Optional[str]:
-        """Construct workout name from sport/subsport/activity ID."""
+        """Construct fallback workout name from daypart/type or FIT semantics."""
+        daypart = self._workout_daypart()
+        apple_type = self._apple_workout_type_from_fit_signals()
+        if daypart and apple_type:
+            return f"{daypart} {apple_type}"
+
+        fallback_datetime = self._fallback_datetime_label()
         parts = [
-            part for part in (self.sport_name, self.sub_sport_name, self.activity_id)
+            part for part in (self.sport_name, self.sub_sport_name, fallback_datetime)
             if part
         ]
         if parts:
             return "-".join(str(part) for part in parts)
         return None
+
+    def _apple_workout_type_from_fit_signals(self) -> Optional[str]:
+        """Resolve Apple workout type from FIT sport/sub_sport only."""
+        resolved = AppleWorkoutTypeResolver(
+            sport=self.sport,
+            sub_sport=self.sub_sport,
+        ).resolve()
+        if not resolved or resolved == "Other":
+            return None
+        return resolved
+
+    def _parse_timezone_info(self) -> Optional[tzinfo]:
+        """Return a tzinfo based on resolved timezone string when possible."""
+        tz_name = self.timezone
+        if not tz_name:
+            return None
+
+        if tz_name == "UTC":
+            return timezone.utc
+
+        match = re.match(r"^UTC([+-])(\d{2}):(\d{2})$", tz_name)
+        if match:
+            sign = 1 if match.group(1) == "+" else -1
+            hours = int(match.group(2))
+            minutes = int(match.group(3))
+            offset = timedelta(hours=hours, minutes=minutes) * sign
+            return timezone(offset)
+
+        try:
+            return ZoneInfo(tz_name)
+        except ZoneInfoNotFoundError:
+            return None
+
+    def _local_start_datetime(self) -> Optional[datetime]:
+        """Compute workout local datetime from precise UTC start and timezone."""
+        start = self.start_time_utc_precise
+        if not start:
+            return None
+
+        try:
+            start_dt = datetime.fromisoformat(start.replace("Z", UTC_OFFSET_SUFFIX))
+        except ValueError:
+            return None
+
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+
+        tz_info = self._parse_timezone_info()
+        if tz_info is None:
+            return start_dt.astimezone(timezone.utc)
+        return start_dt.astimezone(tz_info)
+
+    def _workout_daypart(self) -> Optional[str]:
+        """Return daypart label using local workout start time."""
+        local_start = self._local_start_datetime()
+        if local_start is None:
+            return None
+
+        hour = local_start.hour
+        if 5 <= hour <= 11:
+            return "Morning"
+        if 12 <= hour <= 16:
+            return "Afternoon"
+        if 17 <= hour <= 20:
+            return "Evening"
+        return "Night"
+
+    def _fallback_datetime_label(self) -> Optional[str]:
+        """Return formatted local datetime string for fallback naming."""
+        local_start = self._local_start_datetime()
+        if local_start is None:
+            return None
+        return local_start.strftime("%Y-%m-%d %H:%M")
     
     @computed_field  # type: ignore[misc]
     @property
     def apple_workout_type(self) -> Optional[str]:
         """Get Apple Watch workout type using the resolver."""
         resolver = AppleWorkoutTypeResolver(
-            workout_name=self.workout_name,
             sport=self.sport,
             sub_sport=self.sub_sport
         )
@@ -946,7 +1033,7 @@ class BaseFitModel(BaseModel, ABC):
         if not start_time:
             return None
         try:
-            return datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+            return datetime.fromisoformat(start_time.replace("Z", UTC_OFFSET_SUFFIX))
         except ValueError:
             return None
     
@@ -1260,13 +1347,25 @@ class HealthFitModel(OneDriveFitModel):
     
     Handles HealthFit-specific filename parsing, timezone inference from local time,
     and device source classification (true Apple Watch vs HealthKit synced).
-    HealthFit uses pattern: YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz]
+    HealthFit uses pattern: YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz].
+    Hyphens are field separators; Apple activity labels are expected as spaced
+    tokens (e.g., "Indoor Cycling"), not hyphenated tokens.
+    The YYYY-MM-DD-HHMMSS filename timestamp is device-local wall-clock time
+    for the recording device, not UTC.
     """
     
     # HealthFit filename pattern: YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz]
+    # ActivityType token excludes '-' because '-' is the field delimiter.
+    # The YYYY-MM-DD-HHMMSS token is device-local recording time.
     HEALTHFIT_FILENAME_PATTERN: ClassVar[re.Pattern] = re.compile(
         r'^(\d{4}-\d{2}-\d{2})-(\d{6}|Nodata)-([^-]+)-(.+?)\.fit(\.gz)?$'
     )
+    HEALTHFIT_APPLE_TYPE_ALIASES: ClassVar[Dict[str, str]] = {
+        "indoor cycling": INDOOR_CYCLE,
+        "outdoor cycling": OUTDOOR_CYCLE,
+        "indoor walking": INDOOR_WALK,
+        "outdoor walking": OUTDOOR_WALK,
+    }
     
     @computed_field  # type: ignore[misc]
     @property
@@ -1297,7 +1396,11 @@ class HealthFitModel(OneDriveFitModel):
     @computed_field  # type: ignore[misc]
     @property
     def filename_components(self) -> Optional[Dict[str, str]]:
-        """Parse HealthFit filename into components."""
+        """Parse HealthFit filename into components.
+
+        The parsed ``date`` and ``time`` fields represent local time on the
+        recording device.
+        """
         if not self.source_file_name:
             return None
         
@@ -1306,8 +1409,8 @@ class HealthFitModel(OneDriveFitModel):
             return None
         
         return {
-            "date": match.group(1),           # YYYY-MM-DD
-            "time": match.group(2),           # HHMMSS or "Nodata"
+            "date": match.group(1),           # YYYY-MM-DD (device-local)
+            "time": match.group(2),           # HHMMSS or "Nodata" (device-local)
             "activity_type": match.group(3),  # e.g., "Indoor Cycling"
             "source_device": match.group(4),  # e.g., "Robert's Apple Watch 7"
             "is_gzipped": "true" if match.group(5) is not None else "false",
@@ -1316,7 +1419,7 @@ class HealthFitModel(OneDriveFitModel):
     @computed_field  # type: ignore[misc]
     @property
     def filename_date(self) -> Optional[str]:
-        """Extract date from HealthFit filename."""
+        """Extract device-local date from HealthFit filename."""
         if self.filename_components:
             return self.filename_components["date"]
         return None
@@ -1324,7 +1427,7 @@ class HealthFitModel(OneDriveFitModel):
     @computed_field  # type: ignore[misc]
     @property
     def filename_time(self) -> Optional[str]:
-        """Extract time from HealthFit filename."""
+        """Extract device-local time from HealthFit filename."""
         if self.filename_components:
             return self.filename_components["time"]
         return None
@@ -1358,7 +1461,7 @@ class HealthFitModel(OneDriveFitModel):
     def inferred_timezone_filename(self) -> Optional[str]:
         """Infer timezone from HealthFit filename local time vs FIT UTC time.
         
-        Compares filename's local datetime (YYYY-MM-DD-HHMMSS) with session
+        Compares filename's device-local datetime (YYYY-MM-DD-HHMMSS) with session
         start_time_utc to calculate timezone offset as fallback when device_settings
         or activity local_timestamp fields are missing.
         """
@@ -1369,12 +1472,12 @@ class HealthFitModel(OneDriveFitModel):
             return None
         
         try:
-            # Parse filename local datetime
+            # Parse device-local filename datetime
             local_dt_str = f"{self.filename_date} {self.filename_time}"
             local_dt = datetime.strptime(local_dt_str, "%Y-%m-%d %H%M%S")
             
             # Parse FIT UTC timestamp
-            utc_dt = datetime.fromisoformat(self.start_time_utc.replace("Z", "+00:00"))
+            utc_dt = datetime.fromisoformat(self.start_time_utc.replace("Z", UTC_OFFSET_SUFFIX))
             utc_dt_naive = utc_dt.replace(tzinfo=None)
             
             # Calculate offset in minutes
@@ -1388,7 +1491,7 @@ class HealthFitModel(OneDriveFitModel):
     def _start_time_from_source_specific_utc(self) -> Optional[datetime]:
         """Return UTC start time derived from HealthFit filename.
         
-        Converts filename local datetime (YYYY-MM-DD-HHMMSS) to UTC using
+        Converts filename device-local datetime (YYYY-MM-DD-HHMMSS) to UTC using
         inferred timezone offset for source-specific dedup key generation.
         """
         if not self.filename_date or not self.filename_time or self.filename_time == "Nodata":
@@ -1509,59 +1612,30 @@ class HealthFitModel(OneDriveFitModel):
         """Return HealthFit filename activity type as workout name source."""
         return self.filename_activity_type
 
-    def _healthfit_activity_name_hint(self) -> Optional[str]:
-        """Build a richer activity hint from HealthFit filename tail.
-
-        HealthFit filenames encode date/time prefix followed by activity/source,
-        e.g. ``YYYY-MM-DD-HHMMSS-Indoor-Cycling-RunGap.fit``.
-        For compound indoor/outdoor activities, this method returns a two-token
-        phrase ("Indoor Cycling") to improve Apple workout type resolution.
-        """
-        source_file_name = self.source_file_name
-        if not source_file_name:
-            return None
-
-        stem = re.sub(r"\.fit(\.gz)?$", "", source_file_name, flags=re.IGNORECASE)
-        tail_match = re.match(r"^\d{4}-\d{2}-\d{2}-(\d{6}|Nodata)-(.+)$", stem)
-        if not tail_match:
-            return None
-
-        tail = tail_match.group(2)
-        tail_parts = [part for part in tail.split("-") if part]
-        if not tail_parts:
-            return None
-
-        if len(tail_parts) >= 2:
-            first = tail_parts[0].lower()
-            second = tail_parts[1].lower()
-            if first in {"indoor", "outdoor"} and second in {
-                "cycling",
-                "walking",
-                "run",
-                "running",
-            }:
-                return f"{tail_parts[0]} {tail_parts[1]}"
-
-        return tail_parts[0]
-
     @computed_field  # type: ignore[misc]
     @property
     def apple_workout_type(self) -> Optional[str]:
-        """Resolve Apple workout type with HealthFit filename-tail fallback."""
-        resolved = super().apple_workout_type
-        if resolved and resolved != "Other":
-            return resolved
+        """Resolve Apple workout type deterministically from HealthFit filename.
 
-        hint = self._healthfit_activity_name_hint()
-        if not hint:
-            return resolved
+        HealthFit is the only source with explicit Apple workout type encoded in
+        filename activity token (e.g., ``Indoor Cycling``). Resolution is done
+        directly in `HealthFitModel` (source-owned semantics) with no fallback
+        to generic resolver inference.
+        """
+        activity_type = self.filename_activity_type
+        if not activity_type:
+            return None
 
-        hinted = AppleWorkoutTypeResolver(
-            workout_name=hint,
-            sport=self.sport,
-            sub_sport=self.sub_sport,
-        ).resolve()
-        return hinted if hinted else resolved
+        normalized = activity_type.strip().lower()
+        alias_mapped = self.HEALTHFIT_APPLE_TYPE_ALIASES.get(normalized)
+        if alias_mapped:
+            return alias_mapped
+
+        for apple_type in APPLE_WORKOUT_TYPES:
+            if apple_type != "Other" and apple_type.lower() == normalized:
+                return apple_type
+
+        return None
     
     @computed_field  # type: ignore[misc]
     @property
