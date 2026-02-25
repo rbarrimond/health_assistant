@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 15.0.22
+Version: 15.0.23
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -13,10 +13,8 @@ For historical changes, see [CHANGELOG.md](../CHANGELOG.md).
 - **IngestionState** table schema (idempotency + provenance + operational tracking).
 - **Workouts** provenance policy (what stays vs what moves to IngestionState).
 
-Ingestion writes canonical parquet payloads (records) and stores
-metadata + blob pointers in the Workouts table. Derived metrics are
-computed on read, with additional canonical artifacts persisted for
-archival and semantic use.
+Ingestion writes canonical parquet payloads (records) and stores metadata + blob pointers in the Workouts table.
+Derived metrics are computed on read, with additional canonical artifacts persisted for archival and semantic use.
 
 This document does **not** define the workout metrics schema. See WORKOUT_SCHEMA.md for that.
 
@@ -51,7 +49,7 @@ All ingestion-related schema/code version constants must be documented here.
 
 | Version | Current value | Code source | Purpose |
 | --- | --- | --- | --- |
-| `INGEST_VERSION` | `v13.0.25` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
+| `INGEST_VERSION` | `v13.0.26` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
 | `CANONICAL_SCHEMA_VERSION` | `1.3.0` | `TrainingAnalyticsPlatform/storage/table_storage.py` | Canonical parquet schema version persisted to `Workouts.canonical_schema_version`. |
 | `METADATA_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `metadata.json` as `metadata_schema_version`. |
 | `LAPS_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `laps.json` as `schema_version`. |
@@ -492,7 +490,7 @@ It is intentionally separate from Workouts to keep workout entities small and st
 | source_quickxor_hash | string | No | OneDrive quickXor hash for content. |
 | source_modified_at_utc | string | No | OneDrive last modified timestamp (ISO 8601 UTC). |
 | file_sha256 | string | No | SHA-256 hash of file content. |
-| ingest_version | string | Yes | Ingestion code version (current: `v13.0.24`). |
+| ingest_version | string | Yes | Ingestion code version (current: `v13.0.26`). |
 | ingested_at_utc | string | No | ISO 8601 UTC timestamp when status becomes `ingested`. |
 | error_message | string | No | Last error message (truncated). |
 

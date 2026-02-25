@@ -44,6 +44,7 @@ from .timezone_utils import (
     infer_timezone_from_session,
     resolve_timezone,
 )
+from .value_utils import coerce_float
 
 logger = logging.getLogger(__name__)
 
@@ -138,15 +139,6 @@ class BaseFitModel(BaseModel, ABC):
                     rr_value = field.value
                     if isinstance(rr_value, (int, float)) and rr_value > 0:
                         yield timestamp_sec, float(rr_value)
-    
-    @staticmethod
-    def _coerce_float(value: Any) -> Optional[float]:
-        """Coerce value to float, return None if not numeric."""
-        if value is None:
-            return None
-        if isinstance(value, (int, float)):
-            return float(value)
-        return None
     
     @property
     def messages(self) -> List[FitDataMessage]:
@@ -337,12 +329,13 @@ class BaseFitModel(BaseModel, ABC):
         except ValueError:
             return None
 
-        if start_dt.tzinfo is None:
-            start_dt = start_dt.replace(tzinfo=timezone.utc)
-
         tz_info = self._parse_timezone_info()
         if tz_info is None:
+            if start_dt.tzinfo is None:
+                return start_dt
             return start_dt.astimezone(timezone.utc)
+        if start_dt.tzinfo is None:
+            return start_dt
         return start_dt.astimezone(tz_info)
 
     def _workout_daypart(self) -> Optional[str]:
@@ -414,7 +407,7 @@ class BaseFitModel(BaseModel, ABC):
             return None
 
         if start_dt.tzinfo is None:
-            start_dt = start_dt.replace(tzinfo=timezone.utc)
+            return start_dt.isoformat()
         return start_dt.astimezone(timezone.utc).isoformat()
 
     @computed_field  # type: ignore[misc]
@@ -462,8 +455,6 @@ class BaseFitModel(BaseModel, ABC):
 
             timestamp = event_msg.get_value("timestamp", fallback=None)
             if isinstance(timestamp, datetime):
-                if timestamp.tzinfo is None:
-                    timestamp = timestamp.replace(tzinfo=timezone.utc)
                 candidates.append(timestamp)
 
         if candidates:
@@ -488,12 +479,7 @@ class BaseFitModel(BaseModel, ABC):
         if not isinstance(duration, (int, float)):
             return None
 
-        if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=timezone.utc)
-
         start_time = timestamp - timedelta(seconds=float(duration))
-        if start_time.tzinfo is None:
-            start_time = start_time.replace(tzinfo=timezone.utc)
         return start_time
 
     def _start_time_from_first_record(self) -> Optional[datetime]:
@@ -501,8 +487,6 @@ class BaseFitModel(BaseModel, ABC):
         for record in self._messages_by_type.get("record", []):
             timestamp = record.get_value("timestamp", fallback=None)
             if isinstance(timestamp, datetime):
-                if timestamp.tzinfo is None:
-                    timestamp = timestamp.replace(tzinfo=timezone.utc)
                 return timestamp
         return None
 
@@ -615,13 +599,17 @@ class BaseFitModel(BaseModel, ABC):
                     "FIT semantic contract violation: record.timestamp is required"
                 )
 
-            if timestamp.tzinfo is None:
-                timestamp = timestamp.replace(tzinfo=timezone.utc)
-
-            if previous_ts is not None and timestamp < previous_ts:
-                raise FitParsingError(
-                    "FIT semantic contract violation: record timestamps must be non-decreasing"
-                )
+            if previous_ts is not None:
+                try:
+                    is_out_of_order = timestamp < previous_ts
+                except TypeError as exc:
+                    raise FitParsingError(
+                        "FIT semantic contract violation: record timestamps must use consistent timezone awareness"
+                    ) from exc
+                if is_out_of_order:
+                    raise FitParsingError(
+                        "FIT semantic contract violation: record timestamps must be non-decreasing"
+                    )
 
             previous_ts = timestamp
 
@@ -761,7 +749,7 @@ class BaseFitModel(BaseModel, ABC):
     @computed_field  # type: ignore[misc]
     @property
     def inferred_timezone_activity(self) -> Optional[str]:
-        """Infer timezone from activity local_time vs UTC timestamp."""
+        """Infer timezone from activity local_time vs UTC timestamp without datetime coercion."""
         activity_msg = (self._messages_by_type.get("activity") or [None])[0]
         if not activity_msg:
             return None
@@ -1092,32 +1080,24 @@ class BaseFitModel(BaseModel, ABC):
         except ValueError:
             return None
     
-    @staticmethod
-    def _normalize_record_timestamp(
-        timestamp: Optional[datetime],
-    ) -> Optional[datetime]:
-        """Normalize record timestamp to UTC."""
-        if isinstance(timestamp, datetime):
-            return timestamp.astimezone(timezone.utc)
-        return timestamp
-    
     def _build_canonical_record(
         self,
         record: FitDataMessage,
         start_dt: Optional[datetime],
     ) -> Optional[Dict[str, Any]]:
         """Build canonical record from FIT record message."""
-        raw_timestamp = record.get_value("timestamp", fallback=None)
-        timestamp = self._normalize_record_timestamp(
-            raw_timestamp if isinstance(raw_timestamp, datetime) else None
-        )
-        if not timestamp:
+        timestamp = record.get_value("timestamp", fallback=None)
+        if not isinstance(timestamp, datetime):
             return None
-        
-        timestamp_utc = timestamp.astimezone(timezone.utc).isoformat()
+
+        timestamp_utc = timestamp.isoformat()
+
         elapsed_sec = None
         if start_dt is not None:
-            elapsed_sec = (timestamp - start_dt).total_seconds()
+            try:
+                elapsed_sec = (timestamp - start_dt).total_seconds()
+            except TypeError:
+                elapsed_sec = None
         
         power = record.get_value("power", fallback=None)
         heart_rate = record.get_value("heart_rate", fallback=None)
@@ -1130,15 +1110,15 @@ class BaseFitModel(BaseModel, ABC):
         
         return {
             "timestamp_utc": timestamp_utc,
-            "elapsed_sec": self._coerce_float(elapsed_sec),
-            "power_watts": self._coerce_float(power),
-            "heart_rate_bpm": self._coerce_float(heart_rate),
-            "cadence_rpm": self._coerce_float(cadence),
-            "speed_mps": self._coerce_float(speed),
-            "distance_m": self._coerce_float(distance),
-            "elevation_m": self._coerce_float(elevation),
-            "temperature_c": self._coerce_float(temperature),
-            "lr_balance_pct": self._coerce_float(lr_balance),
+            "elapsed_sec": coerce_float(elapsed_sec),
+            "power_watts": coerce_float(power),
+            "heart_rate_bpm": coerce_float(heart_rate),
+            "cadence_rpm": coerce_float(cadence),
+            "speed_mps": coerce_float(speed),
+            "distance_m": coerce_float(distance),
+            "elevation_m": coerce_float(elevation),
+            "temperature_c": coerce_float(temperature),
+            "lr_balance_pct": coerce_float(lr_balance),
         }
     
     def build_canonical_metadata(self) -> Dict[str, Any]:
@@ -1179,12 +1159,13 @@ class BaseFitModel(BaseModel, ABC):
             return metadata
         
         file_created = self.file_id_msg.get_value("time_created", fallback=None)
-        if isinstance(file_created, datetime) and file_created.tzinfo is None:
-            file_created = file_created.replace(tzinfo=timezone.utc)
         if isinstance(file_created, datetime):
-            metadata["file_time_created_utc"] = (
-                file_created.astimezone(timezone.utc).isoformat()
-            )
+            if file_created.tzinfo is None:
+                metadata["file_time_created_utc"] = file_created.isoformat()
+            else:
+                metadata["file_time_created_utc"] = (
+                    file_created.astimezone(timezone.utc).isoformat()
+                )
         
         file_manufacturer = self.file_id_msg.get_value("manufacturer", fallback=None)
         if file_manufacturer is not None:
@@ -1213,12 +1194,13 @@ class BaseFitModel(BaseModel, ABC):
             return metadata
         
         activity_timestamp = activity_msg.get_value("timestamp", fallback=None)
-        if isinstance(activity_timestamp, datetime) and activity_timestamp.tzinfo is None:
-            activity_timestamp = activity_timestamp.replace(tzinfo=timezone.utc)
         if isinstance(activity_timestamp, datetime):
-            metadata["activity_timestamp_utc"] = (
-                activity_timestamp.astimezone(timezone.utc).isoformat()
-            )
+            if activity_timestamp.tzinfo is None:
+                metadata["activity_timestamp_utc"] = activity_timestamp.isoformat()
+            else:
+                metadata["activity_timestamp_utc"] = (
+                    activity_timestamp.astimezone(timezone.utc).isoformat()
+                )
         
         activity_local = activity_msg.get_value("local_timestamp", fallback=None)
         if isinstance(activity_local, datetime):
@@ -1551,7 +1533,7 @@ class HealthFitModel(OneDriveFitModel):
         if not start_dt:
             return None
         if start_dt.tzinfo is None:
-            start_dt = start_dt.replace(tzinfo=timezone.utc)
+            return start_dt.isoformat()
         return start_dt.astimezone(timezone.utc).isoformat()
 
     def _start_time_from_source_specific_utc(self) -> Optional[datetime]:

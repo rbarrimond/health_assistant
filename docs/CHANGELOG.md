@@ -10,6 +10,14 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-02-25
 
+### FIT Date-Time Normalization Removal
+
+- Remove superfluous FIT `date_time` normalization/coercion in `BaseFitModel` timestamp paths (start-time derivation, record timestamp handling, metadata timestamp serialization, and HealthFit FIT-message start extraction), preserving decoded timezone awareness as provided by fitdecode; add explicit consistent-awareness validation for record timestamp ordering `[ingest v13.0.26, INGESTION_SCHEMA v15.0.23]`
+
+### Ingestion Utility Extraction
+
+- Move numeric coercion helper from `BaseFitModel._coerce_float` into shared ingestion utility module (`TrainingAnalyticsPlatform/ingestion/value_utils.py`) and route canonical record coercion through `coerce_float`; no runtime behavior change.
+
 ### BaseFitModel Eager FIT Initialization
 
 - Parse and index FIT data messages during `BaseFitModel` instantiation instead of lazy access-time loading, and remove lazy-loading internals (`_messages_loaded`, `_load_fit_messages`, `_ensure_message_index`) from FIT model state/flow `[ingest v13.0.25, INGESTION_SCHEMA v15.0.22]`
