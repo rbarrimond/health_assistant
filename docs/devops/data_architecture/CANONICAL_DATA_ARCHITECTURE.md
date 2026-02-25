@@ -1,7 +1,7 @@
 # Canonical Data Architecture
 <!-- markdownlint-disable MD024 -->
 
-Version: 2.2.2
+Version: 2.2.3
 
 =====================================================================
 
@@ -17,6 +17,7 @@ This architecture enforces strict separation between:
 
 - Canonical Parquet stream is the single source of metric truth
 - All derived metrics are deterministic projections
+- CanonicalAnalyticsEngine is the sole computation layer for derived analytics at read time
 - AI analysis is advisory and never mutates canonical data
 - Raw FIT JSON is preserved for full archival integrity
 - Vendor platforms may be ingestion sources or publication sinks, but never canonical authorities
@@ -201,8 +202,8 @@ These may be AI-assisted but never override deterministic telemetry.
 - pwr_zone_model
 - ftp_watts
 
-These fields capture the academic/model source and reference basis used for
-zone computation and are immutable once the workout is ingested.
+These fields capture the model source and reference basis used to compute zones
+at read time. When persisted, they must remain immutable for the workout.
 
 =====================================================================
 
@@ -219,6 +220,7 @@ Derived fields (computed from canonical.parquet):
 - Normalized Power (NP)
 - Intensity Factor (IF)
 - Training Stress Score (TSS)
+- HR and power zone distributions
 - Power Curve scalars and power_curve_json artifact
 - Durability
 - Decoupling

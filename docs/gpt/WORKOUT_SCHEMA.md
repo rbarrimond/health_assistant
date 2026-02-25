@@ -1,14 +1,16 @@
 # Workout Schema - Semantic API (Logical)
 
-Version: 11.1.0
+Version: 11.1.1
 
 This document defines the **logical workout schema** exposed by the semantic API.
 It avoids storage details (tables, blobs, partitions) and focuses on fields used
 for reasoning and planning. Operational storage is documented in
 [INGESTION_SCHEMA.md](../devops/data_architecture/INGESTION_SCHEMA.md).
 
-Derived analytics are computed from canonical records at read time and surfaced
-as calculated properties here.
+Derived analytics are computed from canonical records at read time by
+`CanonicalAnalyticsEngine` (see
+[CANONICAL_ANALYTICS_SURFACE.md](../devops/data_architecture/CANONICAL_ANALYTICS_SURFACE.md))
+and surfaced as calculated properties here.
 
 ---
 

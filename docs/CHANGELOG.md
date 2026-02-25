@@ -18,6 +18,10 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 - Clarify `laps.json` as the pass-through representation used for interval semantics, reserve `intervals.json` for future workout/workout_step carryover, and note Zwift/Strava behavior; add data architecture index section to docs overview `[CANONICAL_ANALYTICS_SURFACE v1.1.2]`
 
+### Canonical Analytics Ownership
+
+- Explicitly document `CanonicalAnalyticsEngine` as the sole read-time computation layer for derived analytics (including zones) and align canonical data architecture + workout schema phrasing with that contract `[CANONICAL_ANALYTICS_SURFACE v1.1.3, CANONICAL_DATA_ARCHITECTURE v2.2.3, WORKOUT_SCHEMA v11.1.1]`
+
 ### FIT Date-Time Normalization Removal
 
 - Remove superfluous FIT `date_time` normalization/coercion in `BaseFitModel` timestamp paths (start-time derivation, record timestamp handling, metadata timestamp serialization, and HealthFit FIT-message start extraction), preserving decoded timezone awareness as provided by fitdecode; add explicit consistent-awareness validation for record timestamp ordering `[ingest v13.0.26, INGESTION_SCHEMA v15.0.23]`

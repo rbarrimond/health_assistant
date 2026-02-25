@@ -1,7 +1,7 @@
 # Canonical Analytics Surface
 <!-- markdownlint-disable MD024 -->
 
-Version: 1.1.2
+Version: 1.1.3
 
 > This document defines the canonical analytics contract for workout computation.
 > The surface is derived deterministically from canonical.parquet streams.
@@ -14,6 +14,10 @@ Version: 1.1.2
 > - On-demand projections (not persisted)
 >
 > All stored metrics must be recomputable from the canonical substrate.
+
+All derived analytics (including zones and enhanced analytics) are computed at
+read time by `CanonicalAnalyticsEngine` from canonical.parquet. Any computations
+implemented outside that engine are deviations from this contract.
 
 ------------------------------------------------------------------------
 
