@@ -49,8 +49,15 @@ Athlete-specific and training-specific knowledge:
 
 ### Development
 
-- **[devops/INGESTION_SCHEMA.md](./devops/INGESTION_SCHEMA.md)** — Ingestion versioning and schema requirements
+- **[devops/data_architecture/INGESTION_SCHEMA.md](./devops/data_architecture/INGESTION_SCHEMA.md)** — Ingestion versioning and schema requirements
 - **[CHANGELOG.md](./CHANGELOG.md)** — Version history and change log
+
+### Data Architecture
+
+- **[devops/data_architecture/CANONICAL_DATA_ARCHITECTURE.md](./devops/data_architecture/CANONICAL_DATA_ARCHITECTURE.md)** — Architecture philosophy and data flow
+- **[devops/data_architecture/CANONICAL_ANALYTICS_SURFACE.md](./devops/data_architecture/CANONICAL_ANALYTICS_SURFACE.md)** — Deterministic analytics contract
+- **[devops/data_architecture/CANONICAL_ANALYTICS_DETERMINISTIC_FORMULA_CONTRACT.md](./devops/data_architecture/CANONICAL_ANALYTICS_DETERMINISTIC_FORMULA_CONTRACT.md)** — Metric formulas and invariants
+- **[devops/data_architecture/INGESTION_SCHEMA.md](./devops/data_architecture/INGESTION_SCHEMA.md)** — Ingestion contracts and version registry
 
 ---
 

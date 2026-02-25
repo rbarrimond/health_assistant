@@ -1,7 +1,7 @@
 # Canonical Analytics Surface
 <!-- markdownlint-disable MD024 -->
 
-Version: 1.1.0
+Version: 1.1.2
 
 > This document defines the canonical analytics contract for workout computation.
 > The surface is derived deterministically from canonical.parquet streams.
@@ -163,17 +163,18 @@ active at the time of analysis. Zone definitions must be explicitly versioned.
 
 ## Section VIII. Structured Artifacts (Blob JSON)
 
-Structured artifacts are computed event abstractions stored separately
-as JSON blobs. These enable interval-level and climb-level analytics
-without duplicating scalar storage.
+Structured artifacts are stored separately as JSON blobs. These enable
+interval-level and climb-level analytics without duplicating scalar storage.
 
-- `intervals.json` — Structured interval detection artifact.
-  - `start_sec` — Interval start time in seconds.
-  - `end_sec` — Interval end time in seconds.
-  - `duration_sec` — Interval duration in seconds.
-  - `avg_power` — Average power during the interval.
-  - `peak_power` — Maximum power during the interval.
-  - `recovery_hr_slope` — Heart rate recovery rate post-interval.
+- `laps.json` — Pass-through representation of FIT lap messages. This preserves
+  semantic meaning at the client layer.
+  - FIT `workout` and `workout_step` messages represent structured workouts,
+    but Zwift does not emit them; it encodes steps as laps and Strava
+    interprets those laps as workout steps.
+  - For this reason, interval semantics are derived from laps rather than
+    computed server-side.
+- `intervals.json` — Reserved for future use to carry `workout` and
+  `workout_step` messages when present.
 - `climbs.json` — Structured climb detection artifact.
   - `duration` — Climb duration in seconds.
   - `avg_grade` — Average grade percentage during climb.

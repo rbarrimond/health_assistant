@@ -1,7 +1,7 @@
 # Canonical Data Architecture
 <!-- markdownlint-disable MD024 -->
 
-Version: 2.2.0
+Version: 2.2.2
 
 =====================================================================
 
@@ -33,7 +33,7 @@ At ingestion, each workout produces five immutable blobs and one Workout Table r
 ### 1. Raw FIT Archive (Immutable)
 
 Path:
-/workouts/{workout_id}/raw_fit.json.gz
+/workouts/{ingestion_id}/raw_fit.json.gz
 
 Purpose:
 
@@ -49,7 +49,7 @@ This file is never modified after ingestion.
 ### 2. AI Structural Analysis (Advisory)
 
 Path:
-/workouts/{workout_id}/fit_analysis.json
+/workouts/{ingestion_id}/fit_analysis.json
 
 Purpose:
 
@@ -70,7 +70,7 @@ Rules:
 ### 3. Canonical Record Stream (Authoritative)
 
 Path:
-/workouts/{workout_id}/canonical.parquet
+/workouts/{ingestion_id}/canonical.parquet
 
 Derived strictly from FIT `Record` messages.
 
@@ -96,25 +96,26 @@ This file is the authoritative substrate for all metrics.
 ### 4. Lap Messages (Contextual)
 
 Path:
-/workouts/{workout_id}/laps.json
+/workouts/{ingestion_id}/laps.json
 
 Purpose:
 
 - Preserve vendor segmentation
 - Structured workout definitions
 - Manual lap markers
-- Source for API `intervals_json` pass-through payload
+
+Laps preserve FIT message semantics for client interpretation. `intervals_json`
+is not used in the current architecture. A future iteration may populate
+`intervals_json` from FIT `workout` and `workout_step` messages when present.
 
 Laps are never flattened into canonical telemetry.
-`intervals_json` is not computed in the current architecture; it is a pass-through
-representation of lap records extracted at ingest from FIT lap messages.
 
 ---------------------------------------------------------------------
 
 ### 5. Metadata Messages
 
 Path:
-/workouts/{workout_id}/metadata.json
+/workouts/{ingestion_id}/metadata.json
 
 Contains structured FIT messages:
 
@@ -142,6 +143,12 @@ Operational Note:
 The Workouts table implementation may use an ingestion-optimized keying
 scheme (athlete_id|YYYY-MM + timestamp prefix). Logical identifiers remain
 workout_id and athlete_id as specified here.
+
+Identity Model:
+- `ingestion_id` is the source-system identity used for idempotency and storage paths.
+- `workout_id` is the semantic identity derived from FIT timestamps and sport.
+
+Implementation note: current storage paths use `workout_id` for blob prefixes. This is a known mismatch and will be refactored to align with the intended `ingestion_id`-keyed storage contract.
 
 ---------------------------------------------------------------------
 
@@ -204,7 +211,7 @@ This section separates pass-through fields from deterministic projections.
 
 Pass-through fields (not computed):
 
-- intervals_json (sourced from laps.json)
+- laps.json (pass-through artifact sourced from FIT lap messages)
 
 Derived fields (computed from canonical.parquet):
 

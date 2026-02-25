@@ -10,6 +10,14 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-02-25
 
+### Ingestion Documentation Alignment
+
+- Move ingestion schema documentation under data architecture and update cross-references across docs, clarifying `ingestion_id` as the source-system identity and `workout_id` as semantic identity; document the current storage-path mismatch and planned refactor `[INGESTION_SCHEMA v15.0.24, CANONICAL_DATA_ARCHITECTURE v2.2.2]`
+
+### Analytics Surface Clarification
+
+- Clarify `laps.json` as the pass-through representation used for interval semantics, reserve `intervals.json` for future workout/workout_step carryover, and note Zwift/Strava behavior; add data architecture index section to docs overview `[CANONICAL_ANALYTICS_SURFACE v1.1.2]`
+
 ### FIT Date-Time Normalization Removal
 
 - Remove superfluous FIT `date_time` normalization/coercion in `BaseFitModel` timestamp paths (start-time derivation, record timestamp handling, metadata timestamp serialization, and HealthFit FIT-message start extraction), preserving decoded timezone awareness as provided by fitdecode; add explicit consistent-awareness validation for record timestamp ordering `[ingest v13.0.26, INGESTION_SCHEMA v15.0.23]`

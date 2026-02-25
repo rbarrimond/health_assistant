@@ -1,11 +1,11 @@
 # Ingestion Schema
 
-Version: 15.0.23
+Version: 15.0.24
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
 
-For historical changes, see [CHANGELOG.md](../CHANGELOG.md).
+For historical changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ## Scope
 
@@ -16,7 +16,18 @@ For historical changes, see [CHANGELOG.md](../CHANGELOG.md).
 Ingestion writes canonical parquet payloads (records) and stores metadata + blob pointers in the Workouts table.
 Derived metrics are computed on read, with additional canonical artifacts persisted for archival and semantic use.
 
-This document does **not** define the workout metrics schema. See WORKOUT_SCHEMA.md for that.
+This document does **not** define the workout metrics schema. See [WORKOUT_SCHEMA.md](../../gpt/WORKOUT_SCHEMA.md) for that.
+
+## Identity Model (Ingestion vs Workout)
+
+- `ingestion_id` is the source-system identity used for idempotency and storage paths.
+  - OneDrive: OneDrive item ID.
+  - Garmin API: Garmin activity ID.
+  - HTTP payload: SHA-256 digest of decoded FIT bytes.
+- `workout_id` is the semantic identity derived from FIT timestamps and sport.
+- Artifact blob paths are keyed by `ingestion_id`.
+
+Implementation note: current storage paths use `workout_id` for blob prefixes. This is a known mismatch and will be refactored to align with the intended `ingestion_id`-keyed storage contract.
 
 ## Canonical Schema Source of Truth
 
@@ -437,13 +448,9 @@ from the semantic API.
 
 ### Notes
 
-- `source_item_id` and `file_sha256` are the preferred inputs for idempotency and
-  `ingestion_id` creation.
+- `ingestion_id` is the source-system identity. Use OneDrive item ID or Garmin activity ID
+  when available; for direct HTTP uploads, use the SHA-256 digest of decoded FIT bytes.
 - If `file_sha256` is not supplied for direct uploads, ingestion computes it from the file.
-- `ingestion_id` is computed in concrete source handlers (not in abstract/shared handlers)
-  with this precedence:
-  1. `source_item_id`
-  2. `file_sha256`
 - OneDrive ingestion requires `source_item_id`; missing ID is treated as a hard failure.
 - FIT payloads that cannot be parsed (malformed or incompatible bytes) must fail with typed domain error `FIT_PARSING_FAILED` and HTTP 422.
 - `workout_name` is inferred with the following priority:
@@ -525,7 +532,7 @@ All other provenance fields belong in **IngestionState**.
 
 ### FIT Analysis Artifact
 
-`{workout_id}/fit_analysis.json` stores deterministic FIT structure analysis output. Current schema includes:
+`{ingestion_id}/fit_analysis.json` stores deterministic FIT structure analysis output. Current schema includes:
 
 Current `analysis_version`: `v1.0.0`.
 
@@ -538,7 +545,7 @@ Current `analysis_version`: `v1.0.0`.
 
 ### Metadata Artifact
 
-`{workout_id}/metadata.json` stores deterministic metadata + LLM enrichment placeholders. Current schema includes:
+`{ingestion_id}/metadata.json` stores deterministic metadata + LLM enrichment placeholders. Current schema includes:
 
 Current `metadata_schema_version`: `1.0.0`.
 
@@ -549,7 +556,7 @@ Current `metadata_schema_version`: `1.0.0`.
 
 ### Laps Artifact
 
-`{workout_id}/laps.json` stores uncompressed lap messages. Current schema includes:
+`{ingestion_id}/laps.json` stores uncompressed lap messages. Current schema includes:
 
 Current laps `schema_version`: `1.0.0`.
 
@@ -630,10 +637,9 @@ There is no fallback. If semantic identity cannot be computed, ingestion fails.
 
 `ingestion_id` is computed by concrete source handlers using source-specific context:
 
-1. `source_item_id`
-2. `file_sha256`
-
-For OneDrive sources, only `source_item_id` is valid; no fallback is applied.
+1. OneDrive: `source_item_id` (required; no fallback)
+2. Garmin API: `source_item_id` (activity ID)
+3. HTTP payload: `file_sha256` of decoded FIT bytes
 
 Once a `workout_id` has been assigned to a file, it is treated as immutable
 and should be reused for reprocessing via IngestionState lookup.

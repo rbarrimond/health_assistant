@@ -236,7 +236,7 @@ All existing code using `from TrainingAnalyticsPlatform.models import X` continu
 
 Models align with versioned schemas:
 
-- **Ingestion Schema**: 5.2.0 (see `docs/devops/INGESTION_SCHEMA.md`)
+- **Ingestion Schema**: 5.2.0 (see `docs/devops/data_architecture/INGESTION_SCHEMA.md`)
 - **Workout Schema**: 10.0.0 (see `docs/gpt/WORKOUT_SCHEMA.md`)
 - **Ingest Version**: v7.2.0 (metadata field)
 

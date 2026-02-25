@@ -5,7 +5,7 @@ Version: 6.0.0
 The Semantic Access Layer is the **read + agent-memory write API** for ChatGPT Actions. It exposes meaningful, human-centric questions about training data rather than raw table access.
 
 > **Note:** This document mirrors [`openapi.yaml`](../../api_docs/openapi.yaml). For admin/operations endpoints, see [`../devops/OPERATIONS_API.md`](../devops/OPERATIONS_API.md).
-> Storage and ingestion details live in [`INGESTION_SCHEMA.md`](../devops/INGESTION_SCHEMA.md).
+> Storage and ingestion details live in [`INGESTION_SCHEMA.md`](../devops/data_architecture/INGESTION_SCHEMA.md).
 >
 > **Phase 1 Note:** This system is currently deployed for single-athlete use. Most endpoints default `athlete_id` to `"rob"` when not provided. The multi-athlete architecture is implemented but enforcement is deferred to Phase 2.
 

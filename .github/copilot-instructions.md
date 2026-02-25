@@ -35,7 +35,7 @@ Avoid:
 ## 4. Versioning and Change Management
 
 - Record code changes in [docs/CHANGELOG.md](../docs/CHANGELOG.md).
-- Bump ingestion SemVer whenever changes affect ingestion, parsing, or stored workout/physiometrics schema, and update [docs/devops/INGESTION_SCHEMA.md](../docs/devops/INGESTION_SCHEMA.md).
+- Bump ingestion SemVer whenever changes affect ingestion, parsing, or stored workout/physiometrics schema, and update [docs/devops/data_architecture/INGESTION_SCHEMA.md](../docs/devops/data_architecture/INGESTION_SCHEMA.md).
 - For versioned Markdown files, follow the SemVer policy in that file; otherwise use standard SemVer rules.
 
 ## 5. Non-Recursive Edits
