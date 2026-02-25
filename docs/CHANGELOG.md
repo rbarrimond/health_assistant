@@ -22,6 +22,10 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 - Explicitly document `CanonicalAnalyticsEngine` as the sole read-time computation layer for derived analytics (including zones) and align canonical data architecture + workout schema phrasing with that contract `[CANONICAL_ANALYTICS_SURFACE v1.1.3, CANONICAL_DATA_ARCHITECTURE v2.2.3, WORKOUT_SCHEMA v11.1.1]`
 
+### Semantic Layer Canonical Routing
+
+- Route semantic-layer canonical fallback computation through `CanonicalAnalyticsEngine` to remove duplicate zone/enhanced analytics calculations outside the engine (behavior aligned with documentation; no schema changes)
+
 ### FIT Date-Time Normalization Removal
 
 - Remove superfluous FIT `date_time` normalization/coercion in `BaseFitModel` timestamp paths (start-time derivation, record timestamp handling, metadata timestamp serialization, and HealthFit FIT-message start extraction), preserving decoded timezone awareness as provided by fitdecode; add explicit consistent-awareness validation for record timestamp ordering `[ingest v13.0.26, INGESTION_SCHEMA v15.0.23]`
