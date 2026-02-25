@@ -26,6 +26,13 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 - Route semantic-layer canonical fallback computation through `CanonicalAnalyticsEngine` to remove duplicate zone/enhanced analytics calculations outside the engine (behavior aligned with documentation; no schema changes)
 
+### API Documentation Clarity
+
+- Update API specifications (`openapi.yaml`, `openapi.operations.yaml`) to clarify that zones and enhanced analytics are computed at read-time from canonical substrate using deterministic `CanonicalAnalyticsEngine`
+- Expand `ZoneDistribution` schema with detailed field descriptions (z1-z5 minutes, percentages, query_window structure)
+- Expand `EfficiencyTrends` schema with detailed field descriptions (decoupling_pct, hr_drift_bpm, ef_overall, samples structure)
+- Update API preambles to explicitly state read-time computation model and deterministic behavior
+
 ### FIT Date-Time Normalization Removal
 
 - Remove superfluous FIT `date_time` normalization/coercion in `BaseFitModel` timestamp paths (start-time derivation, record timestamp handling, metadata timestamp serialization, and HealthFit FIT-message start extraction), preserving decoded timezone awareness as provided by fitdecode; add explicit consistent-awareness validation for record timestamp ordering `[ingest v13.0.26, INGESTION_SCHEMA v15.0.23]`

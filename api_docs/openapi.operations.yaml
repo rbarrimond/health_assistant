@@ -5,6 +5,8 @@ info:
   description: |
     Operational and admin endpoints for Health Assistant.
     Includes ingestion, config, integrations, and plugin assets.
+    
+    Workout metrics including zones and enhanced analytics are computed at read-time from canonical substrate using athlete's current physiometric configuration. All derived metrics are computed deterministically by CanonicalAnalyticsEngine.
 servers:
   - url: https://health.azure.barrimond.net
     description: Azure Functions host
@@ -1357,28 +1359,125 @@ components:
             additionalProperties: true
     ZoneDistribution:
       type: object
-      description: Time-in-zone distribution.
+      description: |
+        Time-in-zone distribution computed at read-time from canonical workout records.
+        Zones are calculated using athlete's current physiometric configuration (FTP, LTHR).
+        Aggregates across all workouts in the query window.
       properties:
         athlete_id:
           type: string
-        days:
-          type: integer
+          description: Athlete identifier
+        query_window:
+          type: object
+          properties:
+            start_date:
+              type: string
+              format: date-time
+            end_date:
+              type: string
+              format: date-time
+            days:
+              type: integer
+        total_minutes:
+          type: number
+          description: Total time across all zones
         zones:
           type: object
-      additionalProperties: true
+          description: Time spent in each zone (minutes)
+          properties:
+            z1:
+              type: number
+              description: Zone 1 minutes (low aerobic)
+            z2:
+              type: number
+              description: Zone 2 minutes (aerobic base)
+            z3:
+              type: number
+              description: Zone 3 minutes (tempo)
+            z4:
+              type: number
+              description: Zone 4 minutes (threshold)
+            z5:
+              type: number
+              description: Zone 5 minutes (VO2max/anaerobic)
+        percentages:
+          type: object
+          description: Zone distribution as percentages (sum to 100)
+          properties:
+            z1:
+              type: number
+            z2:
+              type: number
+            z3:
+              type: number
+            z4:
+              type: number
+            z5:
+              type: number
+      required:
+        - athlete_id
+        - zones
+        - total_minutes
     EfficiencyTrends:
       type: object
-      description: Aerobic efficiency and decoupling trends.
+      description: |
+        Aerobic efficiency and decoupling trends computed from canonical workout records.
+        Decoupling measures cardiac drift (HR increase relative to power/pace) indicating aerobic fatigue.
+        Efficiency factor (EF) is normalized power divided by average HR.
       properties:
         athlete_id:
           type: string
-        days:
-          type: integer
-        trends:
+          description: Athlete identifier
+        query_window:
+          type: object
+          properties:
+            start_date:
+              type: string
+              format: date-time
+            end_date:
+              type: string
+              format: date-time
+            days:
+              type: integer
+        samples:
           type: array
+          description: Per-workout efficiency metrics
           items:
             type: object
-      additionalProperties: true
+            properties:
+              workout_id:
+                type: string
+              start_time_utc:
+                type: string
+                format: date-time
+              sport:
+                type: string
+              duration_min:
+                type: number
+              decoupling_pct:
+                type: number
+                description: HR drift percentage (positive = fatigue)
+              hr_drift_bpm:
+                type: number
+                description: Absolute HR drift in beats per minute
+              ef_overall:
+                type: number
+                description: Overall efficiency factor (watts/bpm or m/min/bpm)
+              ef_first_half:
+                type: number
+              ef_second_half:
+                type: number
+        summary:
+          type: object
+          properties:
+            total_samples:
+              type: integer
+            avg_decoupling:
+              type: number
+              description: Average decoupling across all workouts
+      required:
+        - athlete_id
+        - samples
   securitySchemes:
     FunctionKey:
       type: apiKey
