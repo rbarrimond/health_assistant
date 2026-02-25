@@ -8,6 +8,13 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-02-25
+
+### Semantic FIT Validation Gate
+
+- Enforce explicit semantic FIT validation before ingestion artifact generation via `BaseFitModel.validate_semantic_contract()` (exactly one `file_id`, `file_id.type == activity`, required `session` and `record` messages, non-negative `session.total_elapsed_time`, monotonic `record.timestamp`, and `activity.num_sessions` consistency when present) `[ingest v13.0.24, INGESTION_SCHEMA v15.0.21]`
+- Require semantic identity inputs to be FIT-derived and validated before `workout_id` computation in shared ingestion flow (`FitIngestionBaseHandler._parse_and_store`) `[ingest v13.0.24]`
+
 ## 2026-02-24
 
 ### Garmin Sync Duration Type Narrowing

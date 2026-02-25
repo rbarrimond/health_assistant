@@ -193,6 +193,7 @@ class BaseFitModel(BaseModel, ABC):
         1. Sport message 'sport' field
         2. Session message 'sport' field
         """
+        self._ensure_message_index()
         sport: Optional[Any] = None
 
         sport_message = (self._messages_by_type.get("sport") or [None])[0]
@@ -219,6 +220,7 @@ class BaseFitModel(BaseModel, ABC):
         1. Sport message 'sub_sport' field
         2. Session message 'sub_sport' field
         """
+        self._ensure_message_index()
 
         sub_sport: Optional[Any] = None
         sport_message = (self._messages_by_type.get("sport") or [None])[0]
@@ -557,6 +559,123 @@ class BaseFitModel(BaseModel, ABC):
         if name is not None:
             return str(name).lower()
         return str(value).lower()
+
+    def validate_semantic_contract(self) -> None:
+        """Validate required FIT semantic invariants before artifact generation."""
+        self._ensure_message_index()
+
+        file_id_messages = self._messages_by_type.get("file_id", [])
+        if len(file_id_messages) != 1:
+            raise FitParsingError(
+                "FIT semantic contract violation: expected exactly one file_id message"
+            )
+
+        file_id_type = self._field_to_lower(
+            file_id_messages[0].get_value("type", fallback=None)
+        )
+        if file_id_type != "activity":
+            raise FitParsingError(
+                "FIT semantic contract violation: file_id.type must be activity"
+            )
+
+        session_messages = self._messages_by_type.get("session", [])
+        if not session_messages:
+            raise FitParsingError(
+                "FIT semantic contract violation: missing required session message"
+            )
+
+        record_messages = self._messages_by_type.get("record", [])
+        if not record_messages:
+            raise FitParsingError(
+                "FIT semantic contract violation: missing required record message"
+            )
+
+        self._validate_session_messages(session_messages)
+        self._validate_record_timestamps(record_messages)
+        self._validate_activity_summary(session_messages)
+
+        # Enforce sport classification from FIT messages only.
+        _ = self.sport
+
+        if not self.start_time_utc:
+            raise FitParsingError(
+                "FIT semantic contract violation: unable to derive FIT-based UTC start timestamp"
+            )
+
+    def _validate_session_messages(self, session_messages: List[FitDataMessage]) -> None:
+        """Validate required session fields and numeric constraints."""
+        for session in session_messages:
+            session_timestamp = session.get_value("timestamp", fallback=None)
+            if not isinstance(session_timestamp, datetime):
+                raise FitParsingError(
+                    "FIT semantic contract violation: session.timestamp is required"
+                )
+
+            total_elapsed_time = session.get_value("total_elapsed_time", fallback=None)
+            if not isinstance(total_elapsed_time, (int, float)):
+                raise FitParsingError(
+                    "FIT semantic contract violation: session.total_elapsed_time is required"
+                )
+            if float(total_elapsed_time) < 0:
+                raise FitParsingError(
+                    "FIT semantic contract violation: session.total_elapsed_time must be non-negative"
+                )
+
+            total_timer_time = session.get_value("total_timer_time", fallback=None)
+            if not isinstance(total_timer_time, (int, float)):
+                raise FitParsingError(
+                    "FIT semantic contract violation: session.total_timer_time is required"
+                )
+
+    def _validate_record_timestamps(self, record_messages: List[FitDataMessage]) -> None:
+        """Validate record timestamp presence and monotonicity."""
+        previous_ts: Optional[datetime] = None
+        for record in record_messages:
+            timestamp = record.get_value("timestamp", fallback=None)
+            if not isinstance(timestamp, datetime):
+                raise FitParsingError(
+                    "FIT semantic contract violation: record.timestamp is required"
+                )
+
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
+
+            if previous_ts is not None and timestamp < previous_ts:
+                raise FitParsingError(
+                    "FIT semantic contract violation: record timestamps must be non-decreasing"
+                )
+
+            previous_ts = timestamp
+
+    def _validate_activity_summary(self, session_messages: List[FitDataMessage]) -> None:
+        """Validate optional activity closure message consistency when present."""
+        activity_messages = self._messages_by_type.get("activity", [])
+        if not activity_messages:
+            return
+
+        activity_message = activity_messages[0]
+        num_sessions = activity_message.get_value("num_sessions", fallback=None)
+        if isinstance(num_sessions, (int, float)):
+            if int(num_sessions) != len(session_messages):
+                raise FitParsingError(
+                    "FIT semantic contract violation: activity.num_sessions does not match parsed session count"
+                )
+
+        activity_total_timer = activity_message.get_value(
+            "total_timer_time", fallback=None
+        )
+        if isinstance(activity_total_timer, (int, float)):
+            session_total_timer = 0.0
+            for session in session_messages:
+                session_timer = session.get_value("total_timer_time", fallback=None)
+                if not isinstance(session_timer, (int, float)):
+                    return
+                session_total_timer += float(session_timer)
+
+            if abs(float(activity_total_timer) - session_total_timer) > 2.0:
+                raise FitParsingError(
+                    "FIT semantic contract violation: activity.total_timer_time does not approximately match session totals"
+                )
 
     @staticmethod
     def _parse_utc_offset_minutes(value: Optional[str]) -> Optional[int]:

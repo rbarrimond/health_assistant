@@ -4,5 +4,5 @@
 METADATA_SCHEMA_VERSION = "1.0.0"
 LAPS_SCHEMA_VERSION = "1.0.0"
 FIT_ANALYSIS_VERSION = "v1.0.0"
-INGEST_VERSION = "v13.0.19"  # (v13.0.18→v13.0.19) Derive session start_time_utc from FIT UTC timestamp minus elapsed duration; enforce no local start_time/file fallback
+INGEST_VERSION = "v13.0.24"  # (v13.0.23→v13.0.24) Enforce FIT semantic validation gate for semantic workout identity (file_id/session/record + monotonic timestamps)
 

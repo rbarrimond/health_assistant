@@ -107,6 +107,7 @@ class FitIngestionBaseHandler(ABC):
             source_metadata=source_info,
             file_bytes=file_bytes,
         )
+        model.validate_semantic_contract()
         metadata = model.build_canonical_metadata()
         source_info["normalized_source_system"] = self._normalize_source_system(
             source_info, metadata

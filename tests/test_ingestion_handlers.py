@@ -88,6 +88,7 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     expected_workout_id = "2026-01-01T00:00:00+00:00_Cycling_hash"
 
     mock_model = Mock()
+    mock_model.validate_semantic_contract.return_value = None
     mock_model.build_canonical_metadata.return_value = metadata
     mock_model.build_canonical_records.return_value = records
     mock_model.build_laps_json.return_value = laps_payload
@@ -105,6 +106,7 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     assert metrics["sport"] == "Cycling"
     # The returned workout_id should come from semantic identity computation.
     assert workout_id == expected_workout_id
+    mock_model.validate_semantic_contract.assert_called_once_with()
     
     # Verify store_workout was called with correct params
     assert storage.store_workout.call_count == 1

@@ -12,10 +12,12 @@ import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
+import pytest
 
 from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_file_hash
 from TrainingAnalyticsPlatform.ingestion.apple_workout_types import INDOOR_CYCLE
 from TrainingAnalyticsPlatform.ingestion.fit_models import HealthFitModel, PayloadFitModel
+from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 
 
 class _EnumLike:
@@ -30,6 +32,45 @@ class _MessageStub:
     def get_value(self, field_name: str, fallback: object = None) -> object:
         """Simulate FitMessage get_value method for testing."""
         return self._values.get(field_name, fallback)
+
+
+def _build_activity_fit_messages(
+    *,
+    include_file_id: bool = True,
+    include_session: bool = True,
+    include_record: bool = True,
+    file_type: str = "activity",
+    sport: str = "cycling",
+) -> dict[str, list[Any]]:
+    messages: dict[str, list[Any]] = {}
+    if include_file_id:
+        messages["file_id"] = [cast(Any, _MessageStub({"type": file_type}))]
+    if include_session:
+        messages["session"] = [
+            cast(
+                Any,
+                _MessageStub(
+                    {
+                        "sport": sport,
+                        "timestamp": datetime(2026, 2, 23, 7, 45, 0, tzinfo=timezone.utc),
+                        "total_elapsed_time": 900,
+                        "total_timer_time": 890,
+                    }
+                ),
+            )
+        ]
+    if include_record:
+        messages["record"] = [
+            cast(
+                Any,
+                _MessageStub(
+                    {
+                        "timestamp": datetime(2026, 2, 23, 7, 31, 0, tzinfo=timezone.utc),
+                    }
+                ),
+            )
+        ]
+    return messages
 
 
 class TestComputeFileHash:
@@ -118,7 +159,7 @@ class TestSemanticWorkoutIdFallbacks:
         assert model.semantic_workout_id == expected
 
     def test_healthfit_semantic_workout_id_requires_fit_start_time(self) -> None:
-        """Verify HealthFit semantic workout ID is unavailable when FIT start timestamp is missing."""
+        """Verify semantic sport must come from FIT signals, not filename tokens."""
         model = HealthFitModel(
             file_bytes=b"fit",
             source_metadata={
@@ -129,9 +170,58 @@ class TestSemanticWorkoutIdFallbacks:
         model._session_msg = None
         model._file_id_msg = None
 
-        assert model.sport == "indoor_cycling"
-        assert model.start_time_utc is None
-        assert model.semantic_workout_id is None
+        with pytest.raises(FitParsingError, match="Missing required FIT sport"):
+            _ = model.sport
+
+
+class TestFitSemanticContractValidation:
+    """Tests for BaseFitModel semantic validation contract."""
+
+    def test_validate_requires_exactly_one_file_id(self) -> None:
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
+        model._messages_loaded = True
+        model._messages_by_type = _build_activity_fit_messages(include_file_id=False)
+
+        with pytest.raises(FitParsingError, match="exactly one file_id"):
+            model.validate_semantic_contract()
+
+    def test_validate_requires_activity_file_type(self) -> None:
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
+        model._messages_loaded = True
+        model._messages_by_type = _build_activity_fit_messages(file_type="workout")
+
+        with pytest.raises(FitParsingError, match="file_id.type must be activity"):
+            model.validate_semantic_contract()
+
+    def test_validate_requires_session_and_record(self) -> None:
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
+        model._messages_loaded = True
+        model._messages_by_type = _build_activity_fit_messages(include_session=False)
+
+        with pytest.raises(FitParsingError, match="missing required session"):
+            model.validate_semantic_contract()
+
+        model._messages_by_type = _build_activity_fit_messages(include_record=False)
+        with pytest.raises(FitParsingError, match="missing required record"):
+            model.validate_semantic_contract()
+
+    def test_validate_enforces_monotonic_record_timestamps(self) -> None:
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
+        model._messages_loaded = True
+        model._messages_by_type = _build_activity_fit_messages()
+        model._messages_by_type["record"] = [
+            cast(
+                Any,
+                _MessageStub({"timestamp": datetime(2026, 2, 23, 7, 31, 0, tzinfo=timezone.utc)}),
+            ),
+            cast(
+                Any,
+                _MessageStub({"timestamp": datetime(2026, 2, 23, 7, 30, 0, tzinfo=timezone.utc)}),
+            ),
+        ]
+
+        with pytest.raises(FitParsingError, match="non-decreasing"):
+            model.validate_semantic_contract()
 
 
 class TestHealthFitTimezoneInference:
