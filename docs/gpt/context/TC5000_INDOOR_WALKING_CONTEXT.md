@@ -47,7 +47,7 @@ Intensity is determined by:
 
 ## 3. Console Metrics (TC5000)
 
-Available machine metrics:
+Available machine metrics for display:
 
 - Calories / Calories per minute
 - Time
@@ -60,8 +60,10 @@ Important: Calorie accuracy depends on:
 
 - Correct weight entry
 - Correct Workout Level input
+- Compatible (Polar brand) heart rate monitor
 
 If these are not entered accurately, calorie values are considered secondary data.
+The TC5000 is not Bluetooth or WiFI capable so this is NOT a data source.
 
 Primary physiological data source = **Apple Watch heart rate**.
 
