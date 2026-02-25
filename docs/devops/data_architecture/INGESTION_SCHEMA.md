@@ -408,7 +408,7 @@ from the semantic API.
 
 1. `Physiometrics` — body + fitness metrics (FTP, weight, LTHR)
 1. `AgentPreferences` — user training preferences
-1. `AgentObservations` — training observations
+1. `AgentObservations` — client GPT's training observations
 
 ### Azure Blob Storage
 
