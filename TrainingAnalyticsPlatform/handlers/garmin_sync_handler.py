@@ -352,11 +352,15 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
         duration_tolerance_seconds: int,
     ) -> bool:
         """Check if durations match within tolerance."""
-        if duration_sec is None or entity.get("duration_sec") is None:
+        existing_duration_raw = entity.get("duration_sec")
+        if duration_sec is None or existing_duration_raw is None:
+            return True
+
+        if not isinstance(existing_duration_raw, (int, float, str)):
             return True
         
         try:
-            existing_duration = float(entity.get("duration_sec"))
+            existing_duration = float(existing_duration_raw)
             return abs(existing_duration - duration_sec) <= duration_tolerance_seconds
         except (TypeError, ValueError):
             return True

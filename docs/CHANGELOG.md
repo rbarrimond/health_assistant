@@ -10,6 +10,41 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-02-24
 
+### Garmin Sync Duration Type Narrowing
+
+- Harden `GarminSyncDeduplicator._is_within_duration_tolerance` by narrowing `duration_sec` entity values before float coercion, resolving strict type-checker `Unknown | None` conversion errors without behavior changes.
+
+### FIT Record Accessor Cleanup
+
+- Remove redundant `BaseFitModel._get_record_value` helper and inline direct `FitDataMessage.get_value(..., fallback=None)` calls in canonical record extraction; no runtime behavior change.
+
+### Fitdecode Import Cleanup
+
+- Replace module-qualified `fitdecode.*` usage in FIT models with explicit symbol imports (`FitReader`, `FitDataMessage`, and processors) for cleaner typing and improved class readability; no runtime behavior change.
+
+### BaseFitModel Serialization Hygiene
+
+- Exclude `BaseFitModel.file_bytes` from Pydantic serialization output via field config (`exclude=True`) to prevent raw FIT payload bytes from appearing in model dumps.
+
+### BaseFitModel Shim Organization
+
+- Move `BaseFitModel._metadata_dict` to a dedicated bottom-of-class type-checker shim section to keep core ingestion/domain logic grouped first; no runtime behavior change.
+
+### BaseFitModel Lazy Private State Annotations
+
+- Refactor `BaseFitModel` FIT cache internals to explicit Pydantic `PrivateAttr` fields (`_messages`, message indexes, and core cached messages), replacing implicit mutable class defaults and manual `object.__setattr__` initialization in `__init__` `[ingest v13.0.23]`
+- Fix RR interval lazy-index guard so HRV index construction now reliably triggers message lazy-load before iterating HRV frames `[ingest v13.0.23]`
+
+### Strict FIT Sport Validation
+
+- Treat missing FIT sport (`sport` message / session `sport`) as a catastrophic parse failure by raising `FitParsingError` (`FIT_PARSING_FAILED`) in base model semantics `[ingest v13.0.22]`
+- Remove HealthFit filename-derived semantic sport fallback; semantic identity now requires FIT-native sport signals only `[ingest v13.0.22, INGESTION_SCHEMA v15.0.18]`
+
+### Workout Name Semantic Normalization
+
+- Remove redundant `sport_name` and `sub_sport_name` computed fields from FIT models; canonical semantics now use normalized `sport` and `sub_sport` only `[ingest v13.0.21]`
+- Update constructed workout-name fallback to `"<sport>-<sub_sport>-<local_start_datetime>"` (normalized lowercase), dropping legacy `file_id.type`-driven name fallback behavior in this path `[ingest v13.0.21, INGESTION_SCHEMA v15.0.17]`
+
 ### FIT Parsing Domain Error Mapping
 
 - Replace generic `RuntimeError` FIT parse wrapper with typed `FitParsingError` domain exception and preserve explicit exception chaining from fitdecode parse failures `[ingest v13.0.20]`

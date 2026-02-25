@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 15.0.16
+Version: 15.0.20
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -19,6 +19,43 @@ computed on read, with additional canonical artifacts persisted for
 archival and semantic use.
 
 This document does **not** define the workout metrics schema. See WORKOUT_SCHEMA.md for that.
+
+## Canonical Schema Source of Truth
+
+Canonical schema documentation is centralized in this document.
+
+### Canonical telemetry field schema
+
+- Canonical record field definitions are modeled by `CanonicalRecord` in `TrainingAnalyticsPlatform/models/substrate.py`.
+- `BaseFitModel.build_canonical_records()` must emit records conforming to that schema.
+- Canonical records are serialized to `{ingestion_id}/canonical.parquet`.
+
+### Canonical schema version
+
+- `canonical_schema_version` persisted in Workouts is sourced from `CANONICAL_SCHEMA_VERSION` in `TrainingAnalyticsPlatform/storage/table_storage.py`.
+- The value is attached during ingestion in `FitIngestionBaseHandler._parse_and_store()`.
+
+Current canonical schema version: `1.3.0`.
+
+### Change management contract
+
+- Any canonical telemetry field add/remove/rename/type change requires:
+  1. Bumping `CANONICAL_SCHEMA_VERSION`
+  2. Updating this document
+  3. Recording the change in `docs/CHANGELOG.md`
+- Non-breaking documentation clarifications in this file still require incrementing the document version at the top of this file.
+
+### Version registry (authoritative)
+
+All ingestion-related schema/code version constants must be documented here.
+
+| Version | Current value | Code source | Purpose |
+| --- | --- | --- | --- |
+| `INGEST_VERSION` | `v13.0.19` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
+| `CANONICAL_SCHEMA_VERSION` | `1.3.0` | `TrainingAnalyticsPlatform/storage/table_storage.py` | Canonical parquet schema version persisted to `Workouts.canonical_schema_version`. |
+| `METADATA_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `metadata.json` as `metadata_schema_version`. |
+| `LAPS_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `laps.json` as `schema_version`. |
+| `FIT_ANALYSIS_VERSION` | `v1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `fit_analysis.json` as `analysis_version`. |
 
 ---
 
@@ -106,9 +143,14 @@ Where:
 
 - `start_time_utc` is the model's computed_field (best available UTC time)
 - `normalized_sport` is normalized in this priority order:
-  1. Session `sport`
-  2. File ID `type`
-  3. OneDrive HealthFit filename activity token (when FIT sport fields are missing)
+  1. Sport message `sport` field
+  2. Session `sport` field
+
+FIT sport validity contract:
+
+- FIT files must contain a valid sport in either sport or session messages.
+- Missing sport is treated as a fatal FIT parsing failure (`FIT_PARSING_FAILED`).
+- There is no source-specific filename fallback for semantic sport.
 
 `start_time_utc` resolves in this order:
 
@@ -132,6 +174,203 @@ Timezone offset contract:
 
 `workout_id` is required for successful ingestion and is derived from semantic identity.
 If semantic ID cannot be computed, ingestion must fail.
+
+---
+
+---
+
+## FIT Semantic Contract (Required Messages)
+
+The ingestion layer enforces a strict FIT semantic contract. FIT parsing is not best-effort and does not attempt to fabricate missing semantics.
+
+This section documents the required `file_id` and `session` messages and their purpose.
+
+### file_id Message (Required)
+
+The `file_id` message defines the file-level identity and type.
+
+Required fields:
+
+- `type` — must equal `activity`
+
+Optional identity fields (normalized by BaseFitModel):
+
+- `manufacturer`
+- `product` or `garmin_product`
+- `serial_number`
+- `time_created`
+
+Device-specific fields must be normalized inside `BaseFitModel` into a single canonical device identity representation. Downstream systems must not branch on raw FIT field names such as `garmin_product`.
+
+Purpose:
+
+- Declares the FIT file category (activity vs workout vs other types).
+- Establishes device provenance.
+- Anchors the semantic interpretation of the entire file.
+
+Contract:
+
+- Files where `file_id.type != activity` must be rejected.
+- Missing `file_id` is a fatal parsing failure (`FIT_PARSING_FAILED`).
+- Ingestion must not infer file type from context or filename.
+
+Rationale:
+
+`file_id` is the root semantic declaration. Without it, the file cannot be safely interpreted as an activity.
+
+Device identity normalization contract:
+
+- If `manufacturer == garmin`, prefer `garmin_product` when present; otherwise use `product`.
+- Downstream systems must consume a single normalized `product_id` and must not reference vendor-prefixed FIT fields directly.
+- FIT protocol field names are transport-layer concerns and must not leak past `BaseFitModel`.
+
+---
+
+### session Message (Required for Activity Files)
+
+An activity FIT file must contain at least one `session` message.
+
+Required semantic fields:
+
+- `sport`
+- `total_elapsed_time`
+- `total_timer_time`
+- `timestamp`
+
+Purpose:
+
+- Defines the sport classification.
+- Provides activity-level summary metrics.
+- Defines the temporal envelope for associated records.
+- Enables deterministic semantic identity derivation.
+
+Contract:
+
+- Missing `session` is a fatal parsing failure (`FIT_PARSING_FAILED`).
+- Multiple sessions are allowed by FIT, but current ingestion expects exactly one session unless explicitly expanded to support multi-session activities.
+- Sport must be derived from FIT messages only (sport message preferred, session fallback allowed).
+- Ingestion must not infer sport from filenames or external metadata.
+
+Prohibited behaviors:
+
+- Do not fabricate a session from record timestamps.
+- Do not compute synthetic totals to replace missing session fields.
+- Do not infer sport from laps or filename tokens.
+
+Rationale:
+
+`record` messages are stateless telemetry. Without `session`, records cannot be interpreted as a coherent activity. The `session` message is the semantic anchor for sport, duration, and identity.
+
+---
+
+### activity Message (Closure Summary)
+
+If present, the `activity` message must be validated but is not currently required.
+
+Expected fields:
+
+- `num_sessions`
+- `total_timer_time`
+- `timestamp`
+
+Validation rules (if present):
+
+- `num_sessions` must equal the number of parsed session messages.
+- `total_timer_time` should approximately equal the sum of session timer times.
+
+The `activity` message acts as a file-level closure summary. It must not override session-level truth.
+
+---
+
+### Invariant Summary
+
+For `file_id.type == activity`, ingestion requires:
+
+1. Exactly one `file_id`.
+2. At least one `session`.
+3. At least one `record`.
+4. Valid sport classification from FIT messages.
+
+Violations result in HTTP 422 and domain error `FIT_PARSING_FAILED`.
+
+There are no semantic fallbacks.
+
+---
+
+### Anti-Patterns (Explicitly Forbidden)
+
+The following behaviors are prohibited because they violate FIT semantics and corrupt deterministic identity:
+
+1. **Synthetic Session Reconstruction**
+   - Do not fabricate a `session` from first/last record timestamps.
+   - Do not compute synthetic `total_elapsed_time` or `total_timer_time` when missing.
+
+2. **Sport Inference from Non-FIT Sources**
+   - Do not infer sport from filenames, directory paths, or external metadata.
+   - Do not infer sport from lap names.
+
+3. **Record-Derived Activity Identity**
+   - Do not derive semantic identity from record-only inspection if session is missing.
+   - Do not fallback to first record timestamp when session exists but is malformed.
+
+4. **Silent Field Repair**
+   - Do not silently coerce missing required FIT fields to default values.
+   - Do not replace missing timezone offsets with `UTC`.
+
+If a required semantic invariant is violated, ingestion must fail deterministically.
+
+---
+
+### Validation Checklist (BaseFitModel.validate)
+
+Before any artifact builders execute, the model must pass structural validation.
+
+Minimum validation contract for `file_id.type == activity`:
+
+1. Exactly one `file_id` message.
+2. `file_id.type == activity`.
+3. At least one `session` message.
+4. At least one `record` message.
+5. Valid sport classification from FIT `sport` or `session.sport`.
+6. Valid UTC timestamp derivable from FIT messages.
+
+Additional structural integrity checks:
+
+- Record timestamps must be monotonic (non-decreasing).
+- Session `total_elapsed_time` must be non-negative.
+- If `activity` message exists, `num_sessions` must equal parsed session count.
+
+Validation must occur prior to:
+
+- Canonical record construction
+- Semantic workout ID computation
+- Artifact generation
+
+Failure must raise domain error `FIT_PARSING_FAILED` and result in HTTP 422.
+
+---
+
+### Record-to-Session Assignment Rules
+
+`record` messages are global time-series telemetry. They do not inherently belong to a session.
+
+Session assignment must follow deterministic timestamp boundaries:
+
+1. Sort sessions by `timestamp - total_elapsed_time` (derived session start UTC).
+2. Define session time window as:
+   - `session_start_utc = session.timestamp - session.total_elapsed_time`
+   - `session_end_utc = session.timestamp`
+3. Assign each record to the session whose time window contains the record timestamp.
+
+Prohibited:
+
+- Do not assign records to sessions based on lap grouping alone.
+- Do not infer session membership from sport changes in record messages.
+- Do not assume a single session unless validated.
+
+If a record falls outside all session windows, ingestion must fail.
+
+---
 
 ---
 
@@ -213,8 +452,8 @@ from the semantic API.
   2. External source metadata activity name (e.g., Garmin API `source_activity_name`)
   3. Source-specific subclass lookup (HealthFit filename activity type)
   4. Constructed fallback:
-     - `"<Daypart> <Apple Workout Type>"` when Apple workout type can be derived from FIT sport/sub-sport
-     - otherwise `"<sport_name>-<sub_sport_name>-<local_start_datetime>"`
+  - `"<Daypart> <Apple Workout Type>"` when Apple workout type can be derived from FIT sport/sub-sport
+  - otherwise `"<sport>-<sub_sport>-<local_start_datetime>"` using normalized lowercase FIT sport fields
 - Apple workout typing contract:
   - `AppleWorkoutTypeResolver` maps only FIT `sport` + `sub_sport`
     - includes virtual mappings by sport: `("cycling", "virtual_activity") -> "Indoor Cycle"`, `("running", "virtual_activity") -> "Indoor Run"`, `("walking", "virtual_activity") -> "Indoor Walk"`
@@ -252,7 +491,7 @@ It is intentionally separate from Workouts to keep workout entities small and st
 | source_quickxor_hash | string | No | OneDrive quickXor hash for content. |
 | source_modified_at_utc | string | No | OneDrive last modified timestamp (ISO 8601 UTC). |
 | file_sha256 | string | No | SHA-256 hash of file content. |
-| ingest_version | string | Yes | Ingestion code version (e.g., `v3.0.8`). |
+| ingest_version | string | Yes | Ingestion code version (current: `v13.0.19`). |
 | ingested_at_utc | string | No | ISO 8601 UTC timestamp when status becomes `ingested`. |
 | error_message | string | No | Last error message (truncated). |
 
@@ -289,6 +528,8 @@ All other provenance fields belong in **IngestionState**.
 
 `{workout_id}/fit_analysis.json` stores deterministic FIT structure analysis output. Current schema includes:
 
+Current `analysis_version`: `v1.0.0`.
+
 - `analysis_version`
 - `message_inventory`
 - `classification_evidence`
@@ -300,6 +541,8 @@ All other provenance fields belong in **IngestionState**.
 
 `{workout_id}/metadata.json` stores deterministic metadata + LLM enrichment placeholders. Current schema includes:
 
+Current `metadata_schema_version`: `1.0.0`.
+
 - `metadata_schema_version`
 - `extracted_at_utc`
 - `raw_fit_messages`
@@ -308,6 +551,8 @@ All other provenance fields belong in **IngestionState**.
 ### Laps Artifact
 
 `{workout_id}/laps.json` stores uncompressed lap messages. Current schema includes:
+
+Current laps `schema_version`: `1.0.0`.
 
 - `schema_version`
 - `extracted_at_utc`
@@ -321,14 +566,44 @@ When FIT files do not provide an explicit timezone name or device UTC offset,
 timezone inference uses local vs UTC timestamps in the FIT messages. The
 priority order is:
 
-1. Activity `local_time` (or `local_timestamp`) vs Activity `timestamp`.
-2. Session `start_time` (local) vs Session `timestamp - total_elapsed_time`.
+1. Activity `local_timestamp` vs Activity `timestamp`, only when `local_timestamp` is not equal to FIT epoch (1989-12-31T00:00:00).
+2. Session `start_time` (local wall-clock context) vs Session `timestamp - total_elapsed_time`.
 
-This keeps FIT timestamps UTC by spec while recovering a local offset for
+This keeps FIT timestamps UTC by spec while recovering a local offset fora
 workout display and grouping.
+
+FIT epoch handling rule:
+
+- `local_timestamp` equal to FIT epoch (`1989-12-31T00:00:00`) represents an unset value and must be treated as null.
+- Epoch-equivalent values must not be used to derive timezone offsets.
 
 `Workouts.timezone` stores this recovered offset as `UTC±HH:MM` and should be
 used together with `start_time_utc` by clients when rendering local start time.
+
+---
+
+### Timestamp Trust Model (Copilot Guardrail)
+
+To prevent accidental semantic corruption, the following timestamp trust rules are mandatory:
+
+1. `session.timestamp` is canonical UTC and must never be localized or mutated.
+2. `event.timestamp` values are canonical UTC and must never be localized or mutated.
+3. `record.timestamp` values are canonical UTC and must never be localized or mutated.
+4. `session.start_time` values are canonical UTC and must never be localized or mutated.
+5. `activity.local_timestamp` is a FIT `date_time` field representing device local wall-clock context. It must NOT be treated as authoritative UTC. If it equals FIT epoch (`1989-12-31T00:00:00`), it represents an unset value and must be ignored for timezone inference.
+
+Prohibited behaviors:
+
+- Do not automatically convert UTC timestamps to local time during parsing.
+- Do not overwrite stored UTC timestamps with localized values.
+- Do not apply `local_tz_offset` to mutate stored timestamps.
+- Do not assume `activity.local_timestamp` is UTC.
+
+All timestamps persisted in storage remain UTC. Local wall-clock context is represented only via `local_tz_offset`.
+
+Any automatic timestamp localization during parsing is a semantic violation.
+
+---
 
 ---
 

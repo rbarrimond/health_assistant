@@ -12,9 +12,14 @@ from pathlib import Path
 from typing import Any, ClassVar, Dict, Iterable, List, Literal, Optional, cast, overload
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import fitdecode
+from fitdecode import (
+    DefaultDataProcessor,
+    FitDataMessage,
+    FitReader,
+    StandardUnitsDataProcessor,
+)
 from fitdecode.cmd.fitjson import RecordJSONEncoder
-from pydantic import BaseModel, computed_field, ConfigDict, Field
+from pydantic import BaseModel, computed_field, ConfigDict, Field, PrivateAttr
 from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 
 from .constants import LAPS_SCHEMA_VERSION, METADATA_SCHEMA_VERSION
@@ -53,40 +58,27 @@ class BaseFitModel(BaseModel, ABC):
     Encapsulates FIT file loading, message indexing, and metadata extraction
     using Pydantic computed fields. Subclasses handle source-specific quirks.
     """
-    
-    file_bytes: Optional[bytes] = None
-    source_metadata: Dict[str, Any] = Field(default_factory=dict)
-    
     model_config = ConfigDict(arbitrary_types_allowed=True)
     
-    @property
-    def _metadata_dict(self) -> Dict[str, Any]:
-        """Access source_metadata as properly-typed dict for type checkers."""
-        # At runtime source_metadata is always a dict, but type checkers see FieldInfo
-        return cast(Dict[str, Any], self.source_metadata)
+    source_metadata: Dict[str, Any] = Field(default_factory=dict)
+    file_bytes: Optional[bytes] = Field(default=None, exclude=True)
     
-    # Cached FIT messages (lazy-loaded)
-    _messages: List[fitdecode.FitDataMessage] = []
-    _messages_by_type: Dict[str, List[fitdecode.FitDataMessage]] = {}
-    _rr_interval_by_second: Dict[int, float] = {}
-    _file_id_msg: Optional[fitdecode.FitDataMessage] = None
-    _session_msg: Optional[fitdecode.FitDataMessage] = None
-    _messages_loaded: bool = False
+    
+    # Cached FIT messages (lazy-loaded, private model state)
+    _messages: List[FitDataMessage] = PrivateAttr(default_factory=list)
+    _messages_by_type: Dict[str, List[FitDataMessage]] = PrivateAttr(default_factory=dict)
+    _rr_interval_by_second: Dict[int, float] = PrivateAttr(default_factory=dict)
+    _file_id_msg: Optional[FitDataMessage] = PrivateAttr(default=None)
+    _session_msg: Optional[FitDataMessage] = PrivateAttr(default=None)
+    _activity_msg: Optional[FitDataMessage] = PrivateAttr(default=None)
+    _messages_loaded: bool = PrivateAttr(default=False)
     
     def __init__(self, **data: Any) -> None:
         """Initialize computed state after model creation."""
         super().__init__(**data)
         
         if self.file_bytes is None:
-            raise ValueError(ERROR_FILE_BYTES_REQUIRED)
-        
-        # Initialize mutable default fields
-        if not self._messages:
-            object.__setattr__(self, '_messages', [])
-        if not self._messages_by_type:
-            object.__setattr__(self, '_messages_by_type', {})
-        if not self._rr_interval_by_second:
-            object.__setattr__(self, '_rr_interval_by_second', {})
+            raise FitParsingError(ERROR_FILE_BYTES_REQUIRED)
     
     def _load_fit_messages(self) -> None:
         """Load FIT messages from in-memory bytes (lazy initialization)."""
@@ -97,26 +89,21 @@ class BaseFitModel(BaseModel, ABC):
         
         try:
             if self.file_bytes is None:
-                raise ValueError(ERROR_FILE_BYTES_REQUIRED)
+                raise FitParsingError(ERROR_FILE_BYTES_REQUIRED)
             stream = io.BytesIO(self.file_bytes)
             
-            messages: List[fitdecode.FitDataMessage] = []
-            messages_by_type: Dict[str, List[fitdecode.FitDataMessage]] = {}
+            messages: List[FitDataMessage] = []
+            messages_by_type: Dict[str, List[FitDataMessage]] = {}
             
             try:
-                with fitdecode.FitReader(
-                    stream,
-                    processor=fitdecode.DefaultDataProcessor(),
-                ) as reader:
+                with FitReader(stream, processor=DefaultDataProcessor()) as reader:
                     for frame in reader:
-                        if not isinstance(frame, fitdecode.FitDataMessage):
-                            continue
+                        if not isinstance(frame, FitDataMessage):
+                            continue # Skip definitions and other non-data messages
                         messages.append(frame)
                         messages_by_type.setdefault(frame.name, []).append(frame)
             except Exception as exc:
-                raise FitParsingError(
-                    f"Failed to parse FIT data: {exc}"
-                ) from exc
+                raise FitParsingError(f"Failed to parse FIT data: {exc}") from exc
             
             # Cache parsed messages
             self._messages = messages
@@ -132,7 +119,8 @@ class BaseFitModel(BaseModel, ABC):
         """Cache frequently-accessed FIT messages."""
         self._file_id_msg = (self._messages_by_type.get("file_id") or [None])[0]
         self._session_msg = (self._messages_by_type.get("session") or [None])[0]
-    
+        self._activity_msg = (self._messages_by_type.get("activity") or [None])[0]
+        
     def _ensure_message_index(self) -> None:
         """Ensure messages are loaded and indexed."""
         if not self._messages_loaded:
@@ -140,7 +128,7 @@ class BaseFitModel(BaseModel, ABC):
     
     def _ensure_rr_interval_index(self) -> None:
         """Build RR interval index for HRV data."""
-        if self._rr_interval_by_second or not self._messages_loaded:
+        if self._rr_interval_by_second:
             return
         
         self._ensure_message_index()
@@ -172,20 +160,8 @@ class BaseFitModel(BaseModel, ABC):
             return float(value)
         return None
     
-    @staticmethod
-    def _get_record_value(
-        record: fitdecode.FitDataMessage,
-        *field_names: str,
-    ) -> Optional[Any]:
-        """Get first available field value from record."""
-        for field_name in field_names:
-            value = record.get_value(field_name, fallback=None)
-            if value is not None:
-                return value
-        return None
-    
     @property
-    def messages(self) -> List[fitdecode.FitDataMessage]:
+    def messages(self) -> List[FitDataMessage]:
         """Public accessor for FIT messages."""
         self._ensure_message_index()
         return self._messages
@@ -196,14 +172,14 @@ class BaseFitModel(BaseModel, ABC):
     
     @computed_field  # type: ignore[misc]
     @property
-    def file_id_msg(self) -> Optional[fitdecode.FitDataMessage]:
+    def file_id_msg(self) -> Optional[FitDataMessage]:
         """Cached file_id message."""
         self._ensure_message_index()
         return self._file_id_msg
     
     @computed_field  # type: ignore[misc]
     @property
-    def session_msg(self) -> Optional[fitdecode.FitDataMessage]:
+    def session_msg(self) -> Optional[FitDataMessage]:
         """Cached session message."""
         self._ensure_message_index()
         return self._session_msg
@@ -214,70 +190,49 @@ class BaseFitModel(BaseModel, ABC):
         """Get normalized sport value for semantic identity.
 
         Priority:
-        1. Session message `sport`
-        2. File ID message `type`
+        1. Sport message 'sport' field
+        2. Session message 'sport' field
         """
         sport: Optional[Any] = None
-        if self.session_msg is not None:
-            sport = self.session_msg.get_value("sport", fallback=None)
 
-        if sport is None and self.file_id_msg is not None:
-            sport = self.file_id_msg.get_value("type", fallback=None)
+        sport_message = (self._messages_by_type.get("sport") or [None])[0]
+        if sport_message:
+            sport = sport_message.get_value("sport", fallback=None)
+
+        if sport is None and self.session_msg is not None:
+            sport = self.session_msg.get_value("sport", fallback=None)
 
         if sport is not None:
             if hasattr(sport, "name"):
                 return str(cast(Any, sport).name).strip().lower()
             return str(sport).strip().lower()
-        return None
+        raise FitParsingError(
+            "Missing required FIT sport value in sport/session messages"
+        )
     
     @computed_field  # type: ignore[misc]
     @property
     def sub_sport(self) -> Optional[str]:
-        """Get sub-sport type."""
-        if self.session_msg is None:
-            return None
+        """Get normalized subsport value for semantic identity.
+
+        Priority:
+        1. Sport message 'sub_sport' field
+        2. Session message 'sub_sport' field
+        """
+
+        sub_sport: Optional[Any] = None
+        sport_message = (self._messages_by_type.get("sport") or [None])[0]
+
+        if sport_message:
+            sub_sport = sport_message.get_value("sub_sport", fallback=None)
+
+        if sub_sport is None and self.session_msg is not None:
+            sub_sport = self.session_msg.get_value("sub_sport", fallback=None)
         
-        sub_sport = self.session_msg.get_value("sub_sport", fallback=None)
         if sub_sport:
             if hasattr(sub_sport, "name"):
                 return str(cast(Any, sub_sport).name).lower()
             return str(sub_sport).lower()
-        return None
-    
-    @computed_field  # type: ignore[misc]
-    @property
-    def sport_name(self) -> Optional[str]:
-        """Extract sport name from session or file_id message."""
-        if self.session_msg:
-            sport = self.session_msg.get_value("sport", fallback=None)
-            if sport is not None:
-                sport_name = getattr(sport, "name", None)
-                if sport_name:
-                    return str(sport_name)
-                return str(sport)
-        
-        if self.file_id_msg:
-            sport = self.file_id_msg.get_value("type", fallback=None)
-            if sport is not None:
-                sport_name = getattr(sport, "name", None)
-                if sport_name:
-                    return str(sport_name)
-                return str(sport)
-        
-        return None
-    
-    @computed_field  # type: ignore[misc]
-    @property
-    def sub_sport_name(self) -> Optional[str]:
-        """Extract subsport name from session message."""
-        if self.session_msg:
-            sub_sport = self.session_msg.get_value("sub_sport", fallback=None)
-            if sub_sport is not None:
-                subsport_name = getattr(sub_sport, "name", None)
-                if subsport_name:
-                    return str(subsport_name)
-                return str(sub_sport)
-        
         return None
     
     @computed_field  # type: ignore[misc]
@@ -315,7 +270,7 @@ class BaseFitModel(BaseModel, ABC):
         1. Workout message name field (from FIT file if available)
         2. API source activity name (e.g., Garmin Connect API activityName)
         3. Subclass-specific lookup (e.g., HealthFit filename activity type)
-        4. Constructed name from FIT metadata: {sport}-{subsport}-{activityID}
+        4. Constructed name from FIT metadata: {sport}-{subsport}-{local_datetime}
         
         This property ensures consistent naming priority across all source types.
         """
@@ -348,7 +303,7 @@ class BaseFitModel(BaseModel, ABC):
 
         fallback_datetime = self._fallback_datetime_label()
         parts = [
-            part for part in (self.sport_name, self.sub_sport_name, fallback_datetime)
+            part for part in (self.sport, self.sub_sport, fallback_datetime)
             if part
         ]
         if parts:
@@ -493,13 +448,19 @@ class BaseFitModel(BaseModel, ABC):
         
         Returns:
             SHA1 hex digest of "{start_time_utc}#{normalized_sport}" or None
-            if start_time or sport unavailable.
+            if start_time unavailable.
         """
+        normalized_sport = self.sport
         start_time = self.start_time_utc
-        if not start_time or not self.sport:
+        if not start_time:
             return None
-        
-        normalized_sport = str(self.sport).strip().lower()
+
+        if normalized_sport is None:
+            raise FitParsingError(
+                "Missing required FIT sport value in sport/session messages"
+            )
+
+        normalized_sport = str(normalized_sport).strip().lower()
         combined = f"{start_time}#{normalized_sport}"
         return hashlib.sha1(combined.encode()).hexdigest()
 
@@ -1053,7 +1014,7 @@ class BaseFitModel(BaseModel, ABC):
     
     def _build_canonical_record(
         self,
-        record: fitdecode.FitDataMessage,
+        record: FitDataMessage,
         start_dt: Optional[datetime],
     ) -> Optional[Dict[str, Any]]:
         """Build canonical record from FIT record message."""
@@ -1069,14 +1030,14 @@ class BaseFitModel(BaseModel, ABC):
         if start_dt is not None:
             elapsed_sec = (timestamp - start_dt).total_seconds()
         
-        power = self._get_record_value(record, "power")
-        heart_rate = self._get_record_value(record, "heart_rate")
-        cadence = self._get_record_value(record, "cadence")
-        speed = self._get_record_value(record, "speed")
+        power = record.get_value("power", fallback=None)
+        heart_rate = record.get_value("heart_rate", fallback=None)
+        cadence = record.get_value("cadence", fallback=None)
+        speed = record.get_value("speed", fallback=None)
         distance = record.get_value("distance", fallback=None)
-        elevation = self._get_record_value(record, "altitude")
-        temperature = self._get_record_value(record, "temperature")
-        lr_balance = self._get_record_value(record, "left_right_balance")
+        elevation = record.get_value("altitude", fallback=None)
+        temperature = record.get_value("temperature", fallback=None)
+        lr_balance = record.get_value("left_right_balance", fallback=None)
         
         return {
             "timestamp_utc": timestamp_utc,
@@ -1225,9 +1186,9 @@ class BaseFitModel(BaseModel, ABC):
         stream = io.BytesIO(self.file_bytes)
         
         frames = []
-        with fitdecode.FitReader(
+        with FitReader(
             stream,
-            processor=fitdecode.StandardUnitsDataProcessor(),
+            processor=StandardUnitsDataProcessor(),
             keep_raw_chunks=True
         ) as reader:
             for frame in reader:
@@ -1321,6 +1282,16 @@ class BaseFitModel(BaseModel, ABC):
         analyzer = FitStructureAnalyzer(messages=self._messages)
         return analyzer.analyze()
 
+    # ========================================================================
+    # Type-Checker Shims (organization-only, non-domain logic)
+    # ========================================================================
+
+    @property
+    def _metadata_dict(self) -> Dict[str, Any]:
+        """Access source_metadata as properly-typed dict for type checkers."""
+        # Shim: runtime source_metadata is always dict, but static checkers may infer FieldInfo.
+        return cast(Dict[str, Any], self.source_metadata)
+
 
 class OneDriveFitModel(BaseFitModel, ABC):
     """Abstract model for OneDrive-sourced FIT files.
@@ -1379,26 +1350,6 @@ class HealthFitModel(OneDriveFitModel):
         """Return normalized source system name."""
         return "HealthFit"
 
-    @computed_field  # type: ignore[misc]
-    @property
-    def sport(self) -> Optional[str]:
-        """Get normalized sport with HealthFit filename fallback.
-
-        Priority:
-        1. FIT-derived sport from base model
-        2. HealthFit filename activity type
-        """
-        fit_sport = super().sport
-        if fit_sport:
-            return fit_sport
-
-        if not self.filename_activity_type:
-            return None
-
-        normalized = re.sub(r"[^a-z0-9]+", "_", self.filename_activity_type.strip().lower())
-        normalized = normalized.strip("_")
-        return normalized or None
-    
     @computed_field  # type: ignore[misc]
     @property
     def filename_components(self) -> Optional[Dict[str, str]]:
