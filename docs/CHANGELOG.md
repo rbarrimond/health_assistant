@@ -33,6 +33,12 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Expand `EfficiencyTrends` schema with detailed field descriptions (decoupling_pct, hr_drift_bpm, ef_overall, samples structure)
 - Update API preambles to explicitly state read-time computation model and deterministic behavior
 
+### API Schema Ownership Cleanup
+
+- Remove unused `ZoneDistribution` and `EfficiencyTrends` schemas from `openapi.operations.yaml` (these schemas are only used by semantic endpoints in `openapi.yaml`)
+- Update `api_docs/README.md` to clarify that the two OpenAPI specs are independent with minimal overlap (only `/api/health` endpoint appears in both)
+- Document that schemas are maintained only in specs where they're actually used, eliminating unnecessary duplication `[openapi.operations.yaml v2.0.1]`
+
 ### FIT Date-Time Normalization Removal
 
 - Remove superfluous FIT `date_time` normalization/coercion in `BaseFitModel` timestamp paths (start-time derivation, record timestamp handling, metadata timestamp serialization, and HealthFit FIT-message start extraction), preserving decoded timezone awareness as provided by fitdecode; add explicit consistent-awareness validation for record timestamp ordering `[ingest v13.0.26, INGESTION_SCHEMA v15.0.23]`

@@ -22,7 +22,12 @@ This directory contains the OpenAPI specifications for the Health Assistant API.
 
 ## Why Two Specs?
 
-ChatGPT Actions has a limit of 30 operations per OpenAPI specification. The semantic read API was split into a separate file to stay under this limit while preserving the full operational spec for internal use.
+ChatGPT Actions has a limit of 30 operations per OpenAPI specification. The two specs serve different purposes:
+
+- **openapi.yaml**: Semantic/read endpoints optimized for GPT Actions (17 operations)
+- **openapi.operations.yaml**: Administrative/operational endpoints (17 operations)
+
+The specs are **independent** with minimal overlap (only `/api/health` appears in both). Each maintains only the schemas required by its endpoints, avoiding unnecessary duplication.
 
 ## Endpoint Categorization
 
@@ -41,9 +46,9 @@ ChatGPT Actions has a limit of 30 operations per OpenAPI specification. The sema
 
 ### Operations/Admin (openapi.operations.yaml)
 
-All semantic endpoints plus:
+Administrative and operational endpoints:
 
-- `/api/health` - Health check
+- `/api/health` - Health check (also in semantic spec)
 - `/api/agent/preferences` - GET/POST user preferences
 - `/api/agent/observations` - GET/POST training observations
 - `/api/agent/observations/{observation_id}` - PATCH observation status
