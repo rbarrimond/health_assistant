@@ -145,6 +145,7 @@ scheme (athlete_id|YYYY-MM + timestamp prefix). Logical identifiers remain
 workout_id and athlete_id as specified here.
 
 Identity Model:
+
 - `ingestion_id` is the source-system identity used for idempotency and storage paths.
 - `workout_id` is the semantic identity derived from FIT timestamps and sport.
 
