@@ -64,56 +64,50 @@ class BaseFitModel(BaseModel, ABC):
     file_bytes: Optional[bytes] = Field(default=None, exclude=True)
     
     
-    # Cached FIT messages (lazy-loaded, private model state)
+    # Cached FIT messages (initialized during model construction)
     _messages: List[FitDataMessage] = PrivateAttr(default_factory=list)
     _messages_by_type: Dict[str, List[FitDataMessage]] = PrivateAttr(default_factory=dict)
     _rr_interval_by_second: Dict[int, float] = PrivateAttr(default_factory=dict)
     _file_id_msg: Optional[FitDataMessage] = PrivateAttr(default=None)
     _session_msg: Optional[FitDataMessage] = PrivateAttr(default=None)
     _activity_msg: Optional[FitDataMessage] = PrivateAttr(default=None)
-    _messages_loaded: bool = PrivateAttr(default=False)
     
     def __init__(self, **data: Any) -> None:
-        """Initialize computed state after model creation."""
+        """Initialize parsed FIT message state at model construction time."""
         super().__init__(**data)
         
         if self.file_bytes is None:
             raise FitParsingError(ERROR_FILE_BYTES_REQUIRED)
-    
-    def _load_fit_messages(self) -> None:
-        """Load FIT messages from in-memory bytes (lazy initialization)."""
-        if self._messages_loaded:
-            return
-        
-        stream = None
-        
+        messages, messages_by_type = self._parse_fit_messages()
+        self._messages = messages
+        self._messages_by_type = messages_by_type
+        self._cache_core_messages()
+
+    def _parse_fit_messages(
+        self,
+    ) -> tuple[List[FitDataMessage], Dict[str, List[FitDataMessage]]]:
+        """Parse FIT messages from in-memory bytes for eager initialization."""
+        if self.file_bytes is None:
+            raise FitParsingError(ERROR_FILE_BYTES_REQUIRED)
+
+        stream = io.BytesIO(self.file_bytes)
         try:
-            if self.file_bytes is None:
-                raise FitParsingError(ERROR_FILE_BYTES_REQUIRED)
-            stream = io.BytesIO(self.file_bytes)
-            
             messages: List[FitDataMessage] = []
             messages_by_type: Dict[str, List[FitDataMessage]] = {}
-            
+
             try:
                 with FitReader(stream, processor=DefaultDataProcessor()) as reader:
                     for frame in reader:
                         if not isinstance(frame, FitDataMessage):
-                            continue # Skip definitions and other non-data messages
+                            continue
                         messages.append(frame)
                         messages_by_type.setdefault(frame.name, []).append(frame)
             except Exception as exc:
                 raise FitParsingError(f"Failed to parse FIT data: {exc}") from exc
-            
-            # Cache parsed messages
-            self._messages = messages
-            self._messages_by_type = messages_by_type
-            self._cache_core_messages()
-            self._messages_loaded = True
-            
+
+            return messages, messages_by_type
         finally:
-            if stream:
-                stream.close()
+            stream.close()
     
     def _cache_core_messages(self) -> None:
         """Cache frequently-accessed FIT messages."""
@@ -121,17 +115,11 @@ class BaseFitModel(BaseModel, ABC):
         self._session_msg = (self._messages_by_type.get("session") or [None])[0]
         self._activity_msg = (self._messages_by_type.get("activity") or [None])[0]
         
-    def _ensure_message_index(self) -> None:
-        """Ensure messages are loaded and indexed."""
-        if not self._messages_loaded:
-            self._load_fit_messages()
-    
     def _ensure_rr_interval_index(self) -> None:
         """Build RR interval index for HRV data."""
         if self._rr_interval_by_second:
             return
-        
-        self._ensure_message_index()
+
         for timestamp_sec, rr_ms in self._iter_hrv_rr_entries():
             self._rr_interval_by_second[timestamp_sec] = rr_ms
     
@@ -163,7 +151,6 @@ class BaseFitModel(BaseModel, ABC):
     @property
     def messages(self) -> List[FitDataMessage]:
         """Public accessor for FIT messages."""
-        self._ensure_message_index()
         return self._messages
     
     # ========================================================================
@@ -174,14 +161,12 @@ class BaseFitModel(BaseModel, ABC):
     @property
     def file_id_msg(self) -> Optional[FitDataMessage]:
         """Cached file_id message."""
-        self._ensure_message_index()
         return self._file_id_msg
     
     @computed_field  # type: ignore[misc]
     @property
     def session_msg(self) -> Optional[FitDataMessage]:
         """Cached session message."""
-        self._ensure_message_index()
         return self._session_msg
     
     @computed_field  # type: ignore[misc]
@@ -193,7 +178,6 @@ class BaseFitModel(BaseModel, ABC):
         1. Sport message 'sport' field
         2. Session message 'sport' field
         """
-        self._ensure_message_index()
         sport: Optional[Any] = None
 
         sport_message = (self._messages_by_type.get("sport") or [None])[0]
@@ -220,8 +204,6 @@ class BaseFitModel(BaseModel, ABC):
         1. Sport message 'sub_sport' field
         2. Session message 'sub_sport' field
         """
-        self._ensure_message_index()
-
         sub_sport: Optional[Any] = None
         sport_message = (self._messages_by_type.get("sport") or [None])[0]
 
@@ -468,7 +450,6 @@ class BaseFitModel(BaseModel, ABC):
 
     def _start_time_from_event(self) -> Optional[datetime]:
         """Return earliest event start timestamp, if present."""
-        self._ensure_message_index()
         event_messages = self._messages_by_type.get("event", [])
         candidates: List[datetime] = []
 
@@ -517,7 +498,6 @@ class BaseFitModel(BaseModel, ABC):
 
     def _start_time_from_first_record(self) -> Optional[datetime]:
         """Return the first record timestamp if present."""
-        self._ensure_message_index()
         for record in self._messages_by_type.get("record", []):
             timestamp = record.get_value("timestamp", fallback=None)
             if isinstance(timestamp, datetime):
@@ -562,8 +542,6 @@ class BaseFitModel(BaseModel, ABC):
 
     def validate_semantic_contract(self) -> None:
         """Validate required FIT semantic invariants before artifact generation."""
-        self._ensure_message_index()
-
         file_id_messages = self._messages_by_type.get("file_id", [])
         if len(file_id_messages) != 1:
             raise FitParsingError(
@@ -720,7 +698,6 @@ class BaseFitModel(BaseModel, ABC):
     def local_tz_offset(self) -> Optional[str]:
         """Get local wall-clock UTC offset from device settings or inferred signals."""
         try:
-            self._ensure_message_index()
             if not self._messages:
                 return None
             
@@ -751,7 +728,6 @@ class BaseFitModel(BaseModel, ABC):
     @property
     def device_utc_offset_minutes(self) -> Optional[int]:
         """Return device UTC offset in minutes from settings."""
-        self._ensure_message_index()
         device_settings_msg = (
             self._messages_by_type.get("device_settings") or [None]
         )[0]
@@ -786,7 +762,6 @@ class BaseFitModel(BaseModel, ABC):
     @property
     def inferred_timezone_activity(self) -> Optional[str]:
         """Infer timezone from activity local_time vs UTC timestamp."""
-        self._ensure_message_index()
         activity_msg = (self._messages_by_type.get("activity") or [None])[0]
         if not activity_msg:
             return None
@@ -911,7 +886,6 @@ class BaseFitModel(BaseModel, ABC):
     @property
     def has_gps_data(self) -> bool:
         """Check if GPS data exists in records."""
-        self._ensure_message_index()
         for record in self._messages_by_type.get("record", []):
             lat = record.get_value("position_lat", fallback=None)
             lon = record.get_value("position_long", fallback=None)
@@ -1022,8 +996,6 @@ class BaseFitModel(BaseModel, ABC):
         ):
             return
         
-        self._ensure_message_index()
-        
         file_id_mfr_code, _ = self._extract_code_and_name(file_id_manufacturer)
         file_id_prod_code, _ = self._extract_code_and_name(file_id_product)
         
@@ -1098,8 +1070,6 @@ class BaseFitModel(BaseModel, ABC):
     
     def build_canonical_records(self) -> List[Dict[str, Any]]:
         """Extract canonical substrate records for parquet storage."""
-        self._ensure_message_index()
-        
         start_dt = self._canonical_start_dt()
         
         records: List[Dict[str, Any]] = []
@@ -1238,7 +1208,6 @@ class BaseFitModel(BaseModel, ABC):
     def _build_canonical_activity_metadata(self) -> Dict[str, Any]:
         """Extract activity-level metadata from activity message."""
         metadata: Dict[str, Any] = {}
-        self._ensure_message_index()
         activity_msg = (self._messages_by_type.get("activity") or [None])[0]
         if not activity_msg:
             return metadata
@@ -1338,8 +1307,6 @@ class BaseFitModel(BaseModel, ABC):
     
     def build_metadata_messages(self) -> Dict[str, Any]:
         """Return structured FIT metadata.json with LLM enrichment placeholder."""
-        self._ensure_message_index()
-        
         message_types = {
             "file_id",
             "file_creator",
@@ -1381,8 +1348,6 @@ class BaseFitModel(BaseModel, ABC):
     
     def build_laps_json(self) -> Dict[str, Any]:
         """Return lap messages JSON artifact with schema metadata."""
-        self._ensure_message_index()
-        
         lap_messages = self._messages_by_type.get("lap", [])
         
         # Use RecordJSONEncoder for consistency
@@ -1397,7 +1362,6 @@ class BaseFitModel(BaseModel, ABC):
 
     def build_fit_analysis(self) -> Dict[str, Any]:
         """Return FIT structure analysis using FitStructureAnalyzer."""
-        self._ensure_message_index()
         analyzer = FitStructureAnalyzer(messages=self._messages)
         return analyzer.analyze()
 
@@ -1607,8 +1571,6 @@ class HealthFitModel(OneDriveFitModel):
         5. Unknown -> None
         """
         try:
-            self._ensure_message_index()
-            
             offset_minutes = self.device_utc_offset_minutes
             inferred_activity = self.inferred_timezone_activity
             inferred_session = self.inferred_timezone_session

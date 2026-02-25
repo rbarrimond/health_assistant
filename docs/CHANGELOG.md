@@ -10,6 +10,10 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-02-25
 
+### BaseFitModel Eager FIT Initialization
+
+- Parse and index FIT data messages during `BaseFitModel` instantiation instead of lazy access-time loading, and remove lazy-loading internals (`_messages_loaded`, `_load_fit_messages`, `_ensure_message_index`) from FIT model state/flow `[ingest v13.0.25, INGESTION_SCHEMA v15.0.22]`
+
 ### Semantic FIT Validation Gate
 
 - Enforce explicit semantic FIT validation before ingestion artifact generation via `BaseFitModel.validate_semantic_contract()` (exactly one `file_id`, `file_id.type == activity`, required `session` and `record` messages, non-negative `session.total_elapsed_time`, monotonic `record.timestamp`, and `activity.num_sessions` consistency when present) `[ingest v13.0.24, INGESTION_SCHEMA v15.0.21]`

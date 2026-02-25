@@ -16,7 +16,7 @@ import pytest
 
 from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_file_hash
 from TrainingAnalyticsPlatform.ingestion.apple_workout_types import INDOOR_CYCLE
-from TrainingAnalyticsPlatform.ingestion.fit_models import HealthFitModel, PayloadFitModel
+from TrainingAnalyticsPlatform.ingestion.fit_models import BaseFitModel, HealthFitModel, PayloadFitModel
 from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 
 
@@ -32,6 +32,16 @@ class _MessageStub:
     def get_value(self, field_name: str, fallback: object = None) -> object:
         """Simulate FitMessage get_value method for testing."""
         return self._values.get(field_name, fallback)
+
+
+@pytest.fixture(autouse=True)
+def _stub_fit_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub FIT parsing so tests can focus on semantic behavior."""
+    monkeypatch.setattr(
+        BaseFitModel,
+        "_parse_fit_messages",
+        lambda self: ([], {}),
+    )
 
 
 def _build_activity_fit_messages(
@@ -117,7 +127,6 @@ class TestSemanticWorkoutIdFallbacks:
     def test_semantic_workout_id_uses_session_sport_when_file_id_missing(self) -> None:
         """Verify that when file_id is missing, session UTC timestamp math and session sport drive workout ID."""
         model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
-        model._messages_loaded = True
         model._session_msg = cast(
             Any,
             _MessageStub(
@@ -139,7 +148,6 @@ class TestSemanticWorkoutIdFallbacks:
     def test_semantic_workout_id_uses_session_timestamp_when_start_time_missing(self) -> None:
         """Verify session-derived start uses timestamp minus elapsed duration."""
         model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
-        model._messages_loaded = True
         model._session_msg = cast(
             Any,
             _MessageStub(
@@ -166,7 +174,6 @@ class TestSemanticWorkoutIdFallbacks:
                 "source_file_name": "2026-02-17-202435-Indoor Cycling-RunGap.fit",
             },
         )
-        model._messages_loaded = True
         model._session_msg = None
         model._file_id_msg = None
 
@@ -179,7 +186,6 @@ class TestFitSemanticContractValidation:
 
     def test_validate_requires_exactly_one_file_id(self) -> None:
         model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
-        model._messages_loaded = True
         model._messages_by_type = _build_activity_fit_messages(include_file_id=False)
 
         with pytest.raises(FitParsingError, match="exactly one file_id"):
@@ -187,7 +193,6 @@ class TestFitSemanticContractValidation:
 
     def test_validate_requires_activity_file_type(self) -> None:
         model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
-        model._messages_loaded = True
         model._messages_by_type = _build_activity_fit_messages(file_type="workout")
 
         with pytest.raises(FitParsingError, match="file_id.type must be activity"):
@@ -195,7 +200,6 @@ class TestFitSemanticContractValidation:
 
     def test_validate_requires_session_and_record(self) -> None:
         model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
-        model._messages_loaded = True
         model._messages_by_type = _build_activity_fit_messages(include_session=False)
 
         with pytest.raises(FitParsingError, match="missing required session"):
@@ -207,7 +211,6 @@ class TestFitSemanticContractValidation:
 
     def test_validate_enforces_monotonic_record_timestamps(self) -> None:
         model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
-        model._messages_loaded = True
         model._messages_by_type = _build_activity_fit_messages()
         model._messages_by_type["record"] = [
             cast(
@@ -235,7 +238,6 @@ class TestHealthFitTimezoneInference:
                 "source_file_name": "2026-02-17-202435-Indoor Cycling-RunGap.fit",
             },
         )
-        model._messages_loaded = True
         model._session_msg = cast(
             Any,
             _MessageStub(
@@ -257,7 +259,6 @@ class TestSessionTimeMathSemantics:
     def test_session_uses_utc_math_for_start_and_local_math_for_offset(self) -> None:
         """Ensure start_time_utc and local_tz_offset are derived from the correct session fields."""
         model = HealthFitModel(file_bytes=b"fit", source_metadata={})
-        model._messages_loaded = True
         model._session_msg = cast(
             Any,
             _MessageStub(
@@ -307,7 +308,6 @@ class TestHealthFitWorkoutTypeParsing:
                 "source_file_name": "2026-02-17-202435-Indoor Cycling-RunGap.fit",
             },
         )
-        model._messages_loaded = True
         model._session_msg = None
         model._file_id_msg = None
 
@@ -322,7 +322,6 @@ class TestHealthFitWorkoutTypeParsing:
                 "source_file_name": "2026-02-17-202435-Indoor-Cycling-RunGap.fit",
             },
         )
-        model._messages_loaded = True
         model._session_msg = None
         model._file_id_msg = None
 
@@ -337,7 +336,6 @@ class TestHealthFitWorkoutTypeParsing:
                 "source_file_name": "2026-02-17-202435-Indoor Cycling-RunGap.fit",
             },
         )
-        model._messages_loaded = True
         model._session_msg = cast(
             Any,
             _MessageStub(
@@ -357,7 +355,6 @@ class TestHealthFitWorkoutTypeParsing:
             file_bytes=b"fit",
             source_metadata={},
         )
-        model._messages_loaded = True
         model._session_msg = cast(
             Any,
             _MessageStub(
@@ -378,7 +375,6 @@ class TestConstructedWorkoutNameFallbacks:
     def test_constructed_workout_name_uses_daypart_and_apple_type_when_available(self) -> None:
         """Verify that constructed workout name uses daypart and Apple workout type when filename tokens are present."""
         model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
-        model._messages_loaded = True
         model._session_msg = cast(
             Any,
             _MessageStub(
@@ -397,7 +393,6 @@ class TestConstructedWorkoutNameFallbacks:
     def test_constructed_workout_name_falls_back_to_fit_fields_and_datetime(self) -> None:
         """Verify that constructed workout name falls back to FIT fields and datetime when filename tokens are missing."""
         model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
-        model._messages_loaded = True
         model._session_msg = cast(
             Any,
             _MessageStub(
