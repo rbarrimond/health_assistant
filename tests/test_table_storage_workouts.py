@@ -42,8 +42,8 @@ class TestStoreWorkoutPartitioning:
         assert entity["local_tz_offset"] == "UTC+00:00"
         assert entity["timezone"] == "UTC+00:00"
 
-    def test_store_workout_accepts_legacy_precise_only_start_time(self) -> None:
-        """Verify legacy start_time_utc_precise metadata can still derive partitioning."""
+    def test_store_workout_uses_unknown_partition_without_start_time(self) -> None:
+        """Verify missing start_time_utc falls back to unknown partitioning."""
         storage = WorkoutTableStorage.__new__(WorkoutTableStorage)
         mock_table_client = MagicMock()
         storage._get_table_client = MagicMock(return_value=mock_table_client)
@@ -55,7 +55,6 @@ class TestStoreWorkoutPartitioning:
             "source_item_id": "onedrive:item-2",
         }
         metadata = {
-            "start_time_utc_precise": "2026-01-30T12:27:36+00:00",
             "sport": "indoor",
         }
 
@@ -68,4 +67,4 @@ class TestStoreWorkoutPartitioning:
         )
 
         entity = mock_table_client.upsert_entity.call_args[0][0]
-        assert entity["PartitionKey"] == "rob|2026-01"
+        assert entity["PartitionKey"] == "rob|unknown"

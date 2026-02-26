@@ -60,7 +60,7 @@ All ingestion-related schema/code version constants must be documented here.
 
 | Version | Current value | Code source | Purpose |
 | --- | --- | --- | --- |
-| `INGEST_VERSION` | `v13.0.27` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
+| `INGEST_VERSION` | `v13.0.28` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
 | `CANONICAL_SCHEMA_VERSION` | `1.3.0` | `TrainingAnalyticsPlatform/storage/table_storage.py` | Canonical parquet schema version persisted to `Workouts.canonical_schema_version`. |
 | `METADATA_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `metadata.json` as `metadata_schema_version`. |
 | `LAPS_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `laps.json` as `schema_version`. |
@@ -179,7 +179,7 @@ Timezone offset contract:
 
 - `start_time_utc` remains UTC and is never converted to local wall-clock time in storage.
 - `local_tz_offset` stores the local wall-clock UTC offset string when derivable (for example `UTC-05:00`).
-- `timezone` is retained as a compatibility alias of `local_tz_offset`.
+- `timezone` should prefer a valid IANA timezone name when available and fall back to `local_tz_offset` when IANA cannot be resolved.
 - Unknown local offsets must remain unset (`null`) and must not be defaulted to `UTC`.
 
 `workout_id` is required for successful ingestion and is derived from semantic identity.

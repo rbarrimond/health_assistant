@@ -469,7 +469,7 @@ class SemanticLayer:
         calories = self._infer_calories(metrics, sport)
 
         # Core summary fields
-        local_tz_offset = metrics.get("local_tz_offset") or metrics.get("timezone")
+        local_tz_offset = metrics.get("local_tz_offset")
         workout = {
             "workout_id": workout_entity.workout_id,
             "athlete_id": workout_entity.athlete_id,
@@ -479,7 +479,6 @@ class SemanticLayer:
             "is_indoor": is_indoor,
             "start_time_utc": metrics.get("start_time_utc"),
             "local_tz_offset": local_tz_offset,
-            "timezone": local_tz_offset,
             "duration_sec": metrics.get("duration_sec"),
             "moving_time_sec": metrics.get("moving_time_sec"),
             "distance_m": metrics.get("distance_m"),

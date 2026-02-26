@@ -666,7 +666,7 @@ class WorkoutTableStorage:
             raise ValueError("workout_id is required to store a workout")
 
         # Build partition and row keys
-        start_time = metadata.get("start_time_utc") or metadata.get("start_time_utc_precise", "")
+        start_time = metadata.get("start_time_utc", "")
         if start_time:
             # Extract YYYY-MM for partition
             # Azure Tables forbid '/', '\\', '#', '?' in PartitionKey/RowKey

@@ -10,6 +10,13 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-02-26
 
+### BaseFitModel Interface Tightening
+
+- **BREAKING:** Move FIT source inputs (`file_bytes`, `source_metadata`) into constructor-owned private model state in `BaseFitModel`, enforcing fail-fast eager initialization semantics at construction time
+- **BREAKING:** Remove `start_time_utc_precise` compatibility alias fallback from workout storage partition key derivation; `start_time_utc` is now the sole canonical partition timestamp source
+- Update timezone semantics so `timezone` prefers a valid IANA name and falls back to `local_tz_offset` (UTC offset string) when IANA metadata is unavailable or invalid
+- Refactor semantic/core projections to consume `local_tz_offset` directly rather than alias fallback reads from `timezone` `[ingest v13.0.28, INGESTION_SCHEMA v15.0.28]`
+
 ### FIT Semantic Streamlining
 
 - Normalize FIT device product identity using Garmin `garmin_product` preference and emit canonical `product_id` in metadata, preventing downstream reliance on vendor-prefixed fields

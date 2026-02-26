@@ -19,7 +19,7 @@ from fitdecode import (
     StandardUnitsDataProcessor,
 )
 from fitdecode.cmd.fitjson import RecordJSONEncoder
-from pydantic import BaseModel, computed_field, ConfigDict, Field, PrivateAttr
+from pydantic import BaseModel, computed_field, ConfigDict, PrivateAttr
 
 from TrainingAnalyticsPlatform.models import CanonicalRecordSet
 from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
@@ -61,11 +61,10 @@ class BaseFitModel(BaseModel, ABC):
     using Pydantic computed fields. Subclasses handle source-specific quirks.
     """
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    
-    source_metadata: Dict[str, Any] = Field(default_factory=dict)
-    file_bytes: Optional[bytes] = Field(default=None, exclude=True)
-    
-    
+
+    _source_metadata: Dict[str, Any] = PrivateAttr(default_factory=dict)
+    _file_bytes: Optional[bytes] = PrivateAttr(default=None)
+
     # Cached FIT messages (initialized during model construction)
     _messages: List[FitDataMessage] = PrivateAttr(default_factory=list)
     _messages_by_type: Dict[str, List[FitDataMessage]] = PrivateAttr(default_factory=dict)
@@ -73,11 +72,25 @@ class BaseFitModel(BaseModel, ABC):
     _session_msg: Optional[FitDataMessage] = PrivateAttr(default=None)
     _activity_msg: Optional[FitDataMessage] = PrivateAttr(default=None)
     
-    def __init__(self, **data: Any) -> None:
+    def __init__(
+        self,
+        *,
+        file_bytes: bytes,
+        source_metadata: Optional[Dict[str, Any]] = None,
+        **data: Any,
+    ) -> None:
         """Initialize parsed FIT message state at model construction time."""
         super().__init__(**data)
-        
-        if self.file_bytes is None:
+
+        self._source_metadata = cast(
+            Dict[str, Any],
+            source_metadata if isinstance(source_metadata, dict) else {},
+        )
+        if isinstance(file_bytes, bytearray):
+            file_bytes = bytes(file_bytes)
+        self._file_bytes = cast(Optional[bytes], file_bytes)
+
+        if self._file_bytes is None:
             raise FitParsingError(ERROR_FILE_BYTES_REQUIRED)
         messages, messages_by_type = self._parse_fit_messages()
         self._messages = messages
@@ -88,10 +101,10 @@ class BaseFitModel(BaseModel, ABC):
         self,
     ) -> tuple[List[FitDataMessage], Dict[str, List[FitDataMessage]]]:
         """Parse FIT messages from in-memory bytes for eager initialization."""
-        if self.file_bytes is None:
+        if self._file_bytes is None:
             raise FitParsingError(ERROR_FILE_BYTES_REQUIRED)
 
-        stream = io.BytesIO(self.file_bytes)
+        stream = io.BytesIO(self._file_bytes)
         try:
             messages: List[FitDataMessage] = []
             messages_by_type: Dict[str, List[FitDataMessage]] = {}
@@ -388,12 +401,6 @@ class BaseFitModel(BaseModel, ABC):
             return None
 
         return self._format_utc_timestamp(start_dt)
-
-    @computed_field  # type: ignore[misc]
-    @property
-    def start_time_utc_precise(self) -> Optional[str]:
-        """Backward-compatible alias for canonical start_time_utc."""
-        return self.start_time_utc
 
     @property
     def semantic_workout_id(self) -> Optional[str]:
@@ -710,10 +717,26 @@ class BaseFitModel(BaseModel, ABC):
     @computed_field  # type: ignore[misc]
     @property
     def timezone(self) -> Optional[str]:
-        """Compatibility alias for local_tz_offset.
+        """Return preferred IANA timezone name with UTC-offset fallback."""
+        for key in ("timezone", "source_timezone", "tz_name"):
+            raw_value = self._metadata_dict.get(key)
+            if not isinstance(raw_value, str):
+                continue
 
-        Deprecated semantic name retained for downstream compatibility.
-        """
+            candidate = raw_value.strip()
+            if not candidate:
+                continue
+
+            normalized = candidate.upper()
+            if normalized == "UTC" or normalized.startswith("UTC+") or normalized.startswith("UTC-"):
+                break
+
+            try:
+                ZoneInfo(candidate)
+                return candidate
+            except ZoneInfoNotFoundError:
+                break
+
         return self.local_tz_offset
     
     @computed_field  # type: ignore[misc]
@@ -1205,10 +1228,10 @@ class BaseFitModel(BaseModel, ABC):
             - return_dict=False, return_json=True: JSON string
             - return_dict=True, return_json=True: Tuple of (json_string, dict)
         """
-        if not self.file_bytes:
+        if not self._file_bytes:
             raise ValueError(ERROR_FILE_BYTES_REQUIRED)
-        
-        stream = io.BytesIO(self.file_bytes)
+
+        stream = io.BytesIO(self._file_bytes)
         
         frames = []
         with FitReader(
@@ -1309,8 +1332,7 @@ class BaseFitModel(BaseModel, ABC):
     @property
     def _metadata_dict(self) -> Dict[str, Any]:
         """Access source_metadata as properly-typed dict for type checkers."""
-        # Shim: runtime source_metadata is always dict, but static checkers may infer FieldInfo.
-        return cast(Dict[str, Any], self.source_metadata)
+        return self._source_metadata
 
 
 class OneDriveFitModel(BaseFitModel, ABC):
@@ -1322,14 +1344,28 @@ class OneDriveFitModel(BaseFitModel, ABC):
     
     file_path: Optional[str] = None
     
-    def __init__(self, **data: Any) -> None:
+    def __init__(
+        self,
+        *,
+        file_bytes: Optional[bytes] = None,
+        source_metadata: Optional[Dict[str, Any]] = None,
+        file_path: Optional[str] = None,
+        **data: Any,
+    ) -> None:
         """Load file_path into file_bytes before parent initialization."""
-        # If file_path provided, load it into file_bytes upfront
-        if data.get("file_path") and not data.get("file_bytes"):
-            with open(data["file_path"], "rb") as f:
-                data["file_bytes"] = f.read()
-        
-        super().__init__(**data)
+        if file_path and file_bytes is None:
+            with open(file_path, "rb") as f:
+                file_bytes = f.read()
+
+        if file_bytes is None:
+            raise FitParsingError(ERROR_FILE_BYTES_REQUIRED)
+
+        super().__init__(
+            file_bytes=file_bytes,
+            source_metadata=source_metadata,
+            file_path=file_path,
+            **data,
+        )
     
     @computed_field  # type: ignore[misc]
     @property
@@ -1640,7 +1676,7 @@ def create_fit_model(
     source_item_id = source_metadata.get("source_item_id", "")
     
     if source_activity_name and str(source_item_id).isdigit():
-        return GarminFitModel(
+        return cast(Any, GarminFitModel)(
             file_bytes=file_bytes,
             source_metadata=source_metadata,
         )
@@ -1649,13 +1685,13 @@ def create_fit_model(
     if source_metadata.get("source_etag") or source_metadata.get("source_drive_id"):
         # Check manufacturer code to determine if it's Apple Watch
         # For now, default to HealthFitModel (can enhance later with device detection)
-        return HealthFitModel(
+        return cast(Any, HealthFitModel)(
             file_bytes=file_bytes,
             source_metadata=source_metadata,
         )
     
     # Default: payload upload or unknown source
-    return PayloadFitModel(
+    return cast(Any, PayloadFitModel)(
         file_bytes=file_bytes,
         source_metadata=source_metadata,
     )
