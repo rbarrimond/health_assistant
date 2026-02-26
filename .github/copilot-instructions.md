@@ -1,53 +1,200 @@
-# Copilot Instructions — Workout Intelligence Agent
+# Copilot Constitution — Workout Intelligence Agent
 
-These instructions govern how Copilot should analyze and edit code in this repository, which implements a workout intelligence agent that processes workout and physiometric data. The scope is limited to code analysis and edits related to the core data processing, modeling, and versioning logic. The instructions are designed to ensure that all code changes are consistent with the project's documentation and architectural principles, and that they maintain the integrity of the data models and processing pipelines. For queries beyond this scope, revert to default Copilot behavior.
+This document governs how Copilot must behave when analyzing or modifying code in this repository.
 
-## 1. Canonical Semantics
+This system prioritizes correctness, reproducibility, semantic clarity, and long-term architectural integrity over speed, novelty, or cleverness.
 
-- The `docs/` directory is the authoritative specification for data models, invariants, pipeline stages, storage schema, and versioning policy.
-- Use [docs/README.md](../docs/README.md) to locate the right source of truth.
-- If code behavior contradicts documentation, surface the inconsistency explicitly.
-
-## 2. Documentation-First Analysis
-
-- Start with relevant files in `docs/` before analyzing implementation.
-- Reference the exact documents you relied on when proposing changes.
-- Surface mismatches instead of silently reconciling them.
-
-## 3. Architectural Discipline
-
-Prefer:
-
-- Object-oriented design (OOAD) and OOP patterns in Python for maintainable, understandable code
-- Typed models with clear contracts
-- Clear DTO boundaries
-- Idempotent functions
-- Stateless services
-- Explicit dependency injection
-
-Avoid:
-
-- Hidden coupling
-- Schema mutation without version bump
-- Side effects not logged
-- Implicit global state
-
-## 4. Versioning and Change Management
-
-- Record code changes in [docs/CHANGELOG.md](../docs/CHANGELOG.md).
-- Bump ingestion SemVer whenever changes affect ingestion, parsing, or stored workout/physiometrics schema, and update [docs/devops/data_architecture/INGESTION_SCHEMA.md](../docs/devops/data_architecture/INGESTION_SCHEMA.md).
-- For versioned Markdown files, follow the SemVer policy in that file; otherwise use standard SemVer rules.
-
-## 5. Non-Recursive Edits
-
-- Keep instruction edits scoped to the explicit request; avoid adding meta-rules that govern future edits of these instructions.
+When in conflict, prefer architectural discipline.
 
 ---
 
-## 6. Miscellaneous
+## I. Documentation Is Sovereign
 
-- This project prioritizes correctness, reproducibility, and long-term maintainability over speed of iteration.
-- When in doubt, err on the side of explicitness and clarity, even if it means more verbose code. Human legibility is paramount.
-- Preserve exception causality at abstraction boundaries. When wrapping/translating exceptions, use explicit chaining (`raise DomainError("...") from exc`) instead of raising a new exception without cause.
-- Provide a concise rationale in chat for non-trivial code changes, especially if they deviate from established patterns or documentation. This helps the user understand the reasoning and learn from the change and steer you more effectively in future interactions.
-- In Plan mode, regard questions as queries for information gathering and/or suggestions. Provide detailed answers that reference specific documentation or code sections.
+- The `docs/` directory is the authoritative source of truth.
+- Code must conform to documentation.
+- If documentation and code diverge, surface the divergence explicitly.
+- Never silently reconcile contradictions.
+
+Documentation > Assumption  
+Explicit reference > Inference  
+
+---
+
+## II. Object-Oriented Discipline Is Mandatory
+
+This system adheres to strict Object-Oriented Analysis and Design (OOAD) principles.
+
+Prefer:
+
+- Encapsulated domain models
+- Explicit contracts
+- Typed boundaries
+- Dependency injection
+- Stateless services
+- Idempotent operations
+
+Reject:
+
+- Procedural sprawl
+- Hidden coupling
+- Implicit global state
+- Cross-layer leakage
+- Schema mutation without version bump
+
+Clarity > Cleverness  
+Structure > Convenience  
+Explicitness > Implicit magic  
+
+---
+
+## III. Invariants and Versioning Are Sacred
+
+- Do not alter ingestion, parsing, storage schema, or persisted semantics without a version bump.
+- Any change affecting persisted semantics requires:
+  - SemVer bump
+  - CHANGELOG entry
+  - Schema documentation update
+- Follow SemVer rigorously. Breaking changes require a major version increment.
+
+If satisfying a requested change would violate a documented invariant, surface the violation rather than working around it.
+
+Stability > Speed  
+Integrity > Expedience  
+
+---
+
+## IV. Scope Discipline with Integrity
+
+- Edits must remain scoped to the explicit request.
+- Do not introduce speculative refactors.
+- Do not expand scope for stylistic improvements.
+
+However:
+
+If a requested change will:
+
+- Break documented invariants,
+- Violate type contracts,
+- Introduce cascading compile/runtime failures,
+- Or create architectural inconsistency,
+
+Then:
+
+1. Surface the impact explicitly.
+2. Explain what additional changes would be required to preserve system integrity.
+3. Request confirmation before widening scope.
+
+Integrity > Blind scope adherence  
+
+Silent breakage is unacceptable.  
+Silent refactor expansion is unacceptable.  
+
+---
+
+## V. Library Stewardship
+
+- Do not reimplement functionality already provided by project dependencies.
+- Review `requirements.txt` and `pyproject.toml` before introducing new utilities.
+- Prefer established, tested libraries over custom implementations.
+- Prefer existing project abstractions over introducing parallel ones.
+
+Before adding new dependencies:
+
+1. Verify the capability does not already exist.
+2. Justify why a new dependency is necessary.
+3. Avoid duplicating behavior in multiple forms.
+
+If a library abstraction conflicts with documented invariants:
+
+- Surface the mismatch explicitly.
+- Do not silently work around it.
+- Do not bend domain semantics to accommodate a library.
+
+Composition > Reinvention  
+Reuse > Novelty  
+Domain Integrity > Library Convenience  
+
+---
+
+## VI. Static Analysis and Linting Discipline
+
+- Write code that naturally satisfies linters and type checkers.
+- Prefer explicit typing over casting to silence warnings.
+- Do not use type coercion, `Any`, blanket ignores, or suppression comments to bypass legitimate structural issues.
+- Treat linter or type-check failures in production code as design signals, not annoyances.
+
+Correct modeling > Warning suppression  
+Explicit types > Casting hacks  
+
+If satisfying the linter requires architectural compromise:
+
+- Surface the tension explicitly.
+- Do not suppress the warning to “make it green.”
+
+However:
+
+- Generated test code and mechanical scaffolding may silence lint or type warnings when necessary.
+- Test code is permitted to prioritize functionality over architectural purity.
+- Lint suppression in tests must not leak into production modules.
+
+Production integrity > Test strictness  
+Signal > Silence  
+
+---
+
+## VII. Exception Semantics
+
+- Preserve exception causality at abstraction boundaries.
+- When wrapping or translating exceptions, use explicit chaining:
+
+  raise DomainError("...") from exc
+
+- Do not swallow exceptions.
+- Do not replace exceptions without preserving their cause.
+- Do not leak low-level infrastructure exceptions into domain or API layers.
+- If a new error category is required, propose extending the existing exception hierarchy in `TrainingAnalyticsPlatform/platform/exceptions.py` rather than inventing ad-hoc exception classes.
+- New exceptions must represent meaningful semantic categories, not hyper-specific runtime circumstances. Leverage exception attributes for contextual details rather than proliferating classes.
+- Avoid exception proliferation. Do not create overly granular classes such as `ValueErrorBecauseTheBigEndianMathExecutedAfterFourPM`.
+
+Hierarchy coherence > Novelty  
+Semantic taxonomy > One-off cleverness  
+
+Error transparency > Convenience  
+
+---
+
+## VIII. Human Legibility Requirement
+
+This codebase must remain readable by a senior engineer six months from now without relying on memory.
+
+Prefer:
+
+- Explicit names
+- Clear structure
+- Logical separation
+- Predictable patterns
+
+Avoid:
+
+- Clever compression
+- Abstraction for its own sake
+- Pattern overuse
+- Opaque one-liners
+
+Human comprehension > Intellectual display  
+
+---
+
+## IX. Plan Mode Discipline
+
+In Plan mode:
+
+- Treat questions as requests for analysis and clarification — not as instructions to modify the plan.
+- Answer the question directly before proposing structural changes.
+- Do not silently rewrite or expand the plan unless explicitly instructed.
+- If a question reveals a flaw in the current plan, explain the flaw and propose a revision rather than modifying it unilaterally.
+- Reference specific documentation or code sections when reasoning.
+
+Analysis > Speculation  
+Clarity > Premature optimization  
+Explanation > Silent adjustment  
