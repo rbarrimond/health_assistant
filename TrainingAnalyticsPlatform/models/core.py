@@ -30,6 +30,7 @@ All analytics follow the Canonical Analytics Surface specification (v1.1.0).
 
 # pylint: disable=line-too-long, missing-function-docstring, too-many-lines
 
+from itertools import chain
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -470,7 +471,13 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
         return df
 
     def _resample_to_1hz(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Resample DataFrame to 1 Hz."""
+        """Resample DataFrame to 1 Hz.
+        
+        Handles different aggregation strategies:
+        - mean_cols: Average values across resampling window
+        - last_cols: Forward-fill last value from previous record
+        - rr_intervals_sec: Concatenate all interval tuples in window (order-preserving)
+        """
         mean_cols = [
             col
             for col in [
@@ -485,7 +492,7 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
             if col in df
         ]
         last_cols = [col for col in ["distance_m", "elevation_m"] if col in df]
-        rr_col = "rr_interval_sec" if "rr_interval_sec" in df else None
+        rr_col = "rr_intervals_sec" if "rr_intervals_sec" in df else None
 
         mean_frame = (
             df[mean_cols].apply(pd.to_numeric, errors="coerce").resample("1s").mean()
@@ -497,11 +504,21 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
             if last_cols
             else pd.DataFrame(index=mean_frame.index)
         )
-        rr_frame = (
-            df[[rr_col]].apply(pd.to_numeric, errors="coerce").resample("1s").first()
-            if rr_col
-            else pd.DataFrame(index=mean_frame.index)
-        )
+
+        # Handle RR intervals: concatenate tuples while preserving order
+        rr_frame = pd.DataFrame(index=mean_frame.index)
+        if rr_col:
+            def concatenate_rr_tuples(group):
+                """Flatten and concatenate all RR interval tuples in resample window."""
+                # Filter out None/NaN values and concatenate tuples
+                tuples = [v for v in group if isinstance(v, tuple) and len(v) > 0]
+                if not tuples:
+                    return ()
+                return tuple(chain.from_iterable(tuples))
+
+            rr_frame[rr_col] = df[[rr_col]].resample("1s").apply(
+                lambda x: concatenate_rr_tuples(x[rr_col].values)
+            )
 
         resampled = pd.concat([mean_frame, last_frame, rr_frame], axis=1)
         return self._add_elapsed_sec_column(resampled)

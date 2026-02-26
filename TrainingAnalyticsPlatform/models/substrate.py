@@ -4,15 +4,20 @@ These models define the schema for Parquet-stored canonical workout data.
 All analytics are computed from this substrate by CanonicalAnalyticsEngine.
 """
 
+import logging
+import re
+from collections import defaultdict
 from datetime import datetime
 from functools import cached_property
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import pandas as pd
 from fitdecode import FitDataMessage
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
 from .constants import ISO_8601_UTC_DESC
+
+logger = logging.getLogger(__name__)
 
 
 class CanonicalRecord(BaseModel):
@@ -38,19 +43,36 @@ class CanonicalRecord(BaseModel):
     temperature_c: Optional[float] = Field(None)
     respiration_rate_brpm: Optional[float] = Field(None, ge=0)
     lr_balance_pct: Optional[float] = Field(None, ge=0, le=100)
-    rr_interval_sec: Optional[float] = Field(None, ge=0)
+    rr_intervals_sec: Tuple[float, ...] = Field(default=())
+
+    @field_validator("rr_intervals_sec", mode="before")
+    @classmethod
+    def validate_rr_intervals(cls, v: Any) -> Tuple[float, ...]:
+        """Validate rr_intervals_sec: ensure tuple type and all elements are non-negative."""
+        if v is None:
+            return ()
+        if isinstance(v, (list, tuple)):
+            # Convert to tuple and validate each element
+            intervals = tuple(float(x) for x in v)
+            for interval in intervals:
+                if interval < 0:
+                    raise ValueError("All RR intervals must be non-negative")
+            return intervals
+        raise ValueError("rr_intervals_sec must be a tuple or list of floats")
 
     @classmethod
     def from_fit_message(
         cls,
         msg: FitDataMessage,
         start_dt: Optional[datetime] = None,
+        rr_intervals_sec: Tuple[float, ...] = (),
     ) -> Optional["CanonicalRecord"]:
         """Build CanonicalRecord from FIT record message.
 
         Args:
             msg: FitDataMessage with name="record"
             start_dt: Workout start datetime for elapsed_sec calculation
+            rr_intervals_sec: RR intervals (in seconds) grouped to this record's 1Hz timestamp
 
         Returns:
             CanonicalRecord instance, or None if timestamp is invalid
@@ -93,7 +115,7 @@ class CanonicalRecord(BaseModel):
             temperature_c=cast(Optional[float], temperature),
             respiration_rate_brpm=None,  # Requires device-specific handling
             lr_balance_pct=cast(Optional[float], lr_balance),
-            rr_interval_sec=None,  # Sourced from HRV messages, not record messages
+            rr_intervals_sec=rr_intervals_sec,
         )
 
 
@@ -110,12 +132,14 @@ class CanonicalRecordSet(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     _messages: List[FitDataMessage] = PrivateAttr()
+    _all_messages: List[FitDataMessage] = PrivateAttr()
     _start_dt: Optional[datetime] = PrivateAttr(default=None)
 
     def __init__(
         self,
         messages: List[FitDataMessage],
         start_dt: Optional[datetime] = None,
+        all_messages: Optional[List[FitDataMessage]] = None,
         **data,
     ):
         """Initialize with raw FIT messages.
@@ -123,10 +147,12 @@ class CanonicalRecordSet(BaseModel):
         Args:
             messages: List of FitDataMessage instances (will be filtered to record messages)
             start_dt: Workout start datetime for elapsed_sec calculation
+            all_messages: Complete list of all FIT messages (used for HRV context)
             **data: Additional Pydantic model fields
         """
         super().__init__(**data)
         self._messages = messages
+        self._all_messages = all_messages or messages
         self._start_dt = start_dt
 
     @classmethod
@@ -137,7 +163,8 @@ class CanonicalRecordSet(BaseModel):
     ) -> "CanonicalRecordSet":
         """Create CanonicalRecordSet from FIT messages.
 
-        Filters messages to only include record-type messages.
+        Filters messages to only include record-type messages but retains
+        all messages for HRV context.
 
         Args:
             messages: All FIT messages from file
@@ -147,7 +174,110 @@ class CanonicalRecordSet(BaseModel):
             CanonicalRecordSet with filtered record messages
         """
         record_messages = [msg for msg in messages if msg.name == "record"]
-        return cls(messages=record_messages, start_dt=start_dt)
+        return cls(messages=record_messages, start_dt=start_dt, all_messages=messages)
+
+    def _build_hrv_interval_map(  # noqa: S3776,C901
+        self,
+        all_messages: List[FitDataMessage],
+    ) -> Dict[int, Tuple[float, ...]]:
+        """Build order-preserving map of 1Hz floor timestamps to RR interval tuples.
+
+        Processes HRV messages to extract RR intervals (already in seconds from fitdecode),
+        reconstructs beat timestamps, and groups by 1Hz canonical time grid.
+
+        **Preservation Invariants:**
+        - Stream order: Iterates HRV messages in original list order
+        - Field order: Within each message, extracts time0, time1, ... in sorted key order
+        - No re-ordering: Uses defaultdict to maintain insertion order (Python 3.7+)
+        - No drops: Beats outside record range are assigned to nearest floor timestamp
+
+        Args:
+            all_messages: Complete FIT message list (needed for anchoring derivation)
+
+        Returns:
+            Dict mapping int(floor(beat_timestamp)) → Tuple[float, ...] of intervals,
+            preserving original order within each second
+        """
+        hrv_messages = [msg for msg in all_messages if msg.name == "hrv"]
+        if not hrv_messages:
+            return {}
+
+        # Build record message index for fallback anchoring (used when HRV lacks timestamp)
+        record_messages = [msg for msg in all_messages if msg.name == "record"]
+        record_timestamps: List[datetime] = []
+        for msg in record_messages:
+            ts = msg.get_value("timestamp", fallback=None)
+            if isinstance(ts, datetime):
+                record_timestamps.append(ts)
+
+        # Map: floor(beat_timestamp_seconds) → list of RR intervals (preserving order)
+        intervals_by_floor: Dict[int, List[float]] = defaultdict(list)
+
+        for hrv_idx, hrv_msg in enumerate(hrv_messages):
+            hrv_timestamp = hrv_msg.get_value("timestamp", fallback=None)
+
+            # **Mode 1: HRV message includes timestamp (authoritative)**
+            if isinstance(hrv_timestamp, datetime):
+                # Reconstruct beat timestamps from cumulative sum of RR intervals
+                current_beat_ts = hrv_timestamp.timestamp()
+
+                # Extract time fields matching pattern time\d+ (not timestamp!)
+                # Sort by numeric suffix to preserve field order (time0, time1, ...)
+                time_fields = []
+                for field in hrv_msg.fields:
+                    match = re.match(r"^time(\d+)$", field.name)
+                    if match:
+                        time_fields.append(
+                            (int(match.group(1)), field.name, field.value)
+                        )
+
+                # Sort by numeric index
+                time_fields = sorted(time_fields, key=lambda x: x[0])
+
+                for _idx, _fname, rr_sec in time_fields:
+                    if not isinstance(rr_sec, (int, float)) or rr_sec <= 0:
+                        continue
+
+                    current_beat_ts += rr_sec
+                    floor_sec = int(current_beat_ts)
+                    intervals_by_floor[floor_sec].append(float(rr_sec))
+
+            # **Mode 2: HRV message lacks timestamp (derive from preceding record)**
+            else:
+                if not record_timestamps:
+                    logger.warning(
+                        "HRV message %d lacks timestamp and no record messages "
+                        "exist; skipping",
+                        hrv_idx,
+                    )
+                    continue
+
+                # Anchor to record immediately preceding this HRV message
+                # Find last record with timestamp ≤ current processing position
+                anchor_ts = record_timestamps[-1].timestamp()
+                current_beat_ts = anchor_ts
+
+                time_fields = []
+                for field in hrv_msg.fields:
+                    match = re.match(r"^time(\d+)$", field.name)
+                    if match:
+                        time_fields.append(
+                            (int(match.group(1)), field.name, field.value)
+                        )
+
+                # Sort by numeric index
+                time_fields = sorted(time_fields, key=lambda x: x[0])
+
+                for _idx, _fname, rr_sec in time_fields:
+                    if not isinstance(rr_sec, (int, float)) or rr_sec <= 0:
+                        continue
+
+                    current_beat_ts += rr_sec
+                    floor_sec = int(current_beat_ts)
+                    intervals_by_floor[floor_sec].append(float(rr_sec))
+
+        # Convert lists to tuples to match return type signature
+        return {floor: tuple(intervals) for floor, intervals in intervals_by_floor.items()}
 
     @cached_property
     def to_dataframe(self) -> pd.DataFrame:
@@ -160,8 +290,21 @@ class CanonicalRecordSet(BaseModel):
             DataFrame with CanonicalRecord schema, empty if no valid records
         """
         records: List[Dict[str, Any]] = []
+
+        # Build HRV interval map once for all records
+        hrv_map = self._build_hrv_interval_map(self._all_messages)
+
         for msg in self._messages:
-            record = CanonicalRecord.from_fit_message(msg, self._start_dt)
+            # Extract timestamp for HRV lookup
+            timestamp = msg.get_value("timestamp", fallback=None)
+            rr_intervals = ()
+            if isinstance(timestamp, datetime):
+                floor_sec = int(timestamp.timestamp())
+                rr_intervals = hrv_map.get(floor_sec, ())
+
+            record = CanonicalRecord.from_fit_message(
+                msg, self._start_dt, rr_intervals_sec=rr_intervals
+            )
             if record:
                 records.append(record.model_dump())
 

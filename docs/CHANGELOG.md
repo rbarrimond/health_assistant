@@ -10,6 +10,10 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-02-26
 
+### RR Intervals Multi-Value Support
+
+- **BREAKING:** Change `CanonicalRecord.rr_interval_sec` field from `Optional[float]` (scalar) to `rr_intervals_sec: Tuple[float, ...]` (immutable tuple) to support multiple RR intervals per 1 Hz record—essential for accurate HRV representation grouped by canonical time grid per [RR_Intervals_Canonical_State_Specification](docs/devops/data_architecture/RR_Intervals_Canonical_State_Specification.md); implement order-preserving HRV grouper in `CanonicalRecordSet._build_hrv_interval_map()` supporting both timestamped (FIT spec Mode 1) and un-timestamped (Mode 2) HRV messages; update `CanonicalAnalyticsEngine._resample_to_1hz()` to concatenate RR interval tuples (not `.first()`) for multi-record resampling windows; add `@field_validator("rr_intervals_sec")` to enforce tuple type and non-negative constraints `[CANONICAL_SCHEMA v1.4.0, INGESTION_SCHEMA v15.0.26]`
+
 ### Aerobic Decoupling Sign Correction
 
 - Fix aerobic decoupling formula to invert efficiency ratio from `((EF_second / EF_first) - 1) * 100` to `((EF_first / EF_second) - 1) * 100` to correctly produce positive values for fatigue/aerobic stress (bugfix aligns code with advertised contract) `[INGESTION_SCHEMA v15.0.25, CANONICAL_ANALYTICS_DETERMINISTIC_FORMULA_CONTRACT already versioned]`

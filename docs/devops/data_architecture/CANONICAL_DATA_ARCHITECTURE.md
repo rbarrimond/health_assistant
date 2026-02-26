@@ -88,7 +88,7 @@ Canonical fields include:
 - temperature_c (nullable)
 - respiration_rate_brpm (nullable)
 - lr_balance_pct (nullable)
-- rr_interval_sec (nullable)
+- rr_intervals_sec (immutable tuple of floats, default empty)
 
 This file is the authoritative substrate for all metrics.
 
