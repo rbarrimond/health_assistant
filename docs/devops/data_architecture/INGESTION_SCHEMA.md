@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 15.0.29
+Version: 15.0.30
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -60,7 +60,7 @@ All ingestion-related schema/code version constants must be documented here.
 
 | Version | Current value | Code source | Purpose |
 | --- | --- | --- | --- |
-| `INGEST_VERSION` | `v13.0.28` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
+| `INGEST_VERSION` | `v13.0.29` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
 | `CANONICAL_SCHEMA_VERSION` | `1.4.0` | `TrainingAnalyticsPlatform/storage/table_storage.py` | Canonical parquet schema version persisted to `Workouts.canonical_schema_version`. |
 | `METADATA_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `metadata.json` as `metadata_schema_version`. |
 | `LAPS_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `laps.json` as `schema_version`. |
@@ -521,7 +521,7 @@ Workouts should only store minimal provenance and canonical parquet pointers.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | source_system | string | Yes | Source system name (e.g., `HealthFit`). |
-| normalized_source_system | string | No | Normalized source classification (`HealthFit` for Apple Watch FITs, otherwise `Garmin`). |
+| normalized_source_system | string | No | Normalized source classification (`HealthFit` for Apple Watch FITs, `Garmin` for Garmin API sync, `HTTP` for direct payload uploads). |
 | source_item_id | string | No | Stable source item ID (OneDrive item ID). |
 | ingestion_id | string | No | Deterministic source-scoped ingestion identifier. |
 | canonical_schema_version | string | Yes | Canonical telemetry schema version. |

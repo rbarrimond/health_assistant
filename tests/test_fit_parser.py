@@ -406,3 +406,22 @@ class TestConstructedWorkoutNameFallbacks:
         model._file_id_msg = None
 
         assert model.workout_name == "kayaking-2026-02-23 14:30"
+
+
+class TestPayloadModelSourceNormalization:
+    """Tests for payload source normalization semantics."""
+
+    def test_payload_model_source_is_http_without_metadata(self) -> None:
+        """Verify payload uploads always normalize source system to HTTP."""
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
+
+        assert model.normalized_source_system == "HTTP"
+
+    def test_payload_model_source_is_http_even_with_source_metadata_override(self) -> None:
+        """Verify payload source normalization ignores caller-provided source_system."""
+        model = PayloadFitModel(
+            file_bytes=b"fit",
+            source_metadata={"source_system": "HealthFit"},
+        )
+
+        assert model.normalized_source_system == "HTTP"

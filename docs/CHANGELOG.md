@@ -10,6 +10,10 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-02-26
 
+### Payload Source Normalization
+
+- Force `PayloadFitModel.normalized_source_system` to always emit `HTTP`, ignoring optional caller-provided `source_system` metadata for direct payload ingests `[ingest v13.0.29, INGESTION_SCHEMA v15.0.30]`.
+
 ### Timezone Contract Clarification (Semantic vs Metadata)
 
 - Clarify semantic-layer timezone field contract: expose both `local_tz_offset` and `timezone` in workout summaries/details, with `local_tz_offset` designated for GPT/client local-time display and `timezone` reserved for metadata context.

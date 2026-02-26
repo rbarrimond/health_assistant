@@ -1654,8 +1654,8 @@ class PayloadFitModel(BaseFitModel):
     @computed_field  # type: ignore[misc]
     @property
     def normalized_source_system(self) -> str:
-        """Return normalized source system name (default to HealthFit)."""
-        return self._metadata_dict.get("source_system", "HealthFit")
+        """Return fixed normalized source system for direct HTTP payloads."""
+        return "HTTP"
 
 
 def create_fit_model(
