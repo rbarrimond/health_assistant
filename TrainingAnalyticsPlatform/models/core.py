@@ -1375,7 +1375,7 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
             "hr_drift_bpm": round(hr_drift, 1),
         }
         if ef_first > 0:
-            metrics["decoupling_pct"] = round(((ef_second / ef_first) - 1) * 100, 2)
+            metrics["decoupling_pct"] = round(((ef_first / ef_second) - 1) * 100, 2)
         return metrics
 
     def _durability_arrays(self) -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]:

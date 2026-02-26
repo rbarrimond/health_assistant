@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 15.0.24
+Version: 15.0.25
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.

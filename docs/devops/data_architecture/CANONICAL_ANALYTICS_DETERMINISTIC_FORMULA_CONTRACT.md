@@ -134,7 +134,7 @@ efficiency_factor_avg = normalized_power / hr_avg_bpm
 EF1 = NP_first_half / HR_first_half
 EF2 = NP_second_half / HR_second_half
 
-decoupling_pct = ((EF2 - EF1) / EF1) * 100
+decoupling_pct = ((EF1 / EF2) - 1) * 100
 ```
 
 ## Durability Slope

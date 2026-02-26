@@ -8,6 +8,12 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-02-26
+
+### Aerobic Decoupling Sign Correction
+
+- Fix aerobic decoupling formula to invert efficiency ratio from `((EF_second / EF_first) - 1) * 100` to `((EF_first / EF_second) - 1) * 100` to correctly produce positive values for fatigue/aerobic stress (bugfix aligns code with advertised contract) `[INGESTION_SCHEMA v15.0.25, CANONICAL_ANALYTICS_DETERMINISTIC_FORMULA_CONTRACT already versioned]`
+
 ## 2026-02-25
 
 ### Ingestion Documentation Alignment

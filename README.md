@@ -340,7 +340,7 @@ health_assistant/
 **Heart Rate Drift & Decoupling**:
 
 - HR drift percentage (first half → second half)
-- Aerobic decoupling: `((EF_second / EF_first) - 1) × 100`
+- Aerobic decoupling: `((EF_first / EF_second) - 1) × 100`
 - Decoupling threshold detection (>5% = significant aerobic stress)
 
 **Physiological Extraction**:
