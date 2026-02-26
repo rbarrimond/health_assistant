@@ -1566,22 +1566,34 @@ class HealthFitModel(OneDriveFitModel):
         """Return HealthFit filename-derived timezone offset when available."""
         return self.inferred_timezone_filename
 
-    def _source_specific_apple_workout_type(self) -> Optional[str]:
-        """Resolve Apple workout type deterministically from HealthFit filename."""
-        apple_workout_type = self.filename_apple_workout_type
-        if not apple_workout_type:
-            return None
-
-        normalized = apple_workout_type.strip().lower()
-        alias_mapped = self.HEALTHFIT_APPLE_TYPE_ALIASES.get(normalized)
-        if alias_mapped:
-            return alias_mapped
-
+    def _normalize_and_resolve_apple_type(self, raw_type: str) -> Optional[str]:
+        """Normalize and resolve raw Apple workout type to canonical form.
+        
+        Args:
+            raw_type: Raw Apple workout type string from filename
+            
+        Returns:
+            Canonical Apple workout type or None if unrecognized
+        """
+        normalized = raw_type.strip().lower()
+        
+        # Check aliases first
+        if normalized in self.HEALTHFIT_APPLE_TYPE_ALIASES:
+            return self.HEALTHFIT_APPLE_TYPE_ALIASES[normalized]
+        
+        # Check against canonical types (excluding "Other")
         for apple_type in APPLE_WORKOUT_TYPES:
             if apple_type != "Other" and apple_type.lower() == normalized:
                 return apple_type
-
+        
         return None
+
+    def _source_specific_apple_workout_type(self) -> Optional[str]:
+        """Resolve Apple workout type deterministically from HealthFit filename."""
+        raw_type = self.filename_apple_workout_type
+        if not raw_type:
+            return None
+        return self._normalize_and_resolve_apple_type(raw_type)
 
     def _allow_fit_apple_workout_fallback(self) -> bool:
         """HealthFit does not fall back to FIT sport/sub_sport for Apple workout type.
