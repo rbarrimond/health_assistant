@@ -4,5 +4,5 @@
 METADATA_SCHEMA_VERSION = "1.0.0"
 LAPS_SCHEMA_VERSION = "1.0.0"
 FIT_ANALYSIS_VERSION = "v1.0.0"
-INGEST_VERSION = "v13.0.26"  # (v13.0.25→v13.0.26) Remove FIT date_time normalization/coercion paths and preserve decoded datetime awareness as provided
+INGEST_VERSION = "v13.0.27"  # (v13.0.26→v13.0.27) Normalize device product identity, enforce FIT epoch guardrails, and emit UTC offsets consistently
 

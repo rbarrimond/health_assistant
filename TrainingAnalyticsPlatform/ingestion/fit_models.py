@@ -9,7 +9,7 @@ import re
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Iterable, List, Literal, Optional, cast, overload
+from typing import Any, ClassVar, Dict, List, Literal, Optional, cast, overload
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fitdecode import (
@@ -69,7 +69,6 @@ class BaseFitModel(BaseModel, ABC):
     # Cached FIT messages (initialized during model construction)
     _messages: List[FitDataMessage] = PrivateAttr(default_factory=list)
     _messages_by_type: Dict[str, List[FitDataMessage]] = PrivateAttr(default_factory=dict)
-    _rr_interval_by_second: Dict[int, float] = PrivateAttr(default_factory=dict)
     _file_id_msg: Optional[FitDataMessage] = PrivateAttr(default=None)
     _session_msg: Optional[FitDataMessage] = PrivateAttr(default=None)
     _activity_msg: Optional[FitDataMessage] = PrivateAttr(default=None)
@@ -117,30 +116,6 @@ class BaseFitModel(BaseModel, ABC):
         self._session_msg = (self._messages_by_type.get("session") or [None])[0]
         self._activity_msg = (self._messages_by_type.get("activity") or [None])[0]
         
-    def _ensure_rr_interval_index(self) -> None:
-        """Build RR interval index for HRV data."""
-        if self._rr_interval_by_second:
-            return
-
-        for timestamp_sec, rr_ms in self._iter_hrv_rr_entries():
-            self._rr_interval_by_second[timestamp_sec] = rr_ms
-    
-    def _iter_hrv_rr_entries(self) -> Iterable[tuple[int, float]]:
-        """Yield (timestamp_sec, rr_interval_ms) tuples from HRV messages."""
-        for hrv_msg in self._messages_by_type.get("hrv", []):
-            timestamp = hrv_msg.get_value("timestamp", fallback=None)
-            if not isinstance(timestamp, datetime):
-                continue
-            
-            timestamp_sec = int(timestamp.timestamp())
-            
-            # HRV messages can have multiple RR intervals
-            for field in hrv_msg.fields:
-                if field.name.startswith("time"):
-                    rr_value = field.value
-                    if isinstance(rr_value, (int, float)) and rr_value > 0:
-                        yield timestamp_sec, float(rr_value)
-    
     @property
     def messages(self) -> List[FitDataMessage]:
         """Public accessor for FIT messages."""
@@ -365,9 +340,14 @@ class BaseFitModel(BaseModel, ABC):
     @property
     def apple_workout_type(self) -> Optional[str]:
         """Get Apple Watch workout type using the resolver."""
+        source_specific = self._source_specific_apple_workout_type()
+        if source_specific is not None:
+            return source_specific
+        if not self._allow_fit_apple_workout_fallback():
+            return None
         resolver = AppleWorkoutTypeResolver(
             sport=self.sport,
-            sub_sport=self.sub_sport
+            sub_sport=self.sub_sport,
         )
         return resolver.resolve()
     
@@ -401,15 +381,13 @@ class BaseFitModel(BaseModel, ABC):
         start_dt = self._start_time_from_event()
         if not start_dt:
             start_dt = self._start_time_from_session()
-        if not start_dt:
+        if not start_dt and self.session_msg is None:
             start_dt = self._start_time_from_first_record()
 
         if not start_dt:
             return None
 
-        if start_dt.tzinfo is None:
-            return start_dt.isoformat()
-        return start_dt.astimezone(timezone.utc).isoformat()
+        return self._format_utc_timestamp(start_dt)
 
     @computed_field  # type: ignore[misc]
     @property
@@ -492,17 +470,6 @@ class BaseFitModel(BaseModel, ABC):
         return None
 
     @abstractmethod
-    def _start_time_from_source_specific_utc(self) -> Optional[datetime]:
-        """Return source-specific UTC start time (e.g., from filename, API metadata).
-        
-        Subclasses implement source-specific logic to extract precise start times
-        from non-FIT sources (e.g., HealthFit filename, Garmin API).
-        
-        Returns:
-            UTC datetime or None if not available from this source.
-        """
-    
-    @abstractmethod
     def _get_subclass_specific_workout_name(self) -> Optional[str]:
         """Return subclass-specific workout name lookup (e.g., from filename).
         
@@ -512,6 +479,20 @@ class BaseFitModel(BaseModel, ABC):
         Returns:
             Workout name string or None if not available from this source.
         """
+        raise NotImplementedError
+
+    @abstractmethod
+    def _source_specific_apple_workout_type(self) -> Optional[str]:
+        """Return source-specific Apple workout type when explicitly encoded."""
+        raise NotImplementedError
+
+    def _allow_fit_apple_workout_fallback(self) -> bool:
+        """Return True if FIT sport/sub_sport can be used for Apple type fallback."""
+        return True
+
+    @abstractmethod
+    def _source_specific_timezone_fallback(self) -> Optional[str]:
+        """Return source-specific timezone offset fallback when available."""
         raise NotImplementedError
 
     @staticmethod
@@ -524,6 +505,27 @@ class BaseFitModel(BaseModel, ABC):
         if name is not None:
             return str(name).lower()
         return str(value).lower()
+
+    @staticmethod
+    def _format_utc_timestamp(value: datetime) -> str:
+        """Return UTC timestamp with explicit offset in ISO 8601 format."""
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc).isoformat()
+        return value.astimezone(timezone.utc).isoformat()
+
+    def _get_file_id_product(self) -> Optional[Any]:
+        """Return normalized file_id product value, preferring garmin_product when required."""
+        if self.file_id_msg is None:
+            return None
+
+        manufacturer = self.file_id_msg.get_value("manufacturer", fallback=None)
+        product = self.file_id_msg.get_value("product", fallback=None)
+        garmin_product = self.file_id_msg.get_value("garmin_product", fallback=None)
+
+        manufacturer_code, _ = self._extract_code_and_name(manufacturer)
+        if manufacturer_code == 1 and garmin_product is not None:
+            return garmin_product
+        return product
 
     def validate_semantic_contract(self) -> None:
         """Validate required FIT semantic invariants before artifact generation."""
@@ -687,19 +689,20 @@ class BaseFitModel(BaseModel, ABC):
     def local_tz_offset(self) -> Optional[str]:
         """Get local wall-clock UTC offset from device settings or inferred signals."""
         try:
-            if not self._messages:
-                return None
-            
             offset_minutes = self.device_utc_offset_minutes
             inferred_activity = self.inferred_timezone_activity
             inferred_session = self.inferred_timezone_session
+            source_fallback = self._source_specific_timezone_fallback()
             
-            return resolve_timezone(
+            resolved = resolve_timezone(
                 tz_name=None,
                 offset_minutes=offset_minutes,
                 inferred_activity=inferred_activity,
                 inferred_session=inferred_session,
             )
+            if resolved is None and source_fallback:
+                return source_fallback
+            return resolved
         except (AttributeError, TypeError, ValueError):
             pass
         return None
@@ -1117,12 +1120,9 @@ class BaseFitModel(BaseModel, ABC):
         
         file_created = self.file_id_msg.get_value("time_created", fallback=None)
         if isinstance(file_created, datetime):
-            if file_created.tzinfo is None:
-                metadata["file_time_created_utc"] = file_created.isoformat()
-            else:
-                metadata["file_time_created_utc"] = (
-                    file_created.astimezone(timezone.utc).isoformat()
-                )
+            metadata["file_time_created_utc"] = self._format_utc_timestamp(
+                file_created
+            )
         
         file_manufacturer = self.file_id_msg.get_value("manufacturer", fallback=None)
         if file_manufacturer is not None:
@@ -1133,9 +1133,10 @@ class BaseFitModel(BaseModel, ABC):
                 else str(file_manufacturer)
             )
         
-        file_product = self.file_id_msg.get_value("product", fallback=None)
+        file_product = self._get_file_id_product()
         if file_product is not None:
             metadata["file_product"] = str(file_product)
+            metadata["product_id"] = str(file_product)
         
         file_serial = self.file_id_msg.get_value("serial_number", fallback=None)
         if file_serial is not None:
@@ -1152,12 +1153,9 @@ class BaseFitModel(BaseModel, ABC):
         
         activity_timestamp = activity_msg.get_value("timestamp", fallback=None)
         if isinstance(activity_timestamp, datetime):
-            if activity_timestamp.tzinfo is None:
-                metadata["activity_timestamp_utc"] = activity_timestamp.isoformat()
-            else:
-                metadata["activity_timestamp_utc"] = (
-                    activity_timestamp.astimezone(timezone.utc).isoformat()
-                )
+            metadata["activity_timestamp_utc"] = self._format_utc_timestamp(
+                activity_timestamp
+            )
         
         activity_local = activity_msg.get_value("local_timestamp", fallback=None)
         if isinstance(activity_local, datetime):
@@ -1485,61 +1483,36 @@ class HealthFitModel(OneDriveFitModel):
         start_dt = self._start_time_from_event()
         if not start_dt:
             start_dt = self._start_time_from_session()
-        if not start_dt:
+        if not start_dt and self.session_msg is None:
             start_dt = self._start_time_from_first_record()
         if not start_dt:
             return None
-        if start_dt.tzinfo is None:
-            return start_dt.isoformat()
-        return start_dt.astimezone(timezone.utc).isoformat()
+        return self._format_utc_timestamp(start_dt)
 
-    def _start_time_from_source_specific_utc(self) -> Optional[datetime]:
-        """HealthFit filename local time must not be used for canonical UTC start time."""
-        return None
-    
-    @computed_field  # type: ignore[misc]
-    @property
-    def local_tz_offset(self) -> Optional[str]:
-        """Override to add HealthFit filename-based timezone inference fallback.
-        
-        Priority order:
-        1. Device UTC offset (from device_settings message)
-        2. Activity local_timestamp vs UTC timestamp
-        3. Session start_time vs timestamp
-        4. HealthFit filename local time vs FIT UTC time (NEW fallback)
-        5. Unknown -> None
-        """
-        try:
-            offset_minutes = self.device_utc_offset_minutes
-            inferred_activity = self.inferred_timezone_activity
-            inferred_session = self.inferred_timezone_session
-            inferred_filename = self.inferred_timezone_filename
-            
-            # Use base resolve_timezone with filename as additional fallback
-            resolved = resolve_timezone(
-                tz_name=None,
-                offset_minutes=offset_minutes,
-                inferred_activity=inferred_activity,
-                inferred_session=inferred_session,
-            )
-            
-            # If base resolution didn't find anything, use filename inference
-            if resolved is None and inferred_filename:
-                return inferred_filename
-            
-            return resolved
-        except (AttributeError, TypeError, ValueError, ImportError):
-            pass
+    def _source_specific_timezone_fallback(self) -> Optional[str]:
+        """Return HealthFit filename-derived timezone offset when available."""
+        return self.inferred_timezone_filename
+
+    def _source_specific_apple_workout_type(self) -> Optional[str]:
+        """Resolve Apple workout type deterministically from HealthFit filename."""
+        activity_type = self.filename_activity_type
+        if not activity_type:
+            return None
+
+        normalized = activity_type.strip().lower()
+        alias_mapped = self.HEALTHFIT_APPLE_TYPE_ALIASES.get(normalized)
+        if alias_mapped:
+            return alias_mapped
+
+        for apple_type in APPLE_WORKOUT_TYPES:
+            if apple_type != "Other" and apple_type.lower() == normalized:
+                return apple_type
+
         return None
 
-    @computed_field  # type: ignore[misc]
-    @property
-    def timezone(self) -> Optional[str]:
-        """Compatibility alias for local_tz_offset.
-
-        Deprecated semantic name retained for downstream compatibility.
-        """
-        return self.local_tz_offset
+    def _allow_fit_apple_workout_fallback(self) -> bool:
+        """HealthFit does not fall back to FIT sport/sub_sport for Apple typing."""
+        return False
     
     @computed_field  # type: ignore[misc]
     @property
@@ -1597,52 +1570,6 @@ class HealthFitModel(OneDriveFitModel):
         """Return HealthFit filename activity type as workout name source."""
         return self.filename_activity_type
 
-    @computed_field  # type: ignore[misc]
-    @property
-    def apple_workout_type(self) -> Optional[str]:
-        """Resolve Apple workout type deterministically from HealthFit filename.
-
-        HealthFit is the only source with explicit Apple workout type encoded in
-        filename activity token (e.g., ``Indoor Cycling``). Resolution is done
-        directly in `HealthFitModel` (source-owned semantics) with no fallback
-        to generic resolver inference.
-        """
-        activity_type = self.filename_activity_type
-        if not activity_type:
-            return None
-
-        normalized = activity_type.strip().lower()
-        alias_mapped = self.HEALTHFIT_APPLE_TYPE_ALIASES.get(normalized)
-        if alias_mapped:
-            return alias_mapped
-
-        for apple_type in APPLE_WORKOUT_TYPES:
-            if apple_type != "Other" and apple_type.lower() == normalized:
-                return apple_type
-
-        return None
-    
-    @computed_field  # type: ignore[misc]
-    @property
-    def workout_name(self) -> Optional[str]:
-        """Override to prioritize HealthFit filename activity type."""
-        # Priority 1: Workout message name
-        workout_msg_name = self._get_workout_message_name()
-        if workout_msg_name:
-            return workout_msg_name
-        
-        # Priority 2: Source activity name
-        source_activity_name = self._metadata_dict.get("source_activity_name")
-        if source_activity_name:
-            return source_activity_name
-        
-        # Priority 3: Filename activity type (HealthFit pattern)
-        if self.filename_activity_type:
-            return self.filename_activity_type
-        
-        # Priority 4: Constructed from FIT metadata
-        return self.constructed_workout_name
-
 
 class GarminFitModel(BaseFitModel):
     """Concrete model for Garmin Connect FIT files.
@@ -1657,13 +1584,17 @@ class GarminFitModel(BaseFitModel):
         """Return normalized source system name."""
         return "Garmin"
     
-    def _start_time_from_source_specific_utc(self) -> Optional[datetime]:
-        """No source-specific start time extraction for Garmin."""
-        return None
-    
     def _get_subclass_specific_workout_name(self) -> Optional[str]:
         """Return Garmin API activity name if available."""
         return self._metadata_dict.get("source_activity_name")
+
+    def _source_specific_apple_workout_type(self) -> Optional[str]:
+        """Garmin does not provide source-specific Apple workout types."""
+        return None
+
+    def _source_specific_timezone_fallback(self) -> Optional[str]:
+        """Garmin has no source-specific timezone fallback."""
+        return None
 
 
 class PayloadFitModel(BaseFitModel):
@@ -1672,12 +1603,16 @@ class PayloadFitModel(BaseFitModel):
     Accepts flexible source metadata with minimal validation.
     """
     
-    def _start_time_from_source_specific_utc(self) -> Optional[datetime]:
-        """No source-specific start time extraction for direct payloads."""
-        return None
-    
     def _get_subclass_specific_workout_name(self) -> Optional[str]:
         """No subclass-specific lookup for payload uploads."""
+        return None
+
+    def _source_specific_apple_workout_type(self) -> Optional[str]:
+        """Payload uploads do not provide source-specific Apple workout types."""
+        return None
+
+    def _source_specific_timezone_fallback(self) -> Optional[str]:
+        """Payload uploads do not provide source-specific timezone fallback."""
         return None
     
     @computed_field  # type: ignore[misc]

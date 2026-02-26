@@ -5,6 +5,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+FIT_EPOCH_LOCAL = datetime(1989, 12, 31, 0, 0, 0)
+
+
 
 def format_utc_offset(minutes: int) -> str:
     """Format minutes offset as 'UTC±HH:MM'."""
@@ -24,6 +27,10 @@ def _to_local_naive(dt: datetime) -> datetime:
     return dt.replace(tzinfo=None)
 
 
+def _is_fit_epoch_local_time(dt: datetime) -> bool:
+    return _to_local_naive(dt) == FIT_EPOCH_LOCAL
+
+
 def _normalize_offset_minutes(offset_minutes: float) -> Optional[int]:
     rounded_minutes = round(offset_minutes / 15) * 15
     if abs(offset_minutes - rounded_minutes) > 3:
@@ -41,6 +48,9 @@ def infer_timezone_from_activity(
     if not isinstance(local_time, datetime):
         return None
     if not isinstance(timestamp, datetime):
+        return None
+
+    if _is_fit_epoch_local_time(local_time):
         return None
 
     local_dt = _to_local_naive(local_time)

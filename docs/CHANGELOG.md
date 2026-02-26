@@ -10,6 +10,13 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-02-26
 
+### FIT Semantic Streamlining
+
+- Normalize FIT device product identity using Garmin `garmin_product` preference and emit canonical `product_id` in metadata, preventing downstream reliance on vendor-prefixed fields
+- Ignore FIT epoch `activity.local_timestamp` values for timezone inference and route HealthFit filename offsets through base fallback hooks
+- Emit UTC timestamps with explicit offsets (no trailing `Z`) for `start_time_utc`, `file_time_created_utc`, and `activity_timestamp_utc`
+- Consolidate Apple workout type and timezone resolution via source-specific hooks in `BaseFitModel`, removing duplicate subclass overrides `[ingest v13.0.27, INGESTION_SCHEMA v15.0.27]`
+
 ### RR Intervals Multi-Value Support
 
 - **BREAKING:** Change `CanonicalRecord.rr_interval_sec` field from `Optional[float]` (scalar) to `rr_intervals_sec: Tuple[float, ...]` (immutable tuple) to support multiple RR intervals per 1 Hz record—essential for accurate HRV representation grouped by canonical time grid per [RR_Intervals_Canonical_State_Specification](docs/devops/data_architecture/RR_Intervals_Canonical_State_Specification.md); implement order-preserving HRV grouper in `CanonicalRecordSet._build_hrv_interval_map()` supporting both timestamped (FIT spec Mode 1) and un-timestamped (Mode 2) HRV messages; update `CanonicalAnalyticsEngine._resample_to_1hz()` to concatenate RR interval tuples (not `.first()`) for multi-record resampling windows; add `@field_validator("rr_intervals_sec")` to enforce tuple type and non-negative constraints `[CANONICAL_SCHEMA v1.4.0, INGESTION_SCHEMA v15.0.26]`
