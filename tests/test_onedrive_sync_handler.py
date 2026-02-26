@@ -280,6 +280,7 @@ class TestOneDriveIngestionIdentity:
     """Test OneDrive ingestion identity requirements."""
 
     def test_resolve_ingestion_id_uses_source_item_id(self):
+        """Verify ingestion ID is extracted from source_item_id."""
         source_info = {"source_item_id": "onedrive:12345", "file_sha256": "abc"}
 
         assert (
@@ -288,6 +289,7 @@ class TestOneDriveIngestionIdentity:
         )
 
     def test_resolve_ingestion_id_requires_source_item_id(self):
+        """Verify ingestion ID resolution fails without source_item_id."""
         source_info = {"file_sha256": "abc"}
 
         with pytest.raises(
@@ -297,6 +299,7 @@ class TestOneDriveIngestionIdentity:
             OneDriveSyncIngestionHandler._resolve_ingestion_id(source_info)
 
     def test_handle_returns_error_code_on_ingestion_id_failure(self):
+        """Verify handler returns 422 with INGESTION_ID_RESOLUTION_FAILED on missing source_item_id."""
         storage = MagicMock()
         client = MagicMock()
         handler = OneDriveSyncIngestionHandler(storage=storage, client=client)
@@ -318,6 +321,7 @@ class TestOneDriveIngestionIdentity:
         assert body["error_code"] == "INGESTION_ID_RESOLUTION_FAILED"
 
     def test_handle_returns_error_code_on_workout_id_failure(self):
+        """Verify handler returns 422 with WORKOUT_ID_CALCULATION_FAILED on ID calculation error."""
         storage = MagicMock()
         context = MagicMock()
         context.should_skip.return_value = False
@@ -348,6 +352,7 @@ class TestOneDriveIngestionIdentity:
         assert body["error_code"] == "WORKOUT_ID_CALCULATION_FAILED"
 
     def test_handle_returns_error_code_on_fit_parsing_failure(self):
+        """Verify handler returns error code on FIT parsing failure."""
         storage = MagicMock()
         context = MagicMock()
         context.should_skip.return_value = False

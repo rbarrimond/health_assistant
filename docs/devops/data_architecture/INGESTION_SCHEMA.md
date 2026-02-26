@@ -92,6 +92,7 @@ FIT parsing uses a hierarchical Pydantic model architecture with factory-based i
 - **HealthFitModel**: Apple Watch FITs exported via HealthFit app
   - Parses HealthFit filename pattern (YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz])
   - Treats HealthFit filename `YYYY-MM-DD-HHMMSS` timestamp as recording-device local time (not UTC)
+  - **Semantic override**: Infers `apple_workout_type` deterministically from HealthFit filename activity token (not FIT signals)
 - **GarminFitModel**: FIT files from Garmin Connect API sync
 - **PayloadFitModel**: Generic fallback for other sources
 
@@ -461,10 +462,15 @@ from the semantic API.
   4. Constructed fallback:
   - `"<Daypart> <Apple Workout Type>"` when Apple workout type can be derived from FIT sport/sub-sport
   - otherwise `"<sport>-<sub_sport>-<local_start_datetime>"` using normalized lowercase FIT sport fields
-- Apple workout typing contract:
-  - `AppleWorkoutTypeResolver` maps only FIT `sport` + `sub_sport`
-    - includes virtual mappings by sport: `("cycling", "virtual_activity") -> "Indoor Cycle"`, `("running", "virtual_activity") -> "Indoor Run"`, `("walking", "virtual_activity") -> "Indoor Walk"`
-  - `HealthFitModel` resolves Apple workout type from HealthFit filename activity token via source-specific logic
+- Apple workout typing contract (model-specific behavior):
+  - **GarminFitModel** and **PayloadFitModel** (default behavior):
+    - Use `AppleWorkoutTypeResolver` to map FIT `sport` + `sub_sport` parameters
+    - Resolver includes virtual mappings by sport: `("cycling", "virtual_activity") -> "Indoor Cycle"`, `("running", "virtual_activity") -> "Indoor Run"`, `("walking", "virtual_activity") -> "Indoor Walk"`
+  - **HealthFitModel** (overrides default):
+    - Resolves Apple workout type **exclusively** from HealthFit filename activity token (e.g., `"Indoor Cycling"` → `INDOOR_CYCLE`)
+    - Does **not** fall back to FIT sport/sub_sport signals even if filename token is missing
+    - Uses alias mapping for variations (e.g., `"indoor-cycling"` normalizes to `"Indoor Cycling"`)
+    - Returns `None` if filename activity token is missing or unrecognized (does not infer from FIT signals)
 - `workout_id` is the stable client-facing identifier and should be **treated as immutable once created**.
 - `workout_id` is computed from semantic identity and has **no fallback**.
 - `ingestion_id` is deterministic per-source and is used for idempotency and blob storage paths.

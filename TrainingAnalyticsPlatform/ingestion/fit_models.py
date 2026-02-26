@@ -8,6 +8,7 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone, tzinfo
+from functools import cached_property
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Literal, Optional, cast, overload
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -352,7 +353,21 @@ class BaseFitModel(BaseModel, ABC):
     @computed_field  # type: ignore[misc]
     @property
     def apple_workout_type(self) -> Optional[str]:
-        """Get Apple Watch workout type using the resolver."""
+        """Get Apple Watch workout type using model-specific resolution hierarchy.
+
+        Resolution order:
+        1. Source-specific metadata (_source_specific_apple_workout_type)
+           - HealthFitModel: Filename activity token (authoritative for HealthFit)
+           - Others: None (defer to FIT signals)
+        2. If source-specific returns None AND fallback is enabled:
+           - Resolve from FIT sport/sub_sport via AppleWorkoutTypeResolver
+        3. If source-specific returns None AND fallback is disabled:
+           - Return None (no inference)
+
+        This design allows models to override the default FIT-based resolution.
+        For example, HealthFitModel uses only filename activity types and never
+        falls back to FIT signals (even if sport/sub_sport messages are present).
+        """
         source_specific = self._source_specific_apple_workout_type()
         if source_specific is not None:
             return source_specific
@@ -490,11 +505,29 @@ class BaseFitModel(BaseModel, ABC):
 
     @abstractmethod
     def _source_specific_apple_workout_type(self) -> Optional[str]:
-        """Return source-specific Apple workout type when explicitly encoded."""
+        """Return source-specific Apple workout type when explicitly encoded in metadata.
+
+        This method is called first and has priority over FIT signal resolution.
+        Subclasses can override to extract workout type from source-specific fields
+        (e.g., HealthFit filename activity token).
+
+        Returns None if workout type cannot be determined from source metadata.
+        When None is returned, resolution falls back to FIT signals based on
+        _allow_fit_apple_workout_fallback() setting.
+        """
         raise NotImplementedError
 
     def _allow_fit_apple_workout_fallback(self) -> bool:
-        """Return True if FIT sport/sub_sport can be used for Apple type fallback."""
+        """Return True if FIT sport/sub_sport can be used for Apple workout type fallback.
+
+        Controls behavior when _source_specific_apple_workout_type() returns None:
+        - True: Attempt to resolve apple_workout_type from FIT sport/sub_sport
+        - False: Return None (no FIT-based fallback)
+
+        Subclasses can override to disable FIT-based inference when the source has
+        authoritative metadata (e.g., HealthFitModel uses filename activity type
+        exclusively and does not fall back to FIT signals).
+        """
         return True
 
     @abstractmethod
@@ -872,9 +905,9 @@ class BaseFitModel(BaseModel, ABC):
         return float(calories) if isinstance(calories, (int, float)) else None
     
     @computed_field  # type: ignore[misc]
-    @property
+    @cached_property
     def device_name(self) -> Optional[str]:
-        """Get device/manufacturer and product info with validation."""
+        """Get device/manufacturer and product info with validation (cached)."""
         if self.file_id_msg is None:
             return None
         
@@ -898,9 +931,9 @@ class BaseFitModel(BaseModel, ABC):
         return None
     
     @computed_field  # type: ignore[misc]
-    @property
+    @cached_property
     def has_gps_data(self) -> bool:
-        """Check if GPS data exists in records."""
+        """Check if GPS data exists in records (cached)."""
         for record in self._messages_by_type.get("record", []):
             lat = record.get_value("position_lat", fallback=None)
             lon = record.get_value("position_long", fallback=None)
@@ -1376,7 +1409,7 @@ class OneDriveFitModel(BaseFitModel, ABC):
 
 class HealthFitModel(OneDriveFitModel):
     """Concrete model for Apple Watch FIT files exported via HealthFit.
-    
+
     Handles HealthFit-specific filename parsing, timezone inference from local time,
     and device source classification (true Apple Watch vs HealthKit synced).
     HealthFit uses pattern: YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz].
@@ -1385,6 +1418,21 @@ class HealthFitModel(OneDriveFitModel):
     Activity hyphens are normalized to spaces for Apple label resolution.
     The YYYY-MM-DD-HHMMSS filename timestamp is device-local wall-clock time
     for the recording device, not UTC.
+
+    SEMANTIC OVERRIDE - Apple Workout Type Inference:
+    =================================================
+    HealthFitModel overrides the default FIT-based apple_workout_type inference used by
+    GarminFitModel and PayloadFitModel. Instead of resolving the Apple workout type from
+    FIT sport/sub_sport messages, HealthFitModel:
+
+    1. Extracts the activity token from the filename (e.g., "Indoor Cycling")
+    2. Resolves it deterministically to an Apple workout type via HEALTHFIT_APPLE_TYPE_ALIASES
+    3. Does NOT fall back to FIT signal resolution (sport/sub_sport)
+    4. Returns None if the filename activity token is missing or unrecognized
+
+    This ensures HealthFit files use the activity type explicitly encoded in the export
+    filename, treating it as the authoritative source for workout classification.
+    FIT sport/sub_sport messages are never consulted for Apple workout type resolution.
     """
     
     # HealthFit filename pattern: YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz]
@@ -1409,9 +1457,9 @@ class HealthFitModel(OneDriveFitModel):
         return "HealthFit"
 
     @computed_field  # type: ignore[misc]
-    @property
+    @cached_property
     def filename_components(self) -> Optional[Dict[str, str]]:
-        """Parse HealthFit filename into components.
+        """Parse HealthFit filename into components (cached after first access).
 
         The parsed ``date`` and ``time`` fields represent local time on the
         recording device.
@@ -1435,13 +1483,12 @@ class HealthFitModel(OneDriveFitModel):
             return None
         
         return {
-            "date": match.group(1),           # YYYY-MM-DD (device-local)
-            "time": match.group(2),           # HHMMSS or "Nodata" (device-local)
-            "activity_type": activity_type,   # e.g., "Indoor Cycling"
-            "source_device": source_device,   # e.g., "RunGap"
+            "date": match.group(1),              # YYYY-MM-DD (device-local)
+            "time": match.group(2),              # HHMMSS or "Nodata" (device-local)
+            "apple_workout_type": activity_type, # e.g., "Indoor Cycling"
+            "source_device": source_device,      # e.g., "RunGap"
         }
     
-    @computed_field  # type: ignore[misc]
     @property
     def filename_date(self) -> Optional[str]:
         """Extract device-local date from HealthFit filename."""
@@ -1449,7 +1496,6 @@ class HealthFitModel(OneDriveFitModel):
             return self.filename_components["date"]
         return None
     
-    @computed_field  # type: ignore[misc]
     @property
     def filename_time(self) -> Optional[str]:
         """Extract device-local time from HealthFit filename."""
@@ -1457,15 +1503,13 @@ class HealthFitModel(OneDriveFitModel):
             return self.filename_components["time"]
         return None
     
-    @computed_field  # type: ignore[misc]
     @property
-    def filename_activity_type(self) -> Optional[str]:
-        """Extract activity type from HealthFit filename."""
+    def filename_apple_workout_type(self) -> Optional[str]:
+        """Extract Apple Workout Type from HealthFit filename."""
         if self.filename_components:
-            return self.filename_components["activity_type"]
+            return self.filename_components["apple_workout_type"]
         return None
     
-    @computed_field  # type: ignore[misc]
     @property
     def filename_source_device(self) -> Optional[str]:
         """Extract source device from HealthFit filename."""
@@ -1524,11 +1568,11 @@ class HealthFitModel(OneDriveFitModel):
 
     def _source_specific_apple_workout_type(self) -> Optional[str]:
         """Resolve Apple workout type deterministically from HealthFit filename."""
-        activity_type = self.filename_activity_type
-        if not activity_type:
+        apple_workout_type = self.filename_apple_workout_type
+        if not apple_workout_type:
             return None
 
-        normalized = activity_type.strip().lower()
+        normalized = apple_workout_type.strip().lower()
         alias_mapped = self.HEALTHFIT_APPLE_TYPE_ALIASES.get(normalized)
         if alias_mapped:
             return alias_mapped
@@ -1540,7 +1584,13 @@ class HealthFitModel(OneDriveFitModel):
         return None
 
     def _allow_fit_apple_workout_fallback(self) -> bool:
-        """HealthFit does not fall back to FIT sport/sub_sport for Apple typing."""
+        """HealthFit does not fall back to FIT sport/sub_sport for Apple workout type.
+
+        HealthFit exports include explicit activity type in the filename, which is
+        treated as the authoritative source. If the filename activity token cannot
+        be parsed or recognized, we return None rather than inferring from FIT
+        signals. This ensures deterministic, explicit workout type classification.
+        """
         return False
     
     @computed_field  # type: ignore[misc]
@@ -1596,8 +1646,8 @@ class HealthFitModel(OneDriveFitModel):
         return "unknown"
     
     def _get_subclass_specific_workout_name(self) -> Optional[str]:
-        """Return HealthFit filename activity type as workout name source."""
-        return self.filename_activity_type
+        """Return HealthFit filename Apple Workout Type as workout name source."""
+        return self.filename_apple_workout_type
 
 
 class GarminFitModel(BaseFitModel):

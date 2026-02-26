@@ -126,7 +126,7 @@ class TestSemanticWorkoutIdFallbacks:
 
     def test_semantic_workout_id_uses_session_sport_when_file_id_missing(self) -> None:
         """Verify that when file_id is missing, session UTC timestamp math and session sport drive workout ID."""
-        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
         model._session_msg = cast(
             Any,
             _MessageStub(
@@ -147,7 +147,7 @@ class TestSemanticWorkoutIdFallbacks:
 
     def test_semantic_workout_id_uses_session_timestamp_when_start_time_missing(self) -> None:
         """Verify session-derived start uses timestamp minus elapsed duration."""
-        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
         model._session_msg = cast(
             Any,
             _MessageStub(
@@ -169,8 +169,8 @@ class TestSemanticWorkoutIdFallbacks:
     def test_healthfit_semantic_workout_id_requires_fit_start_time(self) -> None:
         """Verify semantic sport must come from FIT signals, not filename tokens."""
         model = HealthFitModel(
-            file_bytes=b"fit",
-            source_metadata={
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
                 "source_file_name": "2026-02-17-202435-Indoor Cycling-RunGap.fit",
             },
         )
@@ -185,21 +185,24 @@ class TestFitSemanticContractValidation:
     """Tests for BaseFitModel semantic validation contract."""
 
     def test_validate_requires_exactly_one_file_id(self) -> None:
-        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
+        """Verify validation fails when file_id message is missing."""
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
         model._messages_by_type = _build_activity_fit_messages(include_file_id=False)
 
         with pytest.raises(FitParsingError, match="exactly one file_id"):
             model.validate_semantic_contract()
 
     def test_validate_requires_activity_file_type(self) -> None:
-        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
+        """Verify validation fails when file_type is not activity."""
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
         model._messages_by_type = _build_activity_fit_messages(file_type="workout")
 
         with pytest.raises(FitParsingError, match="file_id.type must be activity"):
             model.validate_semantic_contract()
 
     def test_validate_requires_session_and_record(self) -> None:
-        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
+        """Verify validation fails when session or record messages are missing."""
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
         model._messages_by_type = _build_activity_fit_messages(include_session=False)
 
         with pytest.raises(FitParsingError, match="missing required session"):
@@ -210,7 +213,8 @@ class TestFitSemanticContractValidation:
             model.validate_semantic_contract()
 
     def test_validate_enforces_monotonic_record_timestamps(self) -> None:
-        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
+        """Verify validation fails when record timestamps are not monotonically increasing."""
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
         model._messages_by_type = _build_activity_fit_messages()
         model._messages_by_type["record"] = [
             cast(
@@ -233,8 +237,8 @@ class TestHealthFitTimezoneInference:
     def test_healthfit_filename_timezone_uses_fit_message_start_time(self) -> None:
         """Verify filename timezone inference compares local filename time against FIT-message UTC time."""
         model = HealthFitModel(
-            file_bytes=b"fit",
-            source_metadata={
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
                 "source_file_name": "2026-02-17-202435-Indoor Cycling-RunGap.fit",
             },
         )
@@ -258,7 +262,7 @@ class TestSessionTimeMathSemantics:
 
     def test_session_uses_utc_math_for_start_and_local_math_for_offset(self) -> None:
         """Ensure start_time_utc and local_tz_offset are derived from the correct session fields."""
-        model = HealthFitModel(file_bytes=b"fit", source_metadata={})
+        model = HealthFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
         model._session_msg = cast(
             Any,
             _MessageStub(
@@ -280,31 +284,31 @@ class TestHealthFitWorkoutTypeParsing:
     def test_healthfit_filename_regex_parses_spaced_activity_type(self) -> None:
         """Verify regex captures spaced Apple activity token correctly."""
         model = HealthFitModel(
-            file_bytes=b"fit",
-            source_metadata={
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
                 "source_file_name": "2026-02-17-202435-Indoor Cycling-RunGap.fit",
             },
         )
 
-        assert model.filename_activity_type == "Indoor Cycling"
+        assert model.filename_apple_workout_type == "Indoor Cycling"
 
     def test_healthfit_filename_regex_normalizes_hyphenated_activity_type(self) -> None:
         """Verify hyphenated activity labels normalize to spaced Apple activity tokens."""
         model = HealthFitModel(
-            file_bytes=b"fit",
-            source_metadata={
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
                 "source_file_name": "2026-02-17-202435-Indoor-Cycling-RunGap.fit",
             },
         )
 
-        assert model.filename_activity_type == "Indoor Cycling"
+        assert model.filename_apple_workout_type == "Indoor Cycling"
         assert model.filename_source_device == "RunGap"
 
-    def test_healthfit_apple_workout_type_resolves_from_filename_activity_type(self) -> None:
-        """Verify that HealthFit model derives Apple workout type from filename activity type when messages are missing."""
+    def test_healthfit_apple_workout_type_resolves_from_filename(self) -> None:
+        """Verify that HealthFit model derives Apple workout type from filename when messages are missing."""
         model = HealthFitModel(
-            file_bytes=b"fit",
-            source_metadata={
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
                 "source_file_name": "2026-02-17-202435-Indoor Cycling-RunGap.fit",
             },
         )
@@ -314,11 +318,11 @@ class TestHealthFitWorkoutTypeParsing:
         assert model.workout_name == "Indoor Cycling"
         assert model.apple_workout_type == INDOOR_CYCLE
 
-    def test_healthfit_apple_workout_type_resolves_from_hyphenated_filename_activity_type(self) -> None:
-        """Verify hyphenated filename activity labels normalize before Apple workout type resolution."""
+    def test_healthfit_apple_workout_type_resolves_from_hyphenated_filename(self) -> None:
+        """Verify hyphenated filename labels normalize before Apple workout type resolution."""
         model = HealthFitModel(
-            file_bytes=b"fit",
-            source_metadata={
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
                 "source_file_name": "2026-02-17-202435-Indoor-Cycling-RunGap.fit",
             },
         )
@@ -329,10 +333,10 @@ class TestHealthFitWorkoutTypeParsing:
         assert model.apple_workout_type == INDOOR_CYCLE
 
     def test_healthfit_apple_workout_type_prefers_filename_over_fit_signals(self) -> None:
-        """Verify that HealthFit model prefers filename-derived activity type for Apple workout type resolution over FIT session messages."""
+        """Verify HealthFit prefers filename-derived Apple workout type over FIT session messages."""
         model = HealthFitModel(
-            file_bytes=b"fit",
-            source_metadata={
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
                 "source_file_name": "2026-02-17-202435-Indoor Cycling-RunGap.fit",
             },
         )
@@ -352,8 +356,8 @@ class TestHealthFitWorkoutTypeParsing:
     def test_healthfit_apple_workout_type_does_not_infer_without_filename_token(self) -> None:
         """Verify that HealthFit model does not infer Apple workout type when filename activity type token is missing, even if FIT session messages are present."""
         model = HealthFitModel(
-            file_bytes=b"fit",
-            source_metadata={},
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={},  # type: ignore[call-arg]
         )
         model._session_msg = cast(
             Any,
@@ -374,7 +378,7 @@ class TestConstructedWorkoutNameFallbacks:
 
     def test_constructed_workout_name_uses_daypart_and_apple_type_when_available(self) -> None:
         """Verify that constructed workout name uses daypart and Apple workout type when filename tokens are present."""
-        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
         model._session_msg = cast(
             Any,
             _MessageStub(
@@ -392,7 +396,7 @@ class TestConstructedWorkoutNameFallbacks:
 
     def test_constructed_workout_name_falls_back_to_fit_fields_and_datetime(self) -> None:
         """Verify that constructed workout name falls back to FIT fields and datetime when filename tokens are missing."""
-        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
         model._session_msg = cast(
             Any,
             _MessageStub(
@@ -413,15 +417,15 @@ class TestPayloadModelSourceNormalization:
 
     def test_payload_model_source_is_http_without_metadata(self) -> None:
         """Verify payload uploads always normalize source system to HTTP."""
-        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
 
         assert model.normalized_source_system == "HTTP"
 
     def test_payload_model_source_is_http_even_with_source_metadata_override(self) -> None:
         """Verify payload source normalization ignores caller-provided source_system."""
         model = PayloadFitModel(
-            file_bytes=b"fit",
-            source_metadata={"source_system": "HealthFit"},
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={"source_system": "HealthFit"},  # type: ignore[call-arg]
         )
 
         assert model.normalized_source_system == "HTTP"
