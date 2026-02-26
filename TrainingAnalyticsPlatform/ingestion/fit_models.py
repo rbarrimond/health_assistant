@@ -1419,20 +1419,18 @@ class HealthFitModel(OneDriveFitModel):
     The YYYY-MM-DD-HHMMSS filename timestamp is device-local wall-clock time
     for the recording device, not UTC.
 
-    SEMANTIC OVERRIDE - Apple Workout Type Inference:
-    =================================================
-    HealthFitModel overrides the default FIT-based apple_workout_type inference used by
-    GarminFitModel and PayloadFitModel. Instead of resolving the Apple workout type from
-    FIT sport/sub_sport messages, HealthFitModel:
+     SEMANTIC OVERRIDE - Apple Workout Type Inference:
+     =================================================
+     HealthFitModel overrides the default FIT-based apple_workout_type inference used by
+     GarminFitModel and PayloadFitModel. HealthFitModel:
 
-    1. Extracts the activity token from the filename (e.g., "Indoor Cycling")
-    2. Resolves it deterministically to an Apple workout type via HEALTHFIT_APPLE_TYPE_ALIASES
-    3. Does NOT fall back to FIT signal resolution (sport/sub_sport)
-    4. Returns None if the filename activity token is missing or unrecognized
+     1. Extracts the activity token from the filename (e.g., "Indoor Cycling")
+     2. Resolves it deterministically to an Apple workout type via HEALTHFIT_APPLE_TYPE_ALIASES
+     3. Falls back to FIT sport/sub_sport resolution only when the filename token is
+         missing or unrecognized (and logs a warning to flag the anomaly)
 
-    This ensures HealthFit files use the activity type explicitly encoded in the export
-    filename, treating it as the authoritative source for workout classification.
-    FIT sport/sub_sport messages are never consulted for Apple workout type resolution.
+     This treats the filename as the authoritative source when present, while still
+     allowing FIT signal inference as a degraded fallback for malformed exports.
     """
     
     # HealthFit filename pattern: YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz]
@@ -1596,14 +1594,36 @@ class HealthFitModel(OneDriveFitModel):
         return self._normalize_and_resolve_apple_type(raw_type)
 
     def _allow_fit_apple_workout_fallback(self) -> bool:
-        """HealthFit does not fall back to FIT sport/sub_sport for Apple workout type.
+        """Allow FIT sport/sub_sport fallback for HealthFit when filename token is missing."""
+        return True
 
-        HealthFit exports include explicit activity type in the filename, which is
-        treated as the authoritative source. If the filename activity token cannot
-        be parsed or recognized, we return None rather than inferring from FIT
-        signals. This ensures deterministic, explicit workout type classification.
-        """
-        return False
+    @computed_field  # type: ignore[misc]
+    @property
+    def apple_workout_type(self) -> Optional[str]:
+        """Resolve Apple workout type with HealthFit-specific warning on FIT fallback."""
+        raw_type = self.filename_apple_workout_type
+        if raw_type:
+            resolved = self._normalize_and_resolve_apple_type(raw_type)
+            if resolved is not None:
+                return resolved
+            logger.warning(
+                "HealthFit filename activity token unrecognized; "
+                "falling back to FIT apple workout type resolution: token=%r, source_file=%r",
+                raw_type,
+                self.source_file_name,
+            )
+        else:
+            logger.warning(
+                "HealthFit filename activity token missing; "
+                "falling back to FIT apple workout type resolution: source_file=%r",
+                self.source_file_name,
+            )
+
+        resolver = AppleWorkoutTypeResolver(
+            sport=self.sport,
+            sub_sport=self.sub_sport,
+        )
+        return resolver.resolve()
     
     @computed_field  # type: ignore[misc]
     @property

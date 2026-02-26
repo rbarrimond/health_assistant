@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 15.0.30
+Version: 15.0.31
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -458,8 +458,7 @@ from the semantic API.
 - `workout_name` is inferred with the following priority:
   1. Workout FIT message name (`wkt_name`, with `name` compatibility fallback)
   2. External source metadata activity name (e.g., Garmin API `source_activity_name`)
-  3. Source-specific subclass lookup (HealthFit filename activity type)
-  4. Constructed fallback:
+  3. Constructed fallback:
   - `"<Daypart> <Apple Workout Type>"` when Apple workout type can be derived from FIT sport/sub-sport
   - otherwise `"<sport>-<sub_sport>-<local_start_datetime>"` using normalized lowercase FIT sport fields
 - Apple workout typing contract (model-specific behavior):
@@ -467,10 +466,10 @@ from the semantic API.
     - Use `AppleWorkoutTypeResolver` to map FIT `sport` + `sub_sport` parameters
     - Resolver includes virtual mappings by sport: `("cycling", "virtual_activity") -> "Indoor Cycle"`, `("running", "virtual_activity") -> "Indoor Run"`, `("walking", "virtual_activity") -> "Indoor Walk"`
   - **HealthFitModel** (overrides default):
-    - Resolves Apple workout type **exclusively** from HealthFit filename activity token (e.g., `"Indoor Cycling"` → `INDOOR_CYCLE`)
-    - Does **not** fall back to FIT sport/sub_sport signals even if filename token is missing
+    - Resolves Apple workout type **primarily** from HealthFit filename activity token (e.g., `"Indoor Cycling"` → `INDOOR_CYCLE`)
     - Uses alias mapping for variations (e.g., `"indoor-cycling"` normalizes to `"Indoor Cycling"`)
-    - Returns `None` if filename activity token is missing or unrecognized (does not infer from FIT signals)
+    - If filename activity token is missing or unrecognized, falls back to FIT `sport`/`sub_sport` inference
+    - Logs a warning when FIT fallback is used to flag potential export anomalies
 - `workout_id` is the stable client-facing identifier and should be **treated as immutable once created**.
 - `workout_id` is computed from semantic identity and has **no fallback**.
 - `ingestion_id` is deterministic per-source and is used for idempotency and blob storage paths.

@@ -9,13 +9,14 @@ test_fit_models.py with the concrete model tests.
 # pylint: disable=protected-access, line-too-long
 
 import hashlib
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 import pytest
 
 from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_file_hash
-from TrainingAnalyticsPlatform.ingestion.apple_workout_types import INDOOR_CYCLE
+from TrainingAnalyticsPlatform.ingestion.apple_workout_types import INDOOR_CYCLE, INDOOR_RUN
 from TrainingAnalyticsPlatform.ingestion.fit_models import BaseFitModel, HealthFitModel, PayloadFitModel
 from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 
@@ -353,8 +354,8 @@ class TestHealthFitWorkoutTypeParsing:
 
         assert model.apple_workout_type == INDOOR_CYCLE
 
-    def test_healthfit_apple_workout_type_does_not_infer_without_filename_token(self) -> None:
-        """Verify that HealthFit model does not infer Apple workout type when filename activity type token is missing, even if FIT session messages are present."""
+    def test_healthfit_apple_workout_type_falls_back_to_fit_with_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Verify HealthFit falls back to FIT inference when filename token is missing, logging a warning."""
         model = HealthFitModel(
             file_bytes=b"fit",  # type: ignore[call-arg]
             source_metadata={},  # type: ignore[call-arg]
@@ -370,7 +371,13 @@ class TestHealthFitWorkoutTypeParsing:
         )
         model._file_id_msg = None
 
-        assert model.apple_workout_type is None
+        with caplog.at_level(logging.WARNING):
+            assert model.apple_workout_type == INDOOR_RUN
+
+        assert any(
+            "falling back to FIT apple workout type resolution" in record.message
+            for record in caplog.records
+        )
 
 
 class TestConstructedWorkoutNameFallbacks:
