@@ -1390,8 +1390,10 @@ class HealthFitModel(OneDriveFitModel):
     # HealthFit filename pattern: YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz]
     # Parsing treats final '-' token as source and all middle tokens as activity.
     # The YYYY-MM-DD-HHMMSS token is device-local recording time.
+    # Note: .gz suffix is optional for backwards compatibility but ignored (decompression
+    # happens in preprocessing layer before model instantiation).
     HEALTHFIT_FILENAME_PATTERN: ClassVar[re.Pattern] = re.compile(
-        r'^(\d{4}-\d{2}-\d{2})-(\d{6}|Nodata)-(.+)\.fit(\.gz)?$'
+        r'^(\d{4}-\d{2}-\d{2})-(\d{6}|Nodata)-(.+)\.fit(?:\.gz)?$'
     )
     HEALTHFIT_APPLE_TYPE_ALIASES: ClassVar[Dict[str, str]] = {
         "indoor cycling": INDOOR_CYCLE,
@@ -1437,7 +1439,6 @@ class HealthFitModel(OneDriveFitModel):
             "time": match.group(2),           # HHMMSS or "Nodata" (device-local)
             "activity_type": activity_type,   # e.g., "Indoor Cycling"
             "source_device": source_device,   # e.g., "RunGap"
-            "is_gzipped": "true" if match.group(4) is not None else "false",
         }
     
     @computed_field  # type: ignore[misc]
@@ -1471,14 +1472,6 @@ class HealthFitModel(OneDriveFitModel):
         if self.filename_components:
             return self.filename_components["source_device"]
         return None
-    
-    @computed_field  # type: ignore[misc]
-    @property
-    def is_gzipped(self) -> bool:
-        """Check if file is gzipped based on HealthFit filename."""
-        if self.filename_components:
-            return self.filename_components["is_gzipped"] == "true"
-        return False
     
     @computed_field  # type: ignore[misc]
     @property

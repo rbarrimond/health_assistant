@@ -101,3 +101,36 @@ class FitParsingError(HealthAssistantError):
 
     error_code = "FIT_PARSING_FAILED"
     status_code = 422
+
+
+class PreprocessingError(HealthAssistantError):
+    """Base exception for file preprocessing failures.
+    
+    Raised when file preprocessing operations (decompression, extraction,
+    format validation) fail before FIT parsing can begin.
+    """
+
+    error_code = "PREPROCESSING_ERROR"
+    status_code = 422
+
+
+class CompressionError(PreprocessingError):
+    """Raised when compression format detection or decompression fails.
+    
+    This includes gzip decompression failures, ZIP extraction failures,
+    and unrecognized compression formats.
+    """
+
+    error_code = "COMPRESSION_ERROR"
+    status_code = 422
+
+
+class InvalidFileFormatError(PreprocessingError):
+    """Raised when FIT header validation fails after preprocessing.
+    
+    Indicates that preprocessing succeeded but the resulting bytes
+    do not contain a valid FIT file header.
+    """
+
+    error_code = "INVALID_FILE_FORMAT"
+    status_code = 422

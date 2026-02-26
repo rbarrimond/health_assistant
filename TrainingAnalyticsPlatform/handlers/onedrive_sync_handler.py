@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import gzip
 import logging
 import os
 import re
@@ -13,10 +12,12 @@ from typing import Dict, Optional, Tuple
 
 from TrainingAnalyticsPlatform.integrations.onedrive_client import OneDriveGraphClient
 from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_bytes_hash
+from TrainingAnalyticsPlatform.ingestion.fit_file_preprocessor import FitFilePreprocessor
 from TrainingAnalyticsPlatform.platform.config import Config as PlatformConfig
 from TrainingAnalyticsPlatform.platform.exceptions import (
     FitParsingError,
     IngestionIdResolutionError,
+    PreprocessingError,
     WorkoutIdCalculationError,
 )
 from TrainingAnalyticsPlatform.storage.table_storage import IngestionContext, WorkoutTableStorage
@@ -142,15 +143,19 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
             raw_content = self._client.download_file(
                 access_token=access_token, item_id=item["id"]
             )
-            file_name, content = _maybe_decode_gzip(item["name"], raw_content)
-            source_info["source_file_name"] = file_name
-            source_info["file_sha256"] = compute_bytes_hash(content)
+            
+            # Preprocess file: handle decompression and validate FIT format
+            preprocessor = FitFilePreprocessor()
+            preprocessed = preprocessor.preprocess(raw_content, item["name"])
+            
+            source_info["source_file_name"] = preprocessed.logical_filename
+            source_info["file_sha256"] = compute_bytes_hash(preprocessed.content)
             source_info["ingestion_id"] = self._resolve_ingestion_id(source_info)
 
             _, workout_id = self._parse_and_store(
                 athlete_id,
                 source_info,
-                file_bytes=content,
+                file_bytes=preprocessed.content,
             )
             return {"status": "success", "workout_id": workout_id}, 200
         except IngestionIdResolutionError as exc:
@@ -159,6 +164,10 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
             return exc.to_response(include_message_alias=True)
         except WorkoutIdCalculationError as exc:
             logger.error("OneDrive workout_id calculation failed: %s", exc)
+            self._record_failure(athlete_id, source_info, str(exc))
+            return exc.to_response(include_message_alias=True)
+        except PreprocessingError as exc:
+            logger.error("OneDrive file preprocessing failed: %s", exc)
             self._record_failure(athlete_id, source_info, str(exc))
             return exc.to_response(include_message_alias=True)
         except FitParsingError as exc:
@@ -478,18 +487,6 @@ class OneDriveSyncHandler:
             except ValueError:
                 pass
         return tokens["access_token"]
-
-
-def _maybe_decode_gzip(file_name: str, content: bytes) -> tuple[str, bytes]:
-    """Decode gzip content when the filename ends with .gz."""
-    if file_name.lower().endswith(".gz"):
-        try:
-            return file_name[:-3], gzip.decompress(content)
-        except (OSError, EOFError) as exc:
-            raise ValueError(
-                f"Failed to decompress {file_name}: {exc}"
-            ) from exc
-    return file_name, content
 
 
 def _parse_workout_date(file_name: str) -> date | None:

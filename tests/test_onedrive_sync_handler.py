@@ -19,6 +19,18 @@ from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 from TrainingAnalyticsPlatform.platform.exceptions import WorkoutIdCalculationError
 
 
+# Minimal valid FIT file for testing (header with .FIT signature)
+VALID_FIT_HEADER = bytes([
+    0x0E,  # Header size (14 bytes)
+    0x10,  # Protocol version 1.0
+    0x20, 0x00,  # Profile version (little-endian)
+    0x00, 0x00, 0x00, 0x00,  # Data size (0 for minimal test)
+    ord('.'), ord('F'), ord('I'), ord('T'),  # ".FIT" signature
+    0x00, 0x00  # CRC
+])
+MINIMAL_FIT_FILE = VALID_FIT_HEADER + b'\x00' * 10
+
+
 def _config(lookback_days: int = 30) -> OneDriveSyncConfig:
     return OneDriveSyncConfig(
         client_id="client-id",
@@ -312,7 +324,8 @@ class TestOneDriveIngestionIdentity:
         storage.get_ingestion_context.return_value = context
 
         client = MagicMock()
-        client.download_file.return_value = b"fit-bytes"
+        # Use valid FIT bytes so preprocessing passes
+        client.download_file.return_value = MINIMAL_FIT_FILE
 
         handler = OneDriveSyncIngestionHandler(storage=storage, client=client)
         handler._parse_and_store = MagicMock(  # type: ignore[attr-defined]
@@ -341,7 +354,8 @@ class TestOneDriveIngestionIdentity:
         storage.get_ingestion_context.return_value = context
 
         client = MagicMock()
-        client.download_file.return_value = b"fit-bytes"
+        # Use valid FIT bytes so preprocessing passes
+        client.download_file.return_value = MINIMAL_FIT_FILE
 
         handler = OneDriveSyncIngestionHandler(storage=storage, client=client)
         handler._parse_and_store = MagicMock(  # type: ignore[attr-defined]
