@@ -9,7 +9,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 import pandas as pd
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
@@ -18,6 +18,7 @@ from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
 
 from TrainingAnalyticsPlatform.ingestion.constants import INGEST_VERSION
+from TrainingAnalyticsPlatform.models import CanonicalRecordSet
 from TrainingAnalyticsPlatform.platform.exceptions import IngestionIdResolutionError
 CANONICAL_SCHEMA_VERSION = "1.3.0"
 
@@ -521,13 +522,21 @@ class WorkoutTableStorage:
     def store_canonical_records(
         self,
         workout_id: str,
-        records: List[Dict],
+        record_set: CanonicalRecordSet,
     ) -> Optional[str]:
-        """Store canonical substrate records to parquet blob."""
-        if not records:
+        """Store canonical substrate records to parquet blob.
+        
+        Args:
+            workout_id: Workout identifier for blob path
+            record_set: CanonicalRecordSet containing typed records
+            
+        Returns:
+            Blob name if records stored, None if empty
+        """
+        df = record_set.to_dataframe
+        if df.empty:
             return None
 
-        df = pd.DataFrame(records)
         buffer = io.BytesIO()
         df.to_parquet(buffer, index=False)
         buffer.seek(0)

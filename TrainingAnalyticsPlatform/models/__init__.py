@@ -10,7 +10,7 @@ This package provides a modular organization of workout analytics models:
 **Submodules:**
 - core: WorkoutMetricsModel and CanonicalAnalyticsEngine (main API)
 - constants: Shared constants and utilities
-- substrate: CanonicalRecord, CanonicalLap
+- substrate: CanonicalRecord, CanonicalRecordSet, CanonicalLap
 - legacy: removed in v8.0.0
 - agent: AgentPreferences, AgentPreference, AgentObservation
 - metrics: All metric submodels (SessionMetricsModel, etc.)
@@ -20,7 +20,7 @@ This package provides a modular organization of workout analytics models:
 from .core import CanonicalAnalyticsEngine, WorkoutMetricsModel
 
 # Core substrate models
-from .substrate import CanonicalLap, CanonicalRecord
+from .substrate import CanonicalLap, CanonicalRecord, CanonicalRecordSet
 
 # Agent memory models
 from .agent import AgentObservation, AgentPreference, AgentPreferences
@@ -46,6 +46,7 @@ __all__ = [
     "CanonicalAnalyticsEngine",
     # Substrate
     "CanonicalRecord",
+    "CanonicalRecordSet",
     "CanonicalLap",
     # Agent
     "AgentPreferences",

@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 from TrainingAnalyticsPlatform.handlers.fit_payload_handler import FitPayloadIngestionHandler
 from TrainingAnalyticsPlatform.handlers.ingestion_base_handler import FitIngestionBaseHandler
+from TrainingAnalyticsPlatform.models import CanonicalRecordSet
 from TrainingAnalyticsPlatform.platform.exceptions import (
     FitParsingError,
     IngestionIdResolutionError,
@@ -83,14 +84,16 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
         "sport": "Cycling",
         "start_time_utc": "2026-01-01T00:00:00+00:00",
     }
-    records = [{"timestamp_utc": "2026-01-01T00:00:00+00:00"}]
     laps_payload = {"laps": [{"message_index": 0}]}
     expected_workout_id = "2026-01-01T00:00:00+00:00_Cycling_hash"
+    
+    # Create empty CanonicalRecordSet for mock
+    empty_record_set = CanonicalRecordSet(messages=[], start_dt=None)
 
     mock_model = Mock()
     mock_model.validate_semantic_contract.return_value = None
     mock_model.build_canonical_metadata.return_value = metadata
-    mock_model.build_canonical_records.return_value = records
+    mock_model.build_canonical_records.return_value = empty_record_set
     mock_model.build_laps_json.return_value = laps_payload
     mock_model.semantic_workout_id = expected_workout_id
 
@@ -118,7 +121,7 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     assert "ingestion_id" in call_args[1]  # Should have ingestion_id
     assert call_args[1]["canonical_schema_version"] == CANONICAL_SCHEMA_VERSION
     assert call_args[1]["canonical_records_blob"] == "records.parquet"
-    assert call_args[1]["records_count"] == len(records)
+    assert call_args[1]["records_count"] == 0  # Empty record set
     assert call_args[1]["laps_count"] == len(laps_payload["laps"])
     
     # Verify record_ingestion_state was called with correct params

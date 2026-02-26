@@ -20,6 +20,8 @@ from fitdecode import (
 )
 from fitdecode.cmd.fitjson import RecordJSONEncoder
 from pydantic import BaseModel, computed_field, ConfigDict, Field, PrivateAttr
+
+from TrainingAnalyticsPlatform.models import CanonicalRecordSet
 from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 
 from .constants import LAPS_SCHEMA_VERSION, METADATA_SCHEMA_VERSION
@@ -44,7 +46,6 @@ from .timezone_utils import (
     infer_timezone_from_session,
     resolve_timezone,
 )
-from .value_utils import coerce_float
 
 logger = logging.getLogger(__name__)
 
@@ -1056,19 +1057,16 @@ class BaseFitModel(BaseModel, ABC):
     # Canonical Format Builders
     # ========================================================================
     
-    def build_canonical_records(self) -> List[Dict[str, Any]]:
-        """Extract canonical substrate records for parquet storage."""
-        start_dt = self._canonical_start_dt()
+    def build_canonical_records(self) -> CanonicalRecordSet:
+        """Build canonical record set for parquet storage.
         
-        records: List[Dict[str, Any]] = []
-        for record in self._messages:
-            if record.name != "record":
-                continue
-            payload = self._build_canonical_record(record, start_dt)
-            if payload:
-                records.append(payload)
-        
-        return records
+        Returns:
+            CanonicalRecordSet containing typed records ready for DataFrame conversion
+        """
+        return CanonicalRecordSet.from_fit_messages(
+            self._messages,
+            self._canonical_start_dt(),
+        )
     
     def _canonical_start_dt(self) -> Optional[datetime]:
         """Get start datetime for elapsed time calculations."""
@@ -1079,47 +1077,6 @@ class BaseFitModel(BaseModel, ABC):
             return datetime.fromisoformat(start_time.replace("Z", UTC_OFFSET_SUFFIX))
         except ValueError:
             return None
-    
-    def _build_canonical_record(
-        self,
-        record: FitDataMessage,
-        start_dt: Optional[datetime],
-    ) -> Optional[Dict[str, Any]]:
-        """Build canonical record from FIT record message."""
-        timestamp = record.get_value("timestamp", fallback=None)
-        if not isinstance(timestamp, datetime):
-            return None
-
-        timestamp_utc = timestamp.isoformat()
-
-        elapsed_sec = None
-        if start_dt is not None:
-            try:
-                elapsed_sec = (timestamp - start_dt).total_seconds()
-            except TypeError:
-                elapsed_sec = None
-        
-        power = record.get_value("power", fallback=None)
-        heart_rate = record.get_value("heart_rate", fallback=None)
-        cadence = record.get_value("cadence", fallback=None)
-        speed = record.get_value("speed", fallback=None)
-        distance = record.get_value("distance", fallback=None)
-        elevation = record.get_value("altitude", fallback=None)
-        temperature = record.get_value("temperature", fallback=None)
-        lr_balance = record.get_value("left_right_balance", fallback=None)
-        
-        return {
-            "timestamp_utc": timestamp_utc,
-            "elapsed_sec": coerce_float(elapsed_sec),
-            "power_watts": coerce_float(power),
-            "heart_rate_bpm": coerce_float(heart_rate),
-            "cadence_rpm": coerce_float(cadence),
-            "speed_mps": coerce_float(speed),
-            "distance_m": coerce_float(distance),
-            "elevation_m": coerce_float(elevation),
-            "temperature_c": coerce_float(temperature),
-            "lr_balance_pct": coerce_float(lr_balance),
-        }
     
     def build_canonical_metadata(self) -> Dict[str, Any]:
         """Extract canonical FIT metadata from session, file, and activity."""

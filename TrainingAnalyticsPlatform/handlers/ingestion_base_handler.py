@@ -130,8 +130,8 @@ class FitIngestionBaseHandler(ABC):
         laps_payload = model.build_laps_json()
         analysis_payload = model.build_fit_analysis()
 
-        records = model.build_canonical_records()
-        records_blob = self.storage.store_canonical_records(ingestion_id, records)
+        record_set = model.build_canonical_records()
+        records_blob = self.storage.store_canonical_records(ingestion_id, record_set)
         self.storage.store_raw_fit_json(ingestion_id, raw_fit_payload)
         self.storage.store_metadata_json(ingestion_id, metadata_payload)
         self.storage.store_laps_json(ingestion_id, laps_payload)
@@ -146,7 +146,7 @@ class FitIngestionBaseHandler(ABC):
             ingestion_id=ingestion_id,
             canonical_schema_version=CANONICAL_SCHEMA_VERSION,
             canonical_records_blob=records_blob,
-            records_count=len(records),
+            records_count=len(record_set.to_dataframe),
             laps_count=laps_count,
         )
         self.storage.record_ingestion_state(

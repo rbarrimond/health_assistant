@@ -393,6 +393,8 @@ class TestIngestionHelpersAndFlow:
         mock_storage.get_ingestion_context.return_value = mock_context
 
         mock_model = MagicMock()
+        from TrainingAnalyticsPlatform.models import CanonicalRecordSet
+        
         mock_model.build_canonical_metadata.return_value = {
             "sport": "Cycling",
             "duration_sec": 3600,
@@ -400,7 +402,7 @@ class TestIngestionHelpersAndFlow:
             "pwr_avg_watts": 220,
             "hr_avg_bpm": 150,
         }
-        mock_model.build_canonical_records.return_value = []
+        mock_model.build_canonical_records.return_value = CanonicalRecordSet(messages=[], start_dt=None)
         mock_model.build_laps_json.return_value = {"laps": []}
         mock_model.semantic_workout_id = "workout-456"
 
