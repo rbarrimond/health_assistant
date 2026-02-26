@@ -10,6 +10,12 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-02-26
 
+### Timezone Contract Clarification (Semantic vs Metadata)
+
+- Clarify semantic-layer timezone field contract: expose both `local_tz_offset` and `timezone` in workout summaries/details, with `local_tz_offset` designated for GPT/client local-time display and `timezone` reserved for metadata context.
+- Update OpenAPI schemas to document the split semantics and include `local_tz_offset` explicitly in `WorkoutSummary` for both semantic and operations specs `[openapi.yaml v3.0.1, openapi.operations.yaml v2.0.2]`.
+- Align schema documentation wording across semantic and ingestion docs, including canonical schema registry correction to `CANONICAL_SCHEMA_VERSION=1.4.0` `[WORKOUT_SCHEMA v11.1.2, SEMANTIC_LAYER_API v6.0.1, INGESTION_SCHEMA v15.0.29]`.
+
 ### BaseFitModel Interface Tightening
 
 - **BREAKING:** Move FIT source inputs (`file_bytes`, `source_metadata`) into constructor-owned private model state in `BaseFitModel`, enforcing fail-fast eager initialization semantics at construction time

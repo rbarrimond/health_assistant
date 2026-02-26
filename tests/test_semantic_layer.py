@@ -492,6 +492,7 @@ class TestHelperMethods:
             "hr_avg_bpm": 145,
             "z2_minutes": 50,
             "local_tz_offset": "UTC-05:00",
+            "timezone": "America/New_York",
         }
 
         workout = semantic_layer._entity_to_workout_dict(entity)
@@ -500,6 +501,22 @@ class TestHelperMethods:
         assert workout["sport"] == "Cycling"
         assert workout["hr_avg_bpm"] == 145
         assert workout["local_tz_offset"] == "UTC-05:00"
+        assert workout["timezone"] == "America/New_York"
+
+    def test_entity_to_workout_dict_timezone_falls_back_to_local_offset(self, semantic_layer):
+        """Test timezone field falls back to local_tz_offset when timezone is absent."""
+        entity = {
+            "workout_id": "workout-002",
+            "athlete_id": "rob",
+            "sport": "Running",
+            "duration_sec": 1800,
+            "local_tz_offset": "UTC+01:00",
+        }
+
+        workout = semantic_layer._entity_to_workout_dict(entity)
+
+        assert workout["local_tz_offset"] == "UTC+01:00"
+        assert workout["timezone"] == "UTC+01:00"
 
     def test_entity_to_workout_dict_with_records(self, semantic_layer):
         """Test entity conversion ignores time series when not stored."""

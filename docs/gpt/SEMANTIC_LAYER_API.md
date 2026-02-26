@@ -1,6 +1,6 @@
 # Semantic Access Layer API (GPT)
 
-Version: 6.0.0
+Version: 6.0.1
 
 The Semantic Access Layer is the **read + agent-memory write API** for ChatGPT Actions. It exposes meaningful, human-centric questions about training data rather than raw table access.
 
@@ -862,6 +862,12 @@ Physiometrics are stored as snapshots. Reads prefer the most recent stored snaps
 - All dates use **ISO 8601 format with explicit UTC offsets** (`2026-01-15T10:00:00+00:00`)
 - Date ranges are **inclusive** on both ends
 - Default lookback periods are conservative (30-90 days) to protect performance
+
+### Timezone Fields
+
+- `local_tz_offset` is the semantic/API field for client-side local-time display to humans.
+- `timezone` is metadata context for provenance and prefers IANA timezone names when available.
+- When IANA timezone data is unavailable, `timezone` falls back to the UTC offset string.
 
 ### Query Constraints
 

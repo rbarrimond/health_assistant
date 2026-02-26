@@ -470,6 +470,7 @@ class SemanticLayer:
 
         # Core summary fields
         local_tz_offset = metrics.get("local_tz_offset")
+        timezone_value = metrics.get("timezone") or local_tz_offset
         workout = {
             "workout_id": workout_entity.workout_id,
             "athlete_id": workout_entity.athlete_id,
@@ -479,6 +480,7 @@ class SemanticLayer:
             "is_indoor": is_indoor,
             "start_time_utc": metrics.get("start_time_utc"),
             "local_tz_offset": local_tz_offset,
+            "timezone": timezone_value,
             "duration_sec": metrics.get("duration_sec"),
             "moving_time_sec": metrics.get("moving_time_sec"),
             "distance_m": metrics.get("distance_m"),

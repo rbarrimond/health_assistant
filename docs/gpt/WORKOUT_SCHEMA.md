@@ -1,6 +1,6 @@
 # Workout Schema - Semantic API (Logical)
 
-Version: 11.1.1
+Version: 11.1.2
 
 This document defines the **logical workout schema** exposed by the semantic API.
 It avoids storage details (tables, blobs, partitions) and focuses on fields used
@@ -36,8 +36,8 @@ Returned by `GET /api/workouts` and embedded in planning contexts.
 |Field|Type|Required|Description|
 |---|---:|:---:|---|
 |start_time_utc|datetime (ISO string)|✅|Workout start UTC|
-|local_tz_offset|string|⛔️|Local wall-clock UTC offset (for example `UTC-05:00`)|
-|timezone|string|⛔️|Compatibility alias of `local_tz_offset`|
+|local_tz_offset|string|⛔️|Local wall-clock UTC offset used by GPT/client display logic for rendering human local times (for example `UTC-05:00`)|
+|timezone|string|⛔️|Timezone metadata for ingestion/provenance. Prefer IANA name (for example `America/New_York`), fall back to UTC offset when IANA is unavailable|
 |duration_sec|int|✅|Elapsed duration (seconds)|
 |moving_time_sec|int|⛔️|Moving time if derivable|
 

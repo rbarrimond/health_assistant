@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Semantic/GPT)
-  version: "3.0.0"
+  version: "3.0.1"
   description: |
     Deterministic workout and physiometric API consumed by ChatGPT Actions.
     Returns workout metrics including zones and enhanced analytics computed at read-time from canonical substrate using athlete's current physiometric configuration. All derived metrics are computed deterministically by CanonicalAnalyticsEngine.
@@ -1205,9 +1205,12 @@ components:
         start_time_utc:
           type: string
           format: date-time
+        local_tz_offset:
+          type: string
+          description: Local wall-clock UTC offset for client display formatting (for example `UTC-05:00`).
         timezone:
           type: string
-          description: Timezone name or UTC offset (e.g., `UTC-05:00`).
+          description: IANA timezone name when available (for example `America/New_York`), otherwise falls back to UTC offset.
         duration_sec:
           type: number
         moving_time_sec:

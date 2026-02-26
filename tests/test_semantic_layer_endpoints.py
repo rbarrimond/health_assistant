@@ -104,7 +104,12 @@ class TestListWorkoutsEndpoint:
         mock_request.params = {"athlete_id": "rob", "limit": "10"}
 
         mock_workouts = [
-            {"workout_id": "w1", "sport": "Cycling"},
+            {
+                "workout_id": "w1",
+                "sport": "Cycling",
+                "local_tz_offset": "UTC-05:00",
+                "timezone": "America/New_York",
+            },
             {"workout_id": "w2", "sport": "Running"},
         ]
         mock_semantic_layer.get_workouts.return_value = mock_workouts
@@ -116,6 +121,8 @@ class TestListWorkoutsEndpoint:
         data = json.loads(response.get_body())
         assert data["count"] == 2
         assert len(data["workouts"]) == 2
+        assert data["workouts"][0]["local_tz_offset"] == "UTC-05:00"
+        assert data["workouts"][0]["timezone"] == "America/New_York"
 
     def test_with_filters(self, mock_request, mock_semantic_layer):
         """Test workout list with filters."""
