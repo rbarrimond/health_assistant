@@ -19,8 +19,10 @@ class TestWithingsHandler:
 
     @pytest.fixture
     def mock_storage(self):
-        """Create mock WorkoutTableStorage."""
-        return Mock()
+        """Create mock storage coordinator."""
+        storage = Mock()
+        storage.oauth_tokens = Mock()
+        return storage
 
     @pytest.fixture
     def handler(self, mock_withings_client, mock_storage):
@@ -108,7 +110,7 @@ class TestWithingsHandler:
         mock_withings_client.exchange_auth_code.assert_called_once_with(
             "auth_code_123", "state_token_123"
         )
-        mock_storage.store_withings_tokens.assert_called_once()
+        mock_storage.oauth_tokens.store_withings_tokens.assert_called_once()
         mock_withings_client.subscribe_to_notifications.assert_called_once()
 
     def test_handle_oauth_callback_missing_code(self, handler, mock_withings_client):
@@ -182,7 +184,7 @@ class TestWithingsHandler:
 
         # Assert
         assert status == 200
-        mock_storage.store_withings_tokens.assert_called_once()
+        mock_storage.oauth_tokens.store_withings_tokens.assert_called_once()
         # Handler always attempts subscription, constructs URL from base or env var
         mock_withings_client.subscribe_to_notifications.assert_called_once()
 

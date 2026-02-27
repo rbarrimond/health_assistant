@@ -108,8 +108,8 @@ class Config:
         # Avoid circular imports and only initialize if storage is needed
         if Config._table_storage_client is None:
             try:
-                from TrainingAnalyticsPlatform.storage.table_storage import WorkoutTableStorage
-                Config._table_storage_client = WorkoutTableStorage()
+                from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
+                Config._table_storage_client = StorageCoordinator()
             except (ImportError, ValueError, OSError) as e:
                 logger = logging.getLogger(__name__)
                 logger.debug(
@@ -151,7 +151,7 @@ class Config:
         storage = cls._get_table_storage()
         if storage:
             try:
-                table_data = storage.get_physiometrics(athlete_id)
+                table_data = storage.physiometrics.get_physiometrics(athlete_id)
                 if table_data:
                     cls._physiometrics_cache = table_data
                     return table_data

@@ -4,7 +4,7 @@
 
 from unittest.mock import MagicMock
 
-from TrainingAnalyticsPlatform.storage.table_storage import WorkoutTableStorage
+from TrainingAnalyticsPlatform.storage.workout_storage import WorkoutStorage
 
 
 class TestStoreWorkoutPartitioning:
@@ -12,9 +12,10 @@ class TestStoreWorkoutPartitioning:
 
     def test_store_workout_uses_start_time_month_partition(self) -> None:
         """Verify canonical start_time_utc drives athlete|YYYY-MM partitioning."""
-        storage = WorkoutTableStorage.__new__(WorkoutTableStorage)
+        storage = WorkoutStorage.__new__(WorkoutStorage)
         mock_table_client = MagicMock()
-        storage._get_table_client = MagicMock(return_value=mock_table_client)
+        storage.infra = MagicMock()
+        storage.infra.get_table_client = MagicMock(return_value=mock_table_client)
 
         workout_id = "0123456789abcdef0123456789abcdef01234567"
         source_info = {
@@ -44,9 +45,10 @@ class TestStoreWorkoutPartitioning:
 
     def test_store_workout_uses_unknown_partition_without_start_time(self) -> None:
         """Verify missing start_time_utc falls back to unknown partitioning."""
-        storage = WorkoutTableStorage.__new__(WorkoutTableStorage)
+        storage = WorkoutStorage.__new__(WorkoutStorage)
         mock_table_client = MagicMock()
-        storage._get_table_client = MagicMock(return_value=mock_table_client)
+        storage.infra = MagicMock()
+        storage.infra.get_table_client = MagicMock(return_value=mock_table_client)
 
         workout_id = "fedcba9876543210fedcba9876543210fedcba98"
         source_info = {

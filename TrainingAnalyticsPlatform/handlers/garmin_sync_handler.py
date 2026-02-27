@@ -21,7 +21,8 @@ from TrainingAnalyticsPlatform.platform.exceptions import (
     IngestionIdResolutionError,
     WorkoutIdCalculationError,
 )
-from TrainingAnalyticsPlatform.storage.table_storage import IngestionContext, WorkoutTableStorage
+from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
+from TrainingAnalyticsPlatform.storage.storage_infrastructure import IngestionContext
 
 from .ingestion_base_handler import FitIngestionBaseHandler
 
@@ -70,7 +71,7 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
 
     def __init__(
         self,
-        storage: WorkoutTableStorage,
+        storage: StorageCoordinator,
         client: GarminConnectClient,
     ) -> None:
         super().__init__(storage)
@@ -131,7 +132,7 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
             athlete_id=athlete_id,
             file_info=source_info,
             workout_id=None,
-            storage=self.storage,
+            storage=self.storage.workouts,
             ingestion_id=source_info.get("ingestion_id"),
             ingestion_key=ingestion_key,
         )
@@ -147,7 +148,7 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
                 if context.existing_state
                 else None
             )
-            self.storage.record_ingestion_state(
+            self.storage.workouts.record_ingestion_state(
                 athlete_id,
                 source_info,
                 status="skipped",
@@ -164,7 +165,7 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
 
         duplicate_workout_id = self._find_near_duplicate_workout(athlete_id, activity)
         if duplicate_workout_id:
-            self.storage.record_ingestion_state(
+            self.storage.workouts.record_ingestion_state(
                 athlete_id,
                 source_info,
                 status="skipped_duplicate",
@@ -301,7 +302,7 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
         duration_tolerance_seconds: int,
     ) -> Optional[str]:
         """Search a single partition for matching workout."""
-        table_client = self.storage.get_table_client("Workouts")
+        table_client = self.storage.infrastructure.get_table_client("Workouts")
         query = f"PartitionKey eq '{partition_key}'"
         
         for entity in table_client.query_entities(query):
@@ -414,7 +415,7 @@ class GarminSyncHandler:
     def __init__(
         self,
         config: GarminSyncConfig,
-        storage: WorkoutTableStorage,
+        storage: StorageCoordinator,
         *,
         client: GarminConnectClient | None = None,
         ingestion_handler: GarminSyncIngestionHandler | None = None,

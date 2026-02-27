@@ -2,10 +2,11 @@
 
 import logging
 import os
-from typing import Dict, Tuple, Any
+from typing import Any, Dict, Tuple
 
 from TrainingAnalyticsPlatform.integrations.withings_client import WithingsClient
-from TrainingAnalyticsPlatform.storage.table_storage import WorkoutTableStorage
+from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
+
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ ERROR_HTML = "<html><body><h1>Error</h1><p>Missing authorization code or state</
 class WithingsHandler:
     """Handles Withings OAuth and webhook operations."""
 
-    def __init__(self, withings_client: WithingsClient, storage: WorkoutTableStorage):
+    def __init__(self, withings_client: WithingsClient, storage: StorageCoordinator):
         """Initialize handler with Withings client and storage dependencies."""
         self.client = withings_client
         self.storage = storage
@@ -72,7 +73,7 @@ class WithingsHandler:
         try:
             token_data = self.client.exchange_auth_code(code, state)
 
-            self.storage.store_withings_tokens(
+            self.storage.oauth_tokens.store_withings_tokens(
                 athlete_id=token_data["athlete_id"],
                 withings_userid=str(token_data["userid"]),
                 access_token=token_data["access_token"],

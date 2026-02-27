@@ -13,8 +13,10 @@ from TrainingAnalyticsPlatform.platform.exceptions import (
     IngestionIdResolutionError,
     WorkoutIdCalculationError,
 )
-from TrainingAnalyticsPlatform.storage.table_storage import CANONICAL_SCHEMA_VERSION
-from TrainingAnalyticsPlatform.storage.table_storage import IngestionContext
+from TrainingAnalyticsPlatform.storage.storage_infrastructure import (
+    CANONICAL_SCHEMA_VERSION,
+    IngestionContext,
+)
 
 
 class _TestIngestionHandler(FitIngestionBaseHandler):
@@ -27,11 +29,12 @@ class _TestIngestionHandler(FitIngestionBaseHandler):
 def test_ingestion_base_skips_unchanged_records_state() -> None:
     """Test skipping unchanged records."""
     storage = Mock()
+    storage.workouts = Mock()
     context = Mock()
     context.should_skip.return_value = True
     context.existing_state = {"workout_id": "workout-1"}
     context.ingestion_key = "ingestion-key"
-    storage.get_ingestion_context.return_value = context
+    storage.workouts.get_ingestion_context.return_value = context
 
     handler = _TestIngestionHandler(storage)
     skipped, workout_id = handler._skip_if_unchanged(
@@ -41,7 +44,7 @@ def test_ingestion_base_skips_unchanged_records_state() -> None:
 
     assert skipped is True
     assert workout_id == "workout-1"
-    storage.record_ingestion_state.assert_called_once_with(
+    storage.workouts.record_ingestion_state.assert_called_once_with(
         "rob",
         {"source_file_name": "file.fit"},
         status="skipped",
@@ -55,9 +58,10 @@ def test_ingestion_base_skips_unchanged_records_state() -> None:
 def test_ingestion_base_does_not_skip_when_unchanged() -> None:
     """Test not skipping unchanged records."""
     storage = Mock()
+    storage.workouts = Mock()
     context = Mock()
     context.should_skip.return_value = False
-    storage.get_ingestion_context.return_value = context
+    storage.workouts.get_ingestion_context.return_value = context
 
     handler = _TestIngestionHandler(storage)
     skipped, workout_id = handler._skip_if_unchanged(
@@ -67,13 +71,14 @@ def test_ingestion_base_does_not_skip_when_unchanged() -> None:
 
     assert skipped is False
     assert workout_id is None
-    storage.record_ingestion_state.assert_not_called()
+    storage.workouts.record_ingestion_state.assert_not_called()
 
 
 def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     """Test parsing and storing records."""
     storage = Mock()
-    storage.store_canonical_records.return_value = "records.parquet"
+    storage.workouts = Mock()
+    storage.workouts.store_canonical_records.return_value = "records.parquet"
     handler = _TestIngestionHandler(storage)
     source_info = {
         "source_file_name": "file.fit",
@@ -115,8 +120,8 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     mock_model.validate_semantic_contract.assert_called_once_with()
     
     # Verify store_workout was called with correct params
-    assert storage.store_workout.call_count == 1
-    call_args = storage.store_workout.call_args
+    assert storage.workouts.store_workout.call_count == 1
+    call_args = storage.workouts.store_workout.call_args
     assert call_args[0][0] == "rob"  # athlete_id
     assert call_args[0][1] == metadata  # metadata
     assert call_args[0][2] == source_info  # source_info (updated with ingestion_id)
@@ -128,8 +133,8 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     assert call_args[1]["laps_count"] == len(laps_payload["laps"])
     
     # Verify record_ingestion_state was called with correct params
-    assert storage.record_ingestion_state.call_count == 1
-    state_call_args = storage.record_ingestion_state.call_args
+    assert storage.workouts.record_ingestion_state.call_count == 1
+    state_call_args = storage.workouts.record_ingestion_state.call_args
     assert state_call_args[0][0] == "rob"  # athlete_id
     # source_info should be updated with ingestion_id
     assert state_call_args[0][1]["source_file_name"] == "file.fit"

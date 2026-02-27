@@ -21,7 +21,8 @@ from TrainingAnalyticsPlatform.platform.exceptions import (
     PreprocessingError,
     WorkoutIdCalculationError,
 )
-from TrainingAnalyticsPlatform.storage.table_storage import IngestionContext, WorkoutTableStorage
+from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
+from TrainingAnalyticsPlatform.storage.storage_infrastructure import IngestionContext
 
 from .ingestion_base_handler import FitIngestionBaseHandler
 
@@ -83,7 +84,7 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
 
     def __init__(
         self,
-        storage: WorkoutTableStorage,
+        storage: StorageCoordinator,
         client: OneDriveGraphClient,
     ) -> None:
         super().__init__(storage)
@@ -110,7 +111,7 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
             source_info = self._build_source_info(item, item_meta)
             source_info["ingestion_id"] = self._resolve_ingestion_id(source_info)
 
-            context = self.storage.get_ingestion_context(
+            context = self.storage.workouts.get_ingestion_context(
                 athlete_id,
                 source_info,
                 ingestion_key=source_info["ingestion_id"],
@@ -126,7 +127,7 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
                     if context.existing_state
                     else None
                 )
-                self.storage.record_ingestion_state(
+                self.storage.workouts.record_ingestion_state(
                     athlete_id,
                     source_info,
                     status="skipped",
@@ -259,7 +260,7 @@ class OneDriveSyncHandler:
     def __init__(
         self,
         config: OneDriveSyncConfig,
-        storage: WorkoutTableStorage,
+        storage: StorageCoordinator,
         *,
         client: OneDriveGraphClient | None = None,
         ingestion_handler: OneDriveSyncIngestionHandler | None = None,
@@ -308,7 +309,7 @@ class OneDriveSyncHandler:
         """Exchange OAuth code, store tokens, and return token payload."""
         token_data = self._client.exchange_code(code)
         drive_id = self._client.get_drive_id(token_data["access_token"])
-        self._storage.store_onedrive_tokens(
+        self._storage.oauth_tokens.store_onedrive_tokens(
             athlete_id=athlete_id,
             access_token=token_data["access_token"],
             refresh_token=token_data["refresh_token"],
@@ -455,7 +456,7 @@ class OneDriveSyncHandler:
 
     def _get_tokens(self, athlete_id: str) -> Dict:
         """Load stored OneDrive tokens for the athlete."""
-        tokens = self._storage.get_onedrive_tokens(athlete_id)
+        tokens = self._storage.oauth_tokens.get_onedrive_tokens(athlete_id)
         if not tokens:
             raise ValueError("No OneDrive tokens stored. Authorize first.")
         return tokens
@@ -463,7 +464,7 @@ class OneDriveSyncHandler:
     def _refresh_tokens(self, athlete_id: str, refresh_token: str) -> Dict:
         """Refresh access token and persist updated token values."""
         token_data = self._client.refresh_access_token(refresh_token)
-        self._storage.refresh_onedrive_token(
+        self._storage.oauth_tokens.refresh_onedrive_token(
             athlete_id=athlete_id,
             new_access_token=token_data["access_token"],
             new_refresh_token=token_data.get("refresh_token", refresh_token),

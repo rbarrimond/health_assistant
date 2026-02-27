@@ -16,9 +16,10 @@ class TestAgentMemoryHandler:
 
     @pytest.fixture
     def mock_table_storage(self):
-        """Create mock WorkoutTableStorage."""
+        """Create mock storage coordinator."""
         storage = Mock()
-        storage._get_table_client = Mock()
+        storage.infrastructure = Mock()
+        storage.infrastructure.get_table_client = Mock()
         return storage
 
     @pytest.fixture
@@ -41,7 +42,7 @@ class TestAgentMemoryHandler:
                 return mock_prefs_client
             return mock_obs_client
 
-        mock_table_storage._get_table_client.side_effect = get_table_client
+        mock_table_storage.infrastructure.get_table_client.side_effect = get_table_client
 
         # Mock preferences entity
         prefs_entity = {
@@ -119,7 +120,7 @@ class TestAgentMemoryHandler:
         """Test successful retrieval of preferences."""
         # Arrange
         mock_client = MagicMock()
-        mock_table_storage._get_table_client.return_value = mock_client
+        mock_table_storage.infrastructure.get_table_client.return_value = mock_client
 
         prefs_entity = {
             "PartitionKey": "rob",
@@ -152,7 +153,7 @@ class TestAgentMemoryHandler:
         """Test get_preferences when no preferences exist."""
         # Arrange
         mock_client = MagicMock()
-        mock_table_storage._get_table_client.return_value = mock_client
+        mock_table_storage.infrastructure.get_table_client.return_value = mock_client
         mock_client.query_entities.return_value = []
 
         # Act
@@ -180,7 +181,7 @@ class TestAgentMemoryHandler:
         """Test successful update of preferences."""
         # Arrange
         mock_client = MagicMock()
-        mock_table_storage._get_table_client.return_value = mock_client
+        mock_table_storage.infrastructure.get_table_client.return_value = mock_client
 
         preferences = {
             "current_goal": "Build base for spring races",
@@ -230,7 +231,7 @@ class TestAgentMemoryHandler:
         """Test successful addition of observation."""
         # Arrange
         mock_client = MagicMock()
-        mock_table_storage._get_table_client.return_value = mock_client
+        mock_table_storage.infrastructure.get_table_client.return_value = mock_client
 
         # Act
         result, status = handler.add_observation(
@@ -271,7 +272,7 @@ class TestAgentMemoryHandler:
         """Test successful listing of observations."""
         # Arrange
         mock_client = MagicMock()
-        mock_table_storage._get_table_client.return_value = mock_client
+        mock_table_storage.infrastructure.get_table_client.return_value = mock_client
 
         obs_entities = [
             {
@@ -330,7 +331,7 @@ class TestAgentMemoryHandler:
         """Test successful update of observation status."""
         # Arrange
         mock_client = MagicMock()
-        mock_table_storage._get_table_client.return_value = mock_client
+        mock_table_storage.infrastructure.get_table_client.return_value = mock_client
 
         existing_entity = {
             "PartitionKey": "rob",
@@ -359,7 +360,7 @@ class TestAgentMemoryHandler:
         """Test update_observation_status when observation doesn't exist."""
         # Arrange
         mock_client = MagicMock()
-        mock_table_storage._get_table_client.return_value = mock_client
+        mock_table_storage.infrastructure.get_table_client.return_value = mock_client
         mock_client.get_entity.side_effect = Exception("Not found")
 
         # Act

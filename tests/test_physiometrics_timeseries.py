@@ -1,12 +1,15 @@
 """Tests for time-series physiometrics functionality."""
 
 import json
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 from azure.core.exceptions import ResourceNotFoundError
 
-from TrainingAnalyticsPlatform.storage.table_storage import WorkoutTableStorage
+from TrainingAnalyticsPlatform.storage.oauth_token_storage import OAuthTokenStorage
+from TrainingAnalyticsPlatform.storage.physiometrics_storage import PhysiometricsStorage
+from TrainingAnalyticsPlatform.storage.webhook_dedup_storage import WebhookDedupStorage
 
 from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
 from TrainingAnalyticsPlatform.integrations.withings_client import WithingsClient
@@ -17,20 +20,24 @@ class TestPhysiometricsTimeSeries:
     @pytest.fixture
     def storage(self):
         """Create storage instance with mocked table client."""
-        with (
-            patch.object(WorkoutTableStorage, "_ensure_tables_exist"),
-            patch.object(WorkoutTableStorage, "_ensure_blob_container"),
-        ):
-            return WorkoutTableStorage(
-                connection_string=(
-                    "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake;"
-                    "EndpointSuffix=core.windows.net"
-                )
-            )
+        mock_infra = MagicMock()
+        mock_infra.get_table_client = MagicMock()
+        physiometrics = PhysiometricsStorage.__new__(PhysiometricsStorage)
+        physiometrics.infra = mock_infra
+        oauth_tokens = OAuthTokenStorage.__new__(OAuthTokenStorage)
+        oauth_tokens.infra = mock_infra
+        webhooks = WebhookDedupStorage.__new__(WebhookDedupStorage)
+        webhooks.infra = mock_infra
+
+        return SimpleNamespace(
+            physiometrics=physiometrics,
+            oauth_tokens=oauth_tokens,
+            webhooks=webhooks,
+        )
 
     def test_store_physiometrics_with_body_composition(self, storage):
         """Test storing physiometrics with body composition data."""
-        with patch.object(storage, "_get_table_client") as mock_client:
+        with patch.object(storage.physiometrics.infra, "get_table_client") as mock_client:
             mock_table = MagicMock()
             mock_client.return_value = mock_table
 
@@ -48,7 +55,7 @@ class TestPhysiometricsTimeSeries:
                 "power": {"ftp_watts": 285},
             }
 
-            timestamp = storage.store_physiometrics(
+            timestamp = storage.physiometrics.store_physiometrics(
                 athlete_id="rob",
                 physiometrics_data=physio_data,
                 effective_date="2026-01-19",
@@ -69,7 +76,7 @@ class TestPhysiometricsTimeSeries:
 
     def test_update_single_metric(self, storage):
         """Test updating a single physiometric metric."""
-        with patch.object(storage, "_get_table_client") as mock_client:
+        with patch.object(storage.physiometrics.infra, "get_table_client") as mock_client:
             mock_table = MagicMock()
             mock_client.return_value = mock_table
 
@@ -86,7 +93,7 @@ class TestPhysiometricsTimeSeries:
                 }
             ]
 
-            storage.update_single_metric(
+            storage.physiometrics.update_single_metric(
                 athlete_id="rob",
                 metric_name="cycling_vo2max_ml_kg_min",
                 value=52.3,
@@ -102,7 +109,7 @@ class TestPhysiometricsTimeSeries:
 
     def test_get_physiometrics_history(self, storage):
         """Test retrieving time-series physiometrics data."""
-        with patch.object(storage, "_get_table_client") as mock_client:
+        with patch.object(storage.physiometrics.infra, "get_table_client") as mock_client:
             mock_table = MagicMock()
             mock_client.return_value = mock_table
 
@@ -125,7 +132,7 @@ class TestPhysiometricsTimeSeries:
                 },
             ]
 
-            history = storage.get_physiometrics_history(
+            history = storage.physiometrics.get_physiometrics_history(
                 athlete_id="rob",
                 start_date="2026-01-17",
                 end_date="2026-01-19",
@@ -138,7 +145,7 @@ class TestPhysiometricsTimeSeries:
 
     def test_get_physiometrics_as_of(self, storage):
         """Test retrieving physiometrics effective on a specific date."""
-        with patch.object(storage, "_get_table_client") as mock_client:
+        with patch.object(storage.physiometrics.infra, "get_table_client") as mock_client:
             mock_table = MagicMock()
             mock_client.return_value = mock_table
 
@@ -157,7 +164,7 @@ class TestPhysiometricsTimeSeries:
             ]
 
             # Query for Jan 17 should return Jan 15 config
-            config = storage.get_physiometrics_as_of(
+            config = storage.physiometrics.get_physiometrics_as_of(
                 athlete_id="rob", target_date="2026-01-17"
             )
 
@@ -165,11 +172,11 @@ class TestPhysiometricsTimeSeries:
 
     def test_withings_token_storage(self, storage):
         """Test storing and retrieving Withings OAuth tokens."""
-        with patch.object(storage, "_get_table_client") as mock_client:
+        with patch.object(storage.oauth_tokens.infra, "get_table_client") as mock_client:
             mock_table = MagicMock()
             mock_client.return_value = mock_table
 
-            storage.store_withings_tokens(
+            storage.oauth_tokens.store_withings_tokens(
                 athlete_id="rob",
                 withings_userid="12345",
                 access_token="access_token_abc",
@@ -187,22 +194,22 @@ class TestPhysiometricsTimeSeries:
 
     def test_webhook_deduplication(self, storage):
         """Test webhook deduplication logic."""
-        with patch.object(storage, "_get_table_client") as mock_client:
+        with patch.object(storage.webhooks.infra, "get_table_client") as mock_client:
             mock_table = MagicMock()
             mock_client.return_value = mock_table
 
             # First check - not processed
             mock_table.get_entity.side_effect = ResourceNotFoundError("Not found")
-            assert not storage.webhook_already_processed("rob", "12345", "1705622500")
+            assert not storage.webhooks.webhook_already_processed("rob", "12345", "1705622500")
 
             # Mark as processed
-            storage.mark_webhook_processed("rob", "12345", "1705622500")
+            storage.webhooks.mark_webhook_processed("rob", "12345", "1705622500")
             assert mock_table.upsert_entity.called
 
             # Second check - already processed
             mock_table.get_entity.side_effect = None
             mock_table.get_entity.return_value = {"PartitionKey": "rob"}
-            assert storage.webhook_already_processed("rob", "12345", "1705622500")
+            assert storage.webhooks.webhook_already_processed("rob", "12345", "1705622500")
 
 
 class TestSemanticLayerPhysiometrics:
@@ -211,12 +218,12 @@ class TestSemanticLayerPhysiometrics:
     @pytest.fixture
     def layer(self):
         """Create semantic layer with mocked storage."""
-        with patch("TrainingAnalyticsPlatform.analytics.semantic_layer.WorkoutTableStorage"):
+        with patch("TrainingAnalyticsPlatform.storage.storage_coordinator.StorageCoordinator"):
             return SemanticLayer()
 
     def test_get_current_physiometrics(self, layer):
         """Test retrieving current physiometric snapshot."""
-        layer.storage.get_physiometrics = MagicMock(
+        layer.storage.physiometrics.get_physiometrics = MagicMock(
             return_value={
                 "heart_rate": {"lthr_bpm": 175, "hr_max_bpm": 195},
                 "power": {"ftp_watts": 285},
@@ -236,7 +243,7 @@ class TestSemanticLayerPhysiometrics:
 
     def test_update_physiometric_value(self, layer):
         """Test updating a single physiometric value."""
-        layer.storage.update_single_metric = MagicMock(
+        layer.storage.physiometrics.update_single_metric = MagicMock(
             return_value="2026-01-19T14:32:15+00:00"
         )
 
@@ -251,11 +258,11 @@ class TestSemanticLayerPhysiometrics:
         assert result["status"] == "success"
         assert result["metric"] == "cycling_vo2max_ml_kg_min"
         assert result["value"] == pytest.approx(52.3)
-        assert layer.storage.update_single_metric.called
+        assert layer.storage.physiometrics.update_single_metric.called
 
     def test_get_physiometrics_trends(self, layer):
         """Test retrieving time-series trends."""
-        layer.storage.get_physiometrics_history = MagicMock(
+        layer.storage.physiometrics.get_physiometrics_history = MagicMock(
             return_value=[
                 {"effective_date": "2026-01-17", "weight_kg": 76.0},
                 {"effective_date": "2026-01-18", "weight_kg": 75.5},

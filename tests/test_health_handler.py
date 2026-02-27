@@ -14,8 +14,11 @@ class TestHealthHandler:
 
     @pytest.fixture
     def mock_storage(self):
-        """Create mock WorkoutTableStorage."""
-        return Mock()
+        """Create mock storage coordinator."""
+        storage = Mock()
+        storage.infrastructure = Mock()
+        storage.infrastructure.service_client = Mock()
+        return storage
 
     @pytest.fixture
     def temp_api_docs(self, tmp_path):
@@ -69,7 +72,7 @@ paths:
         # Arrange
         mock_service_client = Mock()
         mock_service_client.list_tables.return_value = iter([{"name": "workouts"}])
-        mock_storage.service_client = mock_service_client
+        mock_storage.infrastructure.service_client = mock_service_client
 
         # Act
         result, status = handler.check_health()
@@ -85,7 +88,7 @@ paths:
         # Arrange
         mock_service_client = Mock()
         mock_service_client.list_tables.side_effect = Exception("Connection timeout")
-        mock_storage.service_client = mock_service_client
+        mock_storage.infrastructure.service_client = mock_service_client
 
         # Act
         result, status = handler.check_health()
@@ -249,7 +252,7 @@ paths:
     def test_check_health_no_storage_client_attribute(self, handler, mock_storage):
         """Test health check when storage doesn't have service_client."""
         # Arrange
-        delattr(mock_storage, 'service_client')
+        delattr(mock_storage.infrastructure, "service_client")
 
         # Act
         result, status = handler.check_health()

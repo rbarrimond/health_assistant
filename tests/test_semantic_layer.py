@@ -14,8 +14,12 @@ from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
 
 @pytest.fixture
 def mock_storage():
-    """Mock WorkoutTableStorage for testing."""
-    return MagicMock()
+    """Mock storage coordinator for testing."""
+    storage = MagicMock()
+    storage.infrastructure = MagicMock()
+    storage.workouts = MagicMock()
+    storage.physiometrics = MagicMock()
+    return storage
 
 
 @pytest.fixture
@@ -207,7 +211,7 @@ class TestWorkoutQueries:
     def test_get_workout_detail_found(self, semantic_layer, mock_storage):
         """Test retrieving detailed workout data."""
         mock_table_client = MagicMock()
-        mock_storage._get_table_client.return_value = mock_table_client
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
 
         # Mock entity return - must include required WorkoutEntity fields
         mock_entity = {
@@ -230,7 +234,7 @@ class TestWorkoutQueries:
     def test_get_workout_detail_not_found(self, semantic_layer, mock_storage):
         """Test retrieving non-existent workout."""
         mock_table_client = MagicMock()
-        mock_storage._get_table_client.return_value = mock_table_client
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
         mock_table_client.query_entities.return_value = []
 
         workout = semantic_layer.get_workout_detail("rob", "nonexistent")
@@ -240,7 +244,7 @@ class TestWorkoutQueries:
     def test_get_workout_detail_wrong_athlete(self, semantic_layer, mock_storage):
         """Test workout detail with mismatched athlete_id."""
         mock_table_client = MagicMock()
-        mock_storage._get_table_client.return_value = mock_table_client
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
 
         mock_entity = {
             "PartitionKey": "other",
@@ -259,7 +263,7 @@ class TestWorkoutQueries:
     def test_get_workout_detail_with_developer_fields(self, semantic_layer, mock_storage):
         """Test workout detail can include summarized developer fields."""
         mock_table_client = MagicMock()
-        mock_storage._get_table_client.return_value = mock_table_client
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
 
         mock_entity = {
             "PartitionKey": "rob|2026-02",
@@ -272,7 +276,7 @@ class TestWorkoutQueries:
             "duration_sec": 3600,
         }
         mock_table_client.query_entities.return_value = [mock_entity]
-        mock_storage.load_metadata_json.return_value = {
+        mock_storage.workouts.load_metadata_json.return_value = {
             "record": [
                 {
                     "fields": {

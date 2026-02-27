@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from azure.storage.blob import BlobClient
 
 from TrainingAnalyticsPlatform.platform.config import Config
-from TrainingAnalyticsPlatform.storage.table_storage import WorkoutTableStorage
+from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
 
 logger = logging.getLogger(__name__)
 
@@ -16,11 +16,11 @@ logger = logging.getLogger(__name__)
 class BackupExporter:
     """Exports table data to read-only blobs for daily backups."""
 
-    def __init__(self, storage: WorkoutTableStorage):
+    def __init__(self, storage: StorageCoordinator):
         """Initialize exporter with storage client.
         
         Args:
-            storage: WorkoutTableStorage instance with table clients
+            storage: StorageCoordinator instance with table clients
         """
         self.storage = storage
         self.config = Config()
@@ -79,7 +79,7 @@ class BackupExporter:
         Returns:
             List of table entities as dictionaries
         """
-        table_client = self.storage._get_table_client(table_name)  # pylint: disable=protected-access
+        table_client = self.storage.infrastructure.get_table_client(table_name)  # pylint: disable=protected-access
         rows = []
 
         # Query all entities (no filter = all rows)

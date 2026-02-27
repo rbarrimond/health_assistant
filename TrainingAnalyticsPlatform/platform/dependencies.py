@@ -22,7 +22,7 @@ from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import (
     GarminSyncConfig,
 )
 from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
-from TrainingAnalyticsPlatform.storage.table_storage import WorkoutTableStorage
+from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
 from TrainingAnalyticsPlatform.integrations.withings_client import WithingsClient
 from TrainingAnalyticsPlatform.integrations.garmin_client import GarminConnectClient
 from TrainingAnalyticsPlatform.handlers import FitPayloadIngestionHandler
@@ -39,9 +39,9 @@ class FunctionAppDependencies:
     """
 
     @cached_property
-    def storage(self) -> WorkoutTableStorage:
-        """Return a cached storage instance, creating it on first use."""
-        storage = WorkoutTableStorage()
+    def storage(self) -> StorageCoordinator:
+        """Return a cached storage coordinator instance, creating it on first use."""
+        storage = StorageCoordinator()
         logger.info("Storage initialized")
         return storage
 

@@ -13,7 +13,7 @@ import pandas as pd
 from azure.core.exceptions import HttpResponseError
 
 from TrainingAnalyticsPlatform.models.core import CanonicalAnalyticsEngine
-from TrainingAnalyticsPlatform.storage.table_storage import WorkoutEntity, WorkoutTableStorage
+from TrainingAnalyticsPlatform.storage.storage_infrastructure import WorkoutEntity
 
 logger = logging.getLogger(__name__)
 UTC_OFFSET = "+00:00"
@@ -31,9 +31,14 @@ class DevFieldSummary(TypedDict):
 class SemanticLayer:
     """Semantic access layer for workout intelligence queries."""
 
-    def __init__(self, storage: Optional[WorkoutTableStorage] = None):
+    def __init__(self, storage: Optional["StorageCoordinator"] = None):
         """Initialize semantic layer with storage backend."""
-        self.storage = storage or WorkoutTableStorage()
+        if storage is None:
+            from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
+
+            self.storage = StorageCoordinator()
+        else:
+            self.storage = storage
 
     # -------------------------------------------------------------------------
     # Planning Context - The Most Important Endpoint
@@ -175,7 +180,7 @@ class SemanticLayer:
             Full workout data, or None if not found
         """
         try:
-            table_client = self.storage._get_table_client("Workouts")  # pylint: disable=protected-access
+            table_client = self.storage.infrastructure.get_table_client("Workouts")  # pylint: disable=protected-access
 
             # Query by workout_id across partitions
             query = f"workout_id eq '{workout_id}'"
@@ -214,7 +219,7 @@ class SemanticLayer:
             if include_developer_fields:
                 try:
                     ingestion_id = entity.get("ingestion_id") or workout_id
-                    metadata_payload = self.storage.load_metadata_json(ingestion_id)
+                    metadata_payload = self.storage.workouts.load_metadata_json(ingestion_id)
                     workout["developer_fields_summary"] = self._summarize_developer_fields(
                         metadata_payload
                     )
@@ -385,7 +390,7 @@ class SemanticLayer:
             List of workout dicts
         """
         try:
-            table_client = self.storage._get_table_client("Workouts")  # pylint: disable=protected-access
+            table_client = self.storage.infrastructure.get_table_client("Workouts")  # pylint: disable=protected-access
 
             # Build query for athlete and date range
             # PartitionKey format: athlete_id|YYYY-MM
@@ -552,7 +557,7 @@ class SemanticLayer:
             return metrics
 
         try:
-            df = self.storage.load_canonical_records(blob_name)
+            df = self.storage.workouts.load_canonical_records(blob_name)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.warning("Failed to load canonical records %s: %s", blob_name, exc)
             return metrics
@@ -580,7 +585,7 @@ class SemanticLayer:
     def _load_stored_laps(self, workout_entity: WorkoutEntity) -> Optional[List[Dict]]:
         try:
             ingestion_id = workout_entity.ingestion_id or workout_entity.workout_id
-            payload = self.storage.load_laps_json(ingestion_id)
+            payload = self.storage.workouts.load_laps_json(ingestion_id)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.warning(
                 "Failed to load laps.json for workout %s: %s",
@@ -601,7 +606,7 @@ class SemanticLayer:
     ) -> Optional[Dict]:
         """Get detailed lap data for a specific workout lap."""
         try:
-            table_client = self.storage._get_table_client("Workouts")  # pylint: disable=protected-access
+            table_client = self.storage.infrastructure.get_table_client("Workouts")  # pylint: disable=protected-access
             query = f"workout_id eq '{workout_id}'"
             entities = list(table_client.query_entities(query, top=1))
             if not entities:
@@ -612,7 +617,7 @@ class SemanticLayer:
                 return None
 
             ingestion_id = entity.get("ingestion_id") or workout_id
-            laps_payload = self.storage.load_laps_json(ingestion_id)
+            laps_payload = self.storage.workouts.load_laps_json(ingestion_id)
             laps = laps_payload.get("laps") if isinstance(laps_payload, dict) else None
             if not isinstance(laps, list) or not laps:
                 return None
@@ -671,7 +676,7 @@ class SemanticLayer:
 
         records_blob = entity.get("canonical_records_blob") or f"{ingestion_id}/canonical.parquet"
         try:
-            records_df = self.storage.load_canonical_records(records_blob)
+            records_df = self.storage.workouts.load_canonical_records(records_blob)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             return None, str(exc)
 
@@ -688,7 +693,7 @@ class SemanticLayer:
             return None, "No workout id available"
 
         try:
-            payload = self.storage.load_laps_json(ingestion_id)
+            payload = self.storage.workouts.load_laps_json(ingestion_id)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             return None, str(exc)
 
@@ -854,7 +859,7 @@ class SemanticLayer:
         start_date = end_date - timedelta(days=days)
 
         try:
-            table_client = self.storage._get_table_client("WeeklyRollups")  # pylint: disable=protected-access
+            table_client = self.storage.infrastructure.get_table_client("WeeklyRollups")  # pylint: disable=protected-access
             rollups = []
 
             # Query each year partition
@@ -990,7 +995,7 @@ class SemanticLayer:
         Returns:
             Dict containing current weight, FTP, LTHR, cycling VO2Max, body composition, etc.
         """
-        config = self.storage.get_physiometrics(athlete_id)
+        config = self.storage.physiometrics.get_physiometrics(athlete_id)
 
         if not config:
             return {
@@ -1054,7 +1059,7 @@ class SemanticLayer:
         end_date = datetime.now(timezone.utc).date()
         start_date = end_date - timedelta(days=days)
 
-        history = self.storage.get_physiometrics_history(
+        history = self.storage.physiometrics.get_physiometrics_history(
             athlete_id=athlete_id,
             start_date=start_date.isoformat(),
             end_date=end_date.isoformat(),
@@ -1091,7 +1096,7 @@ class SemanticLayer:
             Dict with update confirmation
         """
         try:
-            timestamp = self.storage.update_single_metric(
+            timestamp = self.storage.physiometrics.update_single_metric(
                 athlete_id=athlete_id,
                 metric_name=metric,
                 value=value,

@@ -9,7 +9,15 @@ from unittest.mock import MagicMock
 import pytest
 from azure.core.exceptions import HttpResponseError
 
-from TrainingAnalyticsPlatform.storage.table_storage import WorkoutTableStorage
+from TrainingAnalyticsPlatform.storage.physiometrics_storage import PhysiometricsStorage
+from TrainingAnalyticsPlatform.storage.storage_infrastructure import StorageInfrastructure
+
+
+def _make_storage(mock_table_client: MagicMock) -> PhysiometricsStorage:
+    storage = PhysiometricsStorage.__new__(PhysiometricsStorage)
+    storage.infra = MagicMock()
+    storage.infra.get_table_client = MagicMock(return_value=mock_table_client)
+    return storage
 
 
 class TestStorePhysiometrics:
@@ -17,9 +25,8 @@ class TestStorePhysiometrics:
 
     def test_store_physiometrics_success(self) -> None:
         """Verify physiometrics are stored with timestamp."""
-        storage = WorkoutTableStorage.__new__(WorkoutTableStorage)
         mock_table_client = MagicMock()
-        storage._get_table_client = MagicMock(return_value=mock_table_client)
+        storage = _make_storage(mock_table_client)
 
         physiometrics_data = {
             "heart_rate": {
@@ -44,9 +51,8 @@ class TestStorePhysiometrics:
 
     def test_store_physiometrics_stores_full_json(self) -> None:
         """Verify full config JSON is stored for auditability."""
-        storage = WorkoutTableStorage.__new__(WorkoutTableStorage)
         mock_table_client = MagicMock()
-        storage._get_table_client = MagicMock(return_value=mock_table_client)
+        storage = _make_storage(mock_table_client)
 
         physiometrics_data = {
             "heart_rate": {"basis": "HRmax"},
@@ -61,9 +67,8 @@ class TestStorePhysiometrics:
 
     def test_store_physiometrics_handles_null_values(self) -> None:
         """Verify null values are handled gracefully."""
-        storage = WorkoutTableStorage.__new__(WorkoutTableStorage)
         mock_table_client = MagicMock()
-        storage._get_table_client = MagicMock(return_value=mock_table_client)
+        storage = _make_storage(mock_table_client)
 
         physiometrics_data = {
             "heart_rate": {
@@ -80,10 +85,9 @@ class TestStorePhysiometrics:
 
     def test_store_physiometrics_error(self) -> None:
         """Verify error is raised on storage failure."""
-        storage = WorkoutTableStorage.__new__(WorkoutTableStorage)
         mock_table_client = MagicMock()
         mock_table_client.upsert_entity.side_effect = HttpResponseError("Storage error")
-        storage._get_table_client = MagicMock(return_value=mock_table_client)
+        storage = _make_storage(mock_table_client)
 
         physiometrics_data = {"heart_rate": {}, "power": {}}
 
@@ -96,7 +100,6 @@ class TestGetPhysiometrics:
 
     def test_get_physiometrics_latest(self) -> None:
         """Verify latest physiometrics are retrieved."""
-        storage = WorkoutTableStorage.__new__(WorkoutTableStorage)
         mock_table_client = MagicMock()
 
         config_json = json.dumps({
@@ -111,7 +114,7 @@ class TestGetPhysiometrics:
         }
 
         mock_table_client.query_entities.return_value = [mock_entity]
-        storage._get_table_client = MagicMock(return_value=mock_table_client)
+        storage = _make_storage(mock_table_client)
 
         result = storage.get_physiometrics("rob")
 
@@ -121,7 +124,6 @@ class TestGetPhysiometrics:
 
     def test_get_physiometrics_fallback_to_fields(self) -> None:
         """Verify fallback reconstruction from individual fields."""
-        storage = WorkoutTableStorage.__new__(WorkoutTableStorage)
         mock_table_client = MagicMock()
 
         mock_entity = {
@@ -136,7 +138,7 @@ class TestGetPhysiometrics:
         }
 
         mock_table_client.query_entities.return_value = [mock_entity]
-        storage._get_table_client = MagicMock(return_value=mock_table_client)
+        storage = _make_storage(mock_table_client)
 
         result = storage.get_physiometrics("rob")
 
@@ -147,10 +149,9 @@ class TestGetPhysiometrics:
 
     def test_get_physiometrics_not_found(self) -> None:
         """Verify None returned when no physiometrics found."""
-        storage = WorkoutTableStorage.__new__(WorkoutTableStorage)
         mock_table_client = MagicMock()
         mock_table_client.query_entities.return_value = []
-        storage._get_table_client = MagicMock(return_value=mock_table_client)
+        storage = _make_storage(mock_table_client)
 
         result = storage.get_physiometrics("rob")
 
@@ -158,10 +159,9 @@ class TestGetPhysiometrics:
 
     def test_get_physiometrics_query_error(self) -> None:
         """Verify None returned on query error."""
-        storage = WorkoutTableStorage.__new__(WorkoutTableStorage)
         mock_table_client = MagicMock()
         mock_table_client.query_entities.side_effect = HttpResponseError("Query error")
-        storage._get_table_client = MagicMock(return_value=mock_table_client)
+        storage = _make_storage(mock_table_client)
 
         result = storage.get_physiometrics("rob")
 
@@ -173,7 +173,6 @@ class TestListPhysiometricsHistory:
 
     def test_list_physiometrics_history_success(self) -> None:
         """Verify history is sorted newest first."""
-        storage = WorkoutTableStorage.__new__(WorkoutTableStorage)
         mock_table_client = MagicMock()
 
         mock_entities = [
@@ -183,7 +182,7 @@ class TestListPhysiometricsHistory:
         ]
 
         mock_table_client.query_entities.return_value = mock_entities
-        storage._get_table_client = MagicMock(return_value=mock_table_client)
+        storage = _make_storage(mock_table_client)
 
         result = storage.list_physiometrics_history("rob", limit=10)
 
@@ -194,7 +193,6 @@ class TestListPhysiometricsHistory:
 
     def test_list_physiometrics_history_limit(self) -> None:
         """Verify limit is respected."""
-        storage = WorkoutTableStorage.__new__(WorkoutTableStorage)
         mock_table_client = MagicMock()
 
         mock_entities = [
@@ -202,7 +200,7 @@ class TestListPhysiometricsHistory:
         ]
 
         mock_table_client.query_entities.return_value = mock_entities
-        storage._get_table_client = MagicMock(return_value=mock_table_client)
+        storage = _make_storage(mock_table_client)
 
         result = storage.list_physiometrics_history("rob", limit=5)
 
@@ -210,10 +208,9 @@ class TestListPhysiometricsHistory:
 
     def test_list_physiometrics_history_query_error(self) -> None:
         """Verify empty list returned on error."""
-        storage = WorkoutTableStorage.__new__(WorkoutTableStorage)
         mock_table_client = MagicMock()
         mock_table_client.query_entities.side_effect = HttpResponseError("Query error")
-        storage._get_table_client = MagicMock(return_value=mock_table_client)
+        storage = _make_storage(mock_table_client)
 
         result = storage.list_physiometrics_history("rob", limit=10)
 
@@ -229,9 +226,9 @@ class TestEnsurePhysiometricsTable:
         """Verify Physiometrics table is created on init."""
         mock_service_client = MagicMock()
 
-        storage = WorkoutTableStorage.__new__(WorkoutTableStorage)
-        storage.service_client = mock_service_client
-        storage._ensure_tables_exist()
+        infrastructure = StorageInfrastructure.__new__(StorageInfrastructure)
+        infrastructure.service_client = mock_service_client
+        infrastructure._ensure_tables_exist()
 
         table_names = [
             call[0][0]

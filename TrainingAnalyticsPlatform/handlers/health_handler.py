@@ -6,19 +6,17 @@ import os
 from datetime import datetime, timezone
 from typing import Dict, Tuple, Any
 
-from TrainingAnalyticsPlatform.storage.table_storage import WorkoutTableStorage
-
 logger = logging.getLogger(__name__)
 
 
 class HealthHandler:
     """Handles health check and plugin metadata endpoints."""
 
-    def __init__(self, storage: WorkoutTableStorage, api_docs_dir: str):
+    def __init__(self, storage, api_docs_dir: str):
         """Initialize handler with storage and API docs directory.
 
         Args:
-            storage: WorkoutTableStorage instance for health checks
+            storage: StorageCoordinator instance for health checks
             api_docs_dir: Path to API documentation files directory
         """
         self.storage = storage
@@ -38,7 +36,7 @@ class HealthHandler:
 
         try:
             # Lightweight operation to verify storage connectivity
-            list(self.storage.service_client.list_tables(results_per_page=1))
+            list(self.storage.infrastructure.service_client.list_tables(results_per_page=1))
             checks["storage"] = "ok"
         except Exception:  # pylint: disable=broad-except
             checks["storage"] = "degraded"

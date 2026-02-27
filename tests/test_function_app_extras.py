@@ -385,12 +385,13 @@ class TestIngestionHelpersAndFlow:
         }
 
         mock_storage = MagicMock()
-        mock_storage.get_ingestion_state.return_value = None
-        mock_storage.store_workout.return_value = "workout-456"
+        mock_storage.workouts = MagicMock()
+        mock_storage.workouts.get_ingestion_state.return_value = None
+        mock_storage.workouts.store_workout.return_value = "workout-456"
         mock_context = MagicMock()
         mock_context.should_skip.return_value = False
         mock_context.existing_state = None
-        mock_storage.get_ingestion_context.return_value = mock_context
+        mock_storage.workouts.get_ingestion_context.return_value = mock_context
 
         mock_model = MagicMock()
         from TrainingAnalyticsPlatform.models import CanonicalRecordSet
@@ -414,7 +415,7 @@ class TestIngestionHelpersAndFlow:
 
         assert status_code == 200
         assert body["status"] == "success"
-        mock_storage.record_ingestion_state.assert_called_once()
+        mock_storage.workouts.record_ingestion_state.assert_called_once()
 
 
 class TestOneDriveHelpersAndEndpoints:

@@ -454,9 +454,12 @@ class TestSyncStatus:
         handler._ingestion_handler.handle = MagicMock(return_value=(
             {"status": "success", "workout_id": "w1"}, 200
         ))
-        handler._storage.get_onedrive_tokens = MagicMock(return_value={
+        handler._storage.oauth_tokens = MagicMock()
+        handler._storage.oauth_tokens.get_onedrive_tokens = MagicMock(return_value={
             "access_token": "token123",
             "drive_id": "drive1",
+            "refresh_token": "refresh-123",
+            "expires_at_utc": "2026-03-01T00:00:00+00:00",
         })
 
         # Act
@@ -478,9 +481,12 @@ class TestSyncStatus:
             {"id": "5", "name": "f5.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
         ])
         handler._ingestion_handler.handle = MagicMock(side_effect=Exception("Parse error"))
-        handler._storage.get_onedrive_tokens = MagicMock(return_value={
+        handler._storage.oauth_tokens = MagicMock()
+        handler._storage.oauth_tokens.get_onedrive_tokens = MagicMock(return_value={
             "access_token": "token123",
             "drive_id": "drive1",
+            "refresh_token": "refresh-123",
+            "expires_at_utc": "2026-03-01T00:00:00+00:00",
         })
 
         # Act
@@ -509,9 +515,12 @@ class TestSyncStatus:
             Exception("Parse error"),
             Exception("Parse error"),
         ])
-        handler._storage.get_onedrive_tokens = MagicMock(return_value={
+        handler._storage.oauth_tokens = MagicMock()
+        handler._storage.oauth_tokens.get_onedrive_tokens = MagicMock(return_value={
             "access_token": "token123",
             "drive_id": "drive1",
+            "refresh_token": "refresh-123",
+            "expires_at_utc": "2026-03-01T00:00:00+00:00",
         })
 
         # Act
@@ -534,9 +543,12 @@ class TestSyncStatus:
         handler._ingestion_handler.handle = MagicMock(return_value=(
             {"status": "skipped", "workout_id": None}, 200
         ))
-        handler._storage.get_onedrive_tokens = MagicMock(return_value={
+        handler._storage.oauth_tokens = MagicMock()
+        handler._storage.oauth_tokens.get_onedrive_tokens = MagicMock(return_value={
             "access_token": "token123",
             "drive_id": "drive1",
+            "refresh_token": "refresh-123",
+            "expires_at_utc": "2026-03-01T00:00:00+00:00",
         })
 
         # Act
@@ -563,9 +575,12 @@ class TestSyncStatus:
             Exception("Parse error"),
             Exception("Parse error"),
         ])
-        handler._storage.get_onedrive_tokens = MagicMock(return_value={
+        handler._storage.oauth_tokens = MagicMock()
+        handler._storage.oauth_tokens.get_onedrive_tokens = MagicMock(return_value={
             "access_token": "token123",
             "drive_id": "drive1",
+            "refresh_token": "refresh-123",
+            "expires_at_utc": "2026-03-01T00:00:00+00:00",
         })
 
         # Act

@@ -39,6 +39,7 @@ def test_build_authorize_url():
 
 def test_complete_authorization_stores_tokens(monkeypatch):
     storage = MagicMock()
+    storage.oauth_tokens = MagicMock()
     client = MagicMock()
     handler = OneDriveSyncHandler(_config(), storage, client=client)
 
@@ -54,11 +55,12 @@ def test_complete_authorization_stores_tokens(monkeypatch):
 
     handler.complete_authorization(athlete_id="rob", code="auth-code")
 
-    storage.store_onedrive_tokens.assert_called_once()
+    storage.oauth_tokens.store_onedrive_tokens.assert_called_once()
 
 
 def test_sync_calls_ingestion_handler(monkeypatch):
     storage = MagicMock()
+    storage.oauth_tokens = MagicMock()
     future = datetime.now(timezone.utc) + timedelta(hours=2)
     tokens = {
         "access_token": "access",
@@ -66,7 +68,7 @@ def test_sync_calls_ingestion_handler(monkeypatch):
         "expires_at_utc": future.isoformat(),
         "drive_id": "drive-id",
     }
-    storage.get_onedrive_tokens.return_value = tokens
+    storage.oauth_tokens.get_onedrive_tokens.return_value = tokens
 
     client = MagicMock()
     ingestion_handler = MagicMock()
@@ -105,6 +107,7 @@ def test_parse_workout_date_from_filename():
 
 def test_sync_filters_by_filename_date(monkeypatch):
     storage = MagicMock()
+    storage.oauth_tokens = MagicMock()
     future = datetime(2026, 2, 1, tzinfo=timezone.utc) + timedelta(hours=2)
     tokens = {
         "access_token": "access",
@@ -112,7 +115,7 @@ def test_sync_filters_by_filename_date(monkeypatch):
         "expires_at_utc": future.isoformat(),
         "drive_id": "drive-id",
     }
-    storage.get_onedrive_tokens.return_value = tokens
+    storage.oauth_tokens.get_onedrive_tokens.return_value = tokens
 
     class FixedDateTime(datetime):
         @classmethod
@@ -159,6 +162,7 @@ def test_sync_filters_by_filename_date(monkeypatch):
 
 def test_sync_falls_back_to_modified_date(monkeypatch):
     storage = MagicMock()
+    storage.oauth_tokens = MagicMock()
     future = datetime(2026, 2, 1, tzinfo=timezone.utc) + timedelta(hours=2)
     tokens = {
         "access_token": "access",
@@ -166,7 +170,7 @@ def test_sync_falls_back_to_modified_date(monkeypatch):
         "expires_at_utc": future.isoformat(),
         "drive_id": "drive-id",
     }
-    storage.get_onedrive_tokens.return_value = tokens
+    storage.oauth_tokens.get_onedrive_tokens.return_value = tokens
 
     class FixedDateTime(datetime):
         @classmethod
@@ -203,7 +207,8 @@ def test_sync_falls_back_to_modified_date(monkeypatch):
 
 def test_sync_skips_when_no_tokens():
     storage = MagicMock()
-    storage.get_onedrive_tokens.return_value = None
+    storage.oauth_tokens = MagicMock()
+    storage.oauth_tokens.get_onedrive_tokens.return_value = None
 
     handler = OneDriveSyncHandler(_config(), storage, client=MagicMock())
 

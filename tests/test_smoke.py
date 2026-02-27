@@ -20,7 +20,7 @@ from function_app import parse_ingest_payload  # pylint: disable=unused-import
 
 # Ensure all necessary imports and functionality remain intact.
 # Ensure all references to MagicMock and patch are valid and properly used.
-WorkoutTableStorage = MagicMock()
+StorageCoordinator = MagicMock()
 from TrainingAnalyticsPlatform.handlers import (
     ConfigHandler,
     HealthHandler,
@@ -28,15 +28,17 @@ from TrainingAnalyticsPlatform.handlers import (
     OneDriveSyncConfig,
 )
 from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
+from TrainingAnalyticsPlatform.storage.storage_infrastructure import StorageInfrastructure
 
 # Ensure all references to these classes and functions are valid.
-WorkoutTableStorage = MagicMock()
+StorageCoordinator = MagicMock()
 
 
 def test_core_modules_importable() -> None:
     """Core FitParser and function_app modules should import successfully."""
     # If this test runs, the imports at module level succeeded
-    from TrainingAnalyticsPlatform.storage.table_storage import WorkoutTableStorage as _  # noqa: F401
+    from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator as _  # noqa: F401
 
     # All imports succeeded - test passes
 
@@ -117,12 +119,12 @@ def test_parse_ingest_payload_invalid_json() -> None:
 # Dependency Layer Instantiation Tests (Fast Fail)
 # ============================================================================
 def test_storage_instantiation() -> None:
-    """WorkoutTableStorage should instantiate without errors."""
+    """StorageCoordinator should instantiate without errors."""
     with (
-        patch.object(WorkoutTableStorage, "_ensure_tables_exist"),
-        patch.object(WorkoutTableStorage, "_ensure_blob_container"),
+        patch.object(StorageInfrastructure, "_ensure_tables_exist"),
+        patch.object(StorageInfrastructure, "_ensure_blob_container"),
     ):
-        storage = WorkoutTableStorage(
+        storage = StorageCoordinator(
             connection_string=(
                 "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake;"
                 "EndpointSuffix=core.windows.net"
@@ -132,12 +134,12 @@ def test_storage_instantiation() -> None:
 
 
 def test_semantic_layer_instantiation() -> None:
-    """SemanticLayer should instantiate with WorkoutTableStorage."""
+    """SemanticLayer should instantiate with StorageCoordinator."""
     with (
-        patch.object(WorkoutTableStorage, "_ensure_tables_exist"),
-        patch.object(WorkoutTableStorage, "_ensure_blob_container"),
+        patch.object(StorageInfrastructure, "_ensure_tables_exist"),
+        patch.object(StorageInfrastructure, "_ensure_blob_container"),
     ):
-        storage = WorkoutTableStorage(
+        storage = StorageCoordinator(
             connection_string=(
                 "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake;"
                 "EndpointSuffix=core.windows.net"
@@ -176,10 +178,10 @@ def test_config_handler_instantiation() -> None:
 def test_health_handler_instantiation() -> None:
     """HealthHandler should instantiate successfully."""
     with (
-        patch.object(WorkoutTableStorage, "_ensure_tables_exist"),
-        patch.object(WorkoutTableStorage, "_ensure_blob_container"),
+        patch.object(StorageInfrastructure, "_ensure_tables_exist"),
+        patch.object(StorageInfrastructure, "_ensure_blob_container"),
     ):
-        storage = WorkoutTableStorage(
+        storage = StorageCoordinator(
             connection_string=(
                 "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=fake;"
                 "EndpointSuffix=core.windows.net"

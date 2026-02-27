@@ -25,8 +25,9 @@ class TestGarminSyncIngestionHandler:
 
     def test_find_near_duplicate_workout_matches_by_time_and_duration(self):
         storage = MagicMock()
+        storage.infrastructure = MagicMock()
         table_client = MagicMock()
-        storage.get_table_client.return_value = table_client
+        storage.infrastructure.get_table_client.return_value = table_client
         table_client.query_entities.return_value = [
             {
                 "athlete_id": "rob",
@@ -46,8 +47,9 @@ class TestGarminSyncIngestionHandler:
 
     def test_find_near_duplicate_workout_ignores_distant_duration(self):
         storage = MagicMock()
+        storage.infrastructure = MagicMock()
         table_client = MagicMock()
-        storage.get_table_client.return_value = table_client
+        storage.infrastructure.get_table_client.return_value = table_client
         table_client.query_entities.return_value = [
             {
                 "athlete_id": "rob",
@@ -76,6 +78,7 @@ class TestGarminSyncIngestionHandler:
 
     def test_handle_returns_error_code_on_ingestion_id_failure(self):
         storage = MagicMock()
+        storage.workouts = MagicMock()
         client = MagicMock()
         handler = GarminSyncIngestionHandler(storage=storage, client=client)
 
@@ -91,11 +94,12 @@ class TestGarminSyncIngestionHandler:
 
     def test_handle_returns_error_code_on_workout_id_failure(self):
         storage = MagicMock()
+        storage.workouts = MagicMock()
         context = MagicMock()
         context.should_skip.return_value = False
         context.existing_state = None
         context.ingestion_key = "a1"
-        storage.get_ingestion_context.return_value = context
+        storage.workouts.get_ingestion_context.return_value = context
 
         client = MagicMock()
         client.download_activity_fit.return_value = b"fit-bytes"
@@ -116,11 +120,12 @@ class TestGarminSyncIngestionHandler:
 
     def test_handle_returns_error_code_on_fit_parsing_failure(self):
         storage = MagicMock()
+        storage.workouts = MagicMock()
         context = MagicMock()
         context.should_skip.return_value = False
         context.existing_state = None
         context.ingestion_key = "a1"
-        storage.get_ingestion_context.return_value = context
+        storage.workouts.get_ingestion_context.return_value = context
 
         client = MagicMock()
         client.download_activity_fit.return_value = b"fit-bytes"

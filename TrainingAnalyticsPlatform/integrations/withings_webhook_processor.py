@@ -15,7 +15,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from TrainingAnalyticsPlatform.storage.table_storage import WorkoutTableStorage
+from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
 from TrainingAnalyticsPlatform.integrations.withings_client import WithingsClient
 
 logger = logging.getLogger(__name__)
@@ -35,9 +35,9 @@ def _parse_webhook_message(message_body: str) -> dict:
     }
 
 
-def _ensure_access_token(storage: WorkoutTableStorage, client: WithingsClient,
+def _ensure_access_token(storage: StorageCoordinator, client: WithingsClient,
                          athlete_id: str, userid: str) -> str:
-    token_data = storage.get_withings_tokens(athlete_id)
+    token_data = storage.oauth_tokens.get_withings_tokens(athlete_id)
     if not token_data:
         raise ValueError(f"No Withings tokens found for athlete {athlete_id}")
 
@@ -51,7 +51,7 @@ def _ensure_access_token(storage: WorkoutTableStorage, client: WithingsClient,
 
     logger.info("Access token expired, refreshing...")
     refreshed = client.refresh_access_token(token_data["refresh_token"])
-    storage.refresh_withings_token(
+    storage.oauth_tokens.refresh_withings_token(
         athlete_id=athlete_id,
         withings_userid=userid,
         new_access_token=refreshed["access_token"],
@@ -62,7 +62,7 @@ def _ensure_access_token(storage: WorkoutTableStorage, client: WithingsClient,
     return refreshed["access_token"]
 
 
-def _store_measurements(storage: WorkoutTableStorage, athlete_id: str, measurements: list) -> None:
+def _store_measurements(storage: StorageCoordinator, athlete_id: str, measurements: list) -> None:
     for measurement in measurements:
         measured_at = datetime.fromisoformat(measurement["measured_at"])
         effective_date = measured_at.date().isoformat()
@@ -83,7 +83,7 @@ def _store_measurements(storage: WorkoutTableStorage, athlete_id: str, measureme
         if "metabolic_age_years" in measurement:
             physio_data["metabolic_age_years"] = measurement["metabolic_age_years"]
 
-        storage.store_physiometrics(
+        storage.physiometrics.store_physiometrics(
             athlete_id=athlete_id,
             physiometrics_data=physio_data,
             effective_date=effective_date,
@@ -110,10 +110,10 @@ def process_webhook_async(message_body: str) -> None:
             athlete_id, userid
         )
 
-        storage = WorkoutTableStorage()
+        storage = StorageCoordinator()
         client = WithingsClient()
 
-        if storage.webhook_already_processed(athlete_id, userid, str(enddate)):
+        if storage.webhooks.webhook_already_processed(athlete_id, userid, str(enddate)):
             logger.info("Webhook already processed, skipping")
             return
 
@@ -128,7 +128,7 @@ def process_webhook_async(message_body: str) -> None:
 
         _store_measurements(storage, athlete_id, measurements)
 
-        storage.mark_webhook_processed(athlete_id, userid, str(enddate))
+        storage.webhooks.mark_webhook_processed(athlete_id, userid, str(enddate))
         logger.info("Webhook processing complete")
 
     except Exception as e:  # pylint: disable=broad-exception-caught

@@ -21,7 +21,7 @@ class AgentMemoryHandler:
         """Initialize handler with table storage dependency.
 
         Args:
-            table_storage: WorkoutTableStorage instance
+            table_storage: StorageCoordinator instance
         """
         self.table_storage = table_storage
 
@@ -153,7 +153,7 @@ class AgentMemoryHandler:
 
         try:
             validated = AgentPreferences(athlete_id=athlete_id, **preferences)
-            client = self.table_storage._get_table_client(  # pylint: disable=protected-access
+            client = self.table_storage.infrastructure.get_table_client(  # pylint: disable=protected-access
                 "AgentPreferences"
             )
 
@@ -412,7 +412,7 @@ class AgentMemoryHandler:
         limit: int = 20
     ) -> List[Dict]:
         """Fetch preferences from AgentPreferences table."""
-        client = self.table_storage._get_table_client(  # pylint: disable=protected-access
+        client = self.table_storage.infrastructure.get_table_client(  # pylint: disable=protected-access
             "AgentPreferences"
         )
 
@@ -450,7 +450,7 @@ class AgentMemoryHandler:
 
     def _store_preference(self, preference: AgentPreference):
         """Store preference to AgentPreferences table."""
-        client = self.table_storage._get_table_client(  # pylint: disable=protected-access
+        client = self.table_storage.infrastructure.get_table_client(  # pylint: disable=protected-access
             "AgentPreferences"
         )
 
@@ -475,7 +475,7 @@ class AgentMemoryHandler:
         updates: Dict[str, Any]
     ) -> Tuple[bool, Optional[Dict[str, Any]]]:
         """Update preference fields in storage."""
-        client = self.table_storage._get_table_client(  # pylint: disable=protected-access
+        client = self.table_storage.infrastructure.get_table_client(  # pylint: disable=protected-access
             "AgentPreferences"
         )
 
@@ -524,7 +524,7 @@ class AgentMemoryHandler:
         limit: int = 20
     ) -> List[Dict]:
         """Fetch observations from AgentObservations table."""
-        client = self.table_storage._get_table_client(  # pylint: disable=protected-access
+        client = self.table_storage.infrastructure.get_table_client(  # pylint: disable=protected-access
             "AgentObservations"
         )
 
@@ -553,7 +553,7 @@ class AgentMemoryHandler:
 
     def _store_observation(self, observation: AgentObservation):
         """Store observation to AgentObservations table."""
-        client = self.table_storage._get_table_client(  # pylint: disable=protected-access
+        client = self.table_storage.infrastructure.get_table_client(  # pylint: disable=protected-access
             "AgentObservations"
         )
 
@@ -579,7 +579,7 @@ class AgentMemoryHandler:
         status: str
     ) -> bool:
         """Update observation status in storage."""
-        client = self.table_storage._get_table_client(  # pylint: disable=protected-access
+        client = self.table_storage.infrastructure.get_table_client(  # pylint: disable=protected-access
             "AgentObservations"
         )
 

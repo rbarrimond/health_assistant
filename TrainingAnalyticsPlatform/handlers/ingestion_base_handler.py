@@ -15,10 +15,7 @@ from TrainingAnalyticsPlatform.ingestion.code_mappings import (
 )
 from TrainingAnalyticsPlatform.ingestion.device_classifier import FitDevice
 from TrainingAnalyticsPlatform.ingestion.fit_models import create_fit_model
-from TrainingAnalyticsPlatform.storage.table_storage import (
-    CANONICAL_SCHEMA_VERSION,
-    WorkoutTableStorage,
-)
+from TrainingAnalyticsPlatform.storage.storage_infrastructure import CANONICAL_SCHEMA_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +23,7 @@ logger = logging.getLogger(__name__)
 class FitIngestionBaseHandler(ABC):
     """Abstract base for FIT ingestion handlers (payload + sync)."""
 
-    def __init__(self, storage: WorkoutTableStorage):
+    def __init__(self, storage):
         self.storage = storage
 
     @abstractmethod
@@ -42,7 +39,7 @@ class FitIngestionBaseHandler(ABC):
         ingestion_key: Optional[str] = None,
         existing_state: Optional[Dict[str, Any]] = None,
     ) -> Tuple[bool, Optional[str]]:
-        context = self.storage.get_ingestion_context(
+        context = self.storage.workouts.get_ingestion_context(
             athlete_id,
             source_info,
             ingestion_key=ingestion_key,
@@ -56,7 +53,7 @@ class FitIngestionBaseHandler(ABC):
             if context.existing_state
             else None
         )
-        self.storage.record_ingestion_state(
+        self.storage.workouts.record_ingestion_state(
             athlete_id,
             source_info,
             status="skipped",
@@ -140,14 +137,14 @@ class FitIngestionBaseHandler(ABC):
         analysis_payload = model.build_fit_analysis()
 
         record_set = model.build_canonical_records()
-        records_blob = self.storage.store_canonical_records(ingestion_id, record_set)
-        self.storage.store_raw_fit_json(ingestion_id, raw_fit_payload)
-        self.storage.store_metadata_json(ingestion_id, metadata_payload)
-        self.storage.store_laps_json(ingestion_id, laps_payload)
-        self.storage.store_fit_analysis(ingestion_id, analysis_payload)
+        records_blob = self.storage.workouts.store_canonical_records(ingestion_id, record_set)
+        self.storage.workouts.store_raw_fit_json(ingestion_id, raw_fit_payload)
+        self.storage.workouts.store_metadata_json(ingestion_id, metadata_payload)
+        self.storage.workouts.store_laps_json(ingestion_id, laps_payload)
+        self.storage.workouts.store_fit_analysis(ingestion_id, analysis_payload)
         laps_count = len(laps_payload.get("laps", []))
 
-        self.storage.store_workout(
+        self.storage.workouts.store_workout(
             athlete_id,
             metadata,
             source_info,
@@ -158,7 +155,7 @@ class FitIngestionBaseHandler(ABC):
             records_count=len(record_set.to_dataframe),
             laps_count=laps_count,
         )
-        self.storage.record_ingestion_state(
+        self.storage.workouts.record_ingestion_state(
             athlete_id,
             source_info,
             status="ingested",
@@ -193,7 +190,7 @@ class FitIngestionBaseHandler(ABC):
     ) -> None:
         if not source_info:
             return
-        self.storage.record_ingestion_state(
+        self.storage.workouts.record_ingestion_state(
             athlete_id,
             source_info,
             status="failed",
@@ -304,7 +301,7 @@ class FitIngestionBaseHandler(ABC):
             message,
             source_info,
         )
-        self.storage.record_ingestion_state(
+        self.storage.workouts.record_ingestion_state(
             athlete_id,
             source_info,
             status="filtered",

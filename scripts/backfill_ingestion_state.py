@@ -74,8 +74,8 @@ def _merge_ingestion_state(
 def backfill_ingestion_state(apply: bool) -> None:
     """Backfill IngestionState from Workouts table."""
     storage = WorkoutTableStorage()
-    workouts_table = storage._get_table_client("Workouts")  # pylint: disable=protected-access
-    ingestion_table = storage._get_table_client("IngestionState")  # pylint: disable=protected-access
+    workouts_table = storage.infrastructure.get_table_client("Workouts")  # pylint: disable=protected-access
+    ingestion_table = storage.infrastructure.get_table_client("IngestionState")  # pylint: disable=protected-access
 
     updated = 0
     skipped = 0
@@ -91,7 +91,7 @@ def backfill_ingestion_state(apply: bool) -> None:
                 skipped += 1
                 continue
 
-            existing = storage.get_ingestion_state(athlete_id, ingestion_key)
+            existing = storage.workouts.get_ingestion_state(athlete_id, ingestion_key)
             merged = _merge_ingestion_state(existing, entity, ingestion_key, athlete_id)
 
             if apply:
