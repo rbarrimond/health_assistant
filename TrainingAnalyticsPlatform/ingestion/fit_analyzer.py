@@ -59,15 +59,11 @@ class FitStructureAnalyzer:
     def _messages(self, name: str) -> List[fitdecode.FitDataMessage]:
         return [msg for msg in self.messages if msg.name == name]
 
-    @staticmethod
-    def _value(msg: fitdecode.FitDataMessage, field_name: str) -> Any:
-        return msg.get_value(field_name)
-
     def _virtual_indicators(self) -> List[str]:
         indicators: List[str] = []
         for session in self._messages("session"):
-            sub_sport = self._value(session, "sub_sport")
-            name = self._value(session, "session_name")
+            sub_sport = session.get_value("sub_sport", fallback=None)
+            name = session.get_value("session_name", fallback=None)
             if sub_sport and "virtual" in str(getattr(sub_sport, "name", sub_sport)).lower():
                 indicators.append("session.sub_sport=virtual")
             if name and any(
@@ -83,10 +79,10 @@ class FitStructureAnalyzer:
     def _indoor_indicators(self) -> List[str]:
         indicators: List[str] = []
         for session in self._messages("session"):
-            indoor = self._value(session, "indoor")
+            indoor = session.get_value("indoor", fallback=None)
             if indoor in (True, 1, "1", "true", "True"):
                 indicators.append("session.indoor=true")
-            sub_sport = self._value(session, "sub_sport")
+            sub_sport = session.get_value("sub_sport", fallback=None)
             if sub_sport and "indoor" in str(getattr(sub_sport, "name", sub_sport)).lower():
                 indicators.append("session.sub_sport=indoor")
         return sorted(set(indicators))
@@ -96,22 +92,22 @@ class FitStructureAnalyzer:
         if self._has_gps_records():
             indicators.append("record.position_lat/long=present")
         for session in self._messages("session"):
-            indoor = self._value(session, "indoor")
+            indoor = session.get_value("indoor", fallback=None)
             if indoor in (False, 0, "0", "false", "False"):
                 indicators.append("session.indoor=false")
         return sorted(set(indicators))
 
     def _has_gps_records(self) -> bool:
         for rec in self._messages("record"):
-            lat = self._value(rec, "position_lat")
-            lon = self._value(rec, "position_long")
+            lat = rec.get_value("position_lat", fallback=None)
+            lon = rec.get_value("position_long", fallback=None)
             if lat is not None and lon is not None:
                 return True
         return False
 
     def _has_indoor_flag(self) -> bool:
         for session in self._messages("session"):
-            if self._value(session, "indoor") is not None:
+            if session.get_value("indoor", fallback=None) is not None:
                 return True
         return False
 
