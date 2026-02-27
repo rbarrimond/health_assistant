@@ -40,6 +40,7 @@ from .code_mappings import (
     get_garmin_product_name,
     get_favero_product_name,
     MANUFACTURER_CODES,
+    MANUFACTURER_NAME_TO_CODE,
 )
 from .timezone_utils import (
     format_utc_offset,
@@ -944,12 +945,45 @@ class BaseFitModel(BaseModel, ABC):
     @computed_field  # type: ignore[misc]
     @cached_property
     def device_manufacturer_code(self) -> Optional[int]:
-        """Extract manufacturer code from file_id (cached)."""
+        """Extract manufacturer code from file_id (cached).
+        
+        Handles multiple fitdecode return types:
+        - enum with .value attribute (standard)
+        - raw integer
+        - string name (fallback)
+        - None (missing field)
+        """
         if self.file_id_msg is None:
             return None
         
         manufacturer = self.file_id_msg.get_value("manufacturer", fallback=None)
-        code, _ = self._extract_code_and_name(manufacturer)
+        code, name = self._extract_code_and_name(manufacturer)
+        
+        if code is None and name is not None:
+            # Fallback: try to resolve string name to numeric code
+            resolved = MANUFACTURER_NAME_TO_CODE.get(name.lower())
+            if resolved is not None:
+                logger.debug(
+                    "Resolved manufacturer name '%s' to code %d",
+                    name,
+                    resolved,
+                )
+                return resolved
+            logger.warning(
+                "Unable to map manufacturer name '%s' to numeric code",
+                name,
+            )
+        
+        if code is None and manufacturer is not None:
+            logger.warning(
+                "[ingestion_id=%r, file_sha256=%r] Manufacturer field present but could not extract code. "
+                "Raw value: %r (type=%s)",
+                self._source_metadata.get("ingestion_id"),
+                self._source_metadata.get("file_sha256"),
+                manufacturer,
+                type(manufacturer).__name__,
+            )
+        
         return code
     
     @computed_field  # type: ignore[misc]
@@ -969,15 +1003,34 @@ class BaseFitModel(BaseModel, ABC):
     
     @staticmethod
     def _extract_code_and_name(field: Optional[Any]) -> tuple[Optional[int], Optional[str]]:
-        """Extract numeric code and enum name from a FIT field."""
+        """Extract numeric code and enum name from a FIT field.
+        
+        Handles multiple input types:
+        - None: returns (None, None)
+        - int: returns (int, None)
+        - fitdecode enum: returns (.value, .name)
+        - str: returns (None, str) for potential reverse lookup
+        
+        Args:
+            field: Raw field value from fitdecode
+            
+        Returns:
+            Tuple of (numeric_code, string_name), either or both may be None
+        """
         if field is None:
             return None, None
+        
         if isinstance(field, int):
             return field, None
+        
+        if isinstance(field, str):
+            # fitdecode sometimes returns string values; extract as name for reverse lookup
+            return None, field
         
         code = None
         name = None
         
+        # Handle fitdecode enum objects
         if hasattr(field, "value"):
             code = field.value
         if hasattr(field, "name"):

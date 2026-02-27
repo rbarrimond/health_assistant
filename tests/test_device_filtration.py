@@ -85,3 +85,33 @@ def test_garmin_handler_allows_garmin() -> None:
     handler._apply_device_source_filtration("rob", model, source_info)
 
     storage.workouts.record_ingestion_state.assert_not_called()
+
+
+def test_garmin_handler_allows_zwift() -> None:
+    """Zwift workouts synced via Garmin API should be allowed."""
+    storage = Mock()
+    storage.workouts = Mock()
+    handler = GarminSyncIngestionHandler(storage, Mock())
+    model = _build_model(device_name="Zwift", manufacturer_code=260)
+    source_info = _build_source_info()
+
+    handler._apply_device_source_filtration("rob", model, source_info)
+
+    storage.workouts.record_ingestion_state.assert_not_called()
+
+
+def test_garmin_handler_rejects_none_manufacturer() -> None:
+    """Garmin API sync should reject workouts with None manufacturer_code."""
+    storage = Mock()
+    storage.workouts = Mock()
+    handler = GarminSyncIngestionHandler(storage, Mock())
+    model = _build_model(device_name="Unknown", manufacturer_code=None)
+    source_info = _build_source_info()
+
+    with pytest.raises(DeviceFilteredError):
+        handler._apply_device_source_filtration("rob", model, source_info)
+
+    storage.workouts.record_ingestion_state.assert_called_once()
+    _, kwargs = storage.workouts.record_ingestion_state.call_args
+    assert kwargs["status"] == "filtered"
+    assert "manufacturer_not_allowed" in kwargs["error"]
