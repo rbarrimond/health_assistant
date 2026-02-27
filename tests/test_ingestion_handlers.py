@@ -91,6 +91,9 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     empty_record_set = CanonicalRecordSet(messages=[], start_dt=None)
 
     mock_model = Mock()
+    mock_model.device_name = "Apple Watch Series 5 40mm (GPS)"
+    mock_model.device_manufacturer_code = None
+    mock_model.device_product_code = None
     mock_model.validate_semantic_contract.return_value = None
     mock_model.build_canonical_metadata.return_value = metadata
     mock_model.build_canonical_records.return_value = empty_record_set

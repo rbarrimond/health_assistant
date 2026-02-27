@@ -941,6 +941,28 @@ class BaseFitModel(BaseModel, ABC):
                 return True
         return False
     
+    @computed_field  # type: ignore[misc]
+    @cached_property
+    def device_manufacturer_code(self) -> Optional[int]:
+        """Extract manufacturer code from file_id (cached)."""
+        if self.file_id_msg is None:
+            return None
+        
+        manufacturer = self.file_id_msg.get_value("manufacturer", fallback=None)
+        code, _ = self._extract_code_and_name(manufacturer)
+        return code
+    
+    @computed_field  # type: ignore[misc]
+    @cached_property
+    def device_product_code(self) -> Optional[int]:
+        """Extract product code from file_id (cached)."""
+        if self.file_id_msg is None:
+            return None
+        
+        product = self._get_file_id_product()
+        code, _ = self._extract_code_and_name(product)
+        return code
+    
     # ========================================================================
     # Device Validation Methods
     # ========================================================================
