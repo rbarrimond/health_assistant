@@ -98,11 +98,15 @@ Silent refactor expansion is unacceptable.
 - Prefer established, tested libraries over custom implementations.
 - Prefer existing project abstractions over introducing parallel ones.
 
-Before adding new dependencies:
+Before adding or suggesting new dependencies you MUST do the following:
 
 1. Verify the capability does not already exist.
 2. Justify why a new dependency is necessary.
-3. Avoid duplicating behavior in multiple forms.
+3. Attempt to avoid duplicating behavior in multiple forms such as:
+   - utility functions that replicate existing library features
+   - wrappers that replicate existing abstractions
+   - or new classes that replicate existing domain models
+   - especially if the new code would introduce divergence in behavior or semantics.
 
 If a library abstraction conflicts with documented invariants:
 
