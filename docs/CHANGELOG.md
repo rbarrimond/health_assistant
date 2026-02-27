@@ -10,6 +10,12 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-02-26
 
+### Apple Watch Internal Identifier Mapping
+
+- Add `APPLE_WATCH_INTERNAL_IDS` dictionary mapping Apple Watch internal device identifiers (e.g., "Watch7,12") to marketing names for all models from Series 0 through Series 11, Ultra 1-3, and SE 1-3
+- Add `get_apple_watch_model()` helper function for lookup of marketing names from internal IDs found in FIT file_id.product_name fields
+- Source: [adamawolf/3048717](https://gist.github.com/adamawolf/3048717) and [TheiphoneWiki Models](https://www.theiphonewiki.com/wiki/Models) `[code_mappings]`
+
 ### Payload Source Normalization
 
 - Force `PayloadFitModel.normalized_source_system` to always emit `HTTP`, ignoring optional caller-provided `source_system` metadata for direct payload ingests `[ingest v13.0.29, INGESTION_SCHEMA v15.0.30]`.

@@ -4,9 +4,13 @@ This module provides bidirectional mappings between FIT protocol numeric codes
 and their string names for manufacturers and products. These are extracted from
 the official FIT SDK profile (fitdecode library).
 
+Also provides mappings for Apple Watch internal device identifiers (e.g., "Watch7,12")
+that appear in FIT file_id.product_name fields, enabling lookup of marketing names.
+
 References:
 - fitdecode: https://github.com/polyvertex/fitdecode
 - FIT SDK: https://developer.garmin.com/fit/overview/
+- Apple device internal IDs: https://gist.github.com/adamawolf/3048717
 """
 
 # FIT Manufacturer Codes (manufacturer field in file_id message)
@@ -285,6 +289,9 @@ FAVERO_PRODUCT_CODES = {
 
 # Apple Product Codes (manufacturer_id = 255 "development")
 # Reference: Manually curated - not from FIT SDK (Apple has no official product enum)
+# NOTE: These are marketing names. Actual FIT file_id.product_name contains Apple internal
+# product identifiers (e.g., "Watch 7,12" for Apple Watch Ultra 3, "iPhone16,2" for iPhone 15 Pro).
+# Device classification uses string matching on device_name, not product code validation.
 APPLE_PRODUCT_CODES = {
     # iPhone models
     1: "iPhone",
@@ -389,6 +396,104 @@ APPLE_PRODUCT_CODES = {
     256: "Apple Watch Ultra 3 49mm (GPS+Cellular)",
 }
 
+# Apple Watch Internal Product Identifiers
+# These are the actual device identifier strings that appear in FIT file_id.product_name
+# Reference: https://gist.github.com/adamawolf/3048717 and https://www.theiphonewiki.com/wiki/Models
+APPLE_WATCH_INTERNAL_IDS = {
+    # Series 0 (original Apple Watch)
+    "Watch1,1": "Apple Watch (1st gen) 38mm",
+    "Watch1,2": "Apple Watch (1st gen) 42mm",
+    
+    # Series 1
+    "Watch2,6": "Apple Watch Series 1 38mm",
+    "Watch2,7": "Apple Watch Series 1 42mm",
+    
+    # Series 2
+    "Watch2,3": "Apple Watch Series 2 38mm GPS+Cellular",
+    "Watch2,4": "Apple Watch Series 2 42mm GPS+Cellular",
+    
+    # Series 3
+    "Watch3,1": "Apple Watch Series 3 38mm GPS+Cellular",
+    "Watch3,2": "Apple Watch Series 3 42mm GPS+Cellular",
+    "Watch3,3": "Apple Watch Series 3 38mm GPS",
+    "Watch3,4": "Apple Watch Series 3 42mm GPS",
+    
+    # Series 4
+    "Watch4,1": "Apple Watch Series 4 40mm GPS",
+    "Watch4,2": "Apple Watch Series 4 44mm GPS",
+    "Watch4,3": "Apple Watch Series 4 40mm GPS+Cellular",
+    "Watch4,4": "Apple Watch Series 4 44mm GPS+Cellular",
+    
+    # Series 5
+    "Watch5,1": "Apple Watch Series 5 40mm GPS",
+    "Watch5,2": "Apple Watch Series 5 44mm GPS",
+    "Watch5,3": "Apple Watch Series 5 40mm GPS+Cellular",
+    "Watch5,4": "Apple Watch Series 5 44mm GPS+Cellular",
+    
+    # SE (1st gen)
+    "Watch5,9": "Apple Watch SE 40mm GPS",
+    "Watch5,10": "Apple Watch SE 44mm GPS",
+    "Watch5,11": "Apple Watch SE 40mm GPS+Cellular",
+    "Watch5,12": "Apple Watch SE 44mm GPS+Cellular",
+    
+    # Series 6
+    "Watch6,1": "Apple Watch Series 6 40mm GPS",
+    "Watch6,2": "Apple Watch Series 6 44mm GPS",
+    "Watch6,3": "Apple Watch Series 6 40mm GPS+Cellular",
+    "Watch6,4": "Apple Watch Series 6 44mm GPS+Cellular",
+    
+    # Series 7
+    "Watch6,6": "Apple Watch Series 7 41mm GPS",
+    "Watch6,7": "Apple Watch Series 7 45mm GPS",
+    "Watch6,8": "Apple Watch Series 7 41mm GPS+Cellular",
+    "Watch6,9": "Apple Watch Series 7 45mm GPS+Cellular",
+    
+    # SE (2nd gen)
+    "Watch6,10": "Apple Watch SE (2nd gen) 40mm GPS",
+    "Watch6,11": "Apple Watch SE (2nd gen) 44mm GPS",
+    "Watch6,12": "Apple Watch SE (2nd gen) 40mm GPS+Cellular",
+    "Watch6,13": "Apple Watch SE (2nd gen) 44mm GPS+Cellular",
+    
+    # Series 8
+    "Watch6,14": "Apple Watch Series 8 41mm GPS",
+    "Watch6,15": "Apple Watch Series 8 45mm GPS",
+    "Watch6,16": "Apple Watch Series 8 41mm GPS+Cellular",
+    "Watch6,17": "Apple Watch Series 8 45mm GPS+Cellular",
+    
+    # Ultra (1st gen)
+    "Watch6,18": "Apple Watch Ultra 49mm",
+    
+    # Series 9
+    "Watch7,1": "Apple Watch Series 9 41mm GPS",
+    "Watch7,2": "Apple Watch Series 9 45mm GPS",
+    "Watch7,3": "Apple Watch Series 9 41mm GPS+Cellular",
+    "Watch7,4": "Apple Watch Series 9 45mm GPS+Cellular",
+    
+    # Ultra 2
+    "Watch7,5": "Apple Watch Ultra 2 49mm",
+    
+    # Series 10
+    "Watch7,8": "Apple Watch Series 10 42mm GPS",
+    "Watch7,9": "Apple Watch Series 10 46mm GPS",
+    "Watch7,10": "Apple Watch Series 10 42mm GPS+Cellular",
+    "Watch7,11": "Apple Watch Series 10 46mm GPS+Cellular",
+    
+    # Ultra 3
+    "Watch7,12": "Apple Watch Ultra 3 49mm",
+    
+    # SE (3rd gen)
+    "Watch7,13": "Apple Watch SE (3rd gen) 40mm GPS",
+    "Watch7,14": "Apple Watch SE (3rd gen) 44mm GPS",
+    "Watch7,15": "Apple Watch SE (3rd gen) 40mm GPS+Cellular",
+    "Watch7,16": "Apple Watch SE (3rd gen) 44mm GPS+Cellular",
+    
+    # Series 11
+    "Watch7,17": "Apple Watch Series 11 42mm GPS",
+    "Watch7,18": "Apple Watch Series 11 46mm GPS",
+    "Watch7,19": "Apple Watch Series 11 42mm GPS+Cellular",
+    "Watch7,20": "Apple Watch Series 11 46mm GPS+Cellular",
+}
+
 
 def get_manufacturer_name(code: int) -> str:
     """Get manufacturer name from FIT code.
@@ -448,3 +553,24 @@ def get_apple_product_name(code: int) -> str:
         Product name or the code as string if not found
     """
     return APPLE_PRODUCT_CODES.get(code, f"apple_{code}")
+
+
+def get_apple_watch_model(internal_id: str) -> str:
+    """Get Apple Watch marketing name from internal identifier.
+    
+    Internal identifiers are the actual strings that appear in FIT file_id.product_name
+    fields, such as "Watch7,12" for Apple Watch Ultra 3.
+    
+    Args:
+        internal_id: Apple Watch internal identifier (e.g., "Watch7,12")
+        
+    Returns:
+        Marketing name or the internal_id as-is if not found
+        
+    Examples:
+        >>> get_apple_watch_model("Watch7,12")
+        'Apple Watch Ultra 3 49mm'
+        >>> get_apple_watch_model("Watch6,18")
+        'Apple Watch Ultra 49mm'
+    """
+    return APPLE_WATCH_INTERNAL_IDS.get(internal_id, internal_id)

@@ -41,10 +41,11 @@ class FitDevice:
         """Detect if workout was synced into HealthKit from another app.
         
         HealthFit exports synced workouts with device_name="iPhone" (sentinel value).
-        Direct Apple Watch exports have device_name containing "Apple Watch" or "Watch".
+        Direct Apple Watch exports have device_name containing "Watch" (e.g., "Watch 7,12"
+        for internal product identifiers, "Apple Watch Series 5 40mm (GPS)" for marketing names).
         
         Args:
-            device_name: FIT device_info.device_name field (e.g., "iPhone", "Apple Watch Series 5 40mm (GPS)")
+            device_name: FIT device_info.device_name field (e.g., "iPhone", "Watch 7,12", "Apple Watch Series 5 40mm (GPS)")
             device_manufacturer_code: FIT device_info.manufacturer code (reserved for future use)
             device_product_code: FIT device_info.product code (reserved for future use)
             
