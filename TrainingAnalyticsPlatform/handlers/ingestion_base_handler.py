@@ -9,6 +9,7 @@ from TrainingAnalyticsPlatform.platform.exceptions import (
     IngestionIdResolutionError,
     WorkoutIdCalculationError,
 )
+from TrainingAnalyticsPlatform.ingestion.device_classifier import FitDevice
 from TrainingAnalyticsPlatform.ingestion.fit_models import create_fit_model
 from TrainingAnalyticsPlatform.storage.table_storage import (
     CANONICAL_SCHEMA_VERSION,
@@ -108,6 +109,10 @@ class FitIngestionBaseHandler(ABC):
             file_bytes=file_bytes,
         )
         model.validate_semantic_contract()
+        
+        # Apply device-source filtration rules
+        self._apply_device_source_filtration(model, source_info)
+        
         metadata = model.build_canonical_metadata()
         source_info["normalized_source_system"] = self._normalize_source_system(
             source_info, metadata
@@ -191,3 +196,52 @@ class FitIngestionBaseHandler(ABC):
             error=error_message,
             ingestion_id=source_info.get("ingestion_id") if source_info else None,
         )
+
+    def _apply_device_source_filtration(
+        self,
+        model: Any,
+        source_info: Dict[str, Any],
+    ) -> None:
+        """Apply device-source classification and filtration rules during ingestion.
+        
+        This method classifies the device source (Apple Watch vs. HealthKit synced)
+        and enriches source_info for downstream processing. Currently a checkpoint
+        for future filtration logic (exclusion, normalization, flagging).
+        
+        Args:
+            model: Instantiated FIT model (BaseFitModel and subclasses)
+            source_info: Ingestion source metadata dict (mutated with device classification)
+        """
+        device_name = model.device_name
+        device_manufacturer_code = model.device_manufacturer_code
+        device_product_code = model.device_product_code
+
+        # Classify device source
+        device_source_type = FitDevice.device_source_type(
+            device_name=device_name,
+            device_manufacturer_code=device_manufacturer_code,
+            device_product_code=device_product_code,
+        )
+        
+        is_healthkit_synced = FitDevice.is_healthkit_synced(
+            device_name=device_name,
+            device_manufacturer_code=device_manufacturer_code,
+            device_product_code=device_product_code,
+        )
+
+        # Enrich source_info with device classification for logging/tracking
+        source_info["device_source_type"] = device_source_type
+        source_info["is_healthkit_synced"] = is_healthkit_synced
+
+        # Log device classification for monitoring
+        logger.info(
+            "Device source classification: device_source_type=%s, "
+            "is_healthkit_synced=%s, device_name=%r",
+            device_source_type,
+            is_healthkit_synced,
+            device_name,
+        )
+
+        # TODO: Implement filtration rules (exclusion, normalization, special handling)
+        # based on device_source_type classification
+

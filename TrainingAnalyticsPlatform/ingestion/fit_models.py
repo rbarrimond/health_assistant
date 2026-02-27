@@ -1625,58 +1625,6 @@ class HealthFitModel(OneDriveFitModel):
         )
         return resolver.resolve()
     
-    @computed_field  # type: ignore[misc]
-    @property
-    def is_healthkit_synced(self) -> bool:
-        """Detect if workout was synced into HealthKit from another app.
-        
-        HealthFit exports synced workouts with device_name="iPhone" (sentinel value).
-        Direct Apple Watch exports have device_name containing "Apple Watch" or "Watch".
-        
-        Returns:
-            True if device is "iPhone" (synced via HealthKit)
-            False if Apple Watch (true source workout)
-            False if device_name missing/None (conservatively assume true source)
-        """
-        if self.device_name is None:
-            return False
-        
-        device_lower = self.device_name.lower()
-        return "iphone" in device_lower
-    
-    @computed_field  # type: ignore[misc]
-    @property
-    def is_apple_watch_source(self) -> bool:
-        """Check if workout originated from Apple Watch (not synced via HealthKit).
-        
-        Returns:
-            True if Apple Watch is the source
-            False if HealthKit synced (iPhone sentinel)
-        """
-        return not self.is_healthkit_synced
-    
-    @computed_field  # type: ignore[misc]
-    @property
-    def device_source_type(self) -> str:
-        """Classify device source for downstream filtering.
-        
-        Returns:
-            "apple_watch" - Native Apple Watch export (true source)
-            "healthkit_synced" - Synced from another app via HealthKit (iPhone sentinel)
-            "unknown" - Device not detected or missing
-        """
-        if self.device_name is None:
-            return "unknown"
-        
-        device_lower = self.device_name.lower()
-        
-        if "iphone" in device_lower:
-            return "healthkit_synced"
-        if "watch" in device_lower:
-            return "apple_watch"
-        
-        return "unknown"
-    
     def _get_subclass_specific_workout_name(self) -> Optional[str]:
         """Return HealthFit filename Apple Workout Type as workout name source."""
         return self.filename_apple_workout_type
