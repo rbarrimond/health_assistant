@@ -1,0 +1,83 @@
+"""Tests for device filtration policies in ingestion handlers."""
+
+from unittest.mock import Mock
+
+import pytest
+
+from TrainingAnalyticsPlatform.handlers.fit_payload_handler import FitPayloadIngestionHandler
+from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import GarminSyncIngestionHandler
+from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import OneDriveSyncIngestionHandler
+from TrainingAnalyticsPlatform.platform.exceptions import DeviceFilteredError
+
+
+def _build_model(
+    *,
+    device_name: str | None,
+    manufacturer_code: int | None,
+    product_code: int | None = None,
+) -> Mock:
+    model = Mock()
+    model.device_name = device_name
+    model.device_manufacturer_code = manufacturer_code
+    model.device_product_code = product_code
+    return model
+
+
+def _build_source_info() -> dict:
+    return {
+        "source_file_name": "file.fit",
+        "file_sha256": "hash",
+        "ingestion_id": "hash",
+    }
+
+
+def test_payload_handler_does_not_filter() -> None:
+    storage = Mock()
+    handler = FitPayloadIngestionHandler(storage)
+    model = _build_model(device_name="iPhone", manufacturer_code=255)
+    source_info = _build_source_info()
+
+    handler._apply_device_source_filtration("rob", model, source_info)
+
+    storage.record_ingestion_state.assert_not_called()
+
+
+def test_onedrive_handler_filters_healthkit_synced() -> None:
+    storage = Mock()
+    handler = OneDriveSyncIngestionHandler(storage, Mock())
+    model = _build_model(device_name="iPhone", manufacturer_code=255)
+    source_info = _build_source_info()
+
+    with pytest.raises(DeviceFilteredError):
+        handler._apply_device_source_filtration("rob", model, source_info)
+
+    storage.record_ingestion_state.assert_called_once()
+    _, kwargs = storage.record_ingestion_state.call_args
+    assert kwargs["status"] == "filtered"
+    assert "healthkit_synced" in kwargs["error"]
+
+
+def test_garmin_handler_filters_non_allowlisted_manufacturer() -> None:
+    storage = Mock()
+    handler = GarminSyncIngestionHandler(storage, Mock())
+    model = _build_model(device_name="Wahoo", manufacturer_code=32)
+    source_info = _build_source_info()
+
+    with pytest.raises(DeviceFilteredError):
+        handler._apply_device_source_filtration("rob", model, source_info)
+
+    storage.record_ingestion_state.assert_called_once()
+    _, kwargs = storage.record_ingestion_state.call_args
+    assert kwargs["status"] == "filtered"
+    assert "manufacturer_not_allowed" in kwargs["error"]
+
+
+def test_garmin_handler_allows_garmin() -> None:
+    storage = Mock()
+    handler = GarminSyncIngestionHandler(storage, Mock())
+    model = _build_model(device_name="Garmin Forerunner 955", manufacturer_code=1)
+    source_info = _build_source_info()
+
+    handler._apply_device_source_filtration("rob", model, source_info)
+
+    storage.record_ingestion_state.assert_not_called()

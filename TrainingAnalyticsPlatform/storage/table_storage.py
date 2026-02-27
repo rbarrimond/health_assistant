@@ -257,7 +257,8 @@ class IngestionContext:
         """Check if the ingestion state represents a terminal (non-reingest) outcome."""
         return bool(
             self.existing_state
-            and self.existing_state.get("status") in {"ingested", "skipped", "skipped_duplicate"}
+            and self.existing_state.get("status")
+            in {"ingested", "skipped", "skipped_duplicate", "filtered"}
         )
 
     @property
@@ -717,7 +718,7 @@ class WorkoutTableStorage:
         Args:
             athlete_id: Athlete identifier
             file_info: Source file information
-            status: 'ingested', 'failed', 'skipped'
+            status: 'ingested', 'failed', 'skipped', 'filtered'
             error: Error message if status is 'failed'
             workout_id: Associated workout_id if successful
             ingestion_key: Optional precomputed ingestion key

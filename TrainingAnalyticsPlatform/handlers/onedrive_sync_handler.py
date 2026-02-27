@@ -15,6 +15,7 @@ from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_bytes_h
 from TrainingAnalyticsPlatform.ingestion.fit_file_preprocessor import FitFilePreprocessor
 from TrainingAnalyticsPlatform.platform.config import Config as PlatformConfig
 from TrainingAnalyticsPlatform.platform.exceptions import (
+    DeviceFilteredError,
     FitParsingError,
     IngestionIdResolutionError,
     PreprocessingError,
@@ -173,6 +174,9 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
         except FitParsingError as exc:
             logger.error("OneDrive FIT parsing failed: %s", exc)
             self._record_failure(athlete_id, source_info, str(exc))
+            return exc.to_response(include_message_alias=True)
+        except DeviceFilteredError as exc:
+            logger.warning("OneDrive ingestion filtered: %s", exc)
             return exc.to_response(include_message_alias=True)
 
     def _extract_item_metadata(self, item: Dict, drive_id: str | None) -> Dict:

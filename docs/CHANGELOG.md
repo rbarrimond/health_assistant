@@ -14,6 +14,10 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 - Force `PayloadFitModel.normalized_source_system` to always emit `HTTP`, ignoring optional caller-provided `source_system` metadata for direct payload ingests `[ingest v13.0.29, INGESTION_SCHEMA v15.0.30]`.
 
+### Device Filtration Fast-Fail
+
+- Add fast-fail device filtration with explicit `filtered` ingestion state, rejecting HealthKit-synced workouts on OneDrive ingestion and enforcing Garmin/Zwift manufacturer allowlist for Garmin API sync (payload ingestion remains unfiltered) `[ingest v13.0.31, INGESTION_SCHEMA v15.0.32]`.
+
 ### Timezone Contract Clarification (Semantic vs Metadata)
 
 - Clarify semantic-layer timezone field contract: expose both `local_tz_offset` and `timezone` in workout summaries/details, with `local_tz_offset` designated for GPT/client local-time display and `timezone` reserved for metadata context.

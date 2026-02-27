@@ -3,8 +3,8 @@
 This module classifies devices as Apple Watch (true source) or HealthKit synced
 (via iPhone) based on FIT file metadata and device_name signals.
 
-Classification uses device_name string matching. Future enhancement: Integrate
-FIT manufacturer/product code validation after verifying fitdecode capabilities.
+Classification uses device_name string matching. The FIT SDK does not provide
+Apple product enums, so Apple device classification remains string-based.
 
 The classification enables filtering of synced vs. true-source workouts at the
 ingestion boundary.
@@ -23,8 +23,8 @@ class FitDevice:
     Methods are stateless and accept raw FIT metadata fields.
     Classification strategy: device_name string matching.
     
-    TODO: After verifying fitdecode profile.py capabilities, consider adding
-    FIT manufacturer/product code validation for more robust classification.
+    Apple devices do not have FIT product enums, so product code validation
+    is not viable for Apple classification.
     
     Classifies as:
     - "apple_watch": True source (native Apple Watch export)

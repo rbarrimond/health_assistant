@@ -16,6 +16,7 @@ from TrainingAnalyticsPlatform.integrations.garmin_client import (
 )
 from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_bytes_hash
 from TrainingAnalyticsPlatform.platform.exceptions import (
+    DeviceFilteredError,
     FitParsingError,
     IngestionIdResolutionError,
     WorkoutIdCalculationError,
@@ -196,6 +197,12 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
         except FitParsingError as exc:
             logger.error("Garmin FIT parsing failed for %s: %s", activity_id, exc)
             self._record_failure(athlete_id, source_info, str(exc))
+            return exc.to_response(
+                extra={"activity_id": activity_id},
+                include_message_alias=True,
+            )
+        except DeviceFilteredError as exc:
+            logger.warning("Garmin ingestion filtered for %s: %s", activity_id, exc)
             return exc.to_response(
                 extra={"activity_id": activity_id},
                 include_message_alias=True,

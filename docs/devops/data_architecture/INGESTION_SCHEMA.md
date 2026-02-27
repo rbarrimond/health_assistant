@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 15.0.31
+Version: 15.0.32
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -60,7 +60,7 @@ All ingestion-related schema/code version constants must be documented here.
 
 | Version | Current value | Code source | Purpose |
 | --- | --- | --- | --- |
-| `INGEST_VERSION` | `v13.0.29` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
+| `INGEST_VERSION` | `v13.0.31` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
 | `CANONICAL_SCHEMA_VERSION` | `1.4.0` | `TrainingAnalyticsPlatform/storage/table_storage.py` | Canonical parquet schema version persisted to `Workouts.canonical_schema_version`. |
 | `METADATA_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `metadata.json` as `metadata_schema_version`. |
 | `LAPS_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `laps.json` as `schema_version`. |
@@ -490,7 +490,7 @@ It is intentionally separate from Workouts to keep workout entities small and st
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| status | string | Yes | `ingested`, `failed`, `skipped`. |
+| status | string | Yes | `ingested`, `failed`, `skipped`, `filtered`. |
 | first_seen_at_utc | string | Yes | ISO 8601 UTC timestamp when first observed. |
 | last_attempt_at_utc | string | Yes | ISO 8601 UTC timestamp for latest attempt. |
 | retry_count | int | Yes | Retry count (increments only on failures). |
@@ -503,7 +503,7 @@ It is intentionally separate from Workouts to keep workout entities small and st
 | source_quickxor_hash | string | No | OneDrive quickXor hash for content. |
 | source_modified_at_utc | string | No | OneDrive last modified timestamp (ISO 8601 UTC). |
 | file_sha256 | string | No | SHA-256 hash of file content. |
-| ingest_version | string | Yes | Ingestion code version (current: `v13.0.26`). |
+| ingest_version | string | Yes | Ingestion code version (current: `v13.0.31`). |
 | ingested_at_utc | string | No | ISO 8601 UTC timestamp when status becomes `ingested`. |
 | error_message | string | No | Last error message (truncated). |
 
@@ -512,7 +512,7 @@ It is intentionally separate from Workouts to keep workout entities small and st
 - A file is considered **unchanged** when any of the following match previous state:
   `source_ctag`, `source_quickxor_hash`, `file_sha256`, `source_etag`, or
   `source_modified_at_utc` (in that order of preference).
-- Unchanged files with a prior status of `ingested` or `skipped` are skipped.
+- Unchanged files with a prior status of `ingested`, `skipped`, `skipped_duplicate`, or `filtered` are skipped.
 - Skipped ingestions preserve prior provenance values.
 
 ---

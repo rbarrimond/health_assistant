@@ -6,8 +6,12 @@ from typing import Any, Dict, Optional, Tuple
 
 from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.platform.exceptions import (
+    DeviceFilteredError,
     IngestionIdResolutionError,
     WorkoutIdCalculationError,
+)
+from TrainingAnalyticsPlatform.ingestion.code_mappings import (
+    GARMIN_API_ALLOWED_MANUFACTURERS,
 )
 from TrainingAnalyticsPlatform.ingestion.device_classifier import FitDevice
 from TrainingAnalyticsPlatform.ingestion.fit_models import create_fit_model
@@ -111,7 +115,7 @@ class FitIngestionBaseHandler(ABC):
         model.validate_semantic_contract()
         
         # Apply device-source filtration rules
-        self._apply_device_source_filtration(model, source_info)
+        self._apply_device_source_filtration(athlete_id, model, source_info)
         
         metadata = model.build_canonical_metadata()
         source_info["normalized_source_system"] = self._normalize_source_system(
@@ -199,6 +203,7 @@ class FitIngestionBaseHandler(ABC):
 
     def _apply_device_source_filtration(
         self,
+        athlete_id: str,
         model: Any,
         source_info: Dict[str, Any],
     ) -> None:
@@ -242,6 +247,69 @@ class FitIngestionBaseHandler(ABC):
             device_name,
         )
 
-        # TODO: Implement filtration rules (exclusion, normalization, special handling)
-        # based on device_source_type classification
+        handler_name = self.__class__.__name__
+        if handler_name == "FitPayloadIngestionHandler":
+            return
+
+        if handler_name == "OneDriveSyncIngestionHandler" and is_healthkit_synced:
+            reason = "healthkit_synced"
+            message = "Filtered HealthKit-synced workout (iPhone sentinel)"
+            self._record_filtered_ingestion(
+                athlete_id,
+                source_info,
+                message=message,
+                reason=reason,
+            )
+            raise DeviceFilteredError(
+                message,
+                device_name=device_name,
+                device_source_type=device_source_type,
+                manufacturer_code=device_manufacturer_code,
+                reason=reason,
+            )
+
+        if handler_name == "GarminSyncIngestionHandler":
+            if device_manufacturer_code not in GARMIN_API_ALLOWED_MANUFACTURERS:
+                reason = "manufacturer_not_allowed"
+                allowed = sorted(GARMIN_API_ALLOWED_MANUFACTURERS)
+                message = (
+                    "Filtered Garmin API workout: manufacturer_code "
+                    f"{device_manufacturer_code} not in allowlist {allowed}"
+                )
+                self._record_filtered_ingestion(
+                    athlete_id,
+                    source_info,
+                    message=message,
+                    reason=reason,
+                )
+                raise DeviceFilteredError(
+                    message,
+                    device_name=device_name,
+                    device_source_type=device_source_type,
+                    manufacturer_code=device_manufacturer_code,
+                    reason=reason,
+                )
+
+    def _record_filtered_ingestion(
+        self,
+        athlete_id: str,
+        source_info: Dict[str, Any],
+        *,
+        message: str,
+        reason: str,
+    ) -> None:
+        logger.warning(
+            "Device filtration rejected file: reason=%s, message=%s, source_info=%s",
+            reason,
+            message,
+            source_info,
+        )
+        self.storage.record_ingestion_state(
+            athlete_id,
+            source_info,
+            status="filtered",
+            error=f"{reason}:{message}",
+            ingestion_id=source_info.get("ingestion_id"),
+            ingestion_key=source_info.get("ingestion_id"),
+        )
 

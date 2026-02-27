@@ -103,6 +103,49 @@ class FitParsingError(HealthAssistantError):
     status_code = 422
 
 
+class DeviceFilteredError(HealthAssistantError):
+    """Raised when a FIT file is rejected by device filtration policy."""
+
+    error_code = "DEVICE_FILTERED"
+    status_code = 400
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        device_name: Optional[str] = None,
+        device_source_type: Optional[str] = None,
+        manufacturer_code: Optional[int] = None,
+        reason: Optional[str] = None,
+    ) -> None:
+        super().__init__(message)
+        self.device_name = device_name
+        self.device_source_type = device_source_type
+        self.manufacturer_code = manufacturer_code
+        self.reason = reason
+
+    def to_response(
+        self,
+        *,
+        extra: Optional[Dict[str, Any]] = None,
+        include_message_alias: bool = False,
+    ) -> Tuple[Dict[str, Any], int]:
+        body: Dict[str, Any] = {
+            "status": "filtered",
+            "error_code": self.error_code,
+            "error": str(self),
+            "reason": self.reason or str(self),
+            "device_name": self.device_name,
+            "device_source_type": self.device_source_type,
+            "manufacturer_code": self.manufacturer_code,
+        }
+        if include_message_alias:
+            body["message"] = str(self)
+        if extra:
+            body.update(extra)
+        return body, self.status_code
+
+
 class PreprocessingError(HealthAssistantError):
     """Base exception for file preprocessing failures.
     

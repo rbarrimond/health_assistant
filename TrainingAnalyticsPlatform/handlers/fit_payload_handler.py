@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.platform.exceptions import (
+    DeviceFilteredError,
     FitParsingError,
     IngestionIdResolutionError,
     WorkoutIdCalculationError,
@@ -52,6 +53,9 @@ class FitPayloadIngestionHandler(FitIngestionBaseHandler):
         except FitParsingError as exc:
             logger.error("FIT payload parse failed: %s", exc)
             self._record_failure(athlete_id, source_info, str(exc))
+            return exc.to_response()
+        except DeviceFilteredError as exc:
+            logger.warning("FIT payload filtered: %s", exc)
             return exc.to_response()
         except (ValueError, TypeError) as exc:
             logger.warning("FIT payload ingestion validation failed: %s", exc)

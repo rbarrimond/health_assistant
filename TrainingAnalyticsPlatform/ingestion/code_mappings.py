@@ -163,7 +163,7 @@ MANUFACTURER_CODES = {
     151: "abawo",
     152: "bafang",
     153: "luhong_technology",
-    255: "development",  # Apple uses this
+    255: "development",  # Apple uses this (no official Apple manufacturer code)
     257: "healthandlife",
     258: "lezyne",
     259: "scribe_labs",
@@ -249,6 +249,9 @@ MANUFACTURER_CODES = {
 # Reverse mapping: manufacturer name to code
 MANUFACTURER_NAME_TO_CODE = {v: k for k, v in MANUFACTURER_CODES.items()}
 
+# Garmin API ingestion allowlist (manufacturer codes).
+GARMIN_API_ALLOWED_MANUFACTURERS = {1, 260}
+
 # Garmin Product Codes (subset of codes)
 # Reference: fitdecode profile.py - 'garmin_product' FieldType
 GARMIN_PRODUCT_CODES = {
@@ -280,8 +283,8 @@ FAVERO_PRODUCT_CODES = {
     12: "assioma_duo",
 }
 
-# Apple Product Codes (manufacturer_id = 32)
-# Reference: Apple FIT SDK - device identifiers for iPhone and Apple Watch models
+# Apple Product Codes (manufacturer_id = 255 "development")
+# Reference: Manually curated - not from FIT SDK (Apple has no official product enum)
 APPLE_PRODUCT_CODES = {
     # iPhone models
     1: "iPhone",
