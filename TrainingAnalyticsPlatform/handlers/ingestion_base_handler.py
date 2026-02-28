@@ -1,5 +1,6 @@
 """Shared ingestion helper logic for FIT processing."""
 
+import json
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Tuple
@@ -131,7 +132,8 @@ class FitIngestionBaseHandler(ABC):
                 "Unable to compute workout_id from precise start time + sport code"
             )
 
-        raw_fit_payload = model.build_raw_fit(return_dict=True, return_json=False)
+        raw_fit_json_str = model.raw_frames(as_json=True)
+        raw_fit_payload = json.loads(raw_fit_json_str)
         metadata_payload = model.build_metadata_messages()
         laps_payload = model.build_laps_json()
         analysis_payload = model.build_fit_analysis()

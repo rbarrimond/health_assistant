@@ -41,7 +41,7 @@ def _stub_fit_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         BaseFitModel,
         "_parse_fit_messages",
-        lambda self: ([], {}),
+        lambda self, file_bytes: ([], [], {}),
     )
 
 
@@ -188,7 +188,7 @@ class TestFitSemanticContractValidation:
     def test_validate_requires_exactly_one_file_id(self) -> None:
         """Verify validation fails when file_id message is missing."""
         model = PayloadFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
-        model._messages_by_type = _build_activity_fit_messages(include_file_id=False)
+        model._data_messages_by_type = _build_activity_fit_messages(include_file_id=False)
 
         with pytest.raises(FitParsingError, match="exactly one file_id"):
             model.validate_semantic_contract()
@@ -196,7 +196,7 @@ class TestFitSemanticContractValidation:
     def test_validate_requires_activity_file_type(self) -> None:
         """Verify validation fails when file_type is not activity."""
         model = PayloadFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
-        model._messages_by_type = _build_activity_fit_messages(file_type="workout")
+        model._data_messages_by_type = _build_activity_fit_messages(file_type="workout")
 
         with pytest.raises(FitParsingError, match="file_id.type must be activity"):
             model.validate_semantic_contract()
@@ -204,20 +204,20 @@ class TestFitSemanticContractValidation:
     def test_validate_requires_session_and_record(self) -> None:
         """Verify validation fails when session or record messages are missing."""
         model = PayloadFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
-        model._messages_by_type = _build_activity_fit_messages(include_session=False)
+        model._data_messages_by_type = _build_activity_fit_messages(include_session=False)
 
         with pytest.raises(FitParsingError, match="missing required session"):
             model.validate_semantic_contract()
 
-        model._messages_by_type = _build_activity_fit_messages(include_record=False)
+        model._data_messages_by_type = _build_activity_fit_messages(include_record=False)
         with pytest.raises(FitParsingError, match="missing required record"):
             model.validate_semantic_contract()
 
     def test_validate_enforces_monotonic_record_timestamps(self) -> None:
         """Verify validation fails when record timestamps are not monotonically increasing."""
         model = PayloadFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
-        model._messages_by_type = _build_activity_fit_messages()
-        model._messages_by_type["record"] = [
+        model._data_messages_by_type = _build_activity_fit_messages()
+        model._data_messages_by_type["record"] = [
             cast(
                 Any,
                 _MessageStub({"timestamp": datetime(2026, 2, 23, 7, 31, 0, tzinfo=timezone.utc)}),

@@ -388,6 +388,7 @@ class TestIngestionHelpersAndFlow:
         mock_storage.workouts = MagicMock()
         mock_storage.workouts.get_ingestion_state.return_value = None
         mock_storage.workouts.store_workout.return_value = "workout-456"
+        mock_storage.workouts.store_canonical_records.return_value = "records.parquet"
         mock_context = MagicMock()
         mock_context.should_skip.return_value = False
         mock_context.existing_state = None
@@ -396,6 +397,10 @@ class TestIngestionHelpersAndFlow:
         mock_model = MagicMock()
         from TrainingAnalyticsPlatform.models import CanonicalRecordSet
         
+        mock_model.device_name = "Apple Watch"
+        mock_model.device_manufacturer_code = None
+        mock_model.device_product_code = None
+        mock_model.validate_semantic_contract.return_value = None
         mock_model.build_canonical_metadata.return_value = {
             "sport": "Cycling",
             "duration_sec": 3600,
@@ -405,6 +410,9 @@ class TestIngestionHelpersAndFlow:
         }
         mock_model.build_canonical_records.return_value = CanonicalRecordSet(messages=[], start_dt=None)
         mock_model.build_laps_json.return_value = {"laps": []}
+        mock_model.build_metadata_messages.return_value = {"metadata_schema_version": "1.0"}
+        mock_model.build_fit_analysis.return_value = {"analysis": "data"}
+        mock_model.raw_frames.return_value = '[]'  # JSON string of empty frames list
         mock_model.semantic_workout_id = "workout-456"
 
         with patch("TrainingAnalyticsPlatform.handlers.fit_payload_handler.compute_bytes_hash", return_value="hash"):

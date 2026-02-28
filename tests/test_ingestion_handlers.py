@@ -103,6 +103,9 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     mock_model.build_canonical_metadata.return_value = metadata
     mock_model.build_canonical_records.return_value = empty_record_set
     mock_model.build_laps_json.return_value = laps_payload
+    mock_model.build_metadata_messages.return_value = {"metadata_schema_version": "1.0"}
+    mock_model.build_fit_analysis.return_value = {"analysis": "data"}
+    mock_model.raw_frames.return_value = '[]'  # JSON string of empty frames list
     mock_model.semantic_workout_id = expected_workout_id
 
     with patch("TrainingAnalyticsPlatform.handlers.ingestion_base_handler.create_fit_model") as create_model:
@@ -322,3 +325,43 @@ def test_ingestion_context_preserves_ingested_at_on_skip() -> None:
     entity = context.build_state_entity(status="skipped").to_entity()
 
     assert entity.get("ingested_at_utc") == "2026-02-10T12:00:00+00:00"
+
+
+def test_fit_model_parses_once_per_ingestion() -> None:
+    """Verify FIT file is parsed exactly once during ingestion."""
+    from pathlib import Path
+    from unittest.mock import patch
+    from TrainingAnalyticsPlatform.ingestion.fit_models import HealthFitModel
+    
+    # Load a real FIT file for integration test
+    test_data = Path(__file__).parent / "data"
+    fit_files = list(test_data.glob("*.fit"))
+    assert len(fit_files) > 0, "No test FIT files found"
+    
+    fit_path = fit_files[0]
+    with open(fit_path, "rb") as f:
+        fit_bytes = f.read()
+    
+    # Spy on FitReader construction to count parse calls
+    with patch("TrainingAnalyticsPlatform.ingestion.fit_models.FitReader") as mock_reader:
+        # Let the real FitReader run, just count invocations
+        from fitdecode import FitReader as RealFitReader
+        mock_reader.side_effect = lambda *args, **kwargs: RealFitReader(*args, **kwargs)
+        
+        # Create model (should parse once)
+        model = HealthFitModel(
+            file_bytes=fit_bytes,
+            source_metadata={"source_file_name": fit_path.name}
+        )
+        
+        # Access raw_frames (should NOT parse again)
+        raw_json = model.raw_frames(as_json=True)
+        raw_list = model.raw_frames(as_json=False)
+        
+        # Verify only one parse happened (in constructor)
+        assert mock_reader.call_count == 1, f"Expected 1 parse, got {mock_reader.call_count}"
+        
+        # Verify output is valid
+        assert isinstance(raw_json, str)
+        assert isinstance(raw_list, list)
+        assert len(raw_list) > 0, "Expected frames from real FIT file"

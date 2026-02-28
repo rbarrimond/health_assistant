@@ -65,11 +65,11 @@ class BaseFitModel(BaseModel, ABC):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     _source_metadata: Dict[str, Any] = PrivateAttr(default_factory=dict)
-    _file_bytes: Optional[bytes] = PrivateAttr(default=None)
 
-    # Cached FIT messages (initialized during model construction)
-    _messages: List[FitDataMessage] = PrivateAttr(default_factory=list)
-    _messages_by_type: Dict[str, List[FitDataMessage]] = PrivateAttr(default_factory=dict)
+    # Cached FIT data (initialized during model construction)
+    _all_frames: List[Any] = PrivateAttr(default_factory=list)  # All frames for raw export
+    _data_messages: List[FitDataMessage] = PrivateAttr(default_factory=list)  # Filtered FitDataMessage instances for semantic extraction
+    _data_messages_by_type: Dict[str, List[FitDataMessage]] = PrivateAttr(default_factory=dict)
     _file_id_msg: Optional[FitDataMessage] = PrivateAttr(default=None)
     _session_msg: Optional[FitDataMessage] = PrivateAttr(default=None)
     _activity_msg: Optional[FitDataMessage] = PrivateAttr(default=None)
@@ -90,51 +90,65 @@ class BaseFitModel(BaseModel, ABC):
         )
         if isinstance(file_bytes, bytearray):
             file_bytes = bytes(file_bytes)
-        self._file_bytes = cast(Optional[bytes], file_bytes)
-
-        if self._file_bytes is None:
+        if not file_bytes:
             raise FitParsingError(ERROR_FILE_BYTES_REQUIRED)
-        messages, messages_by_type = self._parse_fit_messages()
-        self._messages = messages
-        self._messages_by_type = messages_by_type
+        
+        # Single parse with local buffer (garbage-collected after parse)
+        all_frames, data_messages, messages_by_type = self._parse_fit_messages(file_bytes)
+        self._all_frames = all_frames
+        self._data_messages = data_messages
+        self._data_messages_by_type = messages_by_type
         self._cache_core_messages()
 
     def _parse_fit_messages(
         self,
-    ) -> tuple[List[FitDataMessage], Dict[str, List[FitDataMessage]]]:
-        """Parse FIT messages from in-memory bytes for eager initialization."""
-        if self._file_bytes is None:
-            raise FitParsingError(ERROR_FILE_BYTES_REQUIRED)
-
-        stream = io.BytesIO(self._file_bytes)
+        file_bytes: bytes,
+    ) -> tuple[List[Any], List[FitDataMessage], Dict[str, List[FitDataMessage]]]:
+        """Parse FIT once: cache all frames for raw export + message indexes for semantics.
+        
+        Args:
+            file_bytes: FIT file bytes (constructor-local, collectible after parse)
+        
+        Returns:
+            Tuple of (all_frames, data_messages, messages_by_type) where:
+            - all_frames: All frames for raw FIT export (with StandardUnitsDataProcessor)
+            - data_messages: Filtered FitDataMessage instances for semantic extraction
+            - messages_by_type: Message index for fast lookups
+        """
+        stream = io.BytesIO(file_bytes)
         try:
-            messages: List[FitDataMessage] = []
+            all_frames: List[Any] = []
+            data_messages: List[FitDataMessage] = []
             messages_by_type: Dict[str, List[FitDataMessage]] = {}
 
             try:
-                with FitReader(stream, processor=DefaultDataProcessor()) as reader:
+                with FitReader(
+                    stream,
+                    processor=StandardUnitsDataProcessor(),
+                    keep_raw_chunks=True
+                ) as reader:
                     for frame in reader:
-                        if not isinstance(frame, FitDataMessage):
-                            continue
-                        messages.append(frame)
-                        messages_by_type.setdefault(frame.name, []).append(frame)
+                        all_frames.append(frame)
+                        if isinstance(frame, FitDataMessage):
+                            data_messages.append(frame)
+                            messages_by_type.setdefault(frame.name, []).append(frame)
             except Exception as exc:
                 raise FitParsingError(f"Failed to parse FIT data: {exc}") from exc
 
-            return messages, messages_by_type
+            return all_frames, data_messages, messages_by_type
         finally:
             stream.close()
     
     def _cache_core_messages(self) -> None:
         """Cache frequently-accessed FIT messages."""
-        self._file_id_msg = (self._messages_by_type.get("file_id") or [None])[0]
-        self._session_msg = (self._messages_by_type.get("session") or [None])[0]
-        self._activity_msg = (self._messages_by_type.get("activity") or [None])[0]
+        self._file_id_msg = (self._data_messages_by_type.get("file_id") or [None])[0]
+        self._session_msg = (self._data_messages_by_type.get("session") or [None])[0]
+        self._activity_msg = (self._data_messages_by_type.get("activity") or [None])[0]
         
     @property
     def messages(self) -> List[FitDataMessage]:
-        """Public accessor for FIT messages."""
-        return self._messages
+        """Public accessor for FIT data messages (FitDataMessage instances for semantic extraction)."""
+        return self._data_messages
     
     # ========================================================================
     # Computed Fields (Pydantic @computed_field replacing _get_* methods)
@@ -163,7 +177,7 @@ class BaseFitModel(BaseModel, ABC):
         """
         sport: Optional[Any] = None
 
-        sport_message = (self._messages_by_type.get("sport") or [None])[0]
+        sport_message = (self._data_messages_by_type.get("sport") or [None])[0]
         if sport_message:
             sport = sport_message.get_value("sport", fallback=None)
 
@@ -188,7 +202,7 @@ class BaseFitModel(BaseModel, ABC):
         2. Session message 'sub_sport' field
         """
         sub_sport: Optional[Any] = None
-        sport_message = (self._messages_by_type.get("sport") or [None])[0]
+        sport_message = (self._data_messages_by_type.get("sport") or [None])[0]
 
         if sport_message:
             sub_sport = sport_message.get_value("sub_sport", fallback=None)
@@ -217,7 +231,7 @@ class BaseFitModel(BaseModel, ABC):
     
     def _get_workout_message_name(self) -> Optional[str]:
         """Extract name field from Workout FIT message if available."""
-        workout_messages = self._messages_by_type.get("workout", [])
+        workout_messages = self._data_messages_by_type.get("workout", [])
         if not workout_messages:
             return None
         
@@ -445,7 +459,7 @@ class BaseFitModel(BaseModel, ABC):
 
     def _start_time_from_event(self) -> Optional[datetime]:
         """Return earliest event start timestamp, if present."""
-        event_messages = self._messages_by_type.get("event", [])
+        event_messages = self._data_messages_by_type.get("event", [])
         candidates: List[datetime] = []
 
         for event_msg in event_messages:
@@ -486,7 +500,7 @@ class BaseFitModel(BaseModel, ABC):
 
     def _start_time_from_first_record(self) -> Optional[datetime]:
         """Return the first record timestamp if present."""
-        for record in self._messages_by_type.get("record", []):
+        for record in self._data_messages_by_type.get("record", []):
             timestamp = record.get_value("timestamp", fallback=None)
             if isinstance(timestamp, datetime):
                 return timestamp
@@ -570,7 +584,7 @@ class BaseFitModel(BaseModel, ABC):
 
     def validate_semantic_contract(self) -> None:
         """Validate required FIT semantic invariants before artifact generation."""
-        file_id_messages = self._messages_by_type.get("file_id", [])
+        file_id_messages = self._data_messages_by_type.get("file_id", [])
         if len(file_id_messages) != 1:
             raise FitParsingError(
                 "FIT semantic contract violation: expected exactly one file_id message"
@@ -584,13 +598,13 @@ class BaseFitModel(BaseModel, ABC):
                 "FIT semantic contract violation: file_id.type must be activity"
             )
 
-        session_messages = self._messages_by_type.get("session", [])
+        session_messages = self._data_messages_by_type.get("session", [])
         if not session_messages:
             raise FitParsingError(
                 "FIT semantic contract violation: missing required session message"
             )
 
-        record_messages = self._messages_by_type.get("record", [])
+        record_messages = self._data_messages_by_type.get("record", [])
         if not record_messages:
             raise FitParsingError(
                 "FIT semantic contract violation: missing required record message"
@@ -659,7 +673,7 @@ class BaseFitModel(BaseModel, ABC):
 
     def _validate_activity_summary(self, session_messages: List[FitDataMessage]) -> None:
         """Validate optional activity closure message consistency when present."""
-        activity_messages = self._messages_by_type.get("activity", [])
+        activity_messages = self._data_messages_by_type.get("activity", [])
         if not activity_messages:
             return
 
@@ -778,7 +792,7 @@ class BaseFitModel(BaseModel, ABC):
     def device_utc_offset_minutes(self) -> Optional[int]:
         """Return device UTC offset in minutes from settings."""
         device_settings_msg = (
-            self._messages_by_type.get("device_settings") or [None]
+            self._data_messages_by_type.get("device_settings") or [None]
         )[0]
         if device_settings_msg:
             offset = device_settings_msg.get_value("utc_offset", fallback=None)
@@ -811,7 +825,7 @@ class BaseFitModel(BaseModel, ABC):
     @property
     def inferred_timezone_activity(self) -> Optional[str]:
         """Infer timezone from activity local_time vs UTC timestamp without datetime coercion."""
-        activity_msg = (self._messages_by_type.get("activity") or [None])[0]
+        activity_msg = (self._data_messages_by_type.get("activity") or [None])[0]
         if not activity_msg:
             return None
         
@@ -935,7 +949,7 @@ class BaseFitModel(BaseModel, ABC):
     @cached_property
     def has_gps_data(self) -> bool:
         """Check if GPS data exists in records (cached)."""
-        for record in self._messages_by_type.get("record", []):
+        for record in self._data_messages_by_type.get("record", []):
             lat = record.get_value("position_lat", fallback=None)
             lon = record.get_value("position_long", fallback=None)
             if lat is not None and lon is not None:
@@ -1114,7 +1128,7 @@ class BaseFitModel(BaseModel, ABC):
         file_id_product: Optional[Any],
     ) -> None:
         """Check device_info messages for collisions with file_id device."""
-        if not self._messages or (
+        if not self._data_messages or (
             file_id_manufacturer is None and file_id_product is None
         ):
             return
@@ -1122,7 +1136,7 @@ class BaseFitModel(BaseModel, ABC):
         file_id_mfr_code, _ = self._extract_code_and_name(file_id_manufacturer)
         file_id_prod_code, _ = self._extract_code_and_name(file_id_product)
         
-        for device_info_msg in self._messages_by_type.get("device_info", []):
+        for device_info_msg in self._data_messages_by_type.get("device_info", []):
             device_mfr = device_info_msg.get_value("manufacturer", fallback=None)
             device_prod = device_info_msg.get_value("product", fallback=None)
             
@@ -1198,7 +1212,7 @@ class BaseFitModel(BaseModel, ABC):
             CanonicalRecordSet containing typed records ready for DataFrame conversion
         """
         return CanonicalRecordSet.from_fit_messages(
-            self._messages,
+            self._data_messages,
             self._canonical_start_dt(),
         )
     
@@ -1278,7 +1292,7 @@ class BaseFitModel(BaseModel, ABC):
     def _build_canonical_activity_metadata(self) -> Dict[str, Any]:
         """Extract activity-level metadata from activity message."""
         metadata: Dict[str, Any] = {}
-        activity_msg = (self._messages_by_type.get("activity") or [None])[0]
+        activity_msg = (self._data_messages_by_type.get("activity") or [None])[0]
         if not activity_msg:
             return metadata
         
@@ -1294,84 +1308,19 @@ class BaseFitModel(BaseModel, ABC):
         
         return metadata
     
-    @overload
-    def build_raw_fit(self) -> Dict[str, Any]:
-        ...
-
-    @overload
-    def build_raw_fit(
-        self,
-        return_dict: Literal[True],
-        return_json: Literal[False],
-    ) -> Dict[str, Any]:
-        ...
-
-    @overload
-    def build_raw_fit(
-        self,
-        return_dict: Literal[False],
-        return_json: Literal[True],
-    ) -> str:
-        ...
-
-    @overload
-    def build_raw_fit(
-        self,
-        return_dict: Literal[True],
-        return_json: Literal[True],
-    ) -> tuple[str, Dict[str, Any]]:
-        ...
-
-    def build_raw_fit(
-        self, return_dict: bool = True, return_json: bool = False
-    ) -> Dict[str, Any] | str | tuple[str, Dict[str, Any]]:
-        """Return full-fidelity FIT data as dict, JSON string, or both.
+    def raw_frames(self, as_json: bool = False) -> List[Any] | str:
+        """Return raw FIT frames for archival storage.
         
         Args:
-            return_dict: Return dict with frames and metadata (default True)
-            return_json: Return JSON-serialized string (default False)
+            as_json: If True, return JSON string via RecordJSONEncoder; 
+                     if False (default), return frames list
         
         Returns:
-            - return_dict=True, return_json=False: Dict with frames and metadata
-            - return_dict=False, return_json=True: JSON string
-            - return_dict=True, return_json=True: Tuple of (json_string, dict)
+            List of frames or JSON-serialized string depending on as_json flag
         """
-        if not self._file_bytes:
-            raise ValueError(ERROR_FILE_BYTES_REQUIRED)
-
-        stream = io.BytesIO(self._file_bytes)
-        
-        frames = []
-        with FitReader(
-            stream,
-            processor=StandardUnitsDataProcessor(),
-            keep_raw_chunks=True
-        ) as reader:
-            for frame in reader:
-                frames.append(frame)
-        
-        # Serialize with RecordJSONEncoder for full fidelity
-        json_str = json.dumps(frames, cls=RecordJSONEncoder)
-        frames_dict = json.loads(json_str)
-        
-        source_file_name = self._metadata_dict.get("source_file_name")
-        metadata = {
-            "source_file": source_file_name or "<in-memory>",
-            "exported_at_utc": datetime.now(timezone.utc).isoformat(),
-            "total_frames": len(frames),
-        }
-        
-        result_dict = {
-            "metadata": metadata,
-            "frames": frames_dict,
-        }
-        
-        if return_dict and return_json:
-            return (json_str, result_dict)
-        elif return_json:
-            return json_str
-        else:
-            return result_dict
+        if as_json:
+            return json.dumps(self._all_frames, cls=RecordJSONEncoder)
+        return self._all_frames
     
     def build_metadata_messages(self) -> Dict[str, Any]:
         """Return structured FIT metadata.json with LLM enrichment placeholder."""
@@ -1388,7 +1337,7 @@ class BaseFitModel(BaseModel, ABC):
         
         raw_fit_messages: Dict[str, Any] = {}
         for message_type in message_types:
-            typed_messages = self._messages_by_type.get(message_type)
+            typed_messages = self._data_messages_by_type.get(message_type)
             if not typed_messages:
                 continue
             
@@ -1416,7 +1365,7 @@ class BaseFitModel(BaseModel, ABC):
     
     def build_laps_json(self) -> Dict[str, Any]:
         """Return lap messages JSON artifact with schema metadata."""
-        lap_messages = self._messages_by_type.get("lap", [])
+        lap_messages = self._data_messages_by_type.get("lap", [])
         
         # Use RecordJSONEncoder for consistency
         json_str = json.dumps(lap_messages, cls=RecordJSONEncoder)
@@ -1430,7 +1379,7 @@ class BaseFitModel(BaseModel, ABC):
 
     def build_fit_analysis(self) -> Dict[str, Any]:
         """Return FIT structure analysis using FitStructureAnalyzer."""
-        analyzer = FitStructureAnalyzer(messages=self._messages)
+        analyzer = FitStructureAnalyzer(messages=self._data_messages)
         return analyzer.analyze()
 
     # ========================================================================
