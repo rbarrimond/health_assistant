@@ -1,4 +1,23 @@
-"""Pydantic models for FIT file parsing and metadata extraction."""
+"""FIT ingestion models that normalize device files into canonical workout data.
+
+This module defines the abstract FIT parsing contract (`BaseFitModel`) and source-
+specific implementations used by ingestion handlers. Models parse FIT bytes once,
+cache message state, and expose computed workout semantics (timing, sport typing,
+distance/effort metrics, timezone, and device identity) for downstream canonical
+metadata and record generation.
+
+Primary outputs:
+- Canonical record sets for parquet/storage pipelines
+- Canonical metadata dictionaries used across ingestion and analytics
+- Deterministic semantic identifiers for cross-source deduplication
+
+Public interface:
+- Factory: create_fit_model(source_metadata, file_bytes)
+- Core model API: messages, semantic_workout_id, validate_semantic_contract,
+  build_canonical_records, build_canonical_metadata, build_metadata_messages,
+  build_laps_json, build_fit_analysis, raw_frames
+- Concrete model types: HealthFitModel, GarminFitModel, PayloadFitModel
+"""
 # pylint: disable=too-many-lines, trailing-whitespace, line-too-long
 
 import hashlib
@@ -57,10 +76,13 @@ UTC_OFFSET_SUFFIX = "+00:00"
 
 
 class BaseFitModel(BaseModel, ABC):
-    """Base model for FIT file parsing with fitdecode integration.
-    
-    Encapsulates FIT file loading, message indexing, and metadata extraction
-    using Pydantic computed fields. Subclasses handle source-specific quirks.
+    """Abstract FIT parser that exposes canonical workout semantics.
+
+    Contract:
+        - Parses FIT bytes exactly once during initialization.
+        - Exposes normalized computed fields for metadata and record generation.
+        - Raises FitParsingError for invalid payloads or semantic-contract violations.
+        - Requires subclasses to implement source-specific workout type and timezone hooks.
     """
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -81,7 +103,16 @@ class BaseFitModel(BaseModel, ABC):
         source_metadata: Optional[Dict[str, Any]] = None,
         **data: Any,
     ) -> None:
-        """Initialize parsed FIT message state at model construction time."""
+        """Initialize and parse a FIT payload into cached message state.
+
+        Args:
+            file_bytes: Raw FIT file bytes.
+            source_metadata: Optional source context used by subclass-specific fallbacks.
+            **data: Additional Pydantic initialization fields.
+
+        Raises:
+            FitParsingError: If `file_bytes` is empty or FIT parsing fails.
+        """
         super().__init__(**data)
 
         self._source_metadata = cast(
@@ -154,17 +185,9 @@ class BaseFitModel(BaseModel, ABC):
     # Computed Fields (Pydantic @computed_field replacing _get_* methods)
     # ========================================================================
     
-    @computed_field  # type: ignore[misc]
-    @property
-    def file_id_msg(self) -> Optional[FitDataMessage]:
-        """Cached file_id message."""
-        return self._file_id_msg
-    
-    @computed_field  # type: ignore[misc]
-    @property
-    def session_msg(self) -> Optional[FitDataMessage]:
-        """Cached session message."""
-        return self._session_msg
+    # NOTE: file_id_msg and session_msg are accessed directly via
+    # PrivateAttr (_file_id_msg, _session_msg) for internal use only.
+    # They are not part of the computed field contract.
     
     @computed_field  # type: ignore[misc]
     @property
@@ -181,8 +204,8 @@ class BaseFitModel(BaseModel, ABC):
         if sport_message:
             sport = sport_message.get_value("sport", fallback=None)
 
-        if sport is None and self.session_msg is not None:
-            sport = self.session_msg.get_value("sport", fallback=None)
+        if sport is None and self._session_msg is not None:
+            sport = self._session_msg.get_value("sport", fallback=None)
 
         if sport is not None:
             if hasattr(sport, "name"):
@@ -207,8 +230,8 @@ class BaseFitModel(BaseModel, ABC):
         if sport_message:
             sub_sport = sport_message.get_value("sub_sport", fallback=None)
 
-        if sub_sport is None and self.session_msg is not None:
-            sub_sport = self.session_msg.get_value("sub_sport", fallback=None)
+        if sub_sport is None and self._session_msg is not None:
+            sub_sport = self._session_msg.get_value("sub_sport", fallback=None)
         
         if sub_sport:
             if hasattr(sub_sport, "name"):
@@ -258,11 +281,9 @@ class BaseFitModel(BaseModel, ABC):
             return subclass_name
         
         # Priority 4: Constructed from FIT metadata
-        return self.constructed_workout_name
+        return self._constructed_workout_name()
     
-    @computed_field  # type: ignore[misc]
-    @property
-    def constructed_workout_name(self) -> Optional[str]:
+    def _constructed_workout_name(self) -> Optional[str]:
         """Construct fallback workout name from daypart/type or FIT semantics."""
         daypart = self._workout_daypart()
         apple_type = self._apple_workout_type_from_fit_signals()
@@ -411,7 +432,7 @@ class BaseFitModel(BaseModel, ABC):
         start_dt = self._start_time_from_event()
         if not start_dt:
             start_dt = self._start_time_from_session()
-        if not start_dt and self.session_msg is None:
+        if not start_dt and self._session_msg is None:
             start_dt = self._start_time_from_first_record()
 
         if not start_dt:
@@ -421,14 +442,16 @@ class BaseFitModel(BaseModel, ABC):
 
     @property
     def semantic_workout_id(self) -> Optional[str]:
-        """Generate deterministic semantic workout ID from start time + sport.
-        
-        Used for deduplication across sources. Computed from the most precise
-        start time available (from start_time_utc) and normalized sport.
-        
+        """Return a deterministic content-based ID for cross-source deduplication.
+
+        The ID is a SHA1 hash of `start_time_utc` and normalized `sport`, so it is
+        stable across re-parses and independent of source-specific metadata.
+
         Returns:
-            SHA1 hex digest of "{start_time_utc}#{normalized_sport}" or None
-            if start_time unavailable.
+            40-character SHA1 hex digest, or None when `start_time_utc` is unavailable.
+
+        Raises:
+            FitParsingError: If a start time exists but sport cannot be derived.
         """
         normalized_sport = self.sport
         start_time = self.start_time_utc
@@ -471,11 +494,11 @@ class BaseFitModel(BaseModel, ABC):
         derive canonical UTC start. Canonical session start is computed as:
             session.timestamp - total_elapsed_time
         """
-        if self.session_msg is None:
+        if self._session_msg is None:
             return None
 
-        timestamp = self.session_msg.get_value("timestamp", fallback=None)
-        duration = self.session_msg.get_value("total_elapsed_time", fallback=None)
+        timestamp = self._session_msg.get_value("timestamp", fallback=None)
+        duration = self._session_msg.get_value("total_elapsed_time", fallback=None)
 
         if not isinstance(timestamp, datetime):
             return None
@@ -557,12 +580,12 @@ class BaseFitModel(BaseModel, ABC):
 
     def _get_file_id_product(self) -> Optional[Any]:
         """Return normalized file_id product value, preferring garmin_product when required."""
-        if self.file_id_msg is None:
+        if self._file_id_msg is None:
             return None
 
-        manufacturer = self.file_id_msg.get_value("manufacturer", fallback=None)
-        product = self.file_id_msg.get_value("product", fallback=None)
-        garmin_product = self.file_id_msg.get_value("garmin_product", fallback=None)
+        manufacturer = self._file_id_msg.get_value("manufacturer", fallback=None)
+        product = self._file_id_msg.get_value("product", fallback=None)
+        garmin_product = self._file_id_msg.get_value("garmin_product", fallback=None)
 
         manufacturer_code, _ = self._extract_code_and_name(manufacturer)
         if manufacturer_code == 1 and garmin_product is not None:
@@ -570,7 +593,14 @@ class BaseFitModel(BaseModel, ABC):
         return product
 
     def validate_semantic_contract(self) -> None:
-        """Validate required FIT semantic invariants before artifact generation."""
+        """Validate required FIT invariants before semantic extraction.
+
+        Enforces file structure (`file_id`, `session`, `record`), activity type,
+        timestamp consistency, and derivation of required semantic fields.
+
+        Raises:
+            FitParsingError: If any required FIT invariant is violated.
+        """
         file_id_messages = self._data_messages_by_type.get("file_id", [])
         if len(file_id_messages) != 1:
             raise FitParsingError(
@@ -610,7 +640,14 @@ class BaseFitModel(BaseModel, ABC):
             )
 
     def _validate_session_messages(self, session_messages: List[FitDataMessage]) -> None:
-        """Validate required session fields and numeric constraints."""
+        """Validate required session fields and numeric constraints.
+
+        Args:
+            session_messages: Parsed `session` messages from the FIT file.
+
+        Raises:
+            FitParsingError: If required fields are missing, invalid, or negative.
+        """
         for session in session_messages:
             session_timestamp = session.get_value("timestamp", fallback=None)
             if not isinstance(session_timestamp, datetime):
@@ -635,7 +672,14 @@ class BaseFitModel(BaseModel, ABC):
                 )
 
     def _validate_record_timestamps(self, record_messages: List[FitDataMessage]) -> None:
-        """Validate record timestamp presence and monotonicity."""
+        """Validate record timestamps for presence and non-decreasing order.
+
+        Args:
+            record_messages: Parsed `record` messages from the FIT file.
+
+        Raises:
+            FitParsingError: If timestamps are missing, out of order, or incomparable.
+        """
         previous_ts: Optional[datetime] = None
         for record in record_messages:
             timestamp = record.get_value("timestamp", fallback=None)
@@ -659,7 +703,14 @@ class BaseFitModel(BaseModel, ABC):
             previous_ts = timestamp
 
     def _validate_activity_summary(self, session_messages: List[FitDataMessage]) -> None:
-        """Validate optional activity closure message consistency when present."""
+        """Validate optional activity summary against parsed sessions.
+
+        Args:
+            session_messages: Parsed `session` messages used as canonical totals.
+
+        Raises:
+            FitParsingError: If activity/session counts or timer totals are inconsistent.
+        """
         activity_messages = self._data_messages_by_type.get("activity", [])
         if not activity_messages:
             return
@@ -729,11 +780,18 @@ class BaseFitModel(BaseModel, ABC):
     @computed_field  # type: ignore[misc]
     @property
     def local_tz_offset(self) -> Optional[str]:
-        """Get local wall-clock UTC offset from device settings or inferred signals."""
+        """Return the best-available local timezone offset.
+
+        Prefers explicit device settings, then inferred offsets from activity/session
+        timestamps, then a source-specific fallback.
+
+        Returns:
+            IANA timezone name or `UTC±HH:MM` offset string, or None.
+        """
         try:
-            offset_minutes = self.device_utc_offset_minutes
-            inferred_activity = self.inferred_timezone_activity
-            inferred_session = self.inferred_timezone_session
+            offset_minutes = self._device_utc_offset_minutes()
+            inferred_activity = self._inferred_timezone_activity()
+            inferred_session = self._inferred_timezone_session()
             source_fallback = self._source_specific_timezone_fallback()
             
             resolved = resolve_timezone(
@@ -752,7 +810,14 @@ class BaseFitModel(BaseModel, ABC):
     @computed_field  # type: ignore[misc]
     @property
     def timezone(self) -> Optional[str]:
-        """Return preferred IANA timezone name with UTC-offset fallback."""
+        """Return canonical timezone identifier for the workout.
+
+        Uses validated IANA names from source metadata when available; otherwise
+        falls back to `local_tz_offset`.
+
+        Returns:
+            IANA timezone name, `UTC±HH:MM` offset string, or None.
+        """
         for key in ("timezone", "source_timezone", "tz_name"):
             raw_value = self._metadata_dict.get(key)
             if not isinstance(raw_value, str):
@@ -774,10 +839,12 @@ class BaseFitModel(BaseModel, ABC):
 
         return self.local_tz_offset
     
-    @computed_field  # type: ignore[misc]
-    @property
-    def device_utc_offset_minutes(self) -> Optional[int]:
-        """Return device UTC offset in minutes from settings."""
+    def _device_utc_offset_minutes(self) -> Optional[int]:
+        """Return device-configured UTC offset (minutes) from `device_settings`.
+
+        Returns:
+            Signed offset minutes, or None when unavailable.
+        """
         device_settings_msg = (
             self._data_messages_by_type.get("device_settings") or [None]
         )[0]
@@ -787,16 +854,18 @@ class BaseFitModel(BaseModel, ABC):
                 return int(round(offset / 60))
         return None
     
-    @computed_field  # type: ignore[misc]
-    @property
-    def inferred_timezone_session(self) -> Optional[str]:
-        """Infer timezone from session timestamp vs local start time."""
-        if self.session_msg is None:
+    def _inferred_timezone_session(self) -> Optional[str]:
+        """Infer timezone from session timing fields.
+
+        Returns:
+            Inferred IANA timezone name or `UTC±HH:MM` string, or None.
+        """
+        if self._session_msg is None:
             return None
         
-        start_time = self.session_msg.get_value("start_time", fallback=None)
-        timestamp = self.session_msg.get_value("timestamp", fallback=None)
-        duration = self.session_msg.get_value("total_elapsed_time", fallback=None)
+        start_time = self._session_msg.get_value("start_time", fallback=None)
+        timestamp = self._session_msg.get_value("timestamp", fallback=None)
+        duration = self._session_msg.get_value("total_elapsed_time", fallback=None)
         
         if not isinstance(start_time, datetime):
             start_time = None
@@ -808,10 +877,12 @@ class BaseFitModel(BaseModel, ABC):
         duration_sec = int(duration)
         return infer_timezone_from_session(start_time, timestamp, duration_sec)
     
-    @computed_field  # type: ignore[misc]
-    @property
-    def inferred_timezone_activity(self) -> Optional[str]:
-        """Infer timezone from activity local_time vs UTC timestamp without datetime coercion."""
+    def _inferred_timezone_activity(self) -> Optional[str]:
+        """Infer timezone from activity timestamps.
+
+        Returns:
+            Inferred IANA timezone name or `UTC±HH:MM` string, or None.
+        """
         activity_msg = (self._data_messages_by_type.get("activity") or [None])[0]
         if not activity_msg:
             return None
@@ -830,91 +901,98 @@ class BaseFitModel(BaseModel, ABC):
     @property
     def duration_sec(self) -> Optional[int]:
         """Get total elapsed time in seconds."""
-        if self.session_msg is None:
+        if self._session_msg is None:
             return None
         
-        elapsed = self.session_msg.get_value("total_elapsed_time", fallback=None)
+        elapsed = self._session_msg.get_value("total_elapsed_time", fallback=None)
         return int(elapsed) if isinstance(elapsed, (int, float)) else None
     
     @computed_field  # type: ignore[misc]
     @property
     def moving_time_sec(self) -> Optional[int]:
         """Get moving time in seconds."""
-        if self.session_msg is None:
+        if self._session_msg is None:
             return None
         
-        timer = self.session_msg.get_value("total_timer_time", fallback=None)
+        timer = self._session_msg.get_value("total_timer_time", fallback=None)
         return int(timer) if isinstance(timer, (int, float)) else None
     
     @computed_field  # type: ignore[misc]
     @property
     def distance_m(self) -> Optional[float]:
         """Get total distance in meters."""
-        if self.session_msg is None:
+        if self._session_msg is None:
             return None
         
-        distance = self.session_msg.get_value("total_distance", fallback=None)
+        distance = self._session_msg.get_value("total_distance", fallback=None)
         return float(distance) if isinstance(distance, (int, float)) else None
     
     @computed_field  # type: ignore[misc]
     @property
     def elevation_gain_m(self) -> Optional[float]:
         """Get total elevation gain in meters."""
-        if self.session_msg is None:
+        if self._session_msg is None:
             return None
         
-        elev = self.session_msg.get_value("total_ascent", fallback=None)
+        elev = self._session_msg.get_value("total_ascent", fallback=None)
         return float(elev) if isinstance(elev, (int, float)) else None
     
     @computed_field  # type: ignore[misc]
     @property
     def elevation_loss_m(self) -> Optional[float]:
         """Get total elevation loss in meters."""
-        if self.session_msg is None:
+        if self._session_msg is None:
             return None
         
-        elev = self.session_msg.get_value("total_descent", fallback=None)
+        elev = self._session_msg.get_value("total_descent", fallback=None)
         return float(elev) if isinstance(elev, (int, float)) else None
     
     @computed_field  # type: ignore[misc]
     @property
     def avg_speed_mps(self) -> Optional[float]:
         """Get average speed in m/s."""
-        if self.session_msg is None:
+        if self._session_msg is None:
             return None
         
-        speed = self.session_msg.get_value("avg_speed", fallback=None)
+        speed = self._session_msg.get_value("avg_speed", fallback=None)
         return float(speed) if isinstance(speed, (int, float)) else None
     
     @computed_field  # type: ignore[misc]
     @property
     def max_speed_mps(self) -> Optional[float]:
         """Get max speed in m/s."""
-        if self.session_msg is None:
+        if self._session_msg is None:
             return None
         
-        speed = self.session_msg.get_value("max_speed", fallback=None)
+        speed = self._session_msg.get_value("max_speed", fallback=None)
         return float(speed) if isinstance(speed, (int, float)) else None
     
     @computed_field  # type: ignore[misc]
     @property
     def calories_kcal(self) -> Optional[float]:
         """Get total calories."""
-        if self.session_msg is None:
+        if self._session_msg is None:
             return None
         
-        calories = self.session_msg.get_value("total_calories", fallback=None)
+        calories = self._session_msg.get_value("total_calories", fallback=None)
         return float(calories) if isinstance(calories, (int, float)) else None
     
     @computed_field  # type: ignore[misc]
     @cached_property
     def device_name(self) -> Optional[str]:
-        """Get device/manufacturer and product info with validation (cached)."""
-        if self.file_id_msg is None:
+        """Return normalized human-readable device name (cached).
+
+        Combines validated manufacturer and product labels from `file_id` metadata,
+        including Garmin-specific product handling.
+
+        Returns:
+            Device name string, or None when identity fields are unavailable.
+        """
+        if self._file_id_msg is None:
             return None
         
-        manufacturer = self.file_id_msg.get_value("manufacturer", fallback=None)
-        product = self.file_id_msg.get_value("product", fallback=None)
+        manufacturer = self._file_id_msg.get_value("manufacturer", fallback=None)
+        product = self._file_id_msg.get_value("product", fallback=None)
         
         parts: List[str] = []
         
@@ -946,18 +1024,18 @@ class BaseFitModel(BaseModel, ABC):
     @computed_field  # type: ignore[misc]
     @cached_property
     def device_manufacturer_code(self) -> Optional[int]:
-        """Extract manufacturer code from file_id (cached).
-        
-        Handles multiple fitdecode return types:
-        - enum with .value attribute (standard)
-        - raw integer
-        - string name (fallback)
-        - None (missing field)
+        """Return normalized manufacturer code from `file_id` (cached).
+
+        Accepts enum, integer, or name-like values from fitdecode and normalizes to
+        an integer code when possible.
+
+        Returns:
+            Manufacturer code, or None when unavailable/unmappable.
         """
-        if self.file_id_msg is None:
+        if self._file_id_msg is None:
             return None
         
-        manufacturer = self.file_id_msg.get_value("manufacturer", fallback=None)
+        manufacturer = self._file_id_msg.get_value("manufacturer", fallback=None)
         code, name = self._extract_code_and_name(manufacturer)
         
         if code is None and name is not None:
@@ -990,8 +1068,15 @@ class BaseFitModel(BaseModel, ABC):
     @computed_field  # type: ignore[misc]
     @cached_property
     def device_product_code(self) -> Optional[int]:
-        """Extract product code from file_id (cached)."""
-        if self.file_id_msg is None:
+        """Return normalized product code from `file_id` (cached).
+
+        Uses `_get_file_id_product()` to apply source-specific product selection
+        (including Garmin overrides) before code extraction.
+
+        Returns:
+            Product code, or None when unavailable.
+        """
+        if self._file_id_msg is None:
             return None
         
         product = self._get_file_id_product()
@@ -1247,16 +1332,16 @@ class BaseFitModel(BaseModel, ABC):
     def _build_canonical_file_metadata(self) -> Dict[str, Any]:
         """Extract file-level metadata from file_id message."""
         metadata: Dict[str, Any] = {}
-        if self.file_id_msg is None:
+        if self._file_id_msg is None:
             return metadata
         
-        file_created = self.file_id_msg.get_value("time_created", fallback=None)
+        file_created = self._file_id_msg.get_value("time_created", fallback=None)
         if isinstance(file_created, datetime):
             metadata["file_time_created_utc"] = self._format_utc_timestamp(
                 file_created
             )
         
-        file_manufacturer = self.file_id_msg.get_value("manufacturer", fallback=None)
+        file_manufacturer = self._file_id_msg.get_value("manufacturer", fallback=None)
         if file_manufacturer is not None:
             manufacturer_name = getattr(file_manufacturer, "name", None)
             metadata["file_manufacturer"] = (
@@ -1270,7 +1355,7 @@ class BaseFitModel(BaseModel, ABC):
             metadata["file_product"] = str(file_product)
             metadata["product_id"] = str(file_product)
         
-        file_serial = self.file_id_msg.get_value("serial_number", fallback=None)
+        file_serial = self._file_id_msg.get_value("serial_number", fallback=None)
         if file_serial is not None:
             metadata["file_serial_number"] = str(file_serial)
         
@@ -1380,10 +1465,12 @@ class BaseFitModel(BaseModel, ABC):
 
 
 class OneDriveFitModel(BaseFitModel, ABC):
-    """Abstract model for OneDrive-sourced FIT files.
-    
-    Handles OneDrive-specific file I/O and metadata extraction.
-    Concrete subclasses implement app-specific logic (HealthFit, RunGap, etc.).
+    """Abstract base for OneDrive-backed FIT sources.
+
+    Contract:
+        - Accepts either in-memory bytes or a local file path.
+        - Loads file contents when only `file_path` is provided.
+        - Delegates semantic parsing and validation to BaseFitModel.
     """
     
     file_path: Optional[str] = None
@@ -1419,29 +1506,13 @@ class OneDriveFitModel(BaseFitModel, ABC):
 
 
 class HealthFitModel(OneDriveFitModel):
-    """Concrete model for Apple Watch FIT files exported via HealthFit.
+    """OneDrive model for HealthFit exports from Apple ecosystem devices.
 
-    Handles HealthFit-specific filename parsing, timezone inference from local time,
-    and device source classification (true Apple Watch vs HealthKit synced).
-    HealthFit uses pattern: YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz].
-    Activity parsing treats the final hyphen-delimited token as source and
-    everything between HHMMSS and that final token as the activity label.
-    Activity hyphens are normalized to spaces for Apple label resolution.
-    The YYYY-MM-DD-HHMMSS filename timestamp is device-local wall-clock time
-    for the recording device, not UTC.
-
-     SEMANTIC OVERRIDE - Apple Workout Type Inference:
-     =================================================
-     HealthFitModel overrides the default FIT-based apple_workout_type inference used by
-     GarminFitModel and PayloadFitModel. HealthFitModel:
-
-     1. Extracts the activity token from the filename (e.g., "Indoor Cycling")
-     2. Resolves it deterministically to an Apple workout type via HEALTHFIT_APPLE_TYPE_ALIASES
-     3. Falls back to FIT sport/sub_sport resolution only when the filename token is
-         missing or unrecognized (and logs a warning to flag the anomaly)
-
-     This treats the filename as the authoritative source when present, while still
-     allowing FIT signal inference as a degraded fallback for malformed exports.
+    Contract:
+        - Parses HealthFit filenames using `YYYY-MM-DD-HHMMSS-{Activity}-{Source}.fit[.gz]`.
+        - Treats filename activity token as primary Apple workout-type signal.
+        - Falls back to FIT sport/sub-sport mapping when filename token is missing or unknown.
+        - Provides filename-derived timezone fallback when FIT timezone signals are insufficient.
     """
     
     # HealthFit filename pattern: YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz]
@@ -1565,7 +1636,7 @@ class HealthFitModel(OneDriveFitModel):
         start_dt = self._start_time_from_event()
         if not start_dt:
             start_dt = self._start_time_from_session()
-        if not start_dt and self.session_msg is None:
+        if not start_dt and self._session_msg is None:
             start_dt = self._start_time_from_first_record()
         if not start_dt:
             return None
@@ -1642,10 +1713,12 @@ class HealthFitModel(OneDriveFitModel):
 
 
 class GarminFitModel(BaseFitModel):
-    """Concrete model for Garmin Connect FIT files.
-    
-    Handles Garmin-specific metadata where API activity name takes precedence
-    over FIT session name.
+    """FIT model for Garmin Connect ingests.
+
+    Contract:
+        - Uses Garmin source metadata for workout naming when available.
+        - Uses base FIT-derived behavior for Apple workout type and timezone.
+        - Does not provide Garmin-specific timezone fallback.
     """
     
     @computed_field  # type: ignore[misc]
@@ -1668,9 +1741,12 @@ class GarminFitModel(BaseFitModel):
 
 
 class PayloadFitModel(BaseFitModel):
-    """Concrete model for direct HTTP payload uploads.
-    
-    Accepts flexible source metadata with minimal validation.
+    """FIT model for direct HTTP payload uploads.
+
+    Contract:
+        - Performs no source-specific workout-name, workout-type, or timezone overrides.
+        - Relies on BaseFitModel semantics for all inferred metadata.
+        - Emits normalized source system identifier as "HTTP".
     """
     
     def _get_subclass_specific_workout_name(self) -> Optional[str]:

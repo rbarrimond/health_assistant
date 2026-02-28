@@ -76,7 +76,7 @@ class TestDeviceManufacturerCodeResolution:
         file_id_msg = Mock()
         file_id_msg.get_value.return_value = "garmin"
         
-        model.file_id_msg = file_id_msg
+        model._file_id_msg = file_id_msg
         model._source_metadata = {"ingestion_id": "test_id", "file_sha256": "hash"}
         
         # Call the actual method via the class
@@ -92,7 +92,7 @@ class TestDeviceManufacturerCodeResolution:
         file_id_msg = Mock()
         file_id_msg.get_value.return_value = None
         
-        model.file_id_msg = file_id_msg
+        model._file_id_msg = file_id_msg
         
         code, name = GarminFitModel._extract_code_and_name(None)
         assert code is None
