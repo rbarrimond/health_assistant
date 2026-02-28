@@ -8,6 +8,16 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-02-27
+
+### Manufacturer Code Extraction Robustness
+
+- Fix `_extract_code_and_name()` in `BaseFitModel` to handle string manufacturer values returned by fitdecode (previously only handled int/enum objects)
+- Add reverse lookup fallback to resolve string manufacturer names to numeric codes via `MANUFACTURER_NAME_TO_CODE` when code extraction fails
+- Improve diagnostic logging to surface manufacturer extraction failures with `ingestion_id` and `file_sha256` for troubleshooting `[ingest v13.0.31 (bug fix - no version bump)]`
+- Add comprehensive unit tests covering all input type combinations (None, int, string, enum objects) with full coverage of reverse lookup paths
+- Diagnoses root cause of Garmin API workouts failing with `manufacturer_code None not in allowlist` — enables investigation of why FIT files lack manufacturer data
+
 ## 2026-02-26
 
 ### Apple Watch Internal Identifier Mapping
