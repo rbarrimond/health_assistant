@@ -32,41 +32,24 @@ from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Literal, Optional, cast, overload
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fitdecode import (
-    DefaultDataProcessor,
-    FitDataMessage,
-    FitReader,
-    StandardUnitsDataProcessor,
-)
+from fitdecode import (DefaultDataProcessor, FitDataMessage, FitReader,
+                       StandardUnitsDataProcessor)
 from fitdecode.cmd.fitjson import RecordJSONEncoder
-from pydantic import BaseModel, computed_field, ConfigDict, PrivateAttr
+from pydantic import BaseModel, ConfigDict, PrivateAttr, computed_field
 
 from TrainingAnalyticsPlatform.models import CanonicalRecordSet
 from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 
+from .apple_workout_types import (APPLE_WORKOUT_TYPES, INDOOR_CYCLE,
+                                  INDOOR_WALK, OUTDOOR_CYCLE, OUTDOOR_WALK,
+                                  AppleWorkoutTypeResolver)
+from .code_mappings import (MANUFACTURER_CODES, MANUFACTURER_NAME_TO_CODE,
+                            get_apple_product_name, get_favero_product_name,
+                            get_garmin_product_name)
 from .constants import LAPS_SCHEMA_VERSION, METADATA_SCHEMA_VERSION
-from .apple_workout_types import (
-    APPLE_WORKOUT_TYPES,
-    AppleWorkoutTypeResolver,
-    INDOOR_CYCLE,
-    INDOOR_WALK,
-    OUTDOOR_CYCLE,
-    OUTDOOR_WALK,
-)
 from .fit_analyzer import FitStructureAnalyzer
-from .code_mappings import (
-    get_apple_product_name,
-    get_garmin_product_name,
-    get_favero_product_name,
-    MANUFACTURER_CODES,
-    MANUFACTURER_NAME_TO_CODE,
-)
-from .timezone_utils import (
-    format_utc_offset,
-    infer_timezone_from_activity,
-    infer_timezone_from_session,
-    resolve_timezone,
-)
+from .timezone_utils import (format_utc_offset, infer_timezone_from_activity,
+                             infer_timezone_from_session, resolve_timezone)
 
 logger = logging.getLogger(__name__)
 
