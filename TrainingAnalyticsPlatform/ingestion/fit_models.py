@@ -216,19 +216,6 @@ class BaseFitModel(BaseModel, ABC):
             return str(sub_sport).lower()
         return None
     
-    @computed_field  # type: ignore[misc]
-    @property
-    def activity_id(self) -> Optional[str]:
-        """Extract activity ID from source metadata or filename."""
-        # Check if filename is a pure number (Garmin activity ID pattern)
-        source_file_name = self._metadata_dict.get("source_file_name")
-        if source_file_name:
-            file_name = Path(source_file_name).stem
-            if file_name.isdigit():
-                return file_name
-        
-        return None
-    
     def _get_workout_message_name(self) -> Optional[str]:
         """Extract name field from Workout FIT message if available."""
         workout_messages = self._data_messages_by_type.get("workout", [])
