@@ -148,8 +148,9 @@ class FitIngestionBaseHandler(ABC):
                 "Unable to compute workout_id from precise start time + sport code"
             )
 
-        raw_fit_json_str = model.raw_frames(as_json=True)
-        raw_fit_payload = json.loads(raw_fit_json_str)
+        raw_fit_frames = model.raw_frames(as_json=True)
+        assert isinstance(raw_fit_frames, str), "raw_frames with as_json=True must return JSON string"
+        raw_fit_payload = json.loads(raw_fit_frames)
         metadata_payload = model.build_metadata_messages()
         laps_payload = model.build_laps_json()
         analysis_payload = model.build_fit_analysis()

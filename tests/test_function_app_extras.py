@@ -401,12 +401,31 @@ class TestIngestionHelpersAndFlow:
         mock_model.device_manufacturer_code = None
         mock_model.device_product_code = None
         mock_model.validate_semantic_contract.return_value = None
+        # Return structured metadata with semantic zones (schema 2.0.0)
         mock_model.build_canonical_metadata.return_value = {
-            "sport": "Cycling",
-            "duration_sec": 3600,
-            "start_time_utc": "2026-01-01T10:00:00+00:00",
-            "pwr_avg_watts": 220,
-            "hr_avg_bpm": 150,
+            "identity": {
+                "sport": "Cycling",
+                "start_time_utc": "2026-01-01T10:00:00+00:00",
+                "sub_sport": None,
+                "duration_sec": 3600,
+                "distance_m": 25000.0,
+                "device_name": "Apple Watch",
+                "device_source": "apple_watch",
+            },
+            "capabilities": {
+                "has_power": True,
+                "has_hr": True,
+                "has_gps": True,
+            },
+            "session": {
+                "avg_speed_mps": 6.94,
+                "pwr_avg_watts": 220,
+                "hr_avg_bpm": 150,
+            },
+            "file_metadata": {},
+            "activity_metadata": {},
+            "enrichment": {},
+            "llm_analysis": {},
         }
         mock_model.build_canonical_records.return_value = CanonicalRecordSet(messages=[], start_dt=None)
         mock_model.build_laps_json.return_value = {"laps": []}

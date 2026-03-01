@@ -85,9 +85,27 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
         "file_sha256": "hash",
         "ingestion_id": "hash",
     }
-    metadata = {
-        "sport": "Cycling",
-        "start_time_utc": "2026-01-01T00:00:00+00:00",
+    # Build structured metadata with semantic zones (schema 2.0.0)
+    structured_metadata = {
+        "identity": {
+            "sport": "Cycling",
+            "start_time_utc": "2026-01-01T00:00:00+00:00",
+            "sub_sport": None,
+            "duration_sec": 3600.0,
+            "distance_m": 10000.0,
+            "device_name": "Apple Watch Series 5 40mm (GPS)",
+            "device_source": "apple_watch",
+        },
+        "capabilities": {
+            "has_power": False,
+            "has_hr": True,
+            "has_gps": True,
+        },
+        "session": {},
+        "file_metadata": {},
+        "activity_metadata": {},
+        "enrichment": {},
+        "llm_analysis": {},
     }
     laps_payload = {"laps": [{"message_index": 0}]}
     expected_workout_id = "2026-01-01T00:00:00+00:00_Cycling_hash"
@@ -100,7 +118,7 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     mock_model.device_manufacturer_code = None
     mock_model.device_product_code = None
     mock_model.validate_semantic_contract.return_value = None
-    mock_model.build_canonical_metadata.return_value = metadata
+    mock_model.build_canonical_metadata.return_value = structured_metadata
     mock_model.build_canonical_records.return_value = empty_record_set
     mock_model.build_laps_json.return_value = laps_payload
     mock_model.build_metadata_messages.return_value = {"metadata_schema_version": "1.0"}
@@ -117,16 +135,24 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
             file_bytes=b"dummy_fit_bytes",
         )
 
+    # Verify flattened metadata has sport from identity zone
     assert metrics["sport"] == "Cycling"
+    assert metrics["start_time_utc"] == "2026-01-01T00:00:00+00:00"
+    assert metrics["has_power"] is False
+    assert metrics["has_hr"] is True
     # The returned workout_id should come from semantic identity computation.
     assert workout_id == expected_workout_id
     mock_model.validate_semantic_contract.assert_called_once_with()
     
-    # Verify store_workout was called with correct params
+    # Verify store_workout was called with structured metadata (zones)
     assert storage.workouts.store_workout.call_count == 1
     call_args = storage.workouts.store_workout.call_args
     assert call_args[0][0] == "rob"  # athlete_id
-    assert call_args[0][1] == metadata  # metadata
+    # First arg should be structured_metadata with provenance zone added
+    stored_metadata = call_args[0][1]
+    assert "identity" in stored_metadata
+    assert stored_metadata["identity"]["sport"] == "Cycling"
+    assert "provenance" in stored_metadata  # Added by handler
     assert call_args[0][2] == source_info  # source_info (updated with ingestion_id)
     assert call_args[1]["workout_id"] == expected_workout_id
     assert "ingestion_id" in call_args[1]  # Should have ingestion_id

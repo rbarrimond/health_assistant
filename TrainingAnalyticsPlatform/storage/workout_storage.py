@@ -72,6 +72,9 @@ class WorkoutStorage:
         if not identity:
             identity = metadata
         
+        # Flatten structured metadata for metrics field (semantic layer compatibility)
+        flat_metadata = self._flatten_structured_metadata(metadata)
+        
         # Build partition and row keys from identity zone
         start_time = identity.get("start_time_utc", metadata.get("start_time_utc", ""))
         if start_time:
@@ -114,8 +117,8 @@ class WorkoutStorage:
             # Provenance zone fields (queryable)
             ingestion_version=provenance.get("ingestion_version", ""),
             environment=provenance.get("environment"),
-            # Metrics dict for flexible enrichment
-            metrics=metadata,  # Store entire metadata as metrics for backward compatibility
+            # Metrics dict for flexible enrichment (flattened for semantic layer compatibility)
+            metrics=flat_metadata,  # Flattened zones for backward compatibility with semantic layer
         ).to_entity()
 
         # Store in table
@@ -127,6 +130,26 @@ class WorkoutStorage:
         except HttpResponseError as e:
             logger.error("Error storing workout %s: %s", workout_id, e)
             raise StorageError("Failed to store workout") from e
+
+    @staticmethod
+    def _flatten_structured_metadata(metadata: Dict) -> Dict:
+        """Flatten semantic zones back to flat dict for backward compatibility.
+        
+        Args:
+            metadata: Metadata with semantic zones (identity, capabilities, session, etc.) OR flat dict
+            
+        Returns:
+            Flattened dict with all fields at top level
+        """
+        # If already flat (no zones), return as-is
+        if "identity" not in metadata:
+            return metadata
+        
+        flat = {}
+        for zone_name, zone_data in metadata.items():
+            if isinstance(zone_data, dict):
+                flat.update(zone_data)
+        return flat
 
     def record_ingestion_state(
         self,

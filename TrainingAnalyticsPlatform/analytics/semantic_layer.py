@@ -467,13 +467,14 @@ class SemanticLayer:
         metrics = workout_entity.metrics
         metrics = self._apply_canonical_metrics(workout_entity, metrics)
 
-        sport = self._infer_sport(metrics)
+        # Prefer entity core fields over metrics (schema 2.0.0+ stores these as queryable properties)
+        sport = workout_entity.sport or self._infer_sport(metrics)
+        sub_sport = workout_entity.sub_sport or metrics.get("sub_sport") or sport
         is_indoor = self._infer_is_indoor(metrics)
         workout_name = self._infer_workout_name(metrics, sport)
-        sub_sport = metrics.get("sub_sport") or sport
         calories = self._infer_calories(metrics, sport)
 
-        # Core summary fields
+        # Core summary fields (prefer entity properties, fallback to metrics)
         local_tz_offset = metrics.get("local_tz_offset")
         timezone_value = metrics.get("timezone") or local_tz_offset
         workout = {
@@ -483,12 +484,12 @@ class SemanticLayer:
             "sub_sport": sub_sport,
             "workout_name": workout_name,
             "is_indoor": is_indoor,
-            "start_time_utc": metrics.get("start_time_utc"),
+            "start_time_utc": workout_entity.start_time_utc or metrics.get("start_time_utc"),
             "local_tz_offset": local_tz_offset,
             "timezone": timezone_value,
-            "duration_sec": metrics.get("duration_sec"),
+            "duration_sec": workout_entity.duration_sec or metrics.get("duration_sec"),
             "moving_time_sec": metrics.get("moving_time_sec"),
-            "distance_m": metrics.get("distance_m"),
+            "distance_m": workout_entity.distance_m or metrics.get("distance_m"),
             "elevation_gain_m": metrics.get("elevation_gain_m"),
             "calories_kcal": calories,
         }

@@ -1388,11 +1388,15 @@ class BaseFitModel(BaseModel, ABC):
             "device_source": self._get_device_source(),
         }
         
+        # Build canonical records once for capability detection (expensive operation)
+        # NOTE: This is built early to avoid triple computation in capability flags
+        record_set = self.build_canonical_records()
+        
         # Build zone 2: Capabilities (computed from records)
         capabilities = {
-            "has_power": self._has_capability("power"),
-            "has_hr": self._has_capability("hr"),
-            "has_gps": self._has_capability("gps"),
+            "has_power": self._has_capability_in_records(record_set, "power"),
+            "has_hr": self._has_capability_in_records(record_set, "hr"),
+            "has_gps": self._has_capability_in_records(record_set, "gps"),
         }
         
         # Build zone 3: Session (aggregates)
@@ -1444,16 +1448,20 @@ class BaseFitModel(BaseModel, ABC):
             # Zone 8 (provenance) is added by ingestion handler with ingestion context
         }
     
-    def _has_capability(self, capability: str) -> bool:
+    def _has_capability_in_records(
+        self, 
+        record_set: Optional["CanonicalRecordSet"], 
+        capability: str
+    ) -> bool:
         """Check if canonical records contain a specific capability.
         
         Args:
+            record_set: Pre-built canonical records (avoid redundant parsing)
             capability: One of 'power', 'hr', 'gps'
             
         Returns:
             True if any record has this capability
         """
-        record_set = self.build_canonical_records()
         if not record_set or not record_set.records:
             return False
         
