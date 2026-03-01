@@ -8,6 +8,32 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-01
+
+### Storage Architecture Cleanup [code cleanup - no version bump]
+
+- Remove orphaned `WorkoutTableStorage` class (~1200 lines dead code) from `table_storage.py` following v2.0.0 storage refactor to `StorageCoordinator` architecture
+- Update `IngestionContext.storage` type annotation from forward reference `"WorkoutTableStorage"` to `Any` (accepts any storage object with `get_ingestion_state` method)
+- Migrate `backfill_ingestion_state.py` utility script from deprecated `WorkoutTableStorage` to new `StorageCoordinator` API
+- Remove misleading test assertions passing removed schema fields (`source_system`, `normalized_source_system`, `source_item_id`) in `test_table_storage_workouts.py`
+- Add `TestWorkoutEntitySchemaValidation` class with 4 validation tests enforcing `extra="forbid"` schema constraint on removed fields
+- Fix test fixture: add missing `ingestion_id` field to `test_get_workout_detail_found` mock entity (resolves Pydantic `min_length=1` validation error)
+- Update documentation across 5 files:
+  - `INGESTION_SCHEMA.md`: Clarify provenance field storage split (Workouts vs IngestionState)
+  - `WORKOUT_SCHEMA.md`: Remove inaccurate `source_system` from public API schema
+  - `BACKENDS.md`: Update code examples from `WorkoutTableStorage()` to `StorageCoordinator()`
+- Tests: 470 passing (was 465 + 4 new validation tests + 1 fixed), 3 pre-existing failures unrelated to cleanup (fit_models.py recursion bugs)
+- No ingestion logic, parsing, or stored schema changes — pure dead code elimination and documentation accuracy improvements
+
+### Schema Cleanup - Phase 3: Activity Metadata Tightening [ingest v13.0.32]
+
+- **BREAKING:** Remove redundant timestamp fields from `activity_metadata` zone: `activity_timestamp_utc` and `activity_local_time`
+- Keep only `local_tz_offset` in activity metadata (computed centrally via `FitFile.local_tz_offset` property)
+- Rationale: Timestamp fields duplicated session-level `start_time_utc`; timezone offset computed once at FitFile level
+- Update `_build_canonical_activity_metadata()` to extract timezone offset ONLY
+- Update CANONICAL_METADATA_SCHEMA.md with new activity_metadata structure
+- Tests: 465+ passing (device extraction validated, activity metadata cleanup complete)
+
 ## 2026-02-28
 
 ### Timezone Selection - Major City Priority
@@ -30,8 +56,6 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Add Zwift workout detection: indoor workouts at UTC+00:00 now resolve to athlete's physical timezone instead of cloud service offset
 - Update `BaseFitModel.timezone` with 4-step priority chain: (1) device explicit IANA metadata, (2) Zwift override, (3) offset→IANA conversion with athlete hint, (4) offset string fallback
 - Timezone field now exports America/New_York instead of UTC-05:00 for workout metadata `[CANONICAL_SCHEMA_VERSION 1.5.0]`
-
-## 2026-02-27
 
 ### Manufacturer Code Extraction Robustness
 

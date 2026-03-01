@@ -29,7 +29,6 @@ Returned by `GET /api/workouts` and embedded in planning contexts.
 |apple_workout_type|string|⛔️|Apple Watch workout type if detected|
 |workout_name|string|⛔️|User-facing workout name|
 |is_indoor|bool|⛔️|Indoor flag if derivable|
-|source_system|string|⛔️|Source system name (e.g., `HealthFit`)|
 
 ### Temporal fields
 

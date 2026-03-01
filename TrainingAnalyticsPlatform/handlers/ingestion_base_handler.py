@@ -135,12 +135,8 @@ class FitIngestionBaseHandler(ABC):
             "environment": source_info.get("environment", "production"),
         }
         
-        # Flatten metadata for backward compatibility with _normalize_source_system
+        # Flatten metadata for backward compatibility
         flat_metadata = self._flatten_structured_metadata(structured_metadata)
-        
-        source_info["normalized_source_system"] = self._normalize_source_system(
-            source_info, flat_metadata
-        )
 
         workout_id = model.semantic_workout_id
         if not workout_id:
@@ -202,23 +198,6 @@ class FitIngestionBaseHandler(ABC):
             if isinstance(zone_data, dict):
                 flat.update(zone_data)
         return flat
-
-    @staticmethod
-    def _normalize_source_system(
-        source_info: Dict[str, Any],
-        metadata: Dict[str, Any],
-    ) -> str:
-        """Normalize source classification for downstream processing.
-
-        Rule: Apple Watch generated FITs normalize to ONEDRIVE_SOURCE_SYSTEM, all others to Garmin.
-        """
-        manufacturer = str(metadata.get("file_manufacturer") or "").lower()
-        device_name = str(metadata.get("device_name") or "").lower()
-        if "apple" in manufacturer or "apple" in device_name or "watch" in device_name:
-            return Config.ONEDRIVE_SOURCE_SYSTEM
-        if source_info.get("source_system"):
-            return "Garmin"
-        return "Garmin"
 
     def _record_failure(
         self,

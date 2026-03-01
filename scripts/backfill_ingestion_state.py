@@ -7,7 +7,8 @@ from typing import Dict, Optional
 
 from azure.core.exceptions import HttpResponseError
 
-from TrainingAnalyticsPlatform.storage.table_storage import INGEST_VERSION, WorkoutTableStorage
+from TrainingAnalyticsPlatform.ingestion.constants import INGEST_VERSION
+from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
 
 UTC_SUFFIX = "+00:00"
 
@@ -73,9 +74,9 @@ def _merge_ingestion_state(
 
 def backfill_ingestion_state(apply: bool) -> None:
     """Backfill IngestionState from Workouts table."""
-    storage = WorkoutTableStorage()
-    workouts_table = storage.infrastructure.get_table_client("Workouts")  # pylint: disable=protected-access
-    ingestion_table = storage.infrastructure.get_table_client("IngestionState")  # pylint: disable=protected-access
+    storage = StorageCoordinator()
+    workouts_table = storage.infrastructure.get_table_client("Workouts")
+    ingestion_table = storage.infrastructure.get_table_client("IngestionState")
 
     updated = 0
     skipped = 0

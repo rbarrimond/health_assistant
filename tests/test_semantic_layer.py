@@ -219,6 +219,7 @@ class TestWorkoutQueries:
             "RowKey": "workout-001",
             "workout_id": "workout-001",
             "athlete_id": "rob",
+            "ingestion_id": "ingest-001",
             "source_system": "onedrive",
             "sport": "Cycling",
             "duration_sec": 3600,
@@ -270,8 +271,7 @@ class TestWorkoutQueries:
             "RowKey": "20260220|abc",
             "workout_id": "workout-001",
             "athlete_id": "rob",
-            "source_system": "Garmin",
-            "normalized_source_system": "Garmin",
+            "ingestion_id": "ing-001",
             "sport": "Cycling",
             "duration_sec": 3600,
         }
@@ -489,8 +489,11 @@ class TestHelperMethods:
     def test_entity_to_workout_dict_basic(self, semantic_layer):
         """Test entity conversion to workout dict."""
         entity = {
+            "PartitionKey": "rob|2026-02",
+            "RowKey": "20260214|abc",
             "workout_id": "workout-001",
             "athlete_id": "rob",
+            "ingestion_id": "ing-001",
             "sport": "Cycling",
             "duration_sec": 3600,
             "hr_avg_bpm": 145,
@@ -510,8 +513,11 @@ class TestHelperMethods:
     def test_entity_to_workout_dict_timezone_falls_back_to_local_offset(self, semantic_layer):
         """Test timezone field falls back to local_tz_offset when timezone is absent."""
         entity = {
+            "PartitionKey": "rob|2026-02",
+            "RowKey": "20260214|abc",
             "workout_id": "workout-002",
             "athlete_id": "rob",
+            "ingestion_id": "ing-002",
             "sport": "Running",
             "duration_sec": 1800,
             "local_tz_offset": "UTC+01:00",
@@ -525,8 +531,11 @@ class TestHelperMethods:
     def test_entity_to_workout_dict_with_records(self, semantic_layer):
         """Test entity conversion ignores time series when not stored."""
         entity = {
+            "PartitionKey": "rob|2026-02",
+            "RowKey": "20260214|abc",
             "workout_id": "workout-001",
             "athlete_id": "rob",
+            "ingestion_id": "ing-001",
             "records_json": json.dumps([{"heart_rate": 145}]),
         }
 

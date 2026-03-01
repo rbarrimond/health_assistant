@@ -65,10 +65,8 @@ This document specifies the structure of **metadata.json** blobs stored in Azure
     "file_serial_number": "string (device serial number from FIT file)"
   },
   "activity_metadata": {
-    "activity_timestamp_utc": "ISO8601 timestamp from FIT activity message",
-    "activity_local_time": "ISO8601 timestamp with local timezone",
-    "local_tz_offset": "string (e.g., 'UTC-05:00')",
-    "timezone": "string (e.g., 'America/New_York')"
+    "local_tz_offset": "string (e.g., 'UTC-05:00', 'America/New_York'), computed from device, activity, and session messages",
+    "Note": "Redundant timestamp fields (activity_timestamp_utc, activity_local_time) removed in v2.0.0—use session.start_time_utc instead"
   },
   "enrichment": {
     "apple_workout_type": "string (e.g., 'Indoor Cycle'), from Apple Watch workout classification",
@@ -299,10 +297,7 @@ Mutable — may be updated by enrichment pipeline.
     "file_serial_number": "27753"
   },
   "activity_metadata": {
-    "activity_timestamp_utc": "2025-12-04T02:45:22+00:00",
-    "activity_local_time": "2025-12-03T21:45:22-05:00",
-    "local_tz_offset": "UTC-05:00",
-    "timezone": "America/New_York"
+    "local_tz_offset": "America/New_York"
   },
   "enrichment": {
     "apple_workout_type": "Indoor Cycle",

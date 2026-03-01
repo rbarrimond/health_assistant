@@ -460,16 +460,23 @@ from the semantic API.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| source_system | string | No | Source system name (e.g., `HealthFit`, `Local`). |
+| source_system | string | No | Source system name (e.g., `HealthFit`, `Garmin`, `HTTP`). Persisted to IngestionState only (not Workouts). |
 | source_file_path | string | No | Full source path, if known. |
-| source_item_id | string | No | Stable source item ID (e.g., OneDrive item ID). |
-| source_drive_id | string | No | Drive ID (OneDrive). |
+| source_item_id | string | No | Stable source item ID (e.g., OneDrive item ID). Persisted to IngestionState only. |
+| source_drive_id | string | No | Drive ID (OneDrive). Persisted to IngestionState only. |
 | source_etag | string | No | OneDrive eTag (version token). |
 | source_ctag | string | No | OneDrive cTag (content version token). |
 | source_quickxor_hash | string | No | OneDrive quickXor hash for content. |
 | source_modified_at_utc | string | No | Source last-modified timestamp (ISO 8601 UTC). |
 | file_size_bytes | int | No | Size of FIT file in bytes. |
 | file_sha256 | string | No | SHA-256 hash of file content. |
+
+### Storage Notes (v2.0.0)
+
+Ingestion payload fields can contain full provenance metadata, but NOT all fields are persisted to Workouts:
+
+- **Workouts table (queryable)**: Only `ingestion_id`, `canonical_schema_version`, `canonical_records_blob`, `records_count`, `laps_count`
+- **IngestionState table (audit trail)**: Full provenance including `source_system`, `source_item_id`, `source_drive_id`, `source_etag`, `source_ctag`, `source_quickxor_hash`, `source_modified_at_utc`, `file_sha256`
 
 ### Notes
 
@@ -544,18 +551,17 @@ It is intentionally separate from Workouts to keep workout entities small and st
 
 Workouts should only store minimal provenance and canonical parquet pointers.
 
-### Allowed provenance fields in Workouts
+### Allowed provenance fields in Workouts  
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| source_system | string | Yes | Source system name (e.g., `HealthFit`). |
-| normalized_source_system | string | No | Normalized source classification (`HealthFit` for Apple Watch FITs, `Garmin` for Garmin API sync, `HTTP` for direct payload uploads). |
-| source_item_id | string | No | Stable source item ID (OneDrive item ID). |
-| ingestion_id | string | No | Deterministic source-scoped ingestion identifier. |
-| canonical_schema_version | string | Yes | Canonical telemetry schema version. |
-| canonical_records_blob | string | Yes | Blob path to canonical records parquet. |
-| records_count | int | No | Count of canonical records. |
-| laps_count | int | No | Count of laps in laps.json. |
+| ingestion_id | string | Yes | Link to IngestionState table for full provenance audit trail. |
+| canonical_schema_version | string | Optional | Canonical artifact schema version (e.g., `2.0.0`). |
+| canonical_records_blob | string | Optional | Blob name to canonical.parquet file. |
+| records_count | int | Optional | Count of records in canonical.parquet. |
+| laps_count | int | Optional | Count of laps in laps.json blob. |
+
+**NOTE (v2.0.0 Refactor):** Fields `source_system`, `normalized_source_system`, and `source_item_id` are **NO LONGER** persisted as top-level columns in the Workouts table. They are now stored only in the **IngestionState** table for audit purposes. Ingestion provides complete provenance tracking via the `ingestion_id` foreign key relationship.
 
 All other provenance fields belong in **IngestionState**.
 

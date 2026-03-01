@@ -534,12 +534,6 @@ class SemanticLayer:
                 "ef_overall",
             }))
 
-        # Source metadata
-        workout.update({
-            "source_system": workout_entity.source_system,
-            "normalized_source_system": workout_entity.normalized_source_system,
-        })
-
         return workout
 
     def _apply_canonical_metrics(

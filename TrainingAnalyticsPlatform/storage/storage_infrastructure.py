@@ -5,11 +5,12 @@ import io
 import json
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import pandas as pd
+from pydantic import BaseModel, ConfigDict, Field
 from azure.data.tables import TableClient, TableServiceClient
 from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
@@ -24,51 +25,45 @@ WORKOUTS_CONTAINER = "workouts"
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class WorkoutEntity:
-    """Structured Workouts table entity with queryable semantic identity, capability, and versioning fields."""
-
-    # Core keys (always present)
-    partition_key: str
-    row_key: str
-    workout_id: str
-    athlete_id: str
-    source_system: str
-    normalized_source_system: Optional[str]
-    source_item_id: Optional[str]
+class WorkoutEntity(BaseModel):
+    """Structured Workouts table entity (queryable subset).
     
-    # Versioning and canonical structure
-    ingestion_id: Optional[str] = None
+    Schema: 2.0.0 - Pydantic validation with semantic constraints
+    
+    Properties are the queryable subset needed for identity, filtering, and sorting.
+    All other enrichment and derived metrics live in the metadata.json blob (source of truth).
+    Ingestion state and provenance tracking belong in IngestionState table.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    partition_key: str = Field(..., min_length=1)
+    row_key: str = Field(..., min_length=1)
+    workout_id: str = Field(..., min_length=1)
+    athlete_id: str = Field(..., min_length=1)
+    ingestion_id: str = Field(..., min_length=1, description="Link to IngestionState table")
     canonical_schema_version: Optional[str] = None
     canonical_records_blob: Optional[str] = None
-    records_count: Optional[int] = None
-    laps_count: Optional[int] = None
-    
-    # Semantic identity fields (from metadata.json identity zone) - queryable
-    start_time_utc: str = ""
-    sport: str = ""
+    records_count: Optional[int] = Field(None, ge=0)
+    laps_count: Optional[int] = Field(None, ge=0)
+    # Identity fields (queryable from metadata.identity zone)
+    start_time_utc: Optional[str] = Field(None, description="ISO 8601 UTC timestamp")
+    sport: Optional[str] = None
     sub_sport: Optional[str] = None
-    duration_sec: int = 0
-    distance_m: Optional[float] = None
-    
-    # Device classification - queryable
-    device_name: str = ""
-    device_source: Optional[str] = None
-    
-    # Capability flags (from metadata.json capabilities zone) - queryable
+    duration_sec: Optional[float] = Field(None, gt=0, description="Total elapsed time (session.total_elapsed_time)")
+    distance_m: Optional[float] = Field(None, ge=0)
+    # Device identity (extracted cleanly from FIT file_id)
+    device_manufacturer: Optional[str] = Field(None, description="e.g., Apple, Garmin, Wahoo")
+    device_model: Optional[str] = Field(None, description="Full device name/model")
+    # Capabilities (computed during ingestion from record messages)
     has_power: bool = False
     has_hr: bool = False
     has_gps: bool = False
-    
-    # Ingestion context - queryable
-    ingestion_version: str = ""
-    environment: Optional[str] = None
-    
-    # Flexible metrics and enrichment (from metadata.json)
-    metrics: Dict = field(default_factory=dict)
+    # Flexible enrichment (flattened from metadata zones for backward compatibility)
+    metrics: Dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
-    def from_table_entity(cls, entity: Dict) -> "WorkoutEntity":
+    def from_table_entity(cls, entity: Dict[str, Any]) -> "WorkoutEntity":
         """Create a WorkoutEntity from a raw Azure Table entity."""
         core_keys = {
             "PartitionKey",
@@ -76,9 +71,6 @@ class WorkoutEntity:
             "workout_id",
             "ingestion_id",
             "athlete_id",
-            "source_system",
-            "normalized_source_system",
-            "source_item_id",
             "canonical_schema_version",
             "canonical_records_blob",
             "records_count",
@@ -88,13 +80,11 @@ class WorkoutEntity:
             "sub_sport",
             "duration_sec",
             "distance_m",
-            "device_name",
-            "device_source",
+            "device_manufacturer",
+            "device_model",
             "has_power",
             "has_hr",
             "has_gps",
-            "ingestion_version",
-            "environment",
         }
         system_keys = {
             "Timestamp",
@@ -111,65 +101,54 @@ class WorkoutEntity:
             partition_key=entity.get("PartitionKey", ""),
             row_key=entity.get("RowKey", ""),
             workout_id=entity.get("workout_id", ""),
-            ingestion_id=entity.get("ingestion_id"),
+            ingestion_id=entity.get("ingestion_id", ""),
             athlete_id=entity.get("athlete_id", ""),
-            source_system=entity.get("source_system", ""),
-            normalized_source_system=entity.get("normalized_source_system"),
-            source_item_id=entity.get("source_item_id"),
             canonical_schema_version=entity.get("canonical_schema_version"),
             canonical_records_blob=entity.get("canonical_records_blob"),
             records_count=entity.get("records_count"),
             laps_count=entity.get("laps_count"),
-            start_time_utc=entity.get("start_time_utc", ""),
-            sport=entity.get("sport", ""),
+            start_time_utc=entity.get("start_time_utc"),
+            sport=entity.get("sport"),
             sub_sport=entity.get("sub_sport"),
-            duration_sec=entity.get("duration_sec", 0),
+            duration_sec=entity.get("duration_sec"),
             distance_m=entity.get("distance_m"),
-            device_name=entity.get("device_name", ""),
-            device_source=entity.get("device_source"),
+            device_manufacturer=entity.get("device_manufacturer"),
+            device_model=entity.get("device_model"),
             has_power=entity.get("has_power", False),
             has_hr=entity.get("has_hr", False),
             has_gps=entity.get("has_gps", False),
-            ingestion_version=entity.get("ingestion_version", ""),
-            environment=entity.get("environment"),
             metrics=metrics,
         )
 
-    def to_entity(self) -> Dict:
-        """Convert to dictionary representation for Azure Table Storage."""
+    def to_entity(self) -> Dict[str, Any]:
+        """Convert WorkoutEntity to dictionary for Azure Table Storage.
+
+        Returns:
+            Dict formatted for table upsert operation
+        """
         entity = {
             "PartitionKey": self.partition_key,
             "RowKey": self.row_key,
             "workout_id": self.workout_id,
             "ingestion_id": self.ingestion_id,
             "athlete_id": self.athlete_id,
-            "source_system": self.source_system,
-            "normalized_source_system": self.normalized_source_system,
-            "source_item_id": self.source_item_id,
             "canonical_schema_version": self.canonical_schema_version,
             "canonical_records_blob": self.canonical_records_blob,
             "records_count": self.records_count,
             "laps_count": self.laps_count,
             "start_time_utc": self.start_time_utc,
             "sport": self.sport,
+            "sub_sport": self.sub_sport,
             "duration_sec": self.duration_sec,
-            "device_name": self.device_name,
+            "distance_m": self.distance_m,
+            "device_manufacturer": self.device_manufacturer,
+            "device_model": self.device_model,
             "has_power": self.has_power,
             "has_hr": self.has_hr,
             "has_gps": self.has_gps,
-            "ingestion_version": self.ingestion_version,
         }
 
-        # Add optional fields only if they have values
-        if self.sub_sport is not None:
-            entity["sub_sport"] = self.sub_sport
-        if self.distance_m is not None:
-            entity["distance_m"] = self.distance_m
-        if self.device_source is not None:
-            entity["device_source"] = self.device_source
-        if self.environment is not None:
-            entity["environment"] = self.environment
-
+        # Add enrichment metrics
         for key, value in self.metrics.items():
             if value is not None:
                 entity[key] = value

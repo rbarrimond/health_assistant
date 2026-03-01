@@ -1051,28 +1051,43 @@ class BaseFitModel(BaseModel, ABC):
         Returns:
             Device name string, or None when identity fields are unavailable.
         """
-        if self._file_id_msg is None:
+        manufacturer, model = self._get_device_info()
+        
+        if not manufacturer and not model:
             return None
         
-        manufacturer = self._file_id_msg.get_value("manufacturer", fallback=None)
-        product = self._file_id_msg.get_value("product", fallback=None)
+        parts = []
+        if manufacturer:
+            parts.append(manufacturer)
+        if model:
+            parts.append(model)
         
-        parts: List[str] = []
+        return " ".join(parts) if parts else None
+
+    def _get_device_info(self) -> tuple[Optional[str], Optional[str]]:
+        """Extract clean device manufacturer and model from FIT file_id.
         
-        mfr_name = self._validate_and_get_manufacturer_name(manufacturer)
-        if mfr_name:
-            parts.append(mfr_name)
+        Returns:
+            Tuple of (manufacturer, model_name) with human-readable names
+            e.g., ("Apple", "Apple Watch Ultra 2") or ("Garmin", "Edge 1030")
+            Returns (None, None) if device info is unavailable.
+        """
+        if self._file_id_msg is None:
+            return (None, None)
         
-        prod_name = self._validate_and_get_product_name(product, manufacturer)
-        if prod_name:
-            parts.append(prod_name)
+        manufacturer_code = self._file_id_msg.get_value("manufacturer", fallback=None)
+        product_code = self._file_id_msg.get_value("product", fallback=None)
         
-        self._validate_device_info_collisions(manufacturer, product)
+        # Get manufacturer name
+        manufacturer_name = self._validate_and_get_manufacturer_name(manufacturer_code)
         
-        if parts:
-            return " ".join(parts)
-        return None
-    
+        # Get product name (model)
+        product_name = self._validate_and_get_product_name(product_code, manufacturer_code)
+        
+        self._validate_device_info_collisions(manufacturer_code, product_code)
+        
+        return (manufacturer_name, product_name)
+
     @computed_field  # type: ignore[misc]
     @cached_property
     def has_gps_data(self) -> bool:
@@ -1369,7 +1384,7 @@ class BaseFitModel(BaseModel, ABC):
         2. capabilities: computed capability flags (has_power, has_hr, has_gps)
         3. session: session-level aggregates (speed, calories, elevation, moving time)
         4. file_metadata: file-level metadata (manufacturer, product, serial, created time)
-        5. activity_metadata: activity-level metadata (timestamps, local time, timezone)
+        5. activity_metadata: activity-level timezone information only (local_tz_offset)
         6. enrichment: mutable enrichment fields (apple_workout_type, workout_name, flags)
         7. llm_analysis: reserved for LLM-generated analysis (not yet implemented)
         8. provenance: POPULATED BY HANDLER (ingestion_version, ingestion_id, etc.)
@@ -1377,6 +1392,9 @@ class BaseFitModel(BaseModel, ABC):
         Note: Provenance zone (8) is not populated here—it's added by the ingestion handler
         with context (ingestion version, ingestion ID, environment).
         """
+        # Extract device info (manufacturer, model) from FIT file_id message
+        device_manufacturer, device_model = self._get_device_info()
+        
         # Build zone 1: Identity (immutable, queryable)
         identity = {
             "start_time_utc": self.start_time_utc,
@@ -1384,8 +1402,8 @@ class BaseFitModel(BaseModel, ABC):
             "sub_sport": self.sub_sport,
             "duration_sec": self.duration_sec,
             "distance_m": self.distance_m,
-            "device_name": self.device_name,
-            "device_source": self._get_device_source(),
+            "device_manufacturer": device_manufacturer,
+            "device_model": device_model,
         }
         
         # Build canonical records once for capability detection (expensive operation)
@@ -1462,43 +1480,28 @@ class BaseFitModel(BaseModel, ABC):
         Returns:
             True if any record has this capability
         """
-        if not record_set or not record_set.records:
+        if not record_set or not record_set._messages:  # pylint: disable=protected-access
             return False
         
+        # Check FIT messages directly for presence of capability fields
         if capability == "power":
-            return any(r.power_watts is not None for r in record_set.records)
+            return any(
+                msg.get_value("power", fallback=None) is not None 
+                for msg in record_set._messages  # pylint: disable=protected-access
+            )
         elif capability == "hr":
-            return any(r.hr_bpm is not None for r in record_set.records)
+            return any(
+                msg.get_value("heart_rate", fallback=None) is not None 
+                for msg in record_set._messages  # pylint: disable=protected-access
+            )
         elif capability == "gps":
-            return any(r.lat is not None or r.lon is not None for r in record_set.records)
+            return any(
+                msg.get_value("position_lat", fallback=None) is not None 
+                or msg.get_value("position_long", fallback=None) is not None
+                for msg in record_set._messages  # pylint: disable=protected-access
+            )
         
         return False
-    
-    def _get_device_source(self) -> Optional[str]:
-        """Classify device source from device name and manufacturer.
-        
-        Returns:
-            One of: 'apple_watch', 'garmin_device', 'wahoo', 'other_ble', or None
-        """
-        device_name_lower = str(self.device_name or "").lower()
-        
-        # Apple Watch
-        if "apple" in device_name_lower or "watch" in device_name_lower:
-            return "apple_watch"
-        
-        # Garmin
-        if any(x in device_name_lower for x in ["garmin", "edge", "fenix", "epix", "fr"]):
-            return "garmin_device"
-        
-        # Wahoo
-        if "wahoo" in device_name_lower or "elemnt" in device_name_lower:
-            return "wahoo"
-        
-        # Other BLE devices
-        if device_name_lower:
-            return "other_ble"
-        
-        return None
     
     def _build_canonical_session_metadata(self) -> Dict[str, Any]:
         """Build session-level metadata dictionary."""
@@ -1554,21 +1557,21 @@ class BaseFitModel(BaseModel, ABC):
         return metadata
     
     def _build_canonical_activity_metadata(self) -> Dict[str, Any]:
-        """Extract activity-level metadata from activity message."""
+        """Extract activity-level metadata: timezone information only.
+        
+        Note: Timestamp fields (activity_timestamp_utc, activity_local_time) are 
+        removed as they duplicate session-level start_time_utc. Timezone is computed 
+        once at FitFile level via local_tz_offset property.
+        
+        Returns:
+            Dict with optional local_tz_offset if available
+        """
         metadata: Dict[str, Any] = {}
-        activity_msg = (self._data_messages_by_type.get("activity") or [None])[0]
-        if not activity_msg:
-            return metadata
         
-        activity_timestamp = activity_msg.get_value("timestamp", fallback=None)
-        if isinstance(activity_timestamp, datetime):
-            metadata["activity_timestamp_utc"] = self._format_utc_timestamp(
-                activity_timestamp
-            )
-        
-        activity_local = activity_msg.get_value("local_timestamp", fallback=None)
-        if isinstance(activity_local, datetime):
-            metadata["activity_local_time"] = activity_local.isoformat()
+        # Extract timezone offset (computed across device, activity, session messages)
+        tz_offset = self.local_tz_offset
+        if tz_offset:
+            metadata["local_tz_offset"] = tz_offset
         
         return metadata
     

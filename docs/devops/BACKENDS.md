@@ -373,8 +373,10 @@ Measurements are stored in the `Physiometrics` table with the following schema:
 **Token Retrieval:**
 
 ```python
-storage = WorkoutTableStorage()
-tokens = storage.get_withings_tokens(athlete_id="rob")
+from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
+
+storage = StorageCoordinator()
+tokens = storage.oauth_tokens.get_withings_tokens(athlete_id="rob")
 # Returns: {access_token, refresh_token, expires_at_utc, withings_userid}
 ```
 
@@ -626,8 +628,10 @@ Runs a sync of recent activities. Accepts JSON body:
 **Token Retrieval:**
 
 ```python
-storage = WorkoutTableStorage()
-tokens = storage.get_garmin_tokens(athlete_id="rob")
+from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
+
+storage = StorageCoordinator()
+tokens = storage.oauth_tokens.get_garmin_tokens(athlete_id="rob")
 # Returns: {oauth1_token, oauth2_token, updated_at_utc}
 ```
 
@@ -637,15 +641,15 @@ tokens = storage.get_garmin_tokens(athlete_id="rob")
 2. **Deduplicate:** Check `IngestionState` table to avoid reprocessing
 3. **Download FIT Files:** Get original FIT file for each new activity
 4. **Parse & Store:** Use standard FIT parser → canonical schema → Workouts table
-5. **Track State:** Record ingestion status in `IngestionState` with `source_system=Garmin`
+5. **Track State:** Record ingestion status in `IngestionState` with source metadata
 
 ### Deduplication Strategy
 
 Activities are identified by:
 
-- `source_item_id`: Garmin activity ID
-- `source_system`: "Garmin"
-- `file_sha256`: Hash of FIT file content
+- `source_item_id`: Garmin activity ID (stored in IngestionState for idempotency)
+- `source_system`: "Garmin" (stored in IngestionState table only, not queryable in Workouts)
+- `file_sha256`: Hash of FIT file content (stored in IngestionState for dedup verification)
 
 The ingestion handler checks `IngestionState` before processing each activity:
 

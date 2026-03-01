@@ -88,16 +88,13 @@ class WorkoutStorage:
             partition_key = f"{athlete_id}|unknown"
             row_key = workout_id[:20]
 
-        # Extract queryable fields from all zones
+        # Extract queryable fields from semantic zones
         entity = WorkoutEntity(
             partition_key=partition_key,
             row_key=row_key,
             workout_id=workout_id,
             ingestion_id=ingestion_id,
             athlete_id=athlete_id,
-            source_system=source_info.get("source_system", "HealthFit"),
-            normalized_source_system=source_info.get("normalized_source_system"),
-            source_item_id=source_info.get("source_item_id"),
             canonical_schema_version=canonical_schema_version,
             canonical_records_blob=canonical_records_blob,
             records_count=records_count,
@@ -108,15 +105,12 @@ class WorkoutStorage:
             sub_sport=identity.get("sub_sport"),
             duration_sec=identity.get("duration_sec"),
             distance_m=identity.get("distance_m"),
-            device_name=identity.get("device_name"),
-            device_source=identity.get("device_source"),
+            device_manufacturer=identity.get("device_manufacturer"),
+            device_model=identity.get("device_model"),
             # Capabilities zone fields (queryable)
             has_power=capabilities.get("has_power", False),
             has_hr=capabilities.get("has_hr", False),
             has_gps=capabilities.get("has_gps", False),
-            # Provenance zone fields (queryable)
-            ingestion_version=provenance.get("ingestion_version", ""),
-            environment=provenance.get("environment"),
             # Metrics dict for flexible enrichment (flattened for semantic layer compatibility)
             metrics=flat_metadata,  # Flattened zones for backward compatibility with semantic layer
         ).to_entity()
