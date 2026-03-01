@@ -323,3 +323,61 @@ class TestConfigHistory:
 
         assert len(history) == 2
         mock_storage.list_physiometrics_history.assert_called_once()
+
+
+class TestConfigAthleteTimezone:
+    """Tests for get_athlete_timezone() method."""
+
+    def test_athlete_timezone_from_env_var(self) -> None:
+        """Verify get_athlete_timezone loads from ATHLETE_TIMEZONE env var."""
+        # Patch the class variable directly
+        original_value = Config.ATHLETE_TIMEZONE
+        try:
+            Config.ATHLETE_TIMEZONE = "America/New_York"
+            Config._physiometrics_cache = None
+            tz = Config.get_athlete_timezone()
+            assert tz == "America/New_York"
+        finally:
+            Config.ATHLETE_TIMEZONE = original_value
+
+    def test_athlete_timezone_from_physiometrics_file(self, tmp_path: Path) -> None:
+        """Verify get_athlete_timezone loads from physiometrics.json."""
+        config_data = {
+            "athlete_timezone": "America/Chicago",
+            "heart_rate": {"basis": "HRmax", "hr_max_bpm": 190}
+        }
+        config_file = tmp_path / "physiometrics.json"
+        config_file.write_text(json.dumps(config_data))
+
+        original_value = Config.ATHLETE_TIMEZONE
+        try:
+            Config.ATHLETE_TIMEZONE = None  # Ensure env var not set
+            Config._physiometrics_cache = None
+            with patch.object(Config, "physiometrics_file", return_value=config_file):
+                tz = Config.get_athlete_timezone()
+                assert tz == "America/Chicago"
+        finally:
+            Config.ATHLETE_TIMEZONE = original_value
+
+    def test_athlete_timezone_invalid_zone_returns_none(self) -> None:
+        """Verify invalid IANA timezone returns None with warning."""
+        original_value = Config.ATHLETE_TIMEZONE
+        try:
+            Config.ATHLETE_TIMEZONE = "Invalid/Timezone"
+            Config._physiometrics_cache = None
+            tz = Config.get_athlete_timezone()
+            assert tz is None
+        finally:
+            Config.ATHLETE_TIMEZONE = original_value
+
+    def test_athlete_timezone_not_configured_returns_none(self) -> None:
+        """Verify None returned when get_athlete_timezone not configured."""
+        original_value = Config.ATHLETE_TIMEZONE
+        try:
+            Config.ATHLETE_TIMEZONE = None
+            Config._physiometrics_cache = None
+            with patch.object(Config, "load_physiometrics", return_value={}):
+                tz = Config.get_athlete_timezone()
+                assert tz is None
+        finally:
+            Config.ATHLETE_TIMEZONE = original_value

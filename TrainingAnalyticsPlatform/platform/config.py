@@ -92,6 +92,7 @@ class Config:
 
     # Athlete
     DEFAULT_ATHLETE_ID = os.getenv("DEFAULT_ATHLETE_ID", "rob")
+    ATHLETE_TIMEZONE = os.getenv("ATHLETE_TIMEZONE")
 
     # Config file discovery
     # You can override with PHYSIOMETRICS_PATH to point anywhere.
@@ -400,6 +401,62 @@ class Config:
     # -------------------
     # Validation
     # -------------------
+
+    @staticmethod
+    def _validate_timezone_string(tz_str: Optional[str], source: str) -> Optional[str]:
+        """Validate and return timezone string if valid.
+
+        Args:
+            tz_str: Timezone string to validate
+            source: Description of source for logging (e.g., 'env var', 'config file')
+
+        Returns:
+            Valid IANA timezone name or None.
+        """
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        if not tz_str or not isinstance(tz_str, str):
+            return None
+
+        tz_str = tz_str.strip()
+        if not tz_str:
+            return None
+
+        try:
+            ZoneInfo(tz_str)
+            return tz_str
+        except ZoneInfoNotFoundError:
+            logger = logging.getLogger(__name__)
+            logger.warning("Invalid timezone in %s: %s", source, tz_str)
+            return None
+
+    @classmethod
+    def get_athlete_timezone(cls) -> Optional[str]:
+        """Return athlete's home timezone (IANA format).
+
+        Precedence:
+        1) Env var ATHLETE_TIMEZONE (deployment override)
+        2) physiometrics.json athlete_timezone field
+        3) None (no timezone configured)
+
+        Returns:
+            IANA timezone name (e.g., 'America/New_York') or None.
+
+        Note:
+            Invalid timezone names are ignored and treated as None.
+        """
+        # Check env var first
+        env_tz = cls._validate_timezone_string(cls.ATHLETE_TIMEZONE, "ATHLETE_TIMEZONE env var")
+        if env_tz:
+            return env_tz
+
+        # Check physiometrics config
+        pm = cls.load_physiometrics() or {}
+        if isinstance(pm, dict):
+            config_tz = pm.get("athlete_timezone")
+            return cls._validate_timezone_string(config_tz, "physiometrics config")
+
+        return None
 
     @staticmethod
     def validate() -> None:

@@ -196,7 +196,9 @@ Timezone offset contract:
 
 - `start_time_utc` remains UTC and is never converted to local wall-clock time in storage.
 - `local_tz_offset` stores the local wall-clock UTC offset string when derivable (for example `UTC-05:00`).
-- `timezone` should prefer a valid IANA timezone name when available and fall back to `local_tz_offset` when IANA cannot be resolved.
+- `timezone` automatically converts UTC offsets to IANA timezone names (e.g., `UTC-05:00` → `America/New_York`) using `zoneinfo.available_timezones()` lookup at workout timestamp. Falls back to `local_tz_offset` only when conversion fails.
+- Ambiguous offsets (e.g., UTC-05:00 can be New York, Toronto, or Bogotá) are disambiguated using the athlete's home timezone from `Config.get_athlete_timezone()` if it matches the offset.
+- Indoor/virtual workouts at UTC+00:00 (e.g., Zwift cloud services) override to athlete's physical timezone when configured.
 - Unknown local offsets must remain unset (`null`) and must not be defaulted to `UTC`.
 - Semantic API clients should use `local_tz_offset` for human-facing local-time rendering; `timezone` is retained as metadata/provenance context.
 
@@ -597,7 +599,7 @@ priority order is:
 1. Activity `local_timestamp` vs Activity `timestamp`, only when `local_timestamp` is not equal to FIT epoch (1989-12-31T00:00:00).
 2. Session `start_time` (local wall-clock context) vs Session `timestamp - total_elapsed_time`.
 
-This keeps FIT timestamps UTC by spec while recovering a local offset fora
+This keeps FIT timestamps UTC by spec while recovering a local offset for
 workout display and grouping.
 
 FIT epoch handling rule:
@@ -605,8 +607,21 @@ FIT epoch handling rule:
 - `local_timestamp` equal to FIT epoch (`1989-12-31T00:00:00`) represents an unset value and must be treated as null.
 - Epoch-equivalent values must not be used to derive timezone offsets.
 
-`Workouts.timezone` stores this recovered offset as `UTC±HH:MM` and should be
+After offset inference, `BaseFitModel.timezone` applies automatic IANA timezone resolution:
+
+1. Check for device explicit IANA timezone name in FIT metadata (rare).
+2. Detect Zwift workouts: indoor workouts (`is_indoor=True`) at UTC+00:00 override to athlete's physical timezone from `Config.get_athlete_timezone()`.
+3. Convert offset to IANA timezone using `iana_from_offset()` with athlete home timezone as disambiguation hint via `zoneinfo.available_timezones()` lookup at workout timestamp.
+4. Fall back to offset string (e.g., `UTC-05:00`) if conversion fails.
+
+`Workouts.timezone` now stores IANA names (e.g., `America/New_York`) whenever possible and should be
 used together with `start_time_utc` by clients when rendering local start time.
+
+Athlete home timezone configuration:
+
+- Set via `ATHLETE_TIMEZONE` environment variable or `athlete_timezone` field in `physiometrics.json`.
+- Used to disambiguate offsets like UTC-05:00 (could be New York, Toronto, Detroit, Bogotá) and to resolve Zwift/virtual workout timezones.
+- Must be a valid IANA timezone name (validated via `zoneinfo.ZoneInfo`).
 
 ---
 

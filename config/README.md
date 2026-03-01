@@ -88,6 +88,7 @@ The Health Assistant Config system loads configuration values in this order (hig
    - Managed via `/api/config/update` endpoint
 
 2. **Environment Variables** (deployment-level overrides)
+   - `ATHLETE_TIMEZONE` - IANA timezone name for athlete's home location (e.g., `America/New_York`) used to disambiguate UTC offsets and resolve Zwift/virtual workout timezones
    - `HR_ZONE_BASIS` - Heart rate zone calculation method (`HRmax`, `LTHR`, or `HRR`)
    - `HR_ZONE_REFERENCE_BPM` - Maximum HR or LTHR value (0 = auto-detect)
    - `HR_RESTING_BPM` - Resting heart rate for HRR method

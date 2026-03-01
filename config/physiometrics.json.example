@@ -1,4 +1,5 @@
 {
+  "athlete_timezone": "America/New_York",
   "heart_rate": {
     "basis": "HRmax",
     "lthr_bpm": 175,

@@ -48,7 +48,8 @@ from .code_mappings import (MANUFACTURER_CODES, MANUFACTURER_NAME_TO_CODE,
                             get_garmin_product_name)
 from .constants import LAPS_SCHEMA_VERSION, METADATA_SCHEMA_VERSION
 from .fit_analyzer import FitStructureAnalyzer
-from .timezone_utils import (format_utc_offset, infer_timezone_from_activity,
+from .timezone_utils import (format_utc_offset, iana_from_offset,
+                             infer_timezone_from_activity,
                              infer_timezone_from_session, resolve_timezone)
 
 logger = logging.getLogger(__name__)
@@ -790,16 +791,11 @@ class BaseFitModel(BaseModel, ABC):
             pass
         return None
 
-    @computed_field  # type: ignore[misc]
-    @property
-    def timezone(self) -> Optional[str]:
-        """Return canonical timezone identifier for the workout.
-
-        Uses validated IANA names from source metadata when available; otherwise
-        falls back to `local_tz_offset`.
+    def _get_explicit_iana_from_metadata(self) -> Optional[str]:
+        """Check for explicit IANA timezone name in source metadata.
 
         Returns:
-            IANA timezone name, `UTC±HH:MM` offset string, or None.
+            IANA timezone name if found and valid, else None.
         """
         for key in ("timezone", "source_timezone", "tz_name"):
             raw_value = self._metadata_dict.get(key)
@@ -810,17 +806,101 @@ class BaseFitModel(BaseModel, ABC):
             if not candidate:
                 continue
 
+            # Skip if it looks like a UTC offset string
             normalized = candidate.upper()
-            if normalized == "UTC" or normalized.startswith("UTC+") or normalized.startswith("UTC-"):
-                break
+            if normalized == "UTC" or normalized.startswith(("UTC+", "UTC-")):
+                continue
 
+            # Validate as IANA timezone
             try:
                 ZoneInfo(candidate)
                 return candidate
             except ZoneInfoNotFoundError:
-                break
+                continue
 
+        return None
+
+    def _get_iana_from_offset_conversion(self, athlete_tz: Optional[str]) -> Optional[str]:
+        """Convert UTC offset to IANA timezone using athlete timezone as hint.
+
+        Args:
+            athlete_tz: Athlete home timezone for disambiguation
+
+        Returns:
+            IANA timezone name if conversion succeeds, else None.
+        """
+        offset_str = self.local_tz_offset
+        if not offset_str or not self.start_time_utc:
+            return None
+
+        try:
+            start_dt = datetime.fromisoformat(
+                self.start_time_utc.replace('Z', '+00:00')
+            )
+            return iana_from_offset(offset_str, start_dt, prefer_zone=athlete_tz)
+        except (ValueError, TypeError):
+            return None
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def timezone(self) -> Optional[str]:
+        """Return canonical timezone identifier for the workout.
+
+        Priority:
+        1. Device explicit IANA name from source metadata
+        2. Zwift detection: if indoor + UTC offset, use athlete home timezone
+        3. Offset-to-IANA conversion using athlete home timezone as hint
+        4. Fallback to UTC offset string
+
+        Returns:
+            IANA timezone name, `UTC±HH:MM` offset string, or None.
+        """
+        # 1. Check for explicit IANA name in source metadata
+        explicit_iana = self._get_explicit_iana_from_metadata()
+        if explicit_iana:
+            return explicit_iana
+
+        # Get athlete home timezone from config
+        athlete_tz = self._get_athlete_timezone()
+        
+        # 2. Zwift detection: UTC offset on indoor workout
+        if self._is_zwift_workout() and athlete_tz:
+            return athlete_tz
+        
+        # 3. Try to convert offset to IANA timezone
+        iana_tz = self._get_iana_from_offset_conversion(athlete_tz)
+        if iana_tz:
+            return iana_tz
+        
+        # 4. Fallback to offset string
         return self.local_tz_offset
+    
+    def _is_zwift_workout(self) -> bool:
+        """Detect if this is a Zwift workout (cloud service with UTC timestamps).
+        
+        Zwift workouts are characterized by:
+        - Indoor activity (is_indoor = True)
+        - UTC local timezone offset (UTC+00:00)
+        
+        Returns:
+            True if this appears to be a Zwift workout, False otherwise.
+        """
+        return (
+            self.is_indoor is True 
+            and self.local_tz_offset == "UTC+00:00"
+        )
+    
+    def _get_athlete_timezone(self) -> Optional[str]:
+        """Get athlete's home timezone from configuration.
+        
+        Returns:
+            IANA timezone name or None if not configured.
+        """
+        try:
+            from TrainingAnalyticsPlatform.platform.config import Config
+            return Config.get_athlete_timezone()
+        except (ImportError, AttributeError):
+            return None
     
     def _device_utc_offset_minutes(self) -> Optional[int]:
         """Return device-configured UTC offset (minutes) from `device_settings`.

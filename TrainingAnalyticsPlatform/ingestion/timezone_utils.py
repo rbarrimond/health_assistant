@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 FIT_EPOCH_LOCAL = datetime(1989, 12, 31, 0, 0, 0)
 
@@ -85,6 +86,178 @@ def infer_timezone_from_session(
     if normalized is None:
         return None
     return format_utc_offset(normalized)
+
+
+def _check_preferred_zone(
+    prefer_zone: Optional[str],
+    target_offset: timedelta,
+    timestamp: datetime,
+) -> Optional[str]:
+    """Check if preferred zone matches the target offset at given timestamp.
+
+    Args:
+        prefer_zone: Preferred IANA timezone name
+        target_offset: Target UTC offset as timedelta
+        timestamp: Reference timestamp
+
+    Returns:
+        Preferred zone name if it matches, else None.
+    """
+    if not prefer_zone:
+        return None
+
+    try:
+        tz = ZoneInfo(prefer_zone)
+        dt_in_tz = timestamp.astimezone(tz)
+        if dt_in_tz.utcoffset() == target_offset:
+            return prefer_zone
+    except ZoneInfoNotFoundError:
+        pass
+
+    return None
+
+
+def _find_matching_zones(
+    target_offset: timedelta,
+    timestamp: datetime,
+) -> list[str]:
+    """Find all IANA zones matching target offset at given timestamp.
+
+    Args:
+        target_offset: Target UTC offset as timedelta
+        timestamp: Reference timestamp
+
+    Returns:
+        List of matching IANA timezone names.
+    """
+    matching_zones = []
+    for tz_name in available_timezones():
+        try:
+            tz = ZoneInfo(tz_name)
+            dt_in_tz = timestamp.astimezone(tz)
+            if dt_in_tz.utcoffset() == target_offset:
+                matching_zones.append(tz_name)
+        except (ZoneInfoNotFoundError, OSError):
+            continue
+
+    return matching_zones
+
+
+def _select_canonical_zone(matching_zones: list[str]) -> Optional[str]:
+    """Select best canonical zone from matches.
+
+    Prefers zones with format like "America/New_York" over "US/Eastern".
+    Returns first canonical zone alphabetically for consistency.
+
+    Args:
+        matching_zones: List of matching IANA timezone names
+
+    Returns:
+        Selected timezone name or None.
+    """
+    if not matching_zones:
+        return None
+    if len(matching_zones) == 1:
+        return matching_zones[0]
+
+    # Prefer canonical zones (e.g., America/New_York over US/Eastern, Etc/GMT+5)
+    canonical_zones = [
+        z for z in matching_zones if "/" in z and not z.startswith("Etc/")
+    ]
+    if canonical_zones:
+        return sorted(canonical_zones)[0]
+
+    # No canonical zones found, return first match alphabetically
+    return sorted(matching_zones)[0]
+
+
+def iana_from_offset(
+    offset_str: str,
+    timestamp: datetime,
+    prefer_zone: Optional[str] = None,
+) -> Optional[str]:
+    """Convert UTC offset string to IANA timezone name.
+
+    Args:
+        offset_str: UTC offset string like 'UTC-05:00' or 'UTC+01:00'
+        timestamp: Reference timestamp for checking offset (handles DST)
+        prefer_zone: Optional preferred IANA zone for disambiguation
+
+    Returns:
+        IANA timezone name if unambiguous or matches preferred zone,
+        otherwise None.
+
+    Examples:
+        >>> dt = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        >>> iana_from_offset('UTC+09:00', dt)
+        'Asia/Tokyo'
+        >>> iana_from_offset('UTC-05:00', dt, prefer_zone='America/New_York')
+        'America/New_York'
+    """
+    # Parse offset string to minutes
+    offset_minutes = _parse_utc_offset_string(offset_str)
+    if offset_minutes is None:
+        return None
+
+    # Build target offset for comparison
+    target_offset = timedelta(minutes=offset_minutes)
+
+    # Check preferred zone first if provided
+    preferred_match = _check_preferred_zone(prefer_zone, target_offset, timestamp)
+    if preferred_match:
+        return preferred_match
+
+    # Find all zones matching the offset at the given timestamp
+    matching_zones = _find_matching_zones(target_offset, timestamp)
+
+    # Select best canonical zone from matches
+    return _select_canonical_zone(matching_zones)
+
+
+def _parse_utc_offset_string(offset_str: str) -> Optional[int]:
+    """Parse UTC offset string to minutes.
+
+    Args:
+        offset_str: String like 'UTC-05:00', 'UTC+01:00', or 'UTC'
+
+    Returns:
+        Offset in minutes, or None if invalid.
+    """
+    if not offset_str:
+        return None
+
+    normalized = offset_str.strip().upper()
+    if normalized == "UTC":
+        return 0
+
+    if not normalized.startswith("UTC"):
+        return None
+
+    offset = normalized[3:]
+    if len(offset) < 3:
+        return None
+
+    sign = 1
+    if offset[0] == "+":
+        sign = 1
+        offset = offset[1:]
+    elif offset[0] == "-":
+        sign = -1
+        offset = offset[1:]
+
+    if ":" in offset:
+        parts = offset.split(":", 1)
+        hours_str, minutes_str = parts[0], parts[1]
+    else:
+        hours_str, minutes_str = offset, "0"
+
+    try:
+        hours = int(hours_str)
+        minutes = int(minutes_str)
+    except ValueError:
+        return None
+
+    return sign * (hours * 60 + minutes)
 
 
 def resolve_timezone(

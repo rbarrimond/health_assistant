@@ -10,6 +10,17 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-02-27
 
+### Automatic IANA Timezone Resolution
+
+- Add automatic conversion of UTC offset strings to IANA timezone names in `BaseFitModel.timezone` property using stdlib `zoneinfo` module
+- Implement `iana_from_offset()` in `timezone_utils` to map UTC offsets to canonical IANA timezones using `available_timezones()` lookup at workout timestamp
+- Add `athlete_timezone` configuration field to physiometrics.json and Config class (env var: `ATHLETE_TIMEZONE`) for disambiguation of ambiguous offsets like UTC-05:00 (New York vs Toronto vs Bogotá)
+- Add Zwift workout detection: indoor workouts at UTC+00:00 now resolve to athlete's physical timezone instead of cloud service offset
+- Update `BaseFitModel.timezone` with 4-step priority chain: (1) device explicit IANA metadata, (2) Zwift override, (3) offset→IANA conversion with athlete hint, (4) offset string fallback
+- Timezone field now exports America/New_York instead of UTC-05:00 for workout metadata `[CANONICAL_SCHEMA_VERSION 1.5.0]`
+
+## 2026-02-27
+
 ### Manufacturer Code Extraction Robustness
 
 - Fix `_extract_code_and_name()` in `BaseFitModel` to handle string manufacturer values returned by fitdecode (previously only handled int/enum objects)
