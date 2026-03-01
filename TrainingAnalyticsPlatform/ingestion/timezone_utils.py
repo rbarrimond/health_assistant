@@ -143,14 +143,19 @@ def _find_matching_zones(
     return matching_zones
 
 
-def _select_canonical_zone(matching_zones: list[str]) -> Optional[str]:
+def _select_canonical_zone(
+    matching_zones: list[str],
+    timestamp: datetime,
+) -> Optional[str]:
     """Select best canonical zone from matches.
 
-    Prefers zones with format like "America/New_York" over "US/Eastern".
-    Returns first canonical zone alphabetically for consistency.
+    Prefers zones with DST transitions (e.g., America/New_York) over
+    static offset zones (e.g., America/Atikokan). Within DST-aware zones,
+    prefers major cities for predictability.
 
     Args:
         matching_zones: List of matching IANA timezone names
+        timestamp: Reference timestamp for DST detection
 
     Returns:
         Selected timezone name or None.
@@ -164,11 +169,100 @@ def _select_canonical_zone(matching_zones: list[str]) -> Optional[str]:
     canonical_zones = [
         z for z in matching_zones if "/" in z and not z.startswith("Etc/")
     ]
-    if canonical_zones:
-        return sorted(canonical_zones)[0]
+    if not canonical_zones:
+        return sorted(matching_zones)[0]
 
-    # No canonical zones found, return first match alphabetically
-    return sorted(matching_zones)[0]
+    # Prefer zones with DST transitions over static offset zones
+    # Use timestamp's year for accurate DST detection
+    year = timestamp.year
+    dst_aware_zones = []
+    for zone_name in canonical_zones:
+        try:
+            tz = ZoneInfo(zone_name)
+            # Check if offset differs between January and July (DST indicator)
+            winter = datetime(year, 1, 15, 12, 0, tzinfo=timezone.utc).astimezone(tz)
+            summer = datetime(year, 7, 15, 12, 0, tzinfo=timezone.utc).astimezone(tz)
+            if winter.utcoffset() != summer.utcoffset():
+                dst_aware_zones.append(zone_name)
+        except (ZoneInfoNotFoundError, OSError, ValueError):
+            continue
+
+    # If we have DST-aware zones, prefer those
+    if dst_aware_zones:
+        return _select_major_city(dst_aware_zones)
+
+    # Fall back to canonical zones with major city preference
+    return _select_major_city(canonical_zones)
+
+
+def _select_major_city(zones: list[str]) -> str:
+    """Select major city from list of zones using priority heuristic.
+
+    Prefers well-known major cities over smaller locations for predictability
+    and user expectations. Returns first match from priority-ordered list.
+
+    Args:
+        zones: List of IANA timezone names
+
+    Returns:
+        Selected timezone name (guaranteed non-None if zones is non-empty).
+    """
+    # Major cities by region in priority order
+    # First match wins - ordered by population and common usage
+    major_cities_priority = [
+        # North America - Eastern (population order)
+        "America/New_York",
+        "America/Toronto",
+        "America/Montreal",
+        # North America - Central
+        "America/Chicago",
+        "America/Mexico_City",
+        "America/Winnipeg",
+        # North America - Mountain
+        "America/Denver",
+        "America/Edmonton",
+        # North America - Pacific
+        "America/Los_Angeles",
+        "America/Vancouver",
+        # North America - Alaska/Hawaii
+        "America/Anchorage",
+        "Pacific/Honolulu",
+        # Europe (population/importance order)
+        "Europe/London",
+        "Europe/Paris",
+        "Europe/Berlin",
+        "Europe/Madrid",
+        "Europe/Rome",
+        "Europe/Amsterdam",
+        # Asia
+        "Asia/Tokyo",
+        "Asia/Shanghai",
+        "Asia/Hong_Kong",
+        "Asia/Singapore",
+        "Asia/Dubai",
+        "Asia/Seoul",
+        "Asia/Taipei",
+        # Australia/Pacific
+        "Australia/Sydney",
+        "Australia/Melbourne",
+        "Pacific/Auckland",
+        # South America
+        "America/Sao_Paulo",
+        "America/Buenos_Aires",
+        "America/Santiago",
+        # Africa
+        "Africa/Cairo",
+        "Africa/Johannesburg",
+    ]
+
+    # Find first major city in priority order
+    for major_city in major_cities_priority:
+        if major_city in zones:
+            return major_city
+
+    # No major cities found - sort by path depth (simpler paths first), then alphabetically
+    zones_sorted = sorted(zones, key=lambda z: (z.count('/'), z))
+    return zones_sorted[0]
 
 
 def iana_from_offset(
@@ -211,7 +305,7 @@ def iana_from_offset(
     matching_zones = _find_matching_zones(target_offset, timestamp)
 
     # Select best canonical zone from matches
-    return _select_canonical_zone(matching_zones)
+    return _select_canonical_zone(matching_zones, timestamp)
 
 
 def _parse_utc_offset_string(offset_str: str) -> Optional[int]:

@@ -118,3 +118,29 @@ def test_iana_from_offset_utc_zero() -> None:
     # Could be UTC, GMT, or any Africa/... zone at UTC+00:00
     # Just verify it's a valid result
     assert isinstance(result, str) and len(result) > 0
+
+
+def test_iana_from_offset_prefers_dst_zones() -> None:
+    """Should prefer DST-aware zones like America/New_York over static zones like America/Atikokan."""
+    # Winter timestamp when both zones are at UTC-05:00
+    timestamp = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+    result = iana_from_offset("UTC-05:00", timestamp)
+    
+    # Should return major city DST-aware zone (New_York is #1 priority for EST)
+    assert result == "America/New_York", \
+        f"Expected America/New_York (major city), got {result}"
+
+
+def test_iana_from_offset_major_city_priority() -> None:
+    """Should prefer major cities by priority order for common offsets."""
+    timestamp = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+    
+    # Test common North American time zones
+    assert iana_from_offset("UTC-05:00", timestamp) == "America/New_York"
+    assert iana_from_offset("UTC-06:00", timestamp) == "America/Chicago"
+    assert iana_from_offset("UTC-07:00", timestamp) == "America/Denver"
+    assert iana_from_offset("UTC-08:00", timestamp) == "America/Los_Angeles"
+    
+    # Prefer_zone should still override major city priority
+    result = iana_from_offset("UTC-05:00", timestamp, prefer_zone="America/Toronto")
+    assert result == "America/Toronto"

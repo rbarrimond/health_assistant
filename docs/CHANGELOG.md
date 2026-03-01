@@ -8,6 +8,18 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-02-28
+
+### Timezone Selection - Major City Priority
+
+- Improve `iana_from_offset()` timezone selection to prefer major metropolitan areas over smaller cities when multiple DST-aware zones match the same offset
+- Add priority-ordered major city list: `America/New_York` now preferred over `America/Detroit` or `America/Montreal` for UTC-05:00
+- Fix DST detection to use actual workout timestamp year instead of hardcoded 2024 for accurate timezone classification
+- Add `_select_major_city()` helper function with population/usage-based priority ordering for 40+ major cities worldwide
+- Update timezone selection algorithm: (1) athlete preference, (2) DST-aware zones, (3) major city priority, (4) path depth, (5) alphabetical
+- Resolves issue where `UTC-05:00` converted to `America/Atikokan` (static offset) or `America/Detroit` (not expected) instead of `America/New_York` (expected major city)
+- No schema version bump (behavior refinement within 1.5.0 semantic contract) `[timezone_utils]`
+
 ## 2026-02-27
 
 ### Automatic IANA Timezone Resolution
