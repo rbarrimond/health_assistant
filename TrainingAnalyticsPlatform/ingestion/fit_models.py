@@ -1362,13 +1362,135 @@ class BaseFitModel(BaseModel, ABC):
             return None
     
     def build_canonical_metadata(self) -> Dict[str, Any]:
-        """Extract canonical FIT metadata from session, file, and activity."""
-        metadata: Dict[str, Any] = {}
-        metadata.update(self._build_canonical_session_metadata())
-        metadata.update(self._build_canonical_file_metadata())
-        metadata.update(self._build_canonical_activity_metadata())
+        """Extract and structure canonical FIT metadata into semantic zones.
         
-        return {k: v for k, v in metadata.items() if v is not None}
+        Returns structured metadata with 8 semantic zones:
+        1. identity: immutable semantic identity fields (start_time, sport, device, distance, duration)
+        2. capabilities: computed capability flags (has_power, has_hr, has_gps)
+        3. session: session-level aggregates (speed, calories, elevation, moving time)
+        4. file_metadata: file-level metadata (manufacturer, product, serial, created time)
+        5. activity_metadata: activity-level metadata (timestamps, local time, timezone)
+        6. enrichment: mutable enrichment fields (apple_workout_type, workout_name, flags)
+        7. llm_analysis: reserved for LLM-generated analysis (not yet implemented)
+        8. provenance: POPULATED BY HANDLER (ingestion_version, ingestion_id, etc.)
+        
+        Note: Provenance zone (8) is not populated here—it's added by the ingestion handler
+        with context (ingestion version, ingestion ID, environment).
+        """
+        # Build zone 1: Identity (immutable, queryable)
+        identity = {
+            "start_time_utc": self.start_time_utc,
+            "sport": self.sport,
+            "sub_sport": self.sub_sport,
+            "duration_sec": self.duration_sec,
+            "distance_m": self.distance_m,
+            "device_name": self.device_name,
+            "device_source": self._get_device_source(),
+        }
+        
+        # Build zone 2: Capabilities (computed from records)
+        capabilities = {
+            "has_power": self._has_capability("power"),
+            "has_hr": self._has_capability("hr"),
+            "has_gps": self._has_capability("gps"),
+        }
+        
+        # Build zone 3: Session (aggregates)
+        session = {
+            "avg_speed_mps": self.avg_speed_mps,
+            "max_speed_mps": self.max_speed_mps,
+            "calories_kcal": self.calories_kcal,
+            "elevation_gain_m": self.elevation_gain_m,
+            "elevation_loss_m": self.elevation_loss_m,
+            "moving_time_sec": self.moving_time_sec,
+        }
+        
+        # Build zone 4: File Metadata (immutable)
+        file_metadata = self._build_canonical_file_metadata()
+        
+        # Build zone 5: Activity Metadata
+        activity_metadata = self._build_canonical_activity_metadata()
+        
+        # Build zone 6: Enrichment (mutable)
+        enrichment = {
+            "apple_workout_type": self.apple_workout_type,
+            "workout_name": self.workout_name,
+            "is_indoor": self.is_indoor,
+            "virtual_platform": None,  # Will be populated by enrichment pipeline
+            "commute_flag": None,
+            "race_flag": None,
+            "structured_flag": None,
+        }
+        
+        # Build zone 7: LLM Analysis (reserved, not yet implemented)
+        llm_analysis = {
+            "status": "pending",
+            "version": None,
+            "timestamp_utc": None,
+            "goals_inference": None,
+            "intensity_classification": None,
+            "performance_summary": None,
+        }
+        
+        # Combine zones (provenance added by handler)
+        return {
+            "identity": {k: v for k, v in identity.items() if v is not None},
+            "capabilities": capabilities,
+            "session": {k: v for k, v in session.items() if v is not None},
+            "file_metadata": {k: v for k, v in file_metadata.items() if v is not None},
+            "activity_metadata": {k: v for k, v in activity_metadata.items() if v is not None},
+            "enrichment": {k: v for k, v in enrichment.items() if v is not None},
+            "llm_analysis": {k: v for k, v in llm_analysis.items() if v is not None},
+            # Zone 8 (provenance) is added by ingestion handler with ingestion context
+        }
+    
+    def _has_capability(self, capability: str) -> bool:
+        """Check if canonical records contain a specific capability.
+        
+        Args:
+            capability: One of 'power', 'hr', 'gps'
+            
+        Returns:
+            True if any record has this capability
+        """
+        record_set = self.build_canonical_records()
+        if not record_set or not record_set.records:
+            return False
+        
+        if capability == "power":
+            return any(r.power_watts is not None for r in record_set.records)
+        elif capability == "hr":
+            return any(r.hr_bpm is not None for r in record_set.records)
+        elif capability == "gps":
+            return any(r.lat is not None or r.lon is not None for r in record_set.records)
+        
+        return False
+    
+    def _get_device_source(self) -> Optional[str]:
+        """Classify device source from device name and manufacturer.
+        
+        Returns:
+            One of: 'apple_watch', 'garmin_device', 'wahoo', 'other_ble', or None
+        """
+        device_name_lower = str(self.device_name or "").lower()
+        
+        # Apple Watch
+        if "apple" in device_name_lower or "watch" in device_name_lower:
+            return "apple_watch"
+        
+        # Garmin
+        if any(x in device_name_lower for x in ["garmin", "edge", "fenix", "epix", "fr"]):
+            return "garmin_device"
+        
+        # Wahoo
+        if "wahoo" in device_name_lower or "elemnt" in device_name_lower:
+            return "wahoo"
+        
+        # Other BLE devices
+        if device_name_lower:
+            return "other_ble"
+        
+        return None
     
     def _build_canonical_session_metadata(self) -> Dict[str, Any]:
         """Build session-level metadata dictionary."""
@@ -1416,7 +1538,6 @@ class BaseFitModel(BaseModel, ABC):
         file_product = self._get_file_id_product()
         if file_product is not None:
             metadata["file_product"] = str(file_product)
-            metadata["product_id"] = str(file_product)
         
         file_serial = self._file_id_msg.get_value("serial_number", fallback=None)
         if file_serial is not None:

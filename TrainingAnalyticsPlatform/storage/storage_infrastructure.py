@@ -18,7 +18,7 @@ from TrainingAnalyticsPlatform.ingestion.constants import INGEST_VERSION
 from TrainingAnalyticsPlatform.models import CanonicalRecordSet
 from TrainingAnalyticsPlatform.platform.exceptions import IngestionIdResolutionError
 
-CANONICAL_SCHEMA_VERSION = "1.5.0"
+CANONICAL_SCHEMA_VERSION = "2.0.0"
 WORKOUTS_CONTAINER = "workouts"
 
 logger = logging.getLogger(__name__)
@@ -26,8 +26,9 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class WorkoutEntity:
-    """Structured Workouts table entity."""
+    """Structured Workouts table entity with queryable semantic identity, capability, and versioning fields."""
 
+    # Core keys (always present)
     partition_key: str
     row_key: str
     workout_id: str
@@ -35,11 +36,35 @@ class WorkoutEntity:
     source_system: str
     normalized_source_system: Optional[str]
     source_item_id: Optional[str]
+    
+    # Versioning and canonical structure
     ingestion_id: Optional[str] = None
     canonical_schema_version: Optional[str] = None
     canonical_records_blob: Optional[str] = None
     records_count: Optional[int] = None
     laps_count: Optional[int] = None
+    
+    # Semantic identity fields (from metadata.json identity zone) - queryable
+    start_time_utc: str = ""
+    sport: str = ""
+    sub_sport: Optional[str] = None
+    duration_sec: int = 0
+    distance_m: Optional[float] = None
+    
+    # Device classification - queryable
+    device_name: str = ""
+    device_source: Optional[str] = None
+    
+    # Capability flags (from metadata.json capabilities zone) - queryable
+    has_power: bool = False
+    has_hr: bool = False
+    has_gps: bool = False
+    
+    # Ingestion context - queryable
+    ingestion_version: str = ""
+    environment: Optional[str] = None
+    
+    # Flexible metrics and enrichment (from metadata.json)
     metrics: Dict = field(default_factory=dict)
 
     @classmethod
@@ -58,12 +83,18 @@ class WorkoutEntity:
             "canonical_records_blob",
             "records_count",
             "laps_count",
-            "source_file_name",
-            "source_file_path",
-            "source_drive_id",
-            "source_etag",
-            "file_size_bytes",
-            "file_sha256",
+            "start_time_utc",
+            "sport",
+            "sub_sport",
+            "duration_sec",
+            "distance_m",
+            "device_name",
+            "device_source",
+            "has_power",
+            "has_hr",
+            "has_gps",
+            "ingestion_version",
+            "environment",
         }
         system_keys = {
             "Timestamp",
@@ -89,6 +120,18 @@ class WorkoutEntity:
             canonical_records_blob=entity.get("canonical_records_blob"),
             records_count=entity.get("records_count"),
             laps_count=entity.get("laps_count"),
+            start_time_utc=entity.get("start_time_utc", ""),
+            sport=entity.get("sport", ""),
+            sub_sport=entity.get("sub_sport"),
+            duration_sec=entity.get("duration_sec", 0),
+            distance_m=entity.get("distance_m"),
+            device_name=entity.get("device_name", ""),
+            device_source=entity.get("device_source"),
+            has_power=entity.get("has_power", False),
+            has_hr=entity.get("has_hr", False),
+            has_gps=entity.get("has_gps", False),
+            ingestion_version=entity.get("ingestion_version", ""),
+            environment=entity.get("environment"),
             metrics=metrics,
         )
 
@@ -107,7 +150,25 @@ class WorkoutEntity:
             "canonical_records_blob": self.canonical_records_blob,
             "records_count": self.records_count,
             "laps_count": self.laps_count,
+            "start_time_utc": self.start_time_utc,
+            "sport": self.sport,
+            "duration_sec": self.duration_sec,
+            "device_name": self.device_name,
+            "has_power": self.has_power,
+            "has_hr": self.has_hr,
+            "has_gps": self.has_gps,
+            "ingestion_version": self.ingestion_version,
         }
+
+        # Add optional fields only if they have values
+        if self.sub_sport is not None:
+            entity["sub_sport"] = self.sub_sport
+        if self.distance_m is not None:
+            entity["distance_m"] = self.distance_m
+        if self.device_source is not None:
+            entity["device_source"] = self.device_source
+        if self.environment is not None:
+            entity["environment"] = self.environment
 
         for key, value in self.metrics.items():
             if value is not None:

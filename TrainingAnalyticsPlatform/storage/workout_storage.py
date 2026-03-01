@@ -45,7 +45,7 @@ class WorkoutStorage:
 
         Args:
             athlete_id: Athlete identifier (e.g., 'rob')
-            metadata: Canonical metadata from FIT messages
+            metadata: Canonical metadata (semantic zones dict OR flat dict for backward compatibility)
             source_info: OneDrive/source file info
             workout_id: Unique workout identifier
             ingestion_id: Ingestion tracking identifier
@@ -62,8 +62,18 @@ class WorkoutStorage:
         if not workout_id:
             raise ValueError("workout_id is required to store a workout")
 
-        # Build partition and row keys
-        start_time = metadata.get("start_time_utc", "")
+        # Extract identity and capability fields from metadata
+        # Handle both structured (zones) and flat dict formats
+        identity = metadata.get("identity", {}) if "identity" in metadata else {}
+        capabilities = metadata.get("capabilities", {}) if "capabilities" in metadata else {}
+        provenance = metadata.get("provenance", {}) if "provenance" in metadata else {}
+        
+        # For backward compatibility, also check flat dict
+        if not identity:
+            identity = metadata
+        
+        # Build partition and row keys from identity zone
+        start_time = identity.get("start_time_utc", metadata.get("start_time_utc", ""))
         if start_time:
             # Extract YYYY-MM for partition (Azure Tables forbid '/', '\\', '#', '?')
             partition_key = f"{athlete_id}|{start_time[:7]}"
@@ -75,6 +85,7 @@ class WorkoutStorage:
             partition_key = f"{athlete_id}|unknown"
             row_key = workout_id[:20]
 
+        # Extract queryable fields from all zones
         entity = WorkoutEntity(
             partition_key=partition_key,
             row_key=row_key,
@@ -88,7 +99,23 @@ class WorkoutStorage:
             canonical_records_blob=canonical_records_blob,
             records_count=records_count,
             laps_count=laps_count,
-            metrics=metadata,
+            # Identity zone fields (queryable)
+            start_time_utc=identity.get("start_time_utc"),
+            sport=identity.get("sport"),
+            sub_sport=identity.get("sub_sport"),
+            duration_sec=identity.get("duration_sec"),
+            distance_m=identity.get("distance_m"),
+            device_name=identity.get("device_name"),
+            device_source=identity.get("device_source"),
+            # Capabilities zone fields (queryable)
+            has_power=capabilities.get("has_power", False),
+            has_hr=capabilities.get("has_hr", False),
+            has_gps=capabilities.get("has_gps", False),
+            # Provenance zone fields (queryable)
+            ingestion_version=provenance.get("ingestion_version", ""),
+            environment=provenance.get("environment"),
+            # Metrics dict for flexible enrichment
+            metrics=metadata,  # Store entire metadata as metrics for backward compatibility
         ).to_entity()
 
         # Store in table
@@ -213,6 +240,20 @@ class WorkoutStorage:
         """Load FIT metadata messages from blob."""
         blob_name = self.infra.metadata_blob_name(workout_id)
         return self.infra.load_json_blob(blob_name)
+
+    def store_canonical_metadata_blob(
+        self,
+        workout_id: str,
+        canonical_metadata: Dict,
+    ) -> str:
+        """Store canonical metadata (all 8 semantic zones) to blob.
+        
+        This is the source of truth for all workout metadata including identity,
+        capabilities, session aggregates, enrichment fields, and LLM analysis placeholders.
+        """
+        # Use same blob path as metadata.json for now (overwrite is acceptable)
+        blob_name = self.infra.metadata_blob_name(workout_id)
+        return self.infra.upload_json_blob(blob_name, canonical_metadata)
 
     def store_laps_json(
         self,

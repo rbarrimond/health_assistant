@@ -115,16 +115,32 @@ class FitIngestionBaseHandler(ABC):
         # Apply device-source filtration rules
         self._apply_device_source_filtration(athlete_id, model, source_info)
         
-        metadata = model.build_canonical_metadata()
-        source_info["normalized_source_system"] = self._normalize_source_system(
-            source_info, metadata
-        )
+        # Build structured canonical metadata with semantic zones
+        structured_metadata = model.build_canonical_metadata()
+        
+        # Extract ingestion context for provenance zone
         ingestion_id = source_info.get("ingestion_id")
         if not ingestion_id:
             raise IngestionIdResolutionError(
                 "ingestion_id is required and must be computed by concrete handlers"
             )
         source_info["ingestion_id"] = ingestion_id
+        
+        # Add provenance zone (zone 8)
+        from datetime import datetime, timezone
+        structured_metadata["provenance"] = {
+            "ingestion_version": source_info.get("ingestion_version", "1.0.0"),
+            "ingestion_id": ingestion_id,
+            "ingestion_timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "environment": source_info.get("environment", "production"),
+        }
+        
+        # Flatten metadata for backward compatibility with _normalize_source_system
+        flat_metadata = self._flatten_structured_metadata(structured_metadata)
+        
+        source_info["normalized_source_system"] = self._normalize_source_system(
+            source_info, flat_metadata
+        )
 
         workout_id = model.semantic_workout_id
         if not workout_id:
@@ -146,9 +162,12 @@ class FitIngestionBaseHandler(ABC):
         self.storage.workouts.store_fit_analysis(ingestion_id, analysis_payload)
         laps_count = len(laps_payload.get("laps", []))
 
+        # Store structured metadata (all 8 semantic zones) to blob
+        self.storage.workouts.store_canonical_metadata_blob(ingestion_id, structured_metadata)
+
         self.storage.workouts.store_workout(
             athlete_id,
-            metadata,
+            structured_metadata,
             source_info,
             workout_id=workout_id,
             ingestion_id=ingestion_id,
@@ -165,7 +184,23 @@ class FitIngestionBaseHandler(ABC):
             ingestion_id=ingestion_id,
             ingestion_key=ingestion_id,
         )
-        return metadata, workout_id
+        return flat_metadata, workout_id
+
+    @staticmethod
+    def _flatten_structured_metadata(structured_metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Flatten semantic zones back to flat dict for backward compatibility.
+        
+        Args:
+            structured_metadata: Metadata with semantic zones (identity, capabilities, session, etc.)
+            
+        Returns:
+            Flattened dict with all fields at top level
+        """
+        flat = {}
+        for zone_name, zone_data in structured_metadata.items():
+            if isinstance(zone_data, dict):
+                flat.update(zone_data)
+        return flat
 
     @staticmethod
     def _normalize_source_system(
