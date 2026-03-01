@@ -1499,7 +1499,11 @@ class HealthFitModel(OneDriveFitModel):
     """
     
     # HealthFit filename pattern: YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz]
-    # Parsing treats final '-' token as source and all middle tokens as activity.
+    # Example: 2026-01-15-193027-Indoor Cycling-AppleWatch.fit
+    #
+    # Parsing treats final '-' token as source and everything before as activity.
+    # Activity types have spaces ("Indoor Cycling", not "Indoor-Cycling").
+    # Hyphens in activity names are normalized to spaces for compatibility.
     # The YYYY-MM-DD-HHMMSS token is device-local recording time.
     # Note: .gz suffix is optional for backwards compatibility but ignored (decompression
     # happens in preprocessing layer before model instantiation).
@@ -1548,7 +1552,7 @@ class HealthFitModel(OneDriveFitModel):
         return {
             "date": match.group(1),              # YYYY-MM-DD (device-local)
             "time": match.group(2),              # HHMMSS or "Nodata" (device-local)
-            "apple_workout_type": activity_type, # e.g., "Indoor Cycling"
+            "apple_workout_type": activity_type, # e.g., "Indoor Cycling" (from filename or normalized hyphens)
             "source_device": source_device,      # e.g., "RunGap"
         }
     

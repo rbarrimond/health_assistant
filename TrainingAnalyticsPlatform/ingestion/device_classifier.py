@@ -1,17 +1,45 @@
-"""Device source classification utilities for FIT ingestion.
+"""Device source classification for FIT workout ingestion.
 
-This module classifies devices as Apple Watch (true source) or HealthKit synced
-(via iPhone) based on FIT file metadata and device_name signals.
+Classifies workouts as actual device recordings vs. secondary HealthKit exports
+to prevent double-counting across parallel ingestion pathways.
 
-Classification uses device_name string matching. The FIT SDK does not provide
-Apple product enums, so Apple device classification remains string-based.
+HealthKit-Synced Pattern (REJECTED on OneDrive):
+    Apps like RunGap, Zwift, Intervals.icu sync workouts INTO HealthKit.
+    HealthFit exports these with coordinated signals:
+        device_name="iPhone"                       # Sentinel value (not an actual device)
+        manufacturer="development"                 # Normal for Apple (not filtration signal)
+        filename="...-Indoor Cycling-RunGap.fit"   # Source token = syncing app name
+    
+    Combined meaning: Secondary export. Workout exists elsewhere in primary form.
+    Action: Reject during OneDrive ingestion.
 
-The classification enables filtering of synced vs. true-source workouts at the
-ingestion boundary.
+Actual Device Pattern (ACCEPTED on OneDrive):
+    Apple Watch records workout directly:
+        device_name="Apple Watch Ultra" / "Watch 7,12"  # Contains "watch"
+        manufacturer="development"                       # Normal for all Apple
+        filename="...-Indoor Cycling-AppleWatch.fit"     # Source token = device
+    
+    Combined meaning: Primary recording from origin device.
+    Action: Accept during OneDrive ingestion.
 
-References:
-- HealthFit exports device_name="iPhone" as sentinel for HealthKit synced workouts
-- Apple Watch exports have device_name containing "Apple Watch" or "Watch"
+Classification Strategy:
+    - device_name string matching (case-insensitive)
+    - "iphone" in device_name → HealthKit-synced sentinel (reject)
+    - "watch" in device_name → Apple Watch with model ID like "Watch7,12" (accept)
+    - Real Apple devices have model identifiers (e.g., "iPhone17,1", "Watch8,1", "Watch7,12")
+    - No manufacturer code checks (Apple uses "development" for everything)
+    - FIT SDK lacks Apple product enums, so string-based classification only
+
+Architecture Context:
+    This module supports a parallel-source ingestion model with no cross-source
+    deduplication. See docs/devops/BACKENDS.md#workout-ingestion-architecture
+    for the complete filtration rationale and source relationship design.
+
+Implementation:
+    - FitDevice.is_healthkit_synced() → detects "iPhone" sentinel
+    - FitDevice.is_apple_watch_source() → detects "Watch" devices
+    - FitDevice.device_source_type() → returns classification enum
+    - Enforcement: FitIngestionBaseHandler._apply_device_source_filtration()
 """
 
 from typing import Optional
@@ -28,7 +56,7 @@ class FitDevice:
     
     Classifies as:
     - "apple_watch": True source (native Apple Watch export)
-    - "healthkit_synced": Synced via HealthKit (iPhone sentinel)
+    - "healthkit_synced": HealthKit-synced via sentinel device_name="iPhone"
     - "unknown": Unclassifiable
     """
 
@@ -40,12 +68,16 @@ class FitDevice:
     ) -> bool:
         """Detect if workout was synced into HealthKit from another app.
         
-        HealthFit exports synced workouts with device_name="iPhone" (sentinel value).
+        HealthFit exports synced workouts with the literal sentinel device_name="iPhone".
+        This is NOT an actual iPhone recording - it indicates the workout was synced
+        INTO HealthKit by another app (RunGap, Zwift, etc.).
         Direct Apple Watch exports have device_name containing "Watch" (e.g., "Watch 7,12"
         for internal product identifiers, "Apple Watch Series 5 40mm (GPS)" for marketing names).
         
         Args:
-            device_name: FIT device_info.device_name field (e.g., "iPhone", "Watch 7,12", "Apple Watch Series 5 40mm (GPS)")
+            device_name: FIT device_info.device_name field. Sentinel "iPhone" indicates
+                        HealthKit-synced. Real devices have model IDs: "iPhone17,1",
+                        "Watch7,12", "Apple Watch Series 5 40mm (GPS)", etc.
             device_manufacturer_code: FIT device_info.manufacturer code (reserved for future use)
             device_product_code: FIT device_info.product code (reserved for future use)
             

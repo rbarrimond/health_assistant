@@ -9,8 +9,7 @@ The Health Assistant supports multiple backend integrations to automatically col
 | Backend                  | Status       | Data Types                   | Protocol                       |
 | ------------------------ | ------------ | ---------------------------- | ------------------------------ |
 | **HealthFit (OneDrive)** | Production   | FIT workout files            | OAuth (delegated) + Timer/HTTP |
-| **Withings**             | Production   | Body composition, weight     | OAuth 2.0 + Webhooks           |
-| **Garmin**               | Implemented  | Workout files, physiometrics | OAuth (via garth)              |
+| **Garmin**               | Production   | FIT workout files            | OAuth 2.0 (garth) + Timer/HTTP |
 
 ## HealthFit (OneDrive) Integration
 
@@ -84,7 +83,7 @@ By default the endpoint runs asynchronously and returns a 202 digest. Set `async
 
 Automatic sync (Timer):
 
-- Runs hourly
+- Runs every 10 minutes
 - Uses `ONEDRIVE_SYNC_LOOKBACK_DAYS` by default
 
 Lookback filtering uses the workout date parsed from the filename (YYYY-MM-DD) when available. If no date is found, it falls back to OneDrive `lastModifiedDateTime`.
@@ -95,34 +94,87 @@ Lookback filtering uses the workout date parsed from the filename (YYYY-MM-DD) w
 
 Generates an OAuth authorization URL for a specific athlete.
 
+**Query Parameters:**
+
+- `athlete_id` (optional) - Athlete identifier (defaults to "rob")
+- `state` (optional) - Custom state token (auto-generated if omitted)
+
+**Response:**
+
+```json
+{
+  "authorization_url": "https://login.microsoftonline.com/...",
+  "athlete_id": "rob",
+  "state": "..."
+}
+```
+
 #### GET /api/onedrive/callback
 
-OAuth callback endpoint that exchanges the auth code and stores tokens.
+OAuth callback endpoint (called by Microsoft after authorization).
+
+**Query Parameters:**
+
+- `code` - Authorization code from Microsoft
+- `state` - State token (includes athlete_id)
+
+**Response:**
+HTML success page
 
 #### POST /api/onedrive/sync
 
-Runs a one-time sync of recent files. Accepts JSON body:
+HTTP-triggered OneDrive sync.
+
+**Auth:** Function-level (default)
+
+**Request Body:**
 
 ```json
-{"days": 30, "athlete_id": "rob"}
+{
+  "days": 30,
+  "athlete_id": "rob",
+  "async": true
+}
+```
+
+**Response (async=true):**
+
+```json
+{
+  "status": "queued",
+  "athlete_id": "rob",
+  "lookback_days": 30
+}
+```
+
+**Response (async=false):**
+
+```json
+{
+  "status": "success",
+  "athlete_id": "rob",
+  "file_count": 5,
+  "workout_count": 5,
+  "error_count": 0
+}
 ```
 
 ### OneDrive Implementation Files
 
-| File                                                                        | Purpose                           |
-| --------------------------------------------------------------------------- | --------------------------------- |
+| File | Purpose |
+| --- | --- |
 | [onedrive_client.py](../../TrainingAnalyticsPlatform/integrations/onedrive_client.py) | Microsoft Graph OAuth + API calls |
 | [onedrive_sync_handler.py](../../TrainingAnalyticsPlatform/handlers/onedrive_sync_handler.py) | OAuth + sync service |
-| [function_app.py](../../function_app.py)                                    | HTTP endpoints + timer trigger    |
-| [table_storage.py](../../TrainingAnalyticsPlatform/storage/table_storage.py) | Token storage + ingestion state  |
+| [function_app.py](../../function_app.py) | HTTP endpoints + timer trigger |
+| [table_storage.py](../../TrainingAnalyticsPlatform/storage/table_storage.py) | Token storage + ingestion state |
 
 ### OneDrive Troubleshooting
 
-| Issue                | Likely Cause                          | Fix                                             |
-| -------------------- | ------------------------------------- | ----------------------------------------------- |
-| Authorization failed | Invalid client ID/secret/redirect URI | Verify app registration values                  |
-| No tokens stored     | Callback not completed                | Complete authorize → callback flow              |
-| No files found       | Wrong folder path                     | Verify `ONEDRIVE_FOLDER_PATH` and file location |
+| Issue | Likely Cause | Fix |
+| --- | --- | --- |
+| Authorization failed | Invalid client ID/secret/redirect URI | Verify app registration values |
+| No tokens stored | Callback not completed | Complete authorize → callback flow |
+| No files found | Wrong folder path | Verify `ONEDRIVE_FOLDER_PATH` and file location |
 
 ## Withings Integration
 
@@ -297,12 +349,12 @@ Measurements are stored in the `Physiometrics` table with the following schema:
 
 ### Withings Implementation Files
 
-| File                                                                     | Purpose                                        |
-| ------------------------------------------------------------------------ | ---------------------------------------------- |
+| File | Purpose |
+| --- | --- |
 | [withings_client.py](../../TrainingAnalyticsPlatform/integrations/withings_client.py) | OAuth client, API methods, measurement parsing |
 | [withings_webhook_processor.py](../../TrainingAnalyticsPlatform/integrations/withings_webhook_processor.py) | Async webhook processing logic |
-| [function_app.py](../../function_app.py)                                 | HTTP endpoints (authorize, callback, webhook)  |
-| [table_storage.py](../../TrainingAnalyticsPlatform/storage/table_storage.py) | Token and measurement storage                |
+| [function_app.py](../../function_app.py) | HTTP endpoints (authorize, callback, webhook) |
+| [table_storage.py](../../TrainingAnalyticsPlatform/storage/table_storage.py) | Token and measurement storage |
 
 ### OAuth Token Management
 
@@ -436,16 +488,16 @@ traces
 
 ### Garmin Overview
 
-**Status:** ✅ Implemented
+**Status:** ✅ Production
 
-The Garmin backend provides access to workout data directly from Garmin Connect using the [garminconnect](https://github.com/cyberjunky/python-garminconnect) Python library. It syncs activities as FIT files and reuses the existing FIT parsing pipeline.
+The Garmin backend provides access to workout data directly from Garmin Connect using the [garth](https://github.com/matin/garth) library for OAuth token management. It syncs activities as FIT files and reuses the existing FIT parsing pipeline.
 
 **Data Flow:**
 
 ```text
-Garmin Connect API (via garminconnect)
+Garmin Connect API
     ↓
-Email/Password Authentication  
+Garth OAuth Token Management
     ↓
 Azure Function (Daily Timer + HTTP sync)
     ↓
@@ -456,41 +508,41 @@ FIT Parser → Metrics → Azure Table Storage
 
 **Key Features:**
 
-- Simple email/password authentication (no OAuth complexity)
-- Automatic token management via `garminconnect` library
+- OAuth 2.0 with automatic token management via garth library
 - Daily sync at 3 AM UTC
 - Configurable lookback window
 - Download original FIT files
+- Reuses existing FIT parsing pipeline (same as OneDrive)
 
 ### Garmin Prerequisites
 
 - Garmin Connect account with activities
-- Azure Function deployed with Garmin sync endpoint
-- garminconnect Python library (>=0.2.38)
+- Azure Function deployed with Garmin sync endpoints
+- OAuth tokens to be obtained via authorization flow
 
 ### Garmin Setup & Configuration
 
-#### 1. Configure Garmin Environment Variables
+#### 1. Authorize with Garmin (First Time Only)
 
-Set these in your Function App configuration:
+**OAuth Authorization Flow:**
 
 ```bash
-GARMIN_EMAIL=your_email@example.com
-GARMIN_PASSWORD=your_password_here
+curl -X GET "https://<FUNCTION_APP>.azurewebsites.net/api/garmin/authorize?athlete_id=rob&code=<FUNCTION_KEY>"
+```
+
+This returns an authorization URL. Open it in a browser and complete the Garmin login flow (including 2FA if enabled). The function will exchange the OAuth tokens and store them in the `GarminTokens` table.
+
+#### 2. Configure Garmin Environment Variables
+
+Set this in your Function App configuration:
+
+```bash
 GARMIN_SYNC_LOOKBACK_DAYS=30  # Optional, defaults to 30 days
-GARMIN_TOKEN_DIR=~/.garminconnect  # Optional, defaults to ~/.garminconnect
 ```
 
-⚠️ **Security Note:** Store credentials in Azure Key Vault and reference them via `@Microsoft.KeyVault(SecretUri=...)` syntax.
+**Note:** OAuth tokens are stored in the `GarminTokens` table after authorization (no passwords stored in config).
 
-**Example with Key Vault:**
-
-```bash
-GARMIN_EMAIL=your_email@example.com
-GARMIN_PASSWORD=@Microsoft.KeyVault(SecretUri=https://your-vault.vault.azure.net/secrets/garmin-password/)
-```
-
-#### 2. Run Sync
+#### 3. Run Sync
 
 Manual sync (HTTP):
 
@@ -688,39 +740,246 @@ except Exception as exc:
 
 ---
 
-## Multi-Backend Strategy (Updated)
+## Workout Ingestion Architecture
 
-### Data Source Priority
+### Three Parallel Sources (No Cross-Source Deduplication)
 
-When multiple backends provide overlapping data:
+The system ingests workouts from **three independent pathways** with **no fallback or cross-source deduplication**:
 
-1. **Workouts:**
-   - Primary: HealthFit FIT files (most detailed)
-   - Secondary: Garmin activities (native source, complete data)
-   - Tertiary: Manual upload
+| Source | Device Class | Ingestion Path | Filtration Rule |
+| --- | --- | --- | --- |
+| **Apple Watch** | Wearable | HealthFit → OneDrive → OneDrive handler | Accept only `device_name` containing "Watch" |
+| **Garmin/Zwift** | Cycling computer / Platform | Garmin Connect API → Garmin handler | Accept only `manufacturer ∈ {1=Garmin, 263=Zwift}` |
+| **Manual Upload** | Any | HTTP payload → Payload handler | No filtration |
 
-2. **Body Composition:**
-   - Primary: Withings (automatic, real-time)
-   - Secondary: Garmin Index scale (if available)
-   - Tertiary: Manual entry via API
+**Key Principle**: Each pathway processes **only actual device recordings**. No complex cross-source deduplication logic exists.
 
-3. **Daily Metrics:**
-   - HRV/Stress: Garmin (primary source)
-   - Weight: Withings (primary source)
-   - Resting HR: Extracted from FIT files or Garmin daily stats
+---
 
-### Backend Health Monitoring
+### Why Parallel Sources (Not Hierarchical)?
+
+#### The Problem: Workout Double-Counting
+
+Without active deduplication, the same workout could appear through multiple pathways:
+
+#### Example: Zwift Indoor Cycling Session
+
+```text
+❌ Path A (REJECTED): 
+Zwift app → RunGap sync → HealthKit → HealthFit export → OneDrive
+                                                         ↓
+                                            device_name="iPhone" (sentinel)
+                                            FILTERED OUT by OneDrive handler
+
+✅ Path B (ACCEPTED):
+Zwift app → Garmin Connect sync → Garmin API
+                                  ↓
+                     manufacturer_code=263 (Zwift)
+                     ACCEPTED by Garmin handler
+```
+
+#### Why Not Deduplicate?
+
+Cross-source deduplication would require:
+
+- Fuzzy timestamp matching (workouts have time drift across systems)
+- Sport/duration/distance comparison (ambiguous for similar sessions)
+- Complex heuristics or LLM reasoning (expensive, fragile)
+
+#### Our Approach: Prevent duplicates via strict device filtration at ingestion
+
+---
+
+### HealthFit Intelligence & Signal Encoding
+
+**HealthFit is not a passive export app** - it encodes classification signals into FIT files that enable deterministic filtration.
+
+#### **HealthKit-Synced Pattern (Secondary Export - REJECT)**
+
+When a workout is synced INTO HealthKit by another app:
+
+| Signal | Example | Interpretation |
+| --- | --- | --- |
+| **Filename** | `2026-01-07-030813-Indoor Cycling-RunGap.fit` | Date + Activity + **App Name** |
+| **device_name** | `"iPhone"` | **Sentinel value** (not an actual device) |
+| **manufacturer** | `"development"` | Normal for Apple (not official FIT manufacturer) |
+
+**Combined meaning:**
+
+- Filename source token = **app that synced to HealthKit** (RunGap, Zwift, Strava, Intervals.icu)
+- `device_name="iPhone"` = **not recorded by an actual device**
+- This is a **secondary export** - workout exists elsewhere in primary form
+- **Action**: REJECT during OneDrive ingestion
+
+#### **Actual Device Pattern (Primary Recording - ACCEPT)**
+
+When Apple Watch records a workout directly:
+
+| Signal | Example | Interpretation |
+| --- | --- | --- |
+| **Filename** | `2026-01-15-193027-Indoor Cycling-AppleWatch.fit` | Date + Activity + **Device Type** |
+| **device_name** | `"Apple Watch Ultra"` or `"Watch 7,12"` | Actual recording device |
+| **manufacturer** | `"development"` | Normal for Apple (all Apple exports) |
+
+**Combined meaning:**
+
+- Filename source token = **actual device type** (AppleWatch, Garmin)
+- `device_name` contains "Watch" = **native Apple Watch recording**
+- This is a **primary recording** from the workout's origin device
+- **Action**: ACCEPT during OneDrive ingestion
+
+---
+
+### The iPhone Sentinel
+
+#### `device_name="iPhone"` is HealthFit's deterministic classification signal
+
+When you see this pattern:
+
+```python
+device_name="iPhone"
+manufacturer="development"
+filename="2026-01-07-030813-Indoor Cycling-RunGap.fit"
+                                           ^^^^^^
+                                        App that synced to HealthKit
+```
+
+#### It means
+
+1. The workout was synced **INTO** HealthKit by RunGap (or another app)
+2. RunGap is the **syncing app**, not a recording device
+3. The actual device could be Zwift, Garmin, Wahoo, etc. (unknown from this export)
+4. This is a **secondary export** - the primary version exists elsewhere
+5. **We reject it** to avoid double-counting
+
+#### Why "iPhone" as sentinel?
+
+- HealthFit uses the literal string `"iPhone"` as a sentinel value for HealthKit-synced workouts (not actual iPhone recordings)
+- Real Apple devices have model identifiers: `"iPhone17,1"` (iPhone), `"Watch7,12"` (Apple Watch), etc.
+- Actual Apple Watch recordings always have `device_name` containing "Watch" with a model ID
+- This simple string check (`"iphone" in device_name.lower()`) detects the sentinel and enables fast, deterministic classification
+- No complex heuristics or fuzzy matching needed
+
+---
+
+### RunGap as HealthKit Intermediary (Not a Source)
+
+#### RunGap's role: sync intermediary
+
+RunGap is a **workout sync app**, not a workout source:
+
+1. **Fetches** workouts from Zwift, Intervals.icu, Rouvy, Garmin Connect, Strava
+2. **Writes** them INTO Apple HealthKit via the HealthKit API
+3. HealthFit exports these with `device_name="iPhone"` and filename source token `"RunGap"`
+
+**Important clarifications:**
+
+- RunGap CAN export directly to OneDrive (we do NOT use this pathway)
+- We ONLY process HealthFit exports (single, predictable export mechanism)
+- OneDrive = HealthFit exclusively (simplifies ingestion model)
+
+**Similar sync apps:**
+
+- **Intervals.icu** → writes to HealthKit → same pattern
+- **Strava imports** → writes to HealthKit → same pattern  
+- **Any app syncing to HealthKit** → triggers `device_name="iPhone"` pattern
+
+---
+
+### manufacturer="development" is NORMAL for Apple
+
+**Common confusion:** `manufacturer="development"` looks like a placeholder or debug value
+
+**Reality:**
+
+- Apple is **not** an official FIT manufacturer code
+- HealthFit uses `manufacturer="development"` for **ALL Apple exports**
+- This includes legitimate Apple Watch recordings
+- It is **NOT** a filtration signal
+
+**Filtration Logic:**
+
+```text
+✅ manufacturer="development" + device_name="Apple Watch"   → ACCEPT (actual device)
+✅ manufacturer="development" + device_name="Watch 7,12"    → ACCEPT (actual device)
+❌ manufacturer="development" + device_name="iPhone"        → REJECT (HealthKit-synced)
+```
+
+**Do NOT filter on manufacturer="development" alone**  
+**DO filter on device_name="iPhone"**
+
+---
+
+### Garmin API: Manufacturer Allowlist
+
+**Garmin handler filtration rule:**
+
+```python
+ALLOWED_MANUFACTURERS = {1, 263}  # Garmin=1, Zwift=263
+```
+
+**Rationale:**
+
+- Garmin Connect can sync workouts FROM other platforms (via apps like RunGap)
+- We want **ONLY** native Garmin/Zwift device recordings
+- Manufacturer code filtering ensures data quality
+
+**Examples:**
+
+```text
+✅ ACCEPTED:
+- Garmin Edge 1050 → Garmin API (manufacturer_code=1)
+- Zwift indoor session → Garmin API (manufacturer_code=263)
+
+❌ REJECTED:
+- Wahoo ELEMNT → RunGap → Garmin Connect (manufacturer_code=32)
+- Polar watch → synced to Garmin (manufacturer_code=varies)
+- Strava manual entry → imported to Garmin (manufacturer_code=varies)
+```
+
+**Code location:**
+
+- Allowlist constant: `TrainingAnalyticsPlatform/handlers/ingestion_base_handler.py`
+- Enforcement: `GarminSyncIngestionHandler._apply_device_source_filtration()`
+
+---
+
+### Filtration Summary
+
+**What We Accept:**
+
+- ✅ Apple Watch native recordings (via HealthFit → OneDrive)
+- ✅ Garmin device recordings (via Garmin Connect API)
+- ✅ Zwift sessions (via Garmin Connect API)
+- ✅ Manual uploads (HTTP payload, any source, user responsibility)
+
+**What We Reject:**
+
+- ❌ HealthKit-synced workouts from OneDrive (`device_name="iPhone"`)
+- ❌ Non-Garmin/Zwift manufacturers from Garmin Connect API
+- ❌ Secondary exports where primary source is available elsewhere
+
+**Benefits:**
+
+- **Data quality**: Primary device recordings only
+- **No double-counting**: Each workout appears exactly once
+- **Simple architecture**: No complex deduplication logic needed
+- **Clear boundaries**: Each ingestion pathway has explicit responsibility
+
+---
+
+### Operational Monitoring
 
 **Recommended Alerts:**
 
-- Withings webhook failures (consecutive)
-- Token refresh failures (Withings/Garmin/OneDrive)
+- Token refresh failures (Garmin/OneDrive)
 - Sync job failures (Garmin/OneDrive scheduled tasks)
+- High filtration rate (>50% of files rejected - may indicate configuration issue)
 - Missing data for >7 days (any backend)
 
 **Dashboard Tiles:**
 
-- Last successful sync timestamp per backend (OneDrive, Garmin, Withings)
-- Measurement count by data source (last 30 days)
-- Authorization status per athlete per backend
-- Failed ingestion count per backend (last 24 hours)
+- Last successful sync timestamp (OneDrive, Garmin)
+- Workout count by source (last 30 days): Apple Watch, Garmin, Zwift, Manual
+- Filtration rate by handler (filtered / total processed)
+- Failed ingestion count by source (last 24 hours)

@@ -96,6 +96,22 @@ FIT parsing uses a hierarchical Pydantic model architecture with factory-based i
 - **GarminFitModel**: FIT files from Garmin Connect API sync
 - **PayloadFitModel**: Generic fallback for other sources
 
+#### Device Filtration
+
+Each concrete model enforces source-specific device filtration during ingestion:
+
+- **HealthFitModel**: Rejects `device_name="iPhone"` (HealthKit-synced workouts)
+- **GarminFitModel**: Accepts only `manufacturer_code ∈ {1=Garmin, 263=Zwift}`
+- **PayloadFitModel**: No filtration (user-controlled uploads)
+
+**See**: [Workout Ingestion Architecture](../../devops/BACKENDS.md#workout-ingestion-architecture) for complete filtration rationale and cross-source deduplication strategy.
+
+**Implementation**:
+
+- Device classification: `TrainingAnalyticsPlatform/ingestion/device_classifier.py`
+- Filtration enforcement: `FitIngestionBaseHandler._apply_device_source_filtration()`
+- Filtered ingestion records: `IngestionState` table with `status='filtered'`
+
 ### Factory Function
 
 `create_fit_model(source_metadata: Dict, file_bytes: bytes) -> BaseFitModel`
