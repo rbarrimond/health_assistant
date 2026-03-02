@@ -14,7 +14,6 @@ class WorkoutStorageProtocol(Protocol):
         self,
         athlete_id: str,
         metadata: Dict,
-        source_info: Dict,
         *,
         workout_id: Optional[str] = None,
         ingestion_id: Optional[str] = None,

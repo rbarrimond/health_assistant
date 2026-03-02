@@ -22,7 +22,6 @@ class TestStoreWorkoutPartitioning:
         storage.infra.get_table_client = MagicMock(return_value=mock_table_client)
 
         workout_id = "0123456789abcdef0123456789abcdef01234567"
-        source_info = {}
         # Note: source_system, normalized_source_system, source_item_id are no longer
         # part of WorkoutEntity schema (removed in v2.0.0 refactor). They're only stored
         # in IngestionState table for audit purposes.
@@ -38,7 +37,6 @@ class TestStoreWorkoutPartitioning:
         storage.store_workout(
             "rob",
             metadata,
-            source_info,
             workout_id=workout_id,
             ingestion_id="ing-1",
         )
@@ -56,7 +54,6 @@ class TestStoreWorkoutPartitioning:
         storage.infra.get_table_client = MagicMock(return_value=mock_table_client)
 
         workout_id = "fedcba9876543210fedcba9876543210fedcba98"
-        source_info = {}
         # Note: source_system, normalized_source_system, source_item_id are no longer
         # part of WorkoutEntity schema (removed in v2.0.0 refactor). They're only stored
         # in IngestionState table for audit purposes.
@@ -69,7 +66,6 @@ class TestStoreWorkoutPartitioning:
         storage.store_workout(
             "rob",
             metadata,
-            source_info,
             workout_id=workout_id,
             ingestion_id="ing-2",
         )

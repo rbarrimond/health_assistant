@@ -464,19 +464,35 @@ class SemanticLayer:
             Cleaned workout dict
         """
         workout_entity = WorkoutEntity.from_table_entity(entity)
-        metrics = workout_entity.metrics
+        
+        # Load metadata.json blob (authoritative source for session/enrichment zones)
+        # Fallback to ingestion_id if workout_id not available
+        lookup_id = entity.get("ingestion_id") or workout_entity.workout_id
+        try:
+            metadata_blob = self.storage.workouts.load_metadata_json(lookup_id)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.debug("Could not load metadata blob for %s: %s", lookup_id, exc)
+            metadata_blob = {}
+        
+        # Extract semantic zones from metadata blob (these contain session/enrichment data)
+        session = metadata_blob.get("session", {})
+        enrichment = metadata_blob.get("enrichment", {})
+        activity_metadata = metadata_blob.get("activity_metadata", {})
+        
+        # Combine zones into a metrics dict for inferential methods
+        # (This maintains backward compatibility with methods that read from metrics dict)
+        metrics = {**session, **enrichment, **activity_metadata}
         metrics = self._apply_canonical_metrics(workout_entity, metrics)
 
-        # Prefer entity core fields over metrics (schema 2.0.0+ stores these as queryable properties)
+        # Prefer entity core fields over metadata zones (schema 2.0.0+ stores these as queryable properties)
         sport = workout_entity.sport or self._infer_sport(metrics)
-        sub_sport = workout_entity.sub_sport or metrics.get("sub_sport") or sport
-        is_indoor = self._infer_is_indoor(metrics)
-        workout_name = self._infer_workout_name(metrics, sport)
-        calories = self._infer_calories(metrics, sport)
+        sub_sport = workout_entity.sub_sport or enrichment.get("sub_sport") or sport
+        is_indoor = enrichment.get("is_indoor") or self._infer_is_indoor(metrics)
+        workout_name = enrichment.get("workout_name") or self._infer_workout_name(metrics, sport)
+        calories = session.get("calories_kcal") or self._infer_calories(metrics, sport)
 
-        # Core summary fields (prefer entity properties, fallback to metrics)
-        local_tz_offset = metrics.get("local_tz_offset")
-        timezone_value = metrics.get("timezone") or local_tz_offset
+        # Core summary fields (prefer entity properties, fallback to metadata zones)
+        local_tz_offset = activity_metadata.get("local_tz_offset")
         workout = {
             "workout_id": workout_entity.workout_id,
             "athlete_id": workout_entity.athlete_id,
@@ -484,13 +500,14 @@ class SemanticLayer:
             "sub_sport": sub_sport,
             "workout_name": workout_name,
             "is_indoor": is_indoor,
-            "start_time_utc": workout_entity.start_time_utc or metrics.get("start_time_utc"),
+            "start_time_utc": workout_entity.start_time_utc,
             "local_tz_offset": local_tz_offset,
-            "timezone": timezone_value,
-            "duration_sec": workout_entity.duration_sec or metrics.get("duration_sec"),
-            "moving_time_sec": metrics.get("moving_time_sec"),
-            "distance_m": workout_entity.distance_m or metrics.get("distance_m"),
-            "elevation_gain_m": metrics.get("elevation_gain_m"),
+            "timezone": local_tz_offset,
+            "duration_sec": workout_entity.duration_sec or session.get("duration_sec"),
+            "moving_time_sec": session.get("moving_time_sec"),
+            "distance_m": workout_entity.distance_m or session.get("distance_m"),
+            "elevation_gain_m": session.get("elevation_gain_m"),
+            "elevation_loss_m": session.get("elevation_loss_m"),
             "calories_kcal": calories,
         }
 

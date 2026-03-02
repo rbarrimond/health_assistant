@@ -148,12 +148,12 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     assert storage.workouts.store_workout.call_count == 1
     call_args = storage.workouts.store_workout.call_args
     assert call_args[0][0] == "rob"  # athlete_id
-    # First arg should be structured_metadata with provenance zone added
+    # Second arg should be structured_metadata with provenance zone added
     stored_metadata = call_args[0][1]
     assert "identity" in stored_metadata
     assert stored_metadata["identity"]["sport"] == "Cycling"
     assert "provenance" in stored_metadata  # Added by handler
-    assert call_args[0][2] == source_info  # source_info (updated with ingestion_id)
+    # Keyword args
     assert call_args[1]["workout_id"] == expected_workout_id
     assert "ingestion_id" in call_args[1]  # Should have ingestion_id
     assert call_args[1]["canonical_schema_version"] == CANONICAL_SCHEMA_VERSION

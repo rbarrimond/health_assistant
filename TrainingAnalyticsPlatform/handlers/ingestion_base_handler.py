@@ -165,7 +165,6 @@ class FitIngestionBaseHandler(ABC):
         self.storage.workouts.store_workout(
             athlete_id,
             structured_metadata,
-            source_info,
             workout_id=workout_id,
             ingestion_id=ingestion_id,
             canonical_schema_version=CANONICAL_SCHEMA_VERSION,

@@ -8,6 +8,28 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-02
+
+### Workouts Table Schema Enforcement [ingest v14.0.0 - BREAKING]
+
+- **BREAKING:** Remove `metrics: Dict[str, Any]` field from `WorkoutEntity` class in `storage_infrastructure.py`
+- **BREAKING:** Delete `_flatten_structured_metadata()` method from `WorkoutStorage` class - no longer flattens semantic zones into table
+- **BREAKING:** Enforce schema constraint `extra="forbid"` on `WorkoutEntity` for strict queryable-only validation
+- **Rationale:** Eliminate artifact conflation violation where session metrics, provenance, and enrichment data were being stored in Workouts table (should remain in metadata.json blob or IngestionState table)
+- **Impact summary:**
+  - Workouts table now stores exactly 19 queryable fields (identity + capabilities + device + pointers)
+  - Session metrics, enrichment, provenance, activity metadata now exclusively reside in metadata.json blob or IngestionState table
+  - Enforces documented separation of concerns: metadata.json (faithful FIT artifact) | Workouts table (queryable identity) | IngestionState table (provenance)
+  - Major version bump signals backward-incompatible schema change
+- **Data safety:** Non-breaking for data persistence - metadata.json blob contains all required fields; this change enforces logical separation only
+- **Code changes:**
+  - `constants.py`: INGEST_VERSION bumped v13.0.32 → v14.0.0
+  - `storage_infrastructure.py`: Removed metrics field, metrics collection logic from `from_table_entity()`, metrics expansion from `to_entity()`
+  - `workout_storage.py`: Deleted `_flatten_structured_metadata()` method (15 lines), removed flattening call from ingestion flow
+  - `semantic_layer.py`: Updated `_entity_to_workout_dict()` to load metadata.json blob for session/enrichment zones instead of reading from removed metrics field
+- **Tests:** 11 new schema enforcement tests verify extra="forbid" validation; semantic layer tests updated to mock metadata blob loading; all 481 tests passing
+- **Documentation:** Code now enforces documented architecture principle of artifact separation
+
 ## 2026-03-01
 
 ### Storage Architecture Cleanup [code cleanup - no version bump]

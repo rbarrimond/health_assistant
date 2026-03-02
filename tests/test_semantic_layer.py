@@ -496,11 +496,20 @@ class TestHelperMethods:
             "ingestion_id": "ing-001",
             "sport": "Cycling",
             "duration_sec": 3600,
-            "hr_avg_bpm": 145,
-            "z2_minutes": 50,
-            "local_tz_offset": "UTC-05:00",
-            "timezone": "America/New_York",
         }
+        
+        # Mock metadata blob with session/enrichment zones
+        metadata_blob = {
+            "session": {
+                "hr_avg_bpm": 145,
+                "duration_sec": 3600,
+            },
+            "enrichment": {},
+            "activity_metadata": {
+                "local_tz_offset": "UTC-05:00",
+            },
+        }
+        semantic_layer.storage.workouts.load_metadata_json.return_value = metadata_blob
 
         workout = semantic_layer._entity_to_workout_dict(entity)
 
@@ -508,7 +517,7 @@ class TestHelperMethods:
         assert workout["sport"] == "Cycling"
         assert workout["hr_avg_bpm"] == 145
         assert workout["local_tz_offset"] == "UTC-05:00"
-        assert workout["timezone"] == "America/New_York"
+        assert workout["timezone"] == "UTC-05:00"
 
     def test_entity_to_workout_dict_timezone_falls_back_to_local_offset(self, semantic_layer):
         """Test timezone field falls back to local_tz_offset when timezone is absent."""
@@ -520,8 +529,19 @@ class TestHelperMethods:
             "ingestion_id": "ing-002",
             "sport": "Running",
             "duration_sec": 1800,
-            "local_tz_offset": "UTC+01:00",
         }
+        
+        # Mock metadata blob with activity_metadata zone containing local_tz_offset
+        metadata_blob = {
+            "session": {
+                "duration_sec": 1800,
+            },
+            "enrichment": {},
+            "activity_metadata": {
+                "local_tz_offset": "UTC+01:00",
+            },
+        }
+        semantic_layer.storage.workouts.load_metadata_json.return_value = metadata_blob
 
         workout = semantic_layer._entity_to_workout_dict(entity)
 

@@ -59,44 +59,10 @@ class WorkoutEntity(BaseModel):
     has_power: bool = False
     has_hr: bool = False
     has_gps: bool = False
-    # Flexible enrichment (flattened from metadata zones for backward compatibility)
-    metrics: Dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
     def from_table_entity(cls, entity: Dict[str, Any]) -> "WorkoutEntity":
         """Create a WorkoutEntity from a raw Azure Table entity."""
-        core_keys = {
-            "PartitionKey",
-            "RowKey",
-            "workout_id",
-            "ingestion_id",
-            "athlete_id",
-            "canonical_schema_version",
-            "canonical_records_blob",
-            "records_count",
-            "laps_count",
-            "start_time_utc",
-            "sport",
-            "sub_sport",
-            "duration_sec",
-            "distance_m",
-            "device_manufacturer",
-            "device_model",
-            "has_power",
-            "has_hr",
-            "has_gps",
-        }
-        system_keys = {
-            "Timestamp",
-            "etag",
-            "odata.etag",
-        }
-        metrics = {
-            key: value
-            for key, value in entity.items()
-            if key not in core_keys | system_keys
-        }
-
         return cls(
             partition_key=entity.get("PartitionKey", ""),
             row_key=entity.get("RowKey", ""),
@@ -117,7 +83,6 @@ class WorkoutEntity(BaseModel):
             has_power=entity.get("has_power", False),
             has_hr=entity.get("has_hr", False),
             has_gps=entity.get("has_gps", False),
-            metrics=metrics,
         )
 
     def to_entity(self) -> Dict[str, Any]:
@@ -147,11 +112,6 @@ class WorkoutEntity(BaseModel):
             "has_hr": self.has_hr,
             "has_gps": self.has_gps,
         }
-
-        # Add enrichment metrics
-        for key, value in self.metrics.items():
-            if value is not None:
-                entity[key] = value
 
         return entity
 

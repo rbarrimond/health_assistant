@@ -31,7 +31,6 @@ class WorkoutStorage:
         self,
         athlete_id: str,
         metadata: Dict,
-        source_info: Dict,
         *,
         workout_id: Optional[str] = None,
         ingestion_id: Optional[str] = None,
@@ -46,7 +45,6 @@ class WorkoutStorage:
         Args:
             athlete_id: Athlete identifier (e.g., 'rob')
             metadata: Canonical metadata (semantic zones dict OR flat dict for backward compatibility)
-            source_info: OneDrive/source file info
             workout_id: Unique workout identifier
             ingestion_id: Ingestion tracking identifier
             canonical_schema_version: Version of canonical schema
@@ -66,14 +64,10 @@ class WorkoutStorage:
         # Handle both structured (zones) and flat dict formats
         identity = metadata.get("identity", {}) if "identity" in metadata else {}
         capabilities = metadata.get("capabilities", {}) if "capabilities" in metadata else {}
-        provenance = metadata.get("provenance", {}) if "provenance" in metadata else {}
         
         # For backward compatibility, also check flat dict
         if not identity:
             identity = metadata
-        
-        # Flatten structured metadata for metrics field (semantic layer compatibility)
-        flat_metadata = self._flatten_structured_metadata(metadata)
         
         # Build partition and row keys from identity zone
         start_time = identity.get("start_time_utc", metadata.get("start_time_utc", ""))
@@ -111,8 +105,6 @@ class WorkoutStorage:
             has_power=capabilities.get("has_power", False),
             has_hr=capabilities.get("has_hr", False),
             has_gps=capabilities.get("has_gps", False),
-            # Metrics dict for flexible enrichment (flattened for semantic layer compatibility)
-            metrics=flat_metadata,  # Flattened zones for backward compatibility with semantic layer
         ).to_entity()
 
         # Store in table
@@ -124,26 +116,6 @@ class WorkoutStorage:
         except HttpResponseError as e:
             logger.error("Error storing workout %s: %s", workout_id, e)
             raise StorageError("Failed to store workout") from e
-
-    @staticmethod
-    def _flatten_structured_metadata(metadata: Dict) -> Dict:
-        """Flatten semantic zones back to flat dict for backward compatibility.
-        
-        Args:
-            metadata: Metadata with semantic zones (identity, capabilities, session, etc.) OR flat dict
-            
-        Returns:
-            Flattened dict with all fields at top level
-        """
-        # If already flat (no zones), return as-is
-        if "identity" not in metadata:
-            return metadata
-        
-        flat = {}
-        for zone_name, zone_data in metadata.items():
-            if isinstance(zone_data, dict):
-                flat.update(zone_data)
-        return flat
 
     def record_ingestion_state(
         self,
@@ -299,9 +271,6 @@ class WorkoutStorage:
             # Extract flat metrics dict from nested model structure
             flat_metrics = self._flatten_workout_metrics(metrics)
 
-        # Source info defaults
-        source_info = {"source_system": "HealthFit"}
-
         payload = json.dumps(flat_metrics, separators=(",", ":"), default=str, sort_keys=True)
         ingestion_id = hashlib.sha256(payload.encode()).hexdigest()
 
@@ -309,7 +278,6 @@ class WorkoutStorage:
         return self.store_workout(
             athlete_id,
             flat_metrics,
-            source_info,
             ingestion_id=ingestion_id,
         )
 
