@@ -16,7 +16,7 @@ from typing import Any, cast
 import pytest
 
 from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_file_hash
-from TrainingAnalyticsPlatform.ingestion.apple_workout_types import INDOOR_CYCLE, INDOOR_RUN
+from TrainingAnalyticsPlatform.ingestion.apple_workout_types import INDOOR_CYCLE, INDOOR_RUN, FUNCTIONAL_STRENGTH
 from TrainingAnalyticsPlatform.ingestion.fit_models import BaseFitModel, HealthFitModel, PayloadFitModel
 from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 
@@ -293,17 +293,41 @@ class TestHealthFitWorkoutTypeParsing:
 
         assert model.filename_apple_workout_type == "Indoor Cycling"
 
-    def test_healthfit_filename_regex_normalizes_hyphenated_activity_type(self) -> None:
-        """Verify hyphenated activity labels normalize to spaced Apple activity tokens."""
+    def test_healthfit_filename_regex_parses_canonical_activity_with_device_no_spaces(self) -> None:
+        """Verify regex captures canonical format: spaced activity type, simple device name (no spaces)."""
         model = HealthFitModel(
             file_bytes=b"fit",  # type: ignore[call-arg]
             source_metadata={  # type: ignore[call-arg]
-                "source_file_name": "2026-02-17-202435-Indoor-Cycling-RunGap.fit",
+                "source_file_name": "2026-02-17-202435-Indoor Cycling-RunGap.fit",
             },
         )
 
         assert model.filename_apple_workout_type == "Indoor Cycling"
         assert model.filename_source_device == "RunGap"
+
+    def test_healthfit_filename_regex_preserves_full_source_device_name(self) -> None:
+        """Verify source-device token is preserved exactly, including apostrophes and suffixes."""
+        model = HealthFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                "source_file_name": "2026-02-17-202435-Indoor Cycling-Robert's Apple Watch Ultra 3.fit",
+            },
+        )
+
+        assert model.filename_apple_workout_type == "Indoor Cycling"
+        assert model.filename_source_device == "Robert's Apple Watch Ultra 3"
+
+    def test_healthfit_filename_regex_preserves_hyphenated_source_device_name(self) -> None:
+        """Verify hyphenated source-device token is preserved in full (canonical format with spaced activity)."""
+        model = HealthFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                "source_file_name": "2026-03-02-093346-Functional Strength Training-Robert's-Apple-Watch-7.fit",
+            },
+        )
+
+        assert model.filename_apple_workout_type == "Functional Strength Training"
+        assert model.filename_source_device == "Robert's-Apple-Watch-7"
 
     def test_healthfit_apple_workout_type_resolves_from_filename(self) -> None:
         """Verify that HealthFit model derives Apple workout type from filename when messages are missing."""
@@ -313,25 +337,35 @@ class TestHealthFitWorkoutTypeParsing:
                 "source_file_name": "2026-02-17-202435-Indoor Cycling-RunGap.fit",
             },
         )
-        model._session_msg = None
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "sport": "cycling",
+                    "sub_sport": "indoor_cycling",
+                    "timestamp": datetime(2026, 2, 17, 6, 30, 0, tzinfo=timezone.utc),
+                    "total_elapsed_time": 0,
+                }
+            ),
+        )
         model._file_id_msg = None
 
-        assert model.workout_name == "Indoor Cycling"
+        assert model.workout_name is not None
+        assert model.workout_name.endswith("Indoor Cycle")
         assert model.apple_workout_type == INDOOR_CYCLE
 
-    def test_healthfit_apple_workout_type_resolves_from_hyphenated_filename(self) -> None:
-        """Verify hyphenated filename labels normalize before Apple workout type resolution."""
+    def test_healthfit_hyphenated_activity_token_is_rejected(self) -> None:
+        """Verify non-canonical hyphenated activity tokens are rejected by filename parser."""
         model = HealthFitModel(
             file_bytes=b"fit",  # type: ignore[call-arg]
             source_metadata={  # type: ignore[call-arg]
                 "source_file_name": "2026-02-17-202435-Indoor-Cycling-RunGap.fit",
             },
         )
-        model._session_msg = None
-        model._file_id_msg = None
 
-        assert model.workout_name == "Indoor Cycling"
-        assert model.apple_workout_type == INDOOR_CYCLE
+        assert model.filename_components is None
+        assert model.filename_apple_workout_type is None
+        assert model.filename_source_device is None
 
     def test_healthfit_apple_workout_type_prefers_filename_over_fit_signals(self) -> None:
         """Verify HealthFit prefers filename-derived Apple workout type over FIT session messages."""
@@ -378,6 +412,202 @@ class TestHealthFitWorkoutTypeParsing:
             "falling back to FIT apple workout type resolution" in record.message
             for record in caplog.records
         )
+
+    def test_healthfit_canonical_metadata_emits_provenance_source_device_name(self) -> None:
+        """Verify canonical metadata preserves filename source-device token in provenance."""
+        model = HealthFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                "source_file_name": "2026-02-17-202435-Indoor Cycling-Robert's Apple Watch Ultra 3.fit",
+            },
+        )
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "sport": "cycling",
+                    "sub_sport": "indoor_cycling",
+                    "timestamp": datetime(2026, 2, 17, 6, 30, 0, tzinfo=timezone.utc),
+                    "total_elapsed_time": 0,
+                }
+            ),
+        )
+        model._file_id_msg = None
+
+        metadata = model.build_canonical_metadata()
+
+        assert metadata["identity"]["device_name"] == "Robert's Apple Watch Ultra 3"
+        assert metadata["provenance"]["source_device_name"] == "Robert's Apple Watch Ultra 3"
+
+
+class TestHealthFitDeviceNameExtraction:
+    """Tests for device name extraction from corrupted OneDrive filenames."""
+
+    def test_extract_device_name_from_corrupted_functional_strength_training_filename(self) -> None:
+        """Extract device name when activity type is hyphenated by OneDrive."""
+        model = HealthFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                "source_file_name": "2025-12-14-183750-Functional-Strength-Training-Robert's-Apple-Watch-7.fit",
+            },
+        )
+        # Mock the FIT sport/sub_sport so apple_workout_type resolves correctly
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "sport": "training",
+                    "sub_sport": "functional_training",
+                    "timestamp": datetime(2025, 12, 14, 9, 30, 0, tzinfo=timezone.utc),
+                    "total_elapsed_time": 0,
+                }
+            ),
+        )
+        model._file_id_msg = None
+
+        # FIT-derived apple_workout_type should be "Functional Strength Training"
+        assert model.apple_workout_type == FUNCTIONAL_STRENGTH
+        # Extracted and denormalized device name (model number stays hyphenated)
+        assert model.device_name == "Robert's Apple Watch-7"
+
+    def test_extract_device_name_from_corrupted_indoor_cycling_filename(self) -> None:
+        """Extract device name for simple activity type."""
+        model = HealthFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                "source_file_name": "2025-12-14-183750-Indoor-Cycle-RunGap.fit",
+            },
+        )
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "sport": "cycling",
+                    "sub_sport": "indoor_cycling",
+                    "timestamp": datetime(2025, 12, 14, 9, 30, 0, tzinfo=timezone.utc),
+                    "total_elapsed_time": 0,
+                }
+            ),
+        )
+        model._file_id_msg = None
+
+        assert model.apple_workout_type == INDOOR_CYCLE
+        assert model.device_name == "RunGap"
+
+    def test_extract_device_name_from_corrupted_other_activity_filename(self) -> None:
+        """Extract device name for 'Other' activity type."""
+        model = HealthFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                "source_file_name": "2025-12-14-183750-Other-Robert's-Apple-Watch-Ultra-3.fit",
+            },
+        )
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "sport": "unknown",
+                    "sub_sport": None,
+                    "timestamp": datetime(2025, 12, 14, 9, 30, 0, tzinfo=timezone.utc),
+                    "total_elapsed_time": 0,
+                }
+            ),
+        )
+        model._file_id_msg = None
+
+        assert model.apple_workout_type == "Other"
+        # Device name has "Apple Watch Ultra" denormalized, but model number stays hyphenated
+        assert model.device_name == "Robert's Apple Watch Ultra-3"
+
+    def test_extract_device_name_with_gzip_suffix(self) -> None:
+        """Verify device name extraction handles .fit.gz suffixes."""
+        model = HealthFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                "source_file_name": "2025-12-14-183750-Functional-Strength-Training-Robert's-Apple-Watch-7.fit.gz",
+            },
+        )
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "sport": "training",
+                    "sub_sport": "functional_training",
+                    "timestamp": datetime(2025, 12, 14, 9, 30, 0, tzinfo=timezone.utc),
+                    "total_elapsed_time": 0,
+                }
+            ),
+        )
+        model._file_id_msg = None
+
+        assert model.device_name == "Robert's Apple Watch-7"
+
+    def test_extract_device_name_returns_none_when_no_source_filename(self) -> None:
+        """Device name returns None when source_file_name is missing."""
+        model = HealthFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={},  # type: ignore[call-arg]
+        )
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "sport": "training",
+                    "sub_sport": "functional_training",
+                    "timestamp": datetime(2025, 12, 14, 9, 30, 0, tzinfo=timezone.utc),
+                    "total_elapsed_time": 0,
+                }
+            ),
+        )
+        model._file_id_msg = None
+
+        assert model.device_name is None
+
+    def test_extract_device_name_returns_none_when_activity_type_mismatch(self) -> None:
+        """Device name returns None when activity type doesn't match filename."""
+        model = HealthFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                "source_file_name": "2025-12-14-183750-Running-Running-Watch.fit",
+            },
+        )
+        # FIT says cycling but filename says running
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "sport": "cycling",
+                    "sub_sport": "indoor_cycling",
+                    "timestamp": datetime(2025, 12, 14, 9, 30, 0, tzinfo=timezone.utc),
+                    "total_elapsed_time": 0,
+                }
+            ),
+        )
+        model._file_id_msg = None
+
+        # apple_workout_type from FIT = "Indoor Cycling", but filename starts with "Running"
+        assert model.device_name is None
+
+    def test_denormalize_device_name_apple_watch(self) -> None:
+        """Test denormalization of Apple Watch pattern."""
+        # Only "Apple-Watch" pattern is denormalized; other hyphens remained
+        result = HealthFitModel._denormalize_device_name("Robert's-Apple-Watch-7")
+        assert result == "Robert's Apple Watch-7"
+
+    def test_denormalize_device_name_apple_watch_ultra(self) -> None:
+        """Test denormalization of Apple Watch Ultra pattern."""
+        result = HealthFitModel._denormalize_device_name("Robert's-Apple-Watch-Ultra-3")
+        assert result == "Robert's Apple Watch Ultra-3"
+
+    def test_denormalize_device_name_preserves_ambiguous_hyphens(self) -> None:
+        """Test that ambiguous hyphens are preserved."""
+        result = HealthFitModel._denormalize_device_name("Some-Unknown-Device-Name")
+        assert result == "Some-Unknown-Device-Name"
+
+    def test_denormalize_device_name_mixed_patterns(self) -> None:
+        """Test denormalization with multiple known patterns."""
+        result = HealthFitModel._denormalize_device_name("Robert's-Apple-Watch-Ultra-3-backup")
+        assert result == "Robert's Apple Watch Ultra-3-backup"
 
 
 class TestConstructedWorkoutNameFallbacks:

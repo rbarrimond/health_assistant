@@ -1,6 +1,8 @@
 """Tests for manufacturer code extraction logic in fit_models.py."""
 
+from datetime import datetime, timezone
 from unittest.mock import Mock
+
 from TrainingAnalyticsPlatform.ingestion.fit_models import GarminFitModel
 
 
@@ -91,9 +93,138 @@ class TestDeviceManufacturerCodeResolution:
         model = Mock(spec=GarminFitModel)
         file_id_msg = Mock()
         file_id_msg.get_value.return_value = None
-        
+
         model._file_id_msg = file_id_msg
-        
+
         code, name = GarminFitModel._extract_code_and_name(None)
         assert code is None
         assert name is None
+
+
+class TestAppleManufacturerAndProductNormalization:
+    """Tests Apple normalization behavior for HealthFit semantics."""
+
+    @staticmethod
+    def _make_enum(value: int, name: str) -> Mock:
+        enum_obj = Mock()
+        enum_obj.value = value
+        enum_obj.name = name
+        return enum_obj
+
+    @staticmethod
+    def _make_model_stub() -> Mock:
+        model = Mock(spec=GarminFitModel)
+        model._extract_code_and_name = GarminFitModel._extract_code_and_name
+        model._is_apple_manufacturer = (
+            lambda manufacturer_code, manufacturer_name: GarminFitModel._is_apple_manufacturer(
+                model,
+                manufacturer_code,
+                manufacturer_name,
+            )
+        )
+        model._normalize_apple_internal_id = (
+            lambda raw_product_name: GarminFitModel._normalize_apple_internal_id(
+                model,
+                raw_product_name,
+            )
+        )
+        return model
+
+    def test_canonical_manufacturer_is_apple_for_code_255(self) -> None:
+        """Manufacturer code 255 (development) should canonicalize to Apple."""
+        model = self._make_model_stub()
+        manufacturer = self._make_enum(255, "development")
+
+        result = GarminFitModel._validate_and_get_manufacturer_name(model, manufacturer)
+
+        assert result == "Apple"
+
+    def test_canonical_manufacturer_is_apple_for_string_development(self) -> None:
+        """String manufacturer development should canonicalize to Apple."""
+        model = self._make_model_stub()
+
+        result = GarminFitModel._validate_and_get_manufacturer_name(model, "development")
+
+        assert result == "Apple"
+
+    def test_apple_watch_internal_id_maps_to_friendly_name(self) -> None:
+        """Watch internal identifiers should map to friendly Apple Watch model names."""
+        model = self._make_model_stub()
+        manufacturer = self._make_enum(255, "development")
+
+        result = GarminFitModel._validate_and_get_product_name(
+            model,
+            "Watch7,12",
+            manufacturer,
+        )
+
+        assert result == "Apple Watch Ultra 3 49mm"
+
+    def test_apple_watch_internal_id_with_space_maps_to_friendly_name(self) -> None:
+        """Watch IDs with spacing variations should still map correctly."""
+        model = self._make_model_stub()
+        manufacturer = self._make_enum(255, "development")
+
+        result = GarminFitModel._validate_and_get_product_name(
+            model,
+            "Watch 7,12",
+            manufacturer,
+        )
+
+        assert result == "Apple Watch Ultra 3 49mm"
+
+    def test_get_file_id_product_falls_back_to_product_name(self) -> None:
+        """file_id.product_name should be used when file_id.product is missing."""
+        model = self._make_model_stub()
+        manufacturer = self._make_enum(255, "development")
+
+        file_id_msg = Mock()
+
+        def _get_value(field_name: str, fallback=None):
+            values = {
+                "manufacturer": manufacturer,
+                "product": None,
+                "product_name": "Watch17,2",
+                "garmin_product": None,
+            }
+            return values.get(field_name, fallback)
+
+        file_id_msg.get_value.side_effect = _get_value
+        model._file_id_msg = file_id_msg
+
+        result = GarminFitModel._get_file_id_product(model)
+
+        assert result == "Watch17,2"
+
+    def test_file_metadata_preserves_raw_manufacturer_fields(self) -> None:
+        """Canonical metadata should expose canonical and raw manufacturer provenance."""
+        model = self._make_model_stub()
+        manufacturer = self._make_enum(255, "development")
+
+        file_id_msg = Mock()
+
+        def _get_value(field_name: str, fallback=None):
+            values = {
+                "time_created": datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+                "manufacturer": manufacturer,
+                "serial_number": 123456,
+            }
+            return values.get(field_name, fallback)
+
+        file_id_msg.get_value.side_effect = _get_value
+        model._file_id_msg = file_id_msg
+        model._format_utc_timestamp = GarminFitModel._format_utc_timestamp
+        model._validate_and_get_manufacturer_name = (
+            lambda raw_manufacturer: GarminFitModel._validate_and_get_manufacturer_name(
+                model,
+                raw_manufacturer,
+            )
+        )
+        model._get_file_id_product = lambda: "Watch7,12"
+
+        metadata = GarminFitModel._build_canonical_file_metadata(model)
+
+        assert metadata["file_manufacturer"] == "Apple"
+        assert metadata["file_manufacturer_raw"] == "development"
+        assert metadata["file_manufacturer_code"] == 255
+        assert metadata["file_product"] == "Watch7,12"

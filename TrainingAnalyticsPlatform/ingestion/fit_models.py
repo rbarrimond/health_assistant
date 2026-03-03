@@ -44,8 +44,8 @@ from .apple_workout_types import (APPLE_WORKOUT_TYPES, INDOOR_CYCLE,
                                   INDOOR_WALK, OUTDOOR_CYCLE, OUTDOOR_WALK,
                                   AppleWorkoutTypeResolver)
 from .code_mappings import (MANUFACTURER_CODES, MANUFACTURER_NAME_TO_CODE,
-                            get_apple_product_name, get_favero_product_name,
-                            get_garmin_product_name)
+                            get_apple_product_name, get_apple_watch_model,
+                            get_favero_product_name, get_garmin_product_name)
 from .constants import LAPS_SCHEMA_VERSION, METADATA_SCHEMA_VERSION
 from .fit_analyzer import FitStructureAnalyzer
 from .timezone_utils import (format_utc_offset, iana_from_offset,
@@ -270,7 +270,11 @@ class BaseFitModel(BaseModel, ABC):
     def _constructed_workout_name(self) -> Optional[str]:
         """Construct fallback workout name from daypart/type or FIT semantics."""
         daypart = self._workout_daypart()
-        apple_type = self._apple_workout_type_from_fit_signals()
+        apple_type = self.apple_workout_type
+        if apple_type == "Other":
+            apple_type = None
+        if apple_type is None:
+            apple_type = self._apple_workout_type_from_fit_signals()
         if daypart and apple_type:
             return f"{daypart} {apple_type}"
 
@@ -364,7 +368,7 @@ class BaseFitModel(BaseModel, ABC):
 
         Resolution order:
         1. Source-specific metadata (_source_specific_apple_workout_type)
-           - HealthFitModel: Filename activity token (authoritative for HealthFit)
+           - HealthFitModel: Filename activity token when recognized
            - Others: None (defer to FIT signals)
         2. If source-specific returns None AND fallback is enabled:
            - Resolve from FIT sport/sub_sport via AppleWorkoutTypeResolver
@@ -372,8 +376,8 @@ class BaseFitModel(BaseModel, ABC):
            - Return None (no inference)
 
         This design allows models to override the default FIT-based resolution.
-        For example, HealthFitModel uses only filename activity types and never
-        falls back to FIT signals (even if sport/sub_sport messages are present).
+        HealthFit may still fall back to FIT signals when filename activity
+        tokens are missing or unrecognized.
         """
         source_specific = self._source_specific_apple_workout_type()
         if source_specific is not None:
@@ -569,11 +573,16 @@ class BaseFitModel(BaseModel, ABC):
 
         manufacturer = self._file_id_msg.get_value("manufacturer", fallback=None)
         product = self._file_id_msg.get_value("product", fallback=None)
+        product_name = self._file_id_msg.get_value("product_name", fallback=None)
         garmin_product = self._file_id_msg.get_value("garmin_product", fallback=None)
 
         manufacturer_code, _ = self._extract_code_and_name(manufacturer)
         if manufacturer_code == 1 and garmin_product is not None:
             return garmin_product
+        if product is not None:
+            return product
+        if product_name is not None:
+            return product_name
         return product
 
     def validate_semantic_contract(self) -> None:
@@ -723,44 +732,6 @@ class BaseFitModel(BaseModel, ABC):
                     "FIT semantic contract violation: activity.total_timer_time does not approximately match session totals"
                 )
 
-    @staticmethod
-    def _parse_utc_offset_minutes(value: Optional[str]) -> Optional[int]:
-        """Parse UTC offset strings like 'UTC+02:00' into minutes."""
-        if not value:
-            return None
-
-        normalized = value.strip().upper()
-        if normalized == "UTC":
-            return 0
-
-        if not normalized.startswith("UTC"):
-            return None
-
-        offset = normalized[3:]
-        if len(offset) < 3:
-            return None
-
-        sign = 1
-        if offset[0] == "+":
-            sign = 1
-            offset = offset[1:]
-        elif offset[0] == "-":
-            sign = -1
-            offset = offset[1:]
-
-        if ":" in offset:
-            hours_str, minutes_str = offset.split(":", 1)
-        else:
-            hours_str, minutes_str = offset, "0"
-
-        try:
-            hours = int(hours_str)
-            minutes = int(minutes_str)
-        except ValueError:
-            return None
-
-        return sign * (hours * 60 + minutes)
-    
     @computed_field  # type: ignore[misc]
     @property
     def local_tz_offset(self) -> Optional[str]:
@@ -877,18 +848,32 @@ class BaseFitModel(BaseModel, ABC):
     
     def _is_zwift_workout(self) -> bool:
         """Detect if this is a Zwift workout (cloud service with UTC timestamps).
-        
-        Zwift workouts are characterized by:
-        - Indoor activity (is_indoor = True)
-        - UTC local timezone offset (UTC+00:00)
-        
+
+        Uses session FIT sport/sub-sport signals directly (not workout_name/is_indoor)
+        to avoid recursive dependency and avoid raising when sport is unavailable.
+
         Returns:
             True if this appears to be a Zwift workout, False otherwise.
         """
-        return (
-            self.is_indoor is True 
-            and self.local_tz_offset == "UTC+00:00"
-        )
+        sport: Optional[str] = None
+        sub_sport: Optional[str] = None
+        if self._session_msg is not None:
+            sport = self._field_to_lower(
+                self._session_msg.get_value("sport", fallback=None)
+            )
+            sub_sport = self._field_to_lower(
+                self._session_msg.get_value("sub_sport", fallback=None)
+            )
+
+        indoor_fit_signals = {
+            "indoor_cycling",
+            "indoor_running",
+            "indoor_walking",
+            "indoor_rowing",
+        }
+        is_indoor_by_fit = sub_sport in indoor_fit_signals or sport == "indoor"
+
+        return is_indoor_by_fit and self.local_tz_offset == "UTC+00:00"
     
     def _get_athlete_timezone(self) -> Optional[str]:
         """Get athlete's home timezone from configuration.
@@ -1064,6 +1049,23 @@ class BaseFitModel(BaseModel, ABC):
         
         return " ".join(parts) if parts else None
 
+    @computed_field  # type: ignore[misc]
+    @cached_property
+    def device_model(self) -> Optional[str]:
+        """Return device model/product name from FIT file_id (cached).
+        
+        Extracts the product/model identifier from FIT file_id metadata.
+        For Apple devices, this returns the internal model identifier
+        (e.g., "iPhone17,1", "Watch7,12") which is used for HealthKit
+        filtration in addition to device_name.
+        
+        Returns:
+            Device model string (e.g., "iPhone17,1", "Edge 1030"),
+            or None if unavailable.
+        """
+        _, model = self._get_device_info()
+        return model
+
     def _get_device_info(self) -> tuple[Optional[str], Optional[str]]:
         """Extract clean device manufacturer and model from FIT file_id.
         
@@ -1076,7 +1078,7 @@ class BaseFitModel(BaseModel, ABC):
             return (None, None)
         
         manufacturer_code = self._file_id_msg.get_value("manufacturer", fallback=None)
-        product_code = self._file_id_msg.get_value("product", fallback=None)
+        product_code = self._get_file_id_product()  # Uses fallback to product_name for Apple HealthFit
         
         # Get manufacturer name
         manufacturer_name = self._validate_and_get_manufacturer_name(manufacturer_code)
@@ -1202,19 +1204,42 @@ class BaseFitModel(BaseModel, ABC):
         
         return code, name
     
+    def _normalize_apple_internal_id(self, raw_product_name: str) -> str:
+        """Normalize Apple internal IDs for mapping lookups.
+
+        HealthFit may emit IDs as either "Watch7,12" or "Watch 7,12".
+        """
+        normalized = raw_product_name.strip()
+        return re.sub(r"^Watch\s+", "Watch", normalized, flags=re.IGNORECASE)
+
+    def _is_apple_manufacturer(
+        self,
+        manufacturer_code: Optional[int],
+        manufacturer_name: Optional[str],
+    ) -> bool:
+        """Return True when FIT manufacturer indicates Apple-origin device exports."""
+        if manufacturer_code == 255:
+            return True
+        if manufacturer_name is None:
+            return False
+        return manufacturer_name.strip().lower() in {"apple", "development"}
+
     def _validate_and_get_manufacturer_name(
         self,
         manufacturer: Optional[Any],
     ) -> Optional[str]:
-        """Validate manufacturer code and return name from code_mappings."""
+        """Validate manufacturer code and return canonical display name."""
         if manufacturer is None:
             return None
-        
+
         manufacturer_code, manufacturer_name = self._extract_code_and_name(manufacturer)
-        
+
+        if self._is_apple_manufacturer(manufacturer_code, manufacturer_name):
+            return "Apple"
+
         if manufacturer_code is None:
             return manufacturer_name or str(manufacturer)
-        
+
         expected_name = MANUFACTURER_CODES.get(manufacturer_code)
         if expected_name and manufacturer_name:
             if expected_name.lower() != manufacturer_name.lower().replace("_", ""):
@@ -1225,7 +1250,7 @@ class BaseFitModel(BaseModel, ABC):
                     manufacturer_name,
                     expected_name,
                 )
-        
+
         return expected_name if expected_name else str(manufacturer_code)
     
     def _validate_and_get_product_name(
@@ -1233,44 +1258,42 @@ class BaseFitModel(BaseModel, ABC):
         product: Optional[Any],
         manufacturer: Optional[Any],
     ) -> Optional[str]:
-        """Validate product code and return name from code_mappings."""
+        """Validate product code and return canonical product/model name."""
         if product is None:
             return None
-        
+
         product_code, product_name = self._extract_code_and_name(product)
-        
+        manufacturer_code, manufacturer_name = self._extract_code_and_name(manufacturer)
+        is_apple = self._is_apple_manufacturer(manufacturer_code, manufacturer_name)
+
         if product_code is None:
-            return product_name or str(product)
-        
-        if manufacturer is None:
-            return product_name or str(product_code)
-        
-        manufacturer_code, _ = self._extract_code_and_name(manufacturer)
-        
-        if manufacturer_code is None:
-            return product_name or str(product_code)
-        
+            candidate_name = product_name or str(product)
+            if is_apple:
+                normalized_id = self._normalize_apple_internal_id(candidate_name)
+                return get_apple_watch_model(normalized_id)
+            return candidate_name
+
         expected_product_name = None
-        if manufacturer_code == 32:  # Apple
+        if is_apple:
             expected_product_name = get_apple_product_name(product_code)
         elif manufacturer_code == 1:  # Garmin
             expected_product_name = get_garmin_product_name(product_code)
         elif manufacturer_code == 263:  # Favero Electronics
             expected_product_name = get_favero_product_name(product_code)
-        
+
         if expected_product_name and product_name:
             if expected_product_name.lower() != product_name.lower().replace("_", ""):
                 logger.warning(
-                    "Product code mismatch for manufacturer %d, product code %d: "
+                    "Product code mismatch for manufacturer %s, product code %d: "
                     "fitdecode says '%s', code_mappings says '%s'",
-                    manufacturer_code,
+                    str(manufacturer_code),
                     product_code,
                     product_name,
                     expected_product_name,
                 )
             return expected_product_name
-        
-        return product_name or str(product_code)
+
+        return product_name or expected_product_name or str(product_code)
     
     def _validate_device_info_collisions(
         self,
@@ -1387,21 +1410,25 @@ class BaseFitModel(BaseModel, ABC):
         5. activity_metadata: activity-level timezone information only (local_tz_offset)
         6. enrichment: mutable enrichment fields (apple_workout_type, workout_name, flags)
         7. llm_analysis: reserved for LLM-generated analysis (not yet implemented)
-        8. provenance: POPULATED BY HANDLER (ingestion_version, ingestion_id, etc.)
-        
-        Note: Provenance zone (8) is not populated here—it's added by the ingestion handler
-        with context (ingestion version, ingestion ID, environment).
+        8. provenance: source-derived provenance here; ingestion context merged by handler
+
+        Note: This model can emit source-derived provenance fields (for example,
+        `source_device_name`). The ingestion handler merges ingestion context
+        (`ingestion_version`, `ingestion_id`, `ingestion_timestamp_utc`, `environment`).
         """
         # Extract device info (manufacturer, model) from FIT file_id message
         device_manufacturer, device_model = self._get_device_info()
         
         # Build zone 1: Identity (immutable, queryable)
+        # Note: device_name uses recovered/denormalized value (corruption recovery for OneDrive)
+        # while provenance.source_device_name retains raw filename value for audit trail
         identity = {
             "start_time_utc": self.start_time_utc,
             "sport": self.sport,
             "sub_sport": self.sub_sport,
             "duration_sec": self.duration_sec,
             "distance_m": self.distance_m,
+            "device_name": self.device_name,
             "device_manufacturer": device_manufacturer,
             "device_model": device_model,
         }
@@ -1443,6 +1470,12 @@ class BaseFitModel(BaseModel, ABC):
             "race_flag": None,
             "structured_flag": None,
         }
+
+        # Build zone 8 (partial): Provenance fields derived from source metadata
+        # Handler will merge ingestion context fields (version/id/timestamp/environment).
+        provenance = {
+            "source_device_name": getattr(self, "filename_source_device", None),
+        }
         
         # Build zone 7: LLM Analysis (reserved, not yet implemented)
         llm_analysis = {
@@ -1463,7 +1496,7 @@ class BaseFitModel(BaseModel, ABC):
             "activity_metadata": {k: v for k, v in activity_metadata.items() if v is not None},
             "enrichment": {k: v for k, v in enrichment.items() if v is not None},
             "llm_analysis": {k: v for k, v in llm_analysis.items() if v is not None},
-            # Zone 8 (provenance) is added by ingestion handler with ingestion context
+            "provenance": {k: v for k, v in provenance.items() if v is not None},
         }
     
     def _has_capability_in_records(
@@ -1503,57 +1536,43 @@ class BaseFitModel(BaseModel, ABC):
         
         return False
     
-    def _build_canonical_session_metadata(self) -> Dict[str, Any]:
-        """Build session-level metadata dictionary."""
-        return {
-            "sport": self.sport,
-            "sub_sport": self.sub_sport,
-            "apple_workout_type": self.apple_workout_type,
-            "workout_name": self.workout_name,
-            "is_indoor": self.is_indoor,
-            "start_time_utc": self.start_time_utc,
-            "local_tz_offset": self.local_tz_offset,
-            "timezone": self.timezone,
-            "duration_sec": self.duration_sec,
-            "moving_time_sec": self.moving_time_sec,
-            "distance_m": self.distance_m,
-            "elevation_gain_m": self.elevation_gain_m,
-            "elevation_loss_m": self.elevation_loss_m,
-            "avg_speed_mps": self.avg_speed_mps,
-            "max_speed_mps": self.max_speed_mps,
-            "calories_kcal": self.calories_kcal,
-            "device_name": self.device_name,
-        }
-    
     def _build_canonical_file_metadata(self) -> Dict[str, Any]:
         """Extract file-level metadata from file_id message."""
         metadata: Dict[str, Any] = {}
         if self._file_id_msg is None:
             return metadata
-        
+
         file_created = self._file_id_msg.get_value("time_created", fallback=None)
         if isinstance(file_created, datetime):
             metadata["file_time_created_utc"] = self._format_utc_timestamp(
                 file_created
             )
-        
+
         file_manufacturer = self._file_id_msg.get_value("manufacturer", fallback=None)
         if file_manufacturer is not None:
-            manufacturer_name = getattr(file_manufacturer, "name", None)
-            metadata["file_manufacturer"] = (
-                str(manufacturer_name)
-                if manufacturer_name is not None
-                else str(file_manufacturer)
+            manufacturer_code, manufacturer_name = self._extract_code_and_name(
+                file_manufacturer
             )
-        
+            canonical_manufacturer = self._validate_and_get_manufacturer_name(
+                file_manufacturer
+            )
+            if canonical_manufacturer is not None:
+                metadata["file_manufacturer"] = canonical_manufacturer
+            if manufacturer_name is not None:
+                metadata["file_manufacturer_raw"] = str(manufacturer_name)
+            else:
+                metadata["file_manufacturer_raw"] = str(file_manufacturer)
+            if manufacturer_code is not None:
+                metadata["file_manufacturer_code"] = manufacturer_code
+
         file_product = self._get_file_id_product()
         if file_product is not None:
             metadata["file_product"] = str(file_product)
-        
+
         file_serial = self._file_id_msg.get_value("serial_number", fallback=None)
         if file_serial is not None:
             metadata["file_serial_number"] = str(file_serial)
-        
+
         return metadata
     
     def _build_canonical_activity_metadata(self) -> Dict[str, Any]:
@@ -1703,24 +1722,56 @@ class OneDriveFitModel(BaseFitModel, ABC):
 class HealthFitModel(OneDriveFitModel):
     """OneDrive model for HealthFit exports from Apple ecosystem devices.
 
-    Contract:
-        - Parses HealthFit filenames using `YYYY-MM-DD-HHMMSS-{Activity}-{Source}.fit[.gz]`.
-        - Treats filename activity token as primary Apple workout-type signal.
-        - Falls back to FIT sport/sub-sport mapping when filename token is missing or unknown.
-        - Provides filename-derived timezone fallback when FIT timezone signals are insufficient.
+    Handles Apple Watch FIT files exported via HealthFit app with OneDrive integration.
+    
+    Filename Contract:
+        Canonical format: YYYY-MM-DD-HHMMSS-{ActivityType}-{DeviceName}.fit[.gz]
+        - YYYY-MM-DD-HHMMSS: Device-local recording timestamp
+        - ActivityType: Apple workout type with SPACES only (no hyphens)
+        - DeviceName: Device identifier (preserved exactly from filename)
+        
+    OneDrive Corruption Recovery:
+        OneDrive corrupts filenames by converting spaces to hyphens inconsistently.
+        Example: "Functional Strength Training" becomes "Functional-Strength-Training"
+        
+        Recovery strategy uses FIT sport/sub_sport metadata as authoritative source
+        to locate activity type in corrupted filename, then extracts device name.
+        Applied denormalization patterns restore known device names:
+        - "Apple-Watch" → "Apple Watch"
+        - "Apple-Watch-Ultra" → "Apple Watch Ultra"
+        - Other hyphens preserved (e.g., model numbers in "Apple-Watch-7")
+        
+        Raw filename device preserved in provenance for audit trail.
+    
+    Semantic Contracts:
+        - source_file_name: Raw OneDrive filename (immutable, no preprocessing)
+        - device_name: Recovered and denormalized device identifier (handles corruption)
+        - apple_workout_type: Resolved deterministically from filename activity token (primary)
+        - Falls back to FIT sport/sub-sport mapping when filename token is missing/unknown
+        - Provides filename-derived timezone fallback when FIT timezone signals insufficient
     """
     
-    # HealthFit filename pattern: YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz]
+    
+    # HealthFit filename pattern (canonical): YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz]
     # Example: 2026-01-15-193027-Indoor Cycling-AppleWatch.fit
     #
-    # Parsing treats final '-' token as source and everything before as activity.
-    # Activity types have spaces ("Indoor Cycling", not "Indoor-Cycling").
-    # Hyphens in activity names are normalized to spaces for compatibility.
+    # Activity types use SPACES and NO HYPHENS in canonical format.
+    # The first hyphen after HHMMSS is the activity/device separator.
+    # Device names are preserved exactly as-is (spaces, hyphens, apostrophes).
     # The YYYY-MM-DD-HHMMSS token is device-local recording time.
+    # 
+    # OneDrive Corruption:
+    # OneDrive corrupts filenames by converting spaces to hyphens inconsistently.
+    # Device name recovery uses FIT sport/sub_sport as authority to locate and extract
+    # device name, then applies denormalization patterns to restore common device names
+    # (e.g., "Apple-Watch" → "Apple Watch", "Apple-Watch-Ultra" → "Apple Watch Ultra").
+    # Ambiguous hyphens (model numbers, etc.) are preserved as-is.
+    # Raw filename device is available in provenance for audit trail.
+    #
     # Note: .gz suffix is optional for backwards compatibility but ignored (decompression
     # happens in preprocessing layer before model instantiation).
     HEALTHFIT_FILENAME_PATTERN: ClassVar[re.Pattern] = re.compile(
-        r'^(\d{4}-\d{2}-\d{2})-(\d{6}|Nodata)-(.+)\.fit(?:\.gz)?$'
+        r'^(\d{4}-\d{2}-\d{2})-(\d{6})-([^-]+)-(.+)\.fit(?:\.gz)?$'
     )
     HEALTHFIT_APPLE_TYPE_ALIASES: ClassVar[Dict[str, str]] = {
         "indoor cycling": INDOOR_CYCLE,
@@ -1742,6 +1793,9 @@ class HealthFitModel(OneDriveFitModel):
 
         The parsed ``date`` and ``time`` fields represent local time on the
         recording device.
+        
+        Uses canonical regex: YYYY-MM-DD-HHMMSS-ActivityType-DeviceName.fit
+        Activity types have no hyphens; device names preserved exactly as-is.
         """
         if not self.source_file_name:
             return None
@@ -1750,22 +1804,23 @@ class HealthFitModel(OneDriveFitModel):
         if not match:
             return None
 
-        activity_and_source = match.group(3)
-        if "-" not in activity_and_source:
+        date = match.group(1)              # YYYY-MM-DD (device-local)
+        time = match.group(2)              # HHMMSS (device-local)
+        activity_type = match.group(3).strip()  # Activity type (no hyphens in canonical format)
+        source_device = match.group(4).strip()  # Source/device name (preserved exactly)
+
+        # Reject malformed tokens that do not map to canonical Apple workout types.
+        if self._normalize_and_resolve_apple_type(activity_type) is None:
             return None
-
-        activity_raw, source_device = activity_and_source.rsplit("-", 1)
-        activity_type = re.sub(r"\s+", " ", activity_raw.replace("-", " ")).strip()
-        source_device = source_device.strip()
-
+        
         if not activity_type or not source_device:
             return None
         
         return {
-            "date": match.group(1),              # YYYY-MM-DD (device-local)
-            "time": match.group(2),              # HHMMSS or "Nodata" (device-local)
-            "apple_workout_type": activity_type, # e.g., "Indoor Cycling" (from filename or normalized hyphens)
-            "source_device": source_device,      # e.g., "RunGap"
+            "date": date,
+            "time": time,
+            "apple_workout_type": activity_type,
+            "source_device": source_device,
         }
     
     @property
@@ -1867,6 +1922,132 @@ class HealthFitModel(OneDriveFitModel):
         
         return None
 
+    @staticmethod
+    def _denormalize_device_name(device_name_hyphenated: str) -> str:
+        """Denormalize device name by restoring known space patterns.
+        
+        OneDrive converts spaces to hyphens inconsistently. This function applies
+        known patterns to restore common device name formats. Ambiguous hyphens
+        are left as-is.
+        
+        Args:
+            device_name_hyphenated: Device name with hyphens (OneDrive corruption format)
+            
+        Returns:
+            Device name with known patterns denormalized (spaces restored where we're confident)
+        """
+        result = device_name_hyphenated
+        
+        # Known patterns (order matters—longer patterns first to avoid partial matches)
+        # Pattern: (corrupted_with_hyphens, canonical_with_spaces)
+        patterns = [
+            ("Apple-Watch-Ultra", "Apple Watch Ultra"),
+            ("Apple-Watch", "Apple Watch"),
+            ("Robert's-Apple", "Robert's Apple"),  # Hyphens around apostrophes
+        ]
+        
+        for corrupted, canonical in patterns:
+            result = result.replace(corrupted, canonical)
+        
+        return result
+
+    def _extract_device_name_from_filename(self) -> Optional[str]:
+        """Extract device name from corrupted HealthFit filename using FIT apple_workout_type.
+        
+        OneDrive corrupts filenames by converting spaces to hyphens inconsistently.
+        We use the authoritative apple_workout_type from FIT metadata to locate
+        the activity type portion of the filename, then extract the remainder as device name.
+        
+        Example:
+            - Corrupted filename: "2025-12-14-183750-Functional-Strength-Training-Robert's-Apple-Watch-7.fit"
+            - FIT apple_workout_type: "Functional Strength Training"
+            - Normalized for search: "Functional-Strength-Training"
+            - Extracted device: "Robert's-Apple-Watch-7"
+            - Denormalized result: "Robert's Apple Watch 7"
+        
+        Returns:
+            Denormalized device name, or None if extraction fails
+        """
+        if not self.source_file_name or not self.apple_workout_type:
+            return None
+        
+        # Strip .fit or .fit.gz suffix
+        filename_base = self.source_file_name
+        if filename_base.endswith(".fit.gz"):
+            filename_base = filename_base[:-7]
+        elif filename_base.endswith(".fit"):
+            filename_base = filename_base[:-4]
+        
+        # Strip timestamp prefix (YYYY-MM-DD-HHMMSS)
+        # Format: YYYY-MM-DD-HHMMSS-...
+        parts = filename_base.split("-", 4)  # Split on first 4 hyphens to separate timestamp
+        if len(parts) < 5:
+            # Filename doesn't have expected structure
+            return None
+        
+        # parts[4] is everything after the timestamp
+        filename_after_timestamp = parts[4]
+        
+        # Normalize activity type to hyphenated format for matching
+        activity_hyphenated = self.apple_workout_type.replace(" ", "-")
+        
+        # Find the activity type in the filename
+        if not filename_after_timestamp.startswith(activity_hyphenated):
+            # Activity type doesn't match—filename is corrupted beyond recovery
+            logger.warning(
+                "Cannot extract device name: activity type mismatch. "
+                "Expected %r but filename starts with %r. source_file=%r",
+                activity_hyphenated,
+                filename_after_timestamp[:50],
+                self.source_file_name,
+            )
+            return None
+        
+        # Extract remainder after activity type (skip the hyphen separator)
+        device_name_hyphenated = filename_after_timestamp[len(activity_hyphenated):]
+        
+        # Remove leading hyphen (separator between activity and device)
+        if device_name_hyphenated.startswith("-"):
+            device_name_hyphenated = device_name_hyphenated[1:]
+        
+        if not device_name_hyphenated:
+            logger.warning(
+                "Cannot extract device name: empty after activity type. source_file=%r",
+                self.source_file_name,
+            )
+            return None
+        
+        # Denormalize known patterns
+        device_name_denormalized = self._denormalize_device_name(device_name_hyphenated)
+        
+        return device_name_denormalized
+
+    @computed_field  # type: ignore[misc]
+    @cached_property
+    def device_name(self) -> Optional[str]:
+        """Extract and denormalize device name from OneDrive-corrupted HealthFit filename.
+        
+        This property recovers the device identifier from filenames corrupted by OneDrive.
+        Uses FIT sport/sub_sport metadata as authoritative source to anchor filename parsing,
+        then applies denormalization patterns to restore known device names.
+        
+        Falls back to raw filename device if recovery fails (e.g., for canonical/uncorrupted filenames).
+        
+        Used in canonical metadata identity zone for GPT exposure and semantic queries.
+        Raw filename device preserved in provenance.source_device_name for audit.
+        
+        Returns:
+            Extracted and denormalized device name (e.g., "Apple Watch Ultra"),
+            or raw filename device if recovery fails, or None if unavailable.
+        """
+        # Try to extract from corrupted filename first
+        extracted = self._extract_device_name_from_filename()
+        if extracted:
+            return extracted
+        
+        # Fall back to raw filename device (for canonical/uncorrupted filenames)
+        return self.filename_source_device
+
     def _source_specific_apple_workout_type(self) -> Optional[str]:
         """Resolve Apple workout type deterministically from HealthFit filename."""
         raw_type = self.filename_apple_workout_type
@@ -1907,8 +2088,8 @@ class HealthFitModel(OneDriveFitModel):
         return resolver.resolve()
     
     def _get_subclass_specific_workout_name(self) -> Optional[str]:
-        """Return HealthFit filename Apple Workout Type as workout name source."""
-        return self.filename_apple_workout_type
+        """Defer HealthFit naming to constructed fallback (<daypart> <apple_workout_type>)."""
+        return None
 
 
 class GarminFitModel(BaseFitModel):
