@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 15.0.36
+Version: 15.0.37
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -60,7 +60,7 @@ All ingestion-related schema/code version constants must be documented here.
 
 | Version | Current value | Code source | Purpose |
 | --- | --- | --- | --- |
-| `INGEST_VERSION` | `v14.3.5` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
+| `INGEST_VERSION` | `v14.3.6` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
 | `CANONICAL_SCHEMA_VERSION` | `1.4.0` | `TrainingAnalyticsPlatform/storage/table_storage.py` | Canonical parquet schema version persisted to `Workouts.canonical_schema_version`. |
 | `METADATA_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `metadata.json` as `metadata_schema_version`. |
 | `LAPS_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `laps.json` as `schema_version`. |
@@ -94,8 +94,10 @@ FIT parsing uses a hierarchical Pydantic model architecture with factory-based i
   - Parses HealthFit filename pattern `YYYY-MM-DD-HHMMSS-<apple workout type>-<source/device name>.fit[.gz]`
   - Uses raw OneDrive `item.name` as `source_file_name` (no preprocessing mutation of this field)
   - Treats HealthFit filename `YYYY-MM-DD-HHMMSS` timestamp as recording-device local time (not UTC)
-  - **Device name recovery**: OneDrive corrupts filenames by converting spaces to hyphens inconsistently (e.g., `"Apple Watch"` → `"Apple-Watch"`). The model uses FIT sport/sub_sport as authoritative source to locate and extract the device name, then applies denormalization patterns to restore known device names (e.g., `Apple-Watch` → `Apple Watch`, `Apple-Watch-Ultra` → `Apple Watch Ultra`). Raw filename device is preserved in provenance trail.
-  - **Semantic override**: Infers `apple_workout_type` deterministically from HealthFit filename activity token (not FIT signals)
+  - **Spelling robustness**: HealthFit filenames may use either Apple-canonical spelling (`Indoor Cycle`, `Outdoor Walk`) or FIT-aligned spelling (`Indoor Cycling`, `Outdoor Walking`). Normalized lookup table accepts both forms—enables robust parsing regardless of spelling convention
+  - **Hyphenation/space tolerance**: Accepts both space-separated (`Indoor Cycle`) and hyphen-separated (`Indoor-Cycle`) tokens due to OneDrive filename corruption
+  - **Device name recovery**: OneDrive corrupts filenames by converting spaces to hyphens inconsistently (e.g., `"Apple Watch"` → `"Apple-Watch"`). The model uses normalized activity lookup to parse and extract the device name, then applies denormalization patterns to restore known device names (e.g., `Apple-Watch` → `Apple Watch`, `Apple-Watch-Ultra` → `Apple Watch Ultra`). Raw filename device is preserved in provenance trail.
+  - **Semantic override**: Infers `apple_workout_type` deterministically from HealthFit filename activity token (not FIT signals), normalizing against canonical Apple Watch type names
 - **GarminFitModel**: FIT files from Garmin Connect API sync
 - **PayloadFitModel**: Generic fallback for other sources
 

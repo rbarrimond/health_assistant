@@ -42,6 +42,7 @@ from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 
 from .apple_workout_types import (APPLE_WORKOUT_TYPES, INDOOR_CYCLE,
                                   INDOOR_WALK, OUTDOOR_CYCLE, OUTDOOR_WALK,
+                                  NORMALIZED_ACTIVITY_TO_CANONICAL,
                                   AppleWorkoutTypeResolver)
 from .code_mappings import (MANUFACTURER_CODES, MANUFACTURER_NAME_TO_CODE,
                             get_apple_product_name, get_apple_watch_model,
@@ -1771,7 +1772,7 @@ class HealthFitModel(OneDriveFitModel):
     # Note: .gz suffix is optional for backwards compatibility but ignored (decompression
     # happens in preprocessing layer before model instantiation).
     HEALTHFIT_FILENAME_PATTERN: ClassVar[re.Pattern] = re.compile(
-        r'^(\d{4}-\d{2}-\d{2})-(\d{6})-([^-]+)-(.+)\.fit(?:\.gz)?$'
+        r'^(\d{4}-\d{2}-\d{2})-(\d{6})-(.+)\.fit(?:\.gz)?$'
     )
     HEALTHFIT_APPLE_TYPE_ALIASES: ClassVar[Dict[str, str]] = {
         "indoor cycling": INDOOR_CYCLE,
@@ -1794,8 +1795,12 @@ class HealthFitModel(OneDriveFitModel):
         The parsed ``date`` and ``time`` fields represent local time on the
         recording device.
         
-        Uses canonical regex: YYYY-MM-DD-HHMMSS-ActivityType-DeviceName.fit
-        Activity types have no hyphens; device names preserved exactly as-is.
+        Supports both canonical format (space-separated activity types) and
+        corrupted format (hyphen-separated by OneDrive). Parses activity type
+        by attempting to match known normalized forms against the filename remainder.
+        
+        Format: YYYY-MM-DD-HHMMSS-{ActivityType}-{DeviceName}.fit[.gz]
+        where ActivityType may be space-separated or hyphen-separated.
         """
         if not self.source_file_name:
             return None
@@ -1806,12 +1811,13 @@ class HealthFitModel(OneDriveFitModel):
 
         date = match.group(1)              # YYYY-MM-DD (device-local)
         time = match.group(2)              # HHMMSS (device-local)
-        activity_type = match.group(3).strip()  # Activity type (no hyphens in canonical format)
-        source_device = match.group(4).strip()  # Source/device name (preserved exactly)
-
-        # Reject malformed tokens that do not map to canonical Apple workout types.
-        if self._normalize_and_resolve_apple_type(activity_type) is None:
-            return None
+        activity_device_part = match.group(3)  # Everything after timestamp (may be hyphenated)
+        
+        # Parse activity type and device name, handling both space-separated
+        # and hyphen-separated (OneDrive-corrupted) formats
+        activity_type, source_device = self._parse_activity_and_device_from_part(
+            activity_device_part
+        )
         
         if not activity_type or not source_device:
             return None
@@ -1822,6 +1828,42 @@ class HealthFitModel(OneDriveFitModel):
             "apple_workout_type": activity_type,
             "source_device": source_device,
         }
+    
+    def _parse_activity_and_device_from_part(
+        self, part: str
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Extract activity type and device name from filename remainder.
+        
+        Handles both canonical (space-separated) and corrupted (hyphen-separated)
+        activity tokens by matching known normalized forms.
+        
+        Returns:
+            Tuple of (activity_type, source_device) or (None, None) if unparseable
+        """
+        if not part:
+            return None, None
+        
+        # Try to match known activity types from the start of the part
+        # Start with longest possible matches to handle activity types with multiple words
+        for normalized_form, canonical_form in sorted(
+            NORMALIZED_ACTIVITY_TO_CANONICAL.items(),
+            key=lambda x: len(x[0]),
+            reverse=True,
+        ):
+            # Try both hyphenated form and space-separated form
+            for test_form in (normalized_form, normalized_form.replace("-", " ")):
+                # Build regex to match the test form at the start, followed by a hyphen
+                escaped_form = re.escape(test_form)
+                pattern = f"^{escaped_form}-(.+)$"
+                
+                match = re.search(pattern, part, re.IGNORECASE)
+                if match:
+                    # Found a match—extract device name from capture group
+                    device_name_part = match.group(1)
+                    if device_name_part:
+                        return canonical_form, device_name_part
+        
+        return None, None
     
     @property
     def filename_date(self) -> Optional[str]:
@@ -1903,22 +1945,25 @@ class HealthFitModel(OneDriveFitModel):
     def _normalize_and_resolve_apple_type(self, raw_type: str) -> Optional[str]:
         """Normalize and resolve raw Apple workout type to canonical form.
         
+        Handles both space-separated (canonical) and hyphen-separated (OneDrive-corrupted)
+        activity tokens by normalizing to hyphenated-lowercase form for lookup.
+        
         Args:
-            raw_type: Raw Apple workout type string from filename
+            raw_type: Raw Apple workout type string from filename (may contain spaces or hyphens)
             
         Returns:
             Canonical Apple workout type or None if unrecognized
         """
-        normalized = raw_type.strip().lower()
+        # Normalize to hyphenated-lowercase for lookup
+        normalized = raw_type.strip().lower().replace(" ", "-")
         
-        # Check aliases first
+        # Check normalized lookup table first
+        if normalized in NORMALIZED_ACTIVITY_TO_CANONICAL:
+            return NORMALIZED_ACTIVITY_TO_CANONICAL[normalized]
+        
+        # Check aliases (for special case handling)
         if normalized in self.HEALTHFIT_APPLE_TYPE_ALIASES:
             return self.HEALTHFIT_APPLE_TYPE_ALIASES[normalized]
-        
-        # Check against canonical types (excluding "Other")
-        for apple_type in APPLE_WORKOUT_TYPES:
-            if apple_type != "Other" and apple_type.lower() == normalized:
-                return apple_type
         
         return None
 
@@ -1952,101 +1997,42 @@ class HealthFitModel(OneDriveFitModel):
         return result
 
     def _extract_device_name_from_filename(self) -> Optional[str]:
-        """Extract device name from corrupted HealthFit filename using FIT apple_workout_type.
+        """Extract and denormalize device name from HealthFit filename.
         
-        OneDrive corrupts filenames by converting spaces to hyphens inconsistently.
-        We use the authoritative apple_workout_type from FIT metadata to locate
-        the activity type portion of the filename, then extract the remainder as device name.
-        
-        Example:
-            - Corrupted filename: "2025-12-14-183750-Functional-Strength-Training-Robert's-Apple-Watch-7.fit"
-            - FIT apple_workout_type: "Functional Strength Training"
-            - Normalized for search: "Functional-Strength-Training"
-            - Extracted device: "Robert's-Apple-Watch-7"
-            - Denormalized result: "Robert's Apple Watch 7"
+        Uses filename_components property (which handles both space-separated
+        and hyphen-separated activity tokens via normalized lookup) to extract
+        the raw device name, then applies denormalization patterns.
         
         Returns:
-            Denormalized device name, or None if extraction fails
+            Denormalized device name, or None if filename parsing fails
         """
-        if not self.source_file_name or not self.apple_workout_type:
+        if not self.filename_components:
             return None
         
-        # Strip .fit or .fit.gz suffix
-        filename_base = self.source_file_name
-        if filename_base.endswith(".fit.gz"):
-            filename_base = filename_base[:-7]
-        elif filename_base.endswith(".fit"):
-            filename_base = filename_base[:-4]
-        
-        # Strip timestamp prefix (YYYY-MM-DD-HHMMSS)
-        # Format: YYYY-MM-DD-HHMMSS-...
-        parts = filename_base.split("-", 4)  # Split on first 4 hyphens to separate timestamp
-        if len(parts) < 5:
-            # Filename doesn't have expected structure
+        raw_device_name = self.filename_components.get("source_device")
+        if not raw_device_name:
             return None
         
-        # parts[4] is everything after the timestamp
-        filename_after_timestamp = parts[4]
-        
-        # Normalize activity type to hyphenated format for matching
-        activity_hyphenated = self.apple_workout_type.replace(" ", "-")
-        
-        # Find the activity type in the filename
-        if not filename_after_timestamp.startswith(activity_hyphenated):
-            # Activity type doesn't match—filename is corrupted beyond recovery
-            logger.warning(
-                "Cannot extract device name: activity type mismatch. "
-                "Expected %r but filename starts with %r. source_file=%r",
-                activity_hyphenated,
-                filename_after_timestamp[:50],
-                self.source_file_name,
-            )
-            return None
-        
-        # Extract remainder after activity type (skip the hyphen separator)
-        device_name_hyphenated = filename_after_timestamp[len(activity_hyphenated):]
-        
-        # Remove leading hyphen (separator between activity and device)
-        if device_name_hyphenated.startswith("-"):
-            device_name_hyphenated = device_name_hyphenated[1:]
-        
-        if not device_name_hyphenated:
-            logger.warning(
-                "Cannot extract device name: empty after activity type. source_file=%r",
-                self.source_file_name,
-            )
-            return None
-        
-        # Denormalize known patterns
-        device_name_denormalized = self._denormalize_device_name(device_name_hyphenated)
-        
-        return device_name_denormalized
+        # Denormalize known patterns (handle OneDrive corruption)
+        return self._denormalize_device_name(raw_device_name)
 
     @computed_field  # type: ignore[misc]
     @cached_property
     def device_name(self) -> Optional[str]:
-        """Extract and denormalize device name from OneDrive-corrupted HealthFit filename.
+        """Extract and denormalize device name from HealthFit filename.
         
-        This property recovers the device identifier from filenames corrupted by OneDrive.
-        Uses FIT sport/sub_sport metadata as authoritative source to anchor filename parsing,
-        then applies denormalization patterns to restore known device names.
+        Extracts the device identifier from HealthFit filenames, handling OneDrive
+        corruption (spaces converted to hyphens) via denormalization patterns.
         
-        Falls back to raw filename device if recovery fails (e.g., for canonical/uncorrupted filenames).
-        
-        Used in canonical metadata identity zone for GPT exposure and semantic queries.
-        Raw filename device preserved in provenance.source_device_name for audit.
+        The filename_components property handles parsing for both canonical
+        (space-separated) and corrupted (hyphen-separated) activity tokens using
+        the normalized activity type lookup table.
         
         Returns:
-            Extracted and denormalized device name (e.g., "Apple Watch Ultra"),
-            or raw filename device if recovery fails, or None if unavailable.
+            Denormalized device name (e.g., "Apple Watch Ultra 3"),
+            or None if filename parsing fails.
         """
-        # Try to extract from corrupted filename first
-        extracted = self._extract_device_name_from_filename()
-        if extracted:
-            return extracted
-        
-        # Fall back to raw filename device (for canonical/uncorrupted filenames)
-        return self.filename_source_device
+        return self._extract_device_name_from_filename()
 
     def _source_specific_apple_workout_type(self) -> Optional[str]:
         """Resolve Apple workout type deterministically from HealthFit filename."""

@@ -10,6 +10,25 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-03
 
+### HealthFit Robust Filename Parsing with Spelling Tolerance [ingest v14.3.6]
+
+- **Enhancement**: Tolerate both Apple Watch canonical and FIT-aligned activity type spellings in HealthFit filenames
+- HealthFit exports from OneDrive may use either:
+  - **Apple Watch canonical**: `"Indoor Cycle"`, `"Outdoor Walk"`, `"Trail Run"` (as defined in HealthKit framework)
+  - **FIT-aligned spellings**: `"Indoor Cycling"`, `"Outdoor Walking"`, `"Trail Running"` (aligned with FIT sport types)
+- **Solution**: Normalized lookup table (`NORMALIZED_ACTIVITY_TO_CANONICAL`) handles both forms:
+  - Normalizes all activity types to hyphenated-lowercase form as key (e.g., `"indoor-cycle"`, `"indoor-cycling"`)
+  - Maps both `"indoor-cycle"` and `"indoor-cycling"` aliases to canonical `"Indoor Cycle"`
+  - Enables consistent parsing regardless of HealthFit/OneDrive spelling convention
+- **Hyphenation robustness**: Combined with existing space/hyphen tolerance, filenames now parse correctly for both:
+  - `2026-01-04-163358-Indoor-Cycle-RunGap.fit` (canonical with hyphens)
+  - `2026-01-04-163358-Indoor-Cycling-RunGap.fit` (FIT-aligned with hyphens)
+  - `2026-01-04-163358-Indoor Cycle-RunGap.fit` (canonical with spaces)
+  - `2026-01-04-163358-Indoor Cycling-RunGap.fit` (FIT-aligned with spaces)
+- **Device name extraction**: Parsing is now independent of FIT message available—uses normalized lookup to identify activity token boundary, then extracts trailing device name robustly
+- No breaking changes; existing "Cycle"/"Walk"/"Run" forms continue to work
+- Resolves issues with "Other" single-word activities and ambiguous FIT signals where filename fallback is insufficient
+
 ### OneDrive Apple Watch Allowlist + Ingested-Terminal Short-Circuit [ingest v14.3.5]
 
 - **Fix**: Tighten HealthFit/OneDrive filtration to **allowlist Apple Watch only**

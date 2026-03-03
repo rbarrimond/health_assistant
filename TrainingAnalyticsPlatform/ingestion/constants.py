@@ -4,5 +4,5 @@
 METADATA_SCHEMA_VERSION = "1.0.0"
 LAPS_SCHEMA_VERSION = "1.0.0"
 FIT_ANALYSIS_VERSION = "v1.0.0"
-INGEST_VERSION = "v14.3.5"  # (v14.3.4→v14.3.5) FIX: OneDrive accepts Apple Watch workouts only; unchanged already-ingested files short-circuit with debug log only (no IngestionState updates)
+INGEST_VERSION = "v14.3.6"  # (v14.3.5→v14.3.6) ENHANCEMENT: Robust HealthFit filename parsing with spelling tolerance for both Apple-canonical (Cycle/Walk) and FIT-aligned (Cycling/Walking) activity names, plus hyphenation flexibility
 

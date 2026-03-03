@@ -122,6 +122,8 @@ OUTDOOR_CYCLE = "Outdoor Cycle"
 OUTDOOR_WALK = "Outdoor Walk"
 INDOOR_WALK = "Indoor Walk"
 INDOOR_RUN = "Indoor Run"
+OUTDOOR_RUN = "Outdoor Run"
+TRAIL_RUN = "Trail Run"
 
 # Comprehensive list of Apple Watch workout types
 APPLE_WORKOUT_TYPES = {
@@ -134,9 +136,9 @@ APPLE_WORKOUT_TYPES = {
     OUTDOOR_CYCLE,
     "Stationary Bike",
     # Running & Walking
-    "Outdoor Run",
+    OUTDOOR_RUN,
     INDOOR_RUN,
-    "Trail Run",
+    TRAIL_RUN,
     OUTDOOR_WALK,
     INDOOR_WALK,
     "Hiking",
@@ -215,3 +217,57 @@ FIT_TO_APPLE_WORKOUT_TYPE = {
     ("elliptical", None): "Elliptical",
     ("generic", "generic"): "Other",  # Catch-all for unmapped sports
 }
+
+
+def _build_normalized_to_canonical() -> dict[str, str]:
+    """Build normalized (hyphenated-lowercase) to canonical activity type mapping.
+    
+    Normalizes all Apple Watch workout types by converting to lowercase and
+    replacing spaces with hyphens. This enables flexible filename matching for
+    both space-separated and hyphen-separated formats, as well as both FIT-style
+    (Cycling/Walking/Running) and Apple Watch canonical (Cycle/Walk/Run) spellings.
+    
+    HealthFit filenames may use either form depending on the source:
+    - OneDrive filenames often use FIT-aligned names: "Indoor Cycling", "Outdoor Walking"
+    - Canonical Apple Watch types: "Indoor Cycle", "Outdoor Walk"
+    
+    Returns:
+        Dict mapping normalized form (e.g., "functional-strength-training")
+        to canonical form (e.g., "Functional Strength Training")
+    """
+    mapping = {}
+    
+    # Add canonical types
+    for apple_type in APPLE_WORKOUT_TYPES:
+        normalized = apple_type.lower().replace(" ", "-")
+        mapping[normalized] = apple_type
+    
+    # Add HealthFit filename aliases to handle both Apple Watch and FIT-style spellings
+    # HealthFit can use either Cycling/Walking/Running (aligned with FIT) or Cycle/Walk/Run (Apple canonical)
+    common_aliases = {
+        # Cycling variants
+        "indoor-cycling": INDOOR_CYCLE,
+        "outdoor-cycling": OUTDOOR_CYCLE,
+        "indoor-cycle": INDOOR_CYCLE,
+        "outdoor-cycle": OUTDOOR_CYCLE,
+        # Walking variants
+        "indoor-walking": INDOOR_WALK,
+        "outdoor-walking": OUTDOOR_WALK,
+        "indoor-walk": INDOOR_WALK,
+        "outdoor-walk": OUTDOOR_WALK,
+        # Running variants
+        "indoor-running": INDOOR_RUN,
+        "outdoor-running": OUTDOOR_RUN,
+        "indoor-run": INDOOR_RUN,
+        "outdoor-run": OUTDOOR_RUN,
+        "trail-running": TRAIL_RUN,
+        "trail-run": TRAIL_RUN,
+    }
+    mapping.update(common_aliases)
+    
+    return mapping
+
+
+# Mapping from normalized activity token (hyphenated-lowercase) to canonical Apple Watch type
+# Used by HealthFit filename parsing to handle both space-separated and hyphen-separated formats
+NORMALIZED_ACTIVITY_TO_CANONICAL = _build_normalized_to_canonical()

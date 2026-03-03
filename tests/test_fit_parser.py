@@ -291,7 +291,8 @@ class TestHealthFitWorkoutTypeParsing:
             },
         )
 
-        assert model.filename_apple_workout_type == "Indoor Cycling"
+        # "Indoor Cycling" normalizes to canonical "Indoor Cycle"
+        assert model.filename_apple_workout_type == "Indoor Cycle"
 
     def test_healthfit_filename_regex_parses_canonical_activity_with_device_no_spaces(self) -> None:
         """Verify regex captures canonical format: spaced activity type, simple device name (no spaces)."""
@@ -302,7 +303,8 @@ class TestHealthFitWorkoutTypeParsing:
             },
         )
 
-        assert model.filename_apple_workout_type == "Indoor Cycling"
+        # "Indoor Cycling" normalizes to canonical "Indoor Cycle"
+        assert model.filename_apple_workout_type == "Indoor Cycle"
         assert model.filename_source_device == "RunGap"
 
     def test_healthfit_filename_regex_preserves_full_source_device_name(self) -> None:
@@ -314,7 +316,8 @@ class TestHealthFitWorkoutTypeParsing:
             },
         )
 
-        assert model.filename_apple_workout_type == "Indoor Cycling"
+        # "Indoor Cycling" normalizes to canonical "Indoor Cycle"
+        assert model.filename_apple_workout_type == "Indoor Cycle"
         assert model.filename_source_device == "Robert's Apple Watch Ultra 3"
 
     def test_healthfit_filename_regex_preserves_hyphenated_source_device_name(self) -> None:
@@ -354,8 +357,8 @@ class TestHealthFitWorkoutTypeParsing:
         assert model.workout_name.endswith("Indoor Cycle")
         assert model.apple_workout_type == INDOOR_CYCLE
 
-    def test_healthfit_hyphenated_activity_token_is_rejected(self) -> None:
-        """Verify non-canonical hyphenated activity tokens are rejected by filename parser."""
+    def test_healthfit_accepts_hyphenated_activity_tokens(self) -> None:
+        """Verify hyphenated activity tokens (OneDrive corruption) are now accepted and parsed."""
         model = HealthFitModel(
             file_bytes=b"fit",  # type: ignore[call-arg]
             source_metadata={  # type: ignore[call-arg]
@@ -363,9 +366,10 @@ class TestHealthFitWorkoutTypeParsing:
             },
         )
 
-        assert model.filename_components is None
-        assert model.filename_apple_workout_type is None
-        assert model.filename_source_device is None
+        # Hyphenated tokens should now be accepted via normalized lookup
+        assert model.filename_components is not None
+        assert model.filename_apple_workout_type == "Indoor Cycle"
+        assert model.filename_source_device == "RunGap"
 
     def test_healthfit_apple_workout_type_prefers_filename_over_fit_signals(self) -> None:
         """Verify HealthFit prefers filename-derived Apple workout type over FIT session messages."""
@@ -542,6 +546,35 @@ class TestHealthFitDeviceNameExtraction:
 
         assert model.device_name == "Robert's Apple Watch-7"
 
+    def test_extract_device_name_from_other_single_word_activity_type(self) -> None:
+        """Extract device name for 'Other' single-word activity via normalized lookup."""
+        model = HealthFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                # "Other" is single word, device has hyphens (OneDrive corruption)
+                "source_file_name": "2025-12-14-183750-Other-Robert's-Apple-Watch-7.fit",
+            },
+        )
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "sport": "unknown_sport",
+                    "sub_sport": None,
+                    "timestamp": datetime(2025, 12, 14, 9, 30, 0, tzinfo=timezone.utc),
+                    "total_elapsed_time": 0,
+                }
+            ),
+        )
+        model._file_id_msg = None
+
+        # Should successfully parse "Other" and extract device name
+        assert model.filename_components is not None
+        assert model.filename_apple_workout_type == "Other"
+        assert model.filename_source_device == "Robert's-Apple-Watch-7"
+        # Device name denormalized
+        assert model.device_name == "Robert's Apple Watch-7"
+
     def test_extract_device_name_returns_none_when_no_source_filename(self) -> None:
         """Device name returns None when source_file_name is missing."""
         model = HealthFitModel(
@@ -563,29 +596,19 @@ class TestHealthFitDeviceNameExtraction:
 
         assert model.device_name is None
 
-    def test_extract_device_name_returns_none_when_activity_type_mismatch(self) -> None:
-        """Device name returns None when activity type doesn't match filename."""
+    def test_filename_components_returns_none_for_unrecognized_activity_type(self) -> None:
+        """Filename parsing fails gracefully for unrecognized activity types."""
         model = HealthFitModel(
             file_bytes=b"fit",  # type: ignore[call-arg]
             source_metadata={  # type: ignore[call-arg]
-                "source_file_name": "2025-12-14-183750-Running-Running-Watch.fit",
+                "source_file_name": "2025-12-14-183750-UnknownActivityType-Running-Watch.fit",
             },
         )
-        # FIT says cycling but filename says running
-        model._session_msg = cast(
-            Any,
-            _MessageStub(
-                {
-                    "sport": "cycling",
-                    "sub_sport": "indoor_cycling",
-                    "timestamp": datetime(2025, 12, 14, 9, 30, 0, tzinfo=timezone.utc),
-                    "total_elapsed_time": 0,
-                }
-            ),
-        )
-        model._file_id_msg = None
-
-        # apple_workout_type from FIT = "Indoor Cycling", but filename starts with "Running"
+        
+        # "UnknownActivityType" won't be found in normalized lookup table
+        assert model.filename_components is None
+        assert model.filename_apple_workout_type is None
+        assert model.filename_source_device is None
         assert model.device_name is None
 
     def test_denormalize_device_name_apple_watch(self) -> None:
