@@ -346,8 +346,8 @@ class IngestionContext:
         return False
 
     def should_skip(self) -> bool:
-        """Return True when an already-ingested file is unchanged and should be skipped."""
-        return self.is_terminal and self.is_unchanged()
+        """Return True only when an already-ingested file is unchanged."""
+        return self.is_ingested and self.is_unchanged()
 
     @property
     def first_seen_at_utc(self) -> str:
