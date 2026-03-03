@@ -92,6 +92,31 @@ class TestGarminSyncIngestionHandler:
         assert status == 422
         assert body["error_code"] == "INGESTION_ID_RESOLUTION_FAILED"
 
+    def test_handle_skips_unchanged_without_recording_ingestion_state(self):
+        storage = MagicMock()
+        storage.workouts = MagicMock()
+        storage.workouts.get_ingestion_state.return_value = {
+            "status": "ingested",
+            "workout_id": "workout-1",
+            "file_sha256": "hash",
+        }
+
+        client = MagicMock()
+        client.download_activity_fit.return_value = b"fit-bytes"
+
+        handler = GarminSyncIngestionHandler(storage=storage, client=client)
+        handler._skip_if_unchanged = MagicMock(return_value=(True, "workout-1"))  # type: ignore[attr-defined]
+
+        body, status = handler.handle(
+            athlete_id="rob",
+            activity=_build_activity("a1", "2026-02-20T10:00:00+00:00", 3600),
+        )
+
+        assert status == 200
+        assert body["status"] == "skipped"
+        assert body["workout_id"] == "workout-1"
+        storage.workouts.record_ingestion_state.assert_not_called()
+
     def test_handle_returns_error_code_on_workout_id_failure(self):
         storage = MagicMock()
         storage.workouts = MagicMock()

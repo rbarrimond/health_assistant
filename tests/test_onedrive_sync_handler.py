@@ -3,6 +3,7 @@
 # pylint: disable=redefined-outer-name, protected-access
 
 from datetime import datetime, timezone
+import gzip
 from unittest.mock import MagicMock
 import time
 
@@ -17,6 +18,7 @@ from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import (
 from TrainingAnalyticsPlatform.platform.exceptions import IngestionIdResolutionError
 from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 from TrainingAnalyticsPlatform.platform.exceptions import WorkoutIdCalculationError
+from TrainingAnalyticsPlatform.storage.storage_infrastructure import IngestionContext
 
 
 # Minimal valid FIT file for testing (header with .FIT signature)
@@ -278,6 +280,105 @@ class TestOneDriveSyncHandler:
 
 class TestOneDriveIngestionIdentity:
     """Test OneDrive ingestion identity requirements."""
+
+    def test_handle_preserves_raw_source_file_name_when_preprocessing_changes_logical_name(self):
+        """Verify source_file_name remains raw OneDrive item.name (.fit.gz) after preprocessing."""
+        storage = MagicMock()
+        storage.workouts = MagicMock()
+        context = MagicMock()
+        context.should_skip.return_value = False
+        storage.workouts.get_ingestion_context.return_value = context
+
+        client = MagicMock()
+        client.download_file.return_value = gzip.compress(MINIMAL_FIT_FILE)
+
+        handler = OneDriveSyncIngestionHandler(storage=storage, client=client)
+        handler._parse_and_store = MagicMock(  # type: ignore[attr-defined]
+            return_value=({}, "workout-1")
+        )
+
+        body, status = handler.handle(
+            athlete_id="rob",
+            access_token="token",
+            item={
+                "id": "item-1",
+                "name": "2026-03-02-093346-Functional-Strength-Training-Robert's-Apple-Watch-7.fit.gz",
+                "size": 1,
+                "parentReference": {
+                    "path": "/drive/root:/Apps/HealthFit",
+                    "driveId": "drive-id",
+                },
+                "file": {"hashes": {}},
+            },
+            drive_id="drive-id",
+        )
+
+        assert status == 200
+        assert body["status"] == "success"
+
+        parse_call = handler._parse_and_store.call_args  # type: ignore[attr-defined]
+        source_info = parse_call.args[1]
+        assert source_info["source_file_name"].endswith(".fit.gz")
+        assert source_info["source_logical_file_name"].endswith(".fit")
+
+    def test_handle_skips_unchanged_without_recording_ingestion_state(self):
+        """Already-ingested unchanged OneDrive FIT should short-circuit with debug-only behavior."""
+        storage = MagicMock()
+        storage.workouts = MagicMock()
+        item = {
+            "id": "item-1",
+            "name": "2026-03-02-093346-Indoor Cycling-Apple Watch Ultra.fit",
+            "size": 1,
+            "lastModifiedDateTime": "2026-03-02T09:34:46Z",
+            "eTag": "etag-1",
+            "parentReference": {
+                "path": "/drive/root:/Apps/HealthFit",
+                "driveId": "drive-id",
+            },
+            "file": {"hashes": {}},
+        }
+
+        source_info = {
+            "source_system": "OneDrive",
+            "source_file_name": item["name"],
+            "source_file_path": "/drive/root:/Apps/HealthFit/" + item["name"],
+            "source_item_id": "onedrive:item-1",
+            "source_drive_id": "drive-id",
+            "source_etag": "etag-1",
+            "source_ctag": None,
+            "source_quickxor_hash": None,
+            "source_modified_at_utc": "2026-03-02T09:34:46Z",
+            "file_size_bytes": 1,
+            "ingestion_id": "onedrive:item-1",
+        }
+        context = IngestionContext(
+            athlete_id="rob",
+            file_info=source_info,
+            workout_id=None,
+            storage=storage.workouts,
+            ingestion_id="onedrive:item-1",
+            ingestion_key="onedrive:item-1",
+            existing_state={
+                "status": "ingested",
+                "workout_id": "workout-1",
+                "source_etag": "etag-1",
+            },
+        )
+        storage.workouts.get_ingestion_context.return_value = context
+
+        handler = OneDriveSyncIngestionHandler(storage=storage, client=MagicMock())
+
+        body, status = handler.handle(
+            athlete_id="rob",
+            access_token="token",
+            item=item,
+            drive_id="drive-id",
+        )
+
+        assert status == 200
+        assert body["status"] == "skipped"
+        assert body["workout_id"] == "workout-1"
+        storage.workouts.record_ingestion_state.assert_not_called()
 
     def test_resolve_ingestion_id_uses_source_item_id(self):
         """Verify ingestion ID is extracted from source_item_id."""

@@ -54,14 +54,12 @@ class FitIngestionBaseHandler(ABC):
             if context.existing_state
             else None
         )
-        self.storage.workouts.record_ingestion_state(
+        logger.debug(
+            "Skipping unchanged FIT file with terminal ingested state: "
+            "athlete_id=%s ingestion_key=%s workout_id=%s",
             athlete_id,
-            source_info,
-            status="skipped",
-            workout_id=workout_id,
-            ingestion_id=source_info.get("ingestion_id"),
-            ingestion_key=context.ingestion_key,
-            existing_state=context.existing_state,
+            context.ingestion_key,
+            workout_id,
         )
         return True, workout_id
 
@@ -126,9 +124,13 @@ class FitIngestionBaseHandler(ABC):
             )
         source_info["ingestion_id"] = ingestion_id
         
-        # Add provenance zone (zone 8)
+        # Add/merge provenance zone (zone 8)
         from datetime import datetime, timezone
+        existing_provenance = structured_metadata.get("provenance", {})
+        if not isinstance(existing_provenance, dict):
+            existing_provenance = {}
         structured_metadata["provenance"] = {
+            **existing_provenance,
             "ingestion_version": source_info.get("ingestion_version", "1.0.0"),
             "ingestion_id": ingestion_id,
             "ingestion_timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -230,19 +232,30 @@ class FitIngestionBaseHandler(ABC):
             model: Instantiated FIT model (BaseFitModel and subclasses)
             source_info: Ingestion source metadata dict (mutated with device classification)
         """
-        device_name = model.device_name
-        device_manufacturer_code = model.device_manufacturer_code
-        device_product_code = model.device_product_code
+        raw_device_name = getattr(model, "device_name", None)
+        raw_device_model = getattr(model, "device_model", None)
+        device_name = raw_device_name if isinstance(raw_device_name, str) else None
+        device_model = raw_device_model if isinstance(raw_device_model, str) else None
+        device_manufacturer_code = getattr(model, "device_manufacturer_code", None)
+        device_product_code = getattr(model, "device_product_code", None)
 
-        # Classify device source
+        # Classify device source (checks both device_name and device_model)
         device_source_type = FitDevice.device_source_type(
             device_name=device_name,
+            device_model=device_model,
             device_manufacturer_code=device_manufacturer_code,
             device_product_code=device_product_code,
         )
         
         is_healthkit_synced = FitDevice.is_healthkit_synced(
             device_name=device_name,
+            device_model=device_model,
+            device_manufacturer_code=device_manufacturer_code,
+            device_product_code=device_product_code,
+        )
+        is_apple_watch_source = FitDevice.is_apple_watch_source(
+            device_name=device_name,
+            device_model=device_model,
             device_manufacturer_code=device_manufacturer_code,
             device_product_code=device_product_code,
         )
@@ -254,19 +267,23 @@ class FitIngestionBaseHandler(ABC):
         # Log device classification for monitoring
         logger.info(
             "Device source classification: device_source_type=%s, "
-            "is_healthkit_synced=%s, device_name=%r",
+            "is_healthkit_synced=%s, device_name=%r, device_model=%r",
             device_source_type,
             is_healthkit_synced,
             device_name,
+            device_model,
         )
 
         handler_name = self.__class__.__name__
         if handler_name == "FitPayloadIngestionHandler":
             return
 
-        if handler_name == "OneDriveSyncIngestionHandler" and is_healthkit_synced:
-            reason = "healthkit_synced"
-            message = "Filtered HealthKit-synced workout (iPhone sentinel)"
+        if handler_name == "OneDriveSyncIngestionHandler" and not is_apple_watch_source:
+            reason = "not_apple_watch_device"
+            message = (
+                "Filtered OneDrive workout: only Apple Watch recordings are allowed "
+                f"(detected={device_source_type})"
+            )
             self._record_filtered_ingestion(
                 athlete_id,
                 source_info,

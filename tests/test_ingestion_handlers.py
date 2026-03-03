@@ -44,15 +44,7 @@ def test_ingestion_base_skips_unchanged_records_state() -> None:
 
     assert skipped is True
     assert workout_id == "workout-1"
-    storage.workouts.record_ingestion_state.assert_called_once_with(
-        "rob",
-        {"source_file_name": "file.fit"},
-        status="skipped",
-        workout_id="workout-1",
-        ingestion_id=None,
-        ingestion_key="ingestion-key",
-        existing_state=context.existing_state,
-    )
+    storage.workouts.record_ingestion_state.assert_not_called()
 
 
 def test_ingestion_base_does_not_skip_when_unchanged() -> None:
@@ -106,6 +98,9 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
         "activity_metadata": {},
         "enrichment": {},
         "llm_analysis": {},
+        "provenance": {
+            "source_device_name": "Robert's Apple Watch Ultra 3",
+        },
     }
     laps_payload = {"laps": [{"message_index": 0}]}
     expected_workout_id = "2026-01-01T00:00:00+00:00_Cycling_hash"
@@ -115,6 +110,7 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
 
     mock_model = Mock()
     mock_model.device_name = "Apple Watch Series 5 40mm (GPS)"
+    mock_model.device_model = "Watch7,12"
     mock_model.device_manufacturer_code = None
     mock_model.device_product_code = None
     mock_model.validate_semantic_contract.return_value = None
@@ -152,7 +148,8 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     stored_metadata = call_args[0][1]
     assert "identity" in stored_metadata
     assert stored_metadata["identity"]["sport"] == "Cycling"
-    assert "provenance" in stored_metadata  # Added by handler
+    assert "provenance" in stored_metadata  # Added/merged by handler
+    assert stored_metadata["provenance"]["source_device_name"] == "Robert's Apple Watch Ultra 3"
     # Keyword args
     assert call_args[1]["workout_id"] == expected_workout_id
     assert "ingestion_id" in call_args[1]  # Should have ingestion_id
@@ -304,7 +301,31 @@ def test_fit_payload_handler_fit_parsing_error() -> None:
 
 
 def test_ingestion_context_skipped_unchanged_is_terminal() -> None:
-    """Skipped unchanged records should remain terminal and skip reingest."""
+    """Only ingested unchanged records should skip reingest."""
+    storage = Mock()
+    file_info = {
+        "source_etag": "etag-1",
+    }
+    existing_state = {
+        "status": "ingested",
+        "source_etag": "etag-1",
+    }
+
+    context = IngestionContext(
+        athlete_id="rob",
+        file_info=file_info,
+        workout_id=None,
+        storage=storage,
+        existing_state=existing_state,
+        ingestion_key="ingestion-key",
+    )
+
+    assert context.is_unchanged() is True
+    assert context.should_skip() is True
+
+
+def test_ingestion_context_legacy_skipped_state_does_not_short_circuit() -> None:
+    """Legacy skipped status should not short-circuit; only ingested is terminal."""
     storage = Mock()
     file_info = {
         "source_etag": "etag-1",
@@ -324,7 +345,7 @@ def test_ingestion_context_skipped_unchanged_is_terminal() -> None:
     )
 
     assert context.is_unchanged() is True
-    assert context.should_skip() is True
+    assert context.should_skip() is False
 
 
 def test_ingestion_context_preserves_ingested_at_on_skip() -> None:

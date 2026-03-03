@@ -148,14 +148,13 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
                 if context.existing_state
                 else None
             )
-            self.storage.workouts.record_ingestion_state(
+            logger.debug(
+                "Skipping unchanged Garmin FIT with existing ingested state: "
+                "athlete_id=%s ingestion_key=%s workout_id=%s source_item_id=%s",
                 athlete_id,
-                source_info,
-                status="skipped",
-                workout_id=workout_id,
-                ingestion_id=source_info.get("ingestion_id"),
-                ingestion_key=context.ingestion_key,
-                existing_state=context.existing_state,
+                context.ingestion_key,
+                workout_id,
+                source_info.get("source_item_id"),
             )
             return {
                 "status": "skipped",
