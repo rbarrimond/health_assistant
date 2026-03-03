@@ -3,6 +3,8 @@
 from typing import Dict, Optional, Protocol
 
 import pandas as pd
+from azure.data.tables import TableClient
+from azure.storage.blob import ContainerClient
 
 from TrainingAnalyticsPlatform.models import CanonicalRecordSet, WorkoutMetricsModel
 
@@ -332,10 +334,10 @@ class TrainingAggregationStorageProtocol(Protocol):
 class StorageInfrastructureProtocol(Protocol):
     """Protocol for storage infrastructure access (shared clients)."""
 
-    def get_table_client(self, table_name: str):
+    def get_table_client(self, table_name: str) -> TableClient:
         """Get a TableClient for the specified table."""
         ...
 
-    def get_blob_client(self):
+    def get_blob_client(self) -> ContainerClient:
         """Get a BlobContainerClient for workouts container."""
         ...
