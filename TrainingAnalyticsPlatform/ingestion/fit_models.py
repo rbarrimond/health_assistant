@@ -839,10 +839,11 @@ class BaseFitModel(BaseModel, ABC):
         if self._is_zwift_workout() and athlete_tz:
             return athlete_tz
         
-        # 3. Try to convert offset to IANA timezone
-        iana_tz = self._get_iana_from_offset_conversion(athlete_tz)
-        if iana_tz:
-            return iana_tz
+        # 3. Try to convert offset to IANA timezone (only with athlete hint)
+        if athlete_tz:
+            iana_tz = self._get_iana_from_offset_conversion(athlete_tz)
+            if iana_tz:
+                return iana_tz
         
         # 4. Fallback to offset string
         return self.local_tz_offset
