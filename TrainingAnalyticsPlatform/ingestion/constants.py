@@ -4,5 +4,5 @@
 METADATA_SCHEMA_VERSION = "1.0.0"
 LAPS_SCHEMA_VERSION = "1.0.0"
 FIT_ANALYSIS_VERSION = "v1.0.0"
-INGEST_VERSION = "v14.0.0"  # (v13.0.32→v14.0.0) BREAKING: Workouts table schema enforcement - removed metrics dict, queryable subset only
+INGEST_VERSION = "v14.3.5"  # (v14.3.4→v14.3.5) FIX: OneDrive accepts Apple Watch workouts only; unchanged already-ingested files short-circuit with debug log only (no IngestionState updates)
 

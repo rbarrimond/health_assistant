@@ -8,7 +8,92 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-03
+
+### OneDrive Apple Watch Allowlist + Ingested-Terminal Short-Circuit [ingest v14.3.5]
+
+- **Fix**: Tighten HealthFit/OneDrive filtration to **allowlist Apple Watch only**
+- OneDrive ingestion now rejects any non-watch source (`device_source_type != "apple_watch"`), including Garmin/unknown devices that previously slipped through
+- Apple Watch detection is explicit (`device_name` or `device_model` containing `"watch"`), not inverse-HealthKit logic
+- HealthKit-synced detection remains in place (`device_name` iPhone sentinel and `device_model` iPhone model pattern)
+- **Ingestion terminal-state update**: unchanged files now short-circuit only when prior status is `ingested`
+- Removed redundant `status="skipped"` writes for already-ingested unchanged files; system now emits debug logs and returns skipped response without mutating `IngestionState`
+- Preserves `filtered` and `failed` state recording behavior
+- Removed confirmed orphan helpers in `fit_models.py` (`_parse_utc_offset_minutes`, `_build_canonical_session_metadata`) and corrected apple workout fallback docstring drift
+
+### Enhanced HealthKit Filtration Using Device Model [ingest v14.3.4]
+
+- **Enhancement**: Improved HealthKit-synced workout detection to catch workouts synced via third-party apps (RunGap, Zwift, Intervals.icu)
+- Add `device_model` property to `BaseFitModel`: extracts FIT file_id product name (e.g., `"iPhone17,1"`, `"Watch7,12"`)
+- Enhanced `FitDevice.is_healthkit_synced()` to check both `device_name` AND `device_model` for iPhone indicators
+- Pattern detection: Regex `r"iphone\d+,\d+"` matches Apple internal model identifiers (e.g., iPhone17,1, iPhone14,2)
+- **Scenario addressed**: RunGap/Zwift sync workout to HealthKit → HealthFit exports with `device_model="iPhone17,1"` but `device_name="RunGap"` or app name
+- Previous filtration only checked `device_name="iPhone"` sentinel, missed synced workouts with app name but iPhone product ID
+- OneDrive path now filters: `device_name` containing "iphone" OR `device_model` matching iPhone model pattern
+- HTTP/payload path: No filtration (unchanged behavior, accepts all devices)
+- Defense in depth: Catches HealthKit-synced workouts via both human-readable device name and internal product identifier
+- No breaking changes; expands filtration coverage without changing persisted schema
+
 ## 2026-03-02
+
+### HealthFit OneDrive Filename Corruption Recovery [ingest v14.3.3]
+
+- **Enhancement**: Recover device name from OneDrive-corrupted HealthFit filenames
+- OneDrive inconsistently converts spaces to hyphens in filenames: `"Functional Strength Training"` becomes `"Functional-Strength-Training"`
+- **Solution**: Use FIT sport/sub_sport metadata as authoritative source for activity type, then reverse-parse corrupted filename to extract device name
+- New `HealthFitModel.device_name` property extracts device name using FIT-derived activity type as anchor
+- Denormalization restores known patterns: `Apple-Watch` → `Apple Watch`, `Apple-Watch-Ultra` → `Apple Watch Ultra`
+- Handles `.fit` and `.fit.gz` suffixes correctly
+- Non-canonical device names (e.g., with model numbers) accepted as-is; e.g., `"Robert's Apple Watch-7"` (model number hyphens preserved)
+- No breaking changes; existing filename parsing preserved for canonical (non-corrupted) files
+- Enables successful ingestion of HealthFit files from OneDrive despite filename corruption
+
+### HealthFit Canonical Pattern Enforcement [ingest v14.3.2]
+
+- **BREAKING FIX**: Replace hybrid regex/boundary-detection approach (v14.3.1) with strict canonical pattern enforcement
+- Canonical HealthFit filename format: `YYYY-MM-DD-HHMMSS-{ActivityType}-{DeviceName}.fit[.gz]`
+- Activity types use SPACES only, NO HYPHENS: `"Indoor Cycling"`, `"Functional Strength Training"` (NOT `"Indoor-Cycling"`)
+- First hyphen after HHMMSS is ALWAYS the activity/device separator
+- Device names preserved exactly as-is from filename: spaces, hyphens, apostrophes all intact
+- Regex pattern: `r'^(\d{4}-\d{2}-\d{2})-(\d{6})-([^-]+)-(.+)\.fit(?:\.gz)?$'`
+  - Group 1: Date (YYYY-MM-DD, device-local)
+  - Group 2: Time (HHMMSS, device-local)
+  - Group 3: Activity type (no hyphens allowed)
+  - Group 4: Device name (everything to .fit stem, preserved exactly)
+- Eliminates complex boundary-detection logic that was corrupting device tokens
+- No breaking changes to canonical metadata schema or API contracts
+
+### HealthFit Parsing Simplification [ingest v14.3.1] - DEPRECATED
+
+- ~~Consolidate using hybrid regex/boundary-detection approach~~ (incorrectly allowed hyphens in activity type and corrupted device names)
+- ~~Regex captures date, time, and remaining content; boundary detection using Apple workout types~~ (caused hyphen injection)
+- ~~Normalizes activity types (converts legacy hyphenated format to spaced format)~~ (failed to enforce canonical format)
+- Superseded by v14.3.2 canonical pattern enforcement
+
+### HealthFit Raw Filename Contract + Identity Device Name [ingest v14.3.0]
+
+- Preserve raw OneDrive filename (`item.name`) in `source_file_name` end-to-end; preprocessing logical filename is now stored separately as `source_logical_file_name`
+- Fix HealthFit filename parsing for hyphenated source/device names so values like `Robert's-Apple-Watch-7` are preserved in full (no tail-segment truncation)
+- Add `identity.device_name` sourced from HealthFit filename `<source/device name>` token while retaining `identity.device_manufacturer` and `identity.device_model` from FIT identity fields
+- Keep `provenance.source_device_name` aligned with the full filename-derived source/device token
+- Update canonical metadata schema documentation to 2.3.0 and ingestion schema registry to v15.0.36
+
+### HealthFit Workout Naming + Source Device Provenance [ingest v14.2.0]
+
+- Change HealthFit workout-name semantics to constructed naming: `<day part> <apple workout type>` (for example, `Morning Indoor Cycle`) instead of direct filename activity label passthrough
+- Preserve full filename source-device token in canonical metadata under `provenance.source_device_name` (for example, `Robert's Apple Watch Ultra 3`)
+- Keep device identity semantics separate: `identity.device_manufacturer` and `identity.device_model` continue to represent FIT-derived recording device identity
+- Merge (not overwrite) pre-populated provenance fields in ingestion handler so source-derived provenance survives ingestion-context enrichment
+- Update canonical metadata schema documentation to 2.2.0 and ingestion schema registry to v15.0.35
+
+### HealthFit Apple Manufacturer Normalization [ingest v14.1.1]
+
+- Normalize Apple-origin HealthFit FIT manufacturer values to canonical `Apple` in identity fields used by Workouts projection and metadata identity zone
+- Preserve raw FIT manufacturer provenance in metadata file fields via `file_manufacturer_raw` and `file_manufacturer_code` (e.g., `development`, `255`)
+- Normalize Apple Watch internal product identifiers (e.g., `Watch7,12` and `Watch 7,12`) to friendly model names when known
+- Correct Apple manufacturer-code branching in product-name resolution (Apple code `255`, not `32`)
+- Fix Apple device model extraction when FIT files provide `file_id.product_name` (e.g., `Watch17,2`) but omit `file_id.product`, preventing null `device_model` in Workouts
+- Update canonical metadata schema documentation to 2.1.0 and ingestion schema registry to v15.0.34
 
 ### Workouts Table Schema Enforcement [ingest v14.0.0 - BREAKING]
 

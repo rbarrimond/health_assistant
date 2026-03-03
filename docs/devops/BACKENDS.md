@@ -752,7 +752,7 @@ The system ingests workouts from **three independent pathways** with **no fallba
 
 | Source | Device Class | Ingestion Path | Filtration Rule |
 | --- | --- | --- | --- |
-| **Apple Watch** | Wearable | HealthFit → OneDrive → OneDrive handler | Accept only `device_name` containing "Watch" |
+| **Apple Watch** | Wearable | HealthFit → OneDrive → OneDrive handler | Accept only Apple Watch (`device_name` OR `device_model` contains `"watch"`) |
 | **Garmin/Zwift** | Cycling computer / Platform | Garmin Connect API → Garmin handler | Accept only `manufacturer ∈ {1=Garmin, 263=Zwift}` |
 | **Manual Upload** | Any | HTTP payload → Payload handler | No filtration |
 
@@ -806,14 +806,14 @@ When a workout is synced INTO HealthKit by another app:
 | --- | --- | --- |
 | **Filename** | `2026-01-07-030813-Indoor Cycling-RunGap.fit` | Date + Activity + **App Name** |
 | **device_name** | `"iPhone"` | **Sentinel value** (not an actual device) |
-| **manufacturer** | `"development"` | Normal for Apple (not official FIT manufacturer) |
+| **manufacturer** | `"development"` (raw FIT) / `"Apple"` (canonical metadata + Workouts identity) | Apple exports raw `development`; ingestion normalizes canonical semantics |
 
 **Combined meaning:**
 
 - Filename source token = **app that synced to HealthKit** (RunGap, Zwift, Strava, Intervals.icu)
-- `device_name="iPhone"` = **not recorded by an actual device**
+- `device_name="iPhone"` (or iPhone model identifier) = **not recorded by an Apple Watch source**
 - This is a **secondary export** - workout exists elsewhere in primary form
-- **Action**: REJECT during OneDrive ingestion
+- **Action**: REJECT during OneDrive ingestion (OneDrive allowlist is Apple Watch only)
 
 #### **Actual Device Pattern (Primary Recording - ACCEPT)**
 
@@ -823,12 +823,12 @@ When Apple Watch records a workout directly:
 | --- | --- | --- |
 | **Filename** | `2026-01-15-193027-Indoor Cycling-AppleWatch.fit` | Date + Activity + **Device Type** |
 | **device_name** | `"Apple Watch Ultra"` or `"Watch 7,12"` | Actual recording device |
-| **manufacturer** | `"development"` | Normal for Apple (all Apple exports) |
+| **manufacturer** | `"development"` (raw FIT) / `"Apple"` (canonical metadata + Workouts identity) | Apple exports raw `development`; canonical fields normalize to `Apple` |
 
 **Combined meaning:**
 
 - Filename source token = **actual device type** (AppleWatch, Garmin)
-- `device_name` contains "Watch" = **native Apple Watch recording**
+- `device_name` OR `device_model` contains "Watch" = **native Apple Watch recording**
 - This is a **primary recording** from the workout's origin device
 - **Action**: ACCEPT during OneDrive ingestion
 
@@ -842,7 +842,7 @@ When you see this pattern:
 
 ```python
 device_name="iPhone"
-manufacturer="development"
+manufacturer(raw)="development" / manufacturer(canonical)="Apple"
 filename="2026-01-07-030813-Indoor Cycling-RunGap.fit"
                                            ^^^^^^
                                         App that synced to HealthKit
@@ -910,7 +910,7 @@ RunGap is a **workout sync app**, not a workout source:
 ```
 
 **Do NOT filter on manufacturer="development" alone**  
-**DO filter on device_name="iPhone"**
+**DO enforce Apple Watch allowlist (`watch` in device_name/device_model)**
 
 ---
 
@@ -959,7 +959,7 @@ ALLOWED_MANUFACTURERS = {1, 263}  # Garmin=1, Zwift=263
 
 **What We Reject:**
 
-- ❌ HealthKit-synced workouts from OneDrive (`device_name="iPhone"`)
+- ❌ Non-Apple-Watch workouts from OneDrive (including HealthKit-synced iPhone/app exports and Garmin/unknown devices)
 - ❌ Non-Garmin/Zwift manufacturers from Garmin Connect API
 - ❌ Secondary exports where primary source is available elsewhere
 

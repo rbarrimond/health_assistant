@@ -1,7 +1,7 @@
 # Canonical Metadata Schema (metadata.json)
 
-**Version**: 2.0.0  
-**Effective**: 2026-03-01  
+**Version**: 2.3.0  
+**Effective**: 2026-03-02  
 **Status**: Active
 
 ---
@@ -29,15 +29,16 @@ This document specifies the structure of **metadata.json** blobs stored in Azure
 
 ```json
 {
-  "metadata_schema_version": "2.0.0",
+  "metadata_schema_version": "2.3.0",
   "identity": {
     "start_time_utc": "ISO8601 timestamp",
     "sport": "string (cycling, running, swimming, etc.)",
     "sub_sport": "string (road, mountain, indoor_cycling, etc.)",
     "duration_sec": "integer, total duration in seconds",
     "distance_m": "number, distance in meters",
-    "device_name": "string (e.g., 'Garmin Edge', 'Apple Watch Ultra')",
-    "device_source": "enum: 'apple_watch' | 'healthkit_synced' | 'garmin' | 'unknown'"
+    "device_name": "string filename-derived source/device token when available for HealthFit (e.g., 'Robert's Apple Watch 7')",
+    "device_manufacturer": "string canonicalized for query semantics (e.g., 'Apple', 'garmin')",
+    "device_model": "string canonical model name (e.g., 'Apple Watch Ultra 3 49mm', 'Edge 1040')"
   },
   "capabilities": {
     "has_power": "boolean, whether power data is present in canonical records",
@@ -48,7 +49,8 @@ This document specifies the structure of **metadata.json** blobs stored in Azure
     "ingestion_version": "string (SemVer of ingestion code that processed this file)",
     "ingestion_id": "string (unique ingestion identifier for idempotency)",
     "ingestion_timestamp_utc": "ISO8601 timestamp when ingestion completed",
-    "environment": "enum: 'indoor' | 'outdoor' | null"
+    "environment": "enum: 'indoor' | 'outdoor' | null",
+    "source_device_name": "string, filename-derived source device token when available (e.g., `Robert's Apple Watch Ultra 3`)"
   },
   "session": {
     "avg_speed_mps": "number, average speed in meters/second",
@@ -60,7 +62,9 @@ This document specifies the structure of **metadata.json** blobs stored in Azure
   },
   "file_metadata": {
     "file_time_created_utc": "ISO8601 timestamp from FIT file_id.time_created",
-    "file_manufacturer": "string (e.g., 'garmin', 'apple', 'wahoo')",
+    "file_manufacturer": "string canonicalized for semantic consistency (e.g., Apple for HealthFit Apple Watch exports)",
+    "file_manufacturer_raw": "string raw FIT manufacturer enum name/value (e.g., 'development')",
+    "file_manufacturer_code": "integer raw FIT manufacturer code when available (e.g., 255)",
     "file_product": "string (product code or name from FIT file)",
     "file_serial_number": "string (device serial number from FIT file)"
   },
@@ -107,8 +111,9 @@ This document specifies the structure of **metadata.json** blobs stored in Azure
 - **sub_sport**: Secondary activity classification. Immutable.
 - **duration_sec**: Total workout duration. Immutable.
 - **distance_m**: Total distance if GPS/speed available. May be null for indoor activities without distance data.
-- **device_name**: Human-readable device identifier (e.g., "Garmin Edge 530", "Apple Watch Ultra"). Used for device source classification.
-- **device_source**: Classification of how workout was recorded (native device vs. synced). Immutable and required.
+- **device_name**: For HealthFit ingests, the source/device token preserved exactly as-is from filename segment 4. Contains original spaces (e.g., `Robert's Apple Watch 7`), hyphens, and apostrophes. Not normalized or mutated by ingestion.
+- **device_manufacturer**: Canonical manufacturer label used for semantic queries and Workouts projection.
+- **device_model**: Canonical device model label used for semantic queries and Workouts projection (Apple Watch internal IDs are mapped to friendly names when known).
 
 ### Capabilities Zone
 
@@ -128,6 +133,7 @@ Computed at ingestion time by scanning canonical.parquet; immutable thereafter.
 - **ingestion_id**: Unique identifier for this ingestion (hash of file contents). Immutable.
 - **ingestion_timestamp_utc**: When ingestion completed. Immutable.
 - **environment**: Extracted from FIT message or inferred. Clarifies indoor vs. outdoor context.
+- **source_device_name**: Full filename-derived HealthFit source/device token retained for provenance.
 
 All fields immutable after ingestion.
 
@@ -140,9 +146,11 @@ All fields immutable after ingestion.
 
 ### File Metadata Zone
 
-**Purpose**: FIT file-level identity information for device tracking and debugging.
+**Purpose**: FIT file-level identity/provenance information for device tracking and debugging.
 
-- Extracted directly from FIT file_id message.
+- `file_manufacturer` stores canonical manufacturer semantics used for consistency with identity/workouts fields.
+- `file_manufacturer_raw` and `file_manufacturer_code` preserve raw FIT provenance for audit/debug.
+- Extracted from FIT file_id message.
 - Immutable.
 - May be null if FIT file lacks these fields.
 
@@ -158,7 +166,7 @@ All fields immutable after ingestion.
 **Purpose**: Manual and derived classification not present in FIT file.
 
 - **apple_workout_type**: Classification from Apple HealthKit API (only present if source is Apple Watch).
-- **workout_name**: User-assigned name or inferred label.
+- **workout_name**: User-assigned name or inferred label. For HealthFit, canonical inference uses `<day part> <apple workout type>`.
 - **virtual_platform**: Software platform used (Zwift, TrainerRoad, etc.), inferred or explicit.
 - **{commute,race,structured}_flag**: Contextual flags. Nullable to distinguish "not set" from "false".
 
@@ -184,15 +192,23 @@ Mutable — may be updated by enrichment pipeline.
 
 ## Versioning
 
-**current_version**: 2.0.0
+**current_version**: 2.3.0
 
-**Migration from 1.5.0 → 2.0.0**:
+**Migration from 2.2.0 → 2.3.0**:
 
-- Required fields: `device_source`, `has_power`, `has_hr`, `has_gps`, `ingestion_id` now mandatory
-- Renamed: `is_indoor` (boolean) → `environment` (string enum: indoor|outdoor|null)
-- Removed: `product_id` (duplicate of `file_product`)
-- Restructured: Semantic zoning for clarity
-- Added: `llm_analysis` section (reserved)
+- Added `identity.device_name` for HealthFit ingests using the filename `<source/device name>` token.
+- Clarified filename contract preservation semantics for source/device identity capture.
+
+**Migration from 2.1.0 → 2.2.0**:
+
+- Added `provenance.source_device_name` to preserve HealthFit filename source-device identity token independently from FIT-derived device identity fields.
+- HealthFit `enrichment.workout_name` inference contract now uses constructed naming `<day part> <apple workout type>`.
+
+**Migration from 2.0.0 → 2.1.0**:
+
+- Identity zone contract clarified to canonical query fields: `device_manufacturer`, `device_model`.
+- Added immutable FIT provenance fields in `file_metadata`: `file_manufacturer_raw`, `file_manufacturer_code`.
+- Canonical `file_manufacturer` now represents normalized semantic manufacturer values.
 
 **Backward Compatibility**:
 
@@ -241,10 +257,8 @@ Mutable — may be updated by enrichment pipeline.
 
 **Required (never null)**:
 
-- `metadata_schema_version`
-- `identity.*` (all fields)
-- `device_source`
-- `provenance.ingestion_version`, `ingestion_id`, `ingestion_timestamp_utc`
+- `identity.start_time_utc`, `identity.sport`
+- `provenance.ingestion_version`, `provenance.ingestion_id`, `provenance.ingestion_timestamp_utc`
 
 **Nullable (may be null)**:
 
@@ -261,15 +275,16 @@ Mutable — may be updated by enrichment pipeline.
 
 ```json
 {
-  "metadata_schema_version": "2.0.0",
+  "metadata_schema_version": "2.3.0",
   "identity": {
     "start_time_utc": "2025-12-04T01:45:18+00:00",
     "sport": "cycling",
     "sub_sport": "indoor_cycling",
     "duration_sec": 3604,
     "distance_m": 26.11965,
-    "device_name": "development",
-    "device_source": "unknown"
+    "device_name": "Robert's Apple Watch 7",
+    "device_manufacturer": "Apple",
+    "device_model": "Apple Watch Ultra 3 49mm"
   },
   "capabilities": {
     "has_power": true,
@@ -280,7 +295,8 @@ Mutable — may be updated by enrichment pipeline.
     "ingestion_version": "1.5.0",
     "ingestion_id": "onedrive:2DE1CE6A0066F643!s6dfff5239a4a4809a9d16722f8381323",
     "ingestion_timestamp_utc": "2025-12-04T01:50:00+00:00",
-    "environment": "indoor"
+    "environment": "indoor",
+    "source_device_name": "Robert's-Apple-Watch-7"
   },
   "session": {
     "avg_speed_mps": 26.0892,
@@ -292,8 +308,10 @@ Mutable — may be updated by enrichment pipeline.
   },
   "file_metadata": {
     "file_time_created_utc": "2025-12-04T01:45:18+00:00",
-    "file_manufacturer": "development",
-    "file_product": null,
+    "file_manufacturer": "Apple",
+    "file_manufacturer_raw": "development",
+    "file_manufacturer_code": 255,
+    "file_product": "Watch7,12",
     "file_serial_number": "27753"
   },
   "activity_metadata": {

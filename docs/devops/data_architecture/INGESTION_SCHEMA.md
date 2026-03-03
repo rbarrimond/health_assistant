@@ -1,6 +1,6 @@
 # Ingestion Schema
 
-Version: 15.0.32
+Version: 15.0.36
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
@@ -60,7 +60,7 @@ All ingestion-related schema/code version constants must be documented here.
 
 | Version | Current value | Code source | Purpose |
 | --- | --- | --- | --- |
-| `INGEST_VERSION` | `v13.0.31` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
+| `INGEST_VERSION` | `v14.3.5` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
 | `CANONICAL_SCHEMA_VERSION` | `1.4.0` | `TrainingAnalyticsPlatform/storage/table_storage.py` | Canonical parquet schema version persisted to `Workouts.canonical_schema_version`. |
 | `METADATA_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `metadata.json` as `metadata_schema_version`. |
 | `LAPS_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `laps.json` as `schema_version`. |
@@ -81,6 +81,7 @@ FIT parsing uses a hierarchical Pydantic model architecture with factory-based i
 - Parses/indexes FIT messages eagerly during model instantiation (no lazy message loading)
 - Implements all artifact builders (build_canonical_records, build_canonical_metadata, build_raw_fit, build_fit_analysis, build_metadata_messages, build_laps_json)
 - Computes semantic workout identity from start_time_utc + normalized sport
+- Exposes `device_model` property: extracts FIT file_id product name (e.g., `"iPhone17,1"`, `"Watch7,12"`, `"Edge 1030"`) for device classification and filtration
 
 **OneDriveFitModel** (abstract subclass of BaseFitModel)
 
@@ -90,8 +91,10 @@ FIT parsing uses a hierarchical Pydantic model architecture with factory-based i
 **Concrete Model Classes:**
 
 - **HealthFitModel**: Apple Watch FITs exported via HealthFit app
-  - Parses HealthFit filename pattern (YYYY-MM-DD-HHMMSS-{ActivityType}-{Source}.fit[.gz])
+  - Parses HealthFit filename pattern `YYYY-MM-DD-HHMMSS-<apple workout type>-<source/device name>.fit[.gz]`
+  - Uses raw OneDrive `item.name` as `source_file_name` (no preprocessing mutation of this field)
   - Treats HealthFit filename `YYYY-MM-DD-HHMMSS` timestamp as recording-device local time (not UTC)
+  - **Device name recovery**: OneDrive corrupts filenames by converting spaces to hyphens inconsistently (e.g., `"Apple Watch"` → `"Apple-Watch"`). The model uses FIT sport/sub_sport as authoritative source to locate and extract the device name, then applies denormalization patterns to restore known device names (e.g., `Apple-Watch` → `Apple Watch`, `Apple-Watch-Ultra` → `Apple Watch Ultra`). Raw filename device is preserved in provenance trail.
   - **Semantic override**: Infers `apple_workout_type` deterministically from HealthFit filename activity token (not FIT signals)
 - **GarminFitModel**: FIT files from Garmin Connect API sync
 - **PayloadFitModel**: Generic fallback for other sources
@@ -100,7 +103,14 @@ FIT parsing uses a hierarchical Pydantic model architecture with factory-based i
 
 Each concrete model enforces source-specific device filtration during ingestion:
 
-- **HealthFitModel**: Rejects `device_name="iPhone"` (HealthKit-synced workouts)
+- **HealthFitModel**: OneDrive enforces **Apple Watch allowlist only**:
+  - **Allow condition**: `device_name` or `device_model` contains `"watch"` (case-insensitive)
+  - **Reject condition**: any non-watch source, including HealthKit-synced iPhone/app exports and Garmin/unknown devices
+  - **HealthKit-synced detection** still uses dual iPhone signals:
+    - `device_name` containing "iphone" (sentinel)
+    - `device_model` matching `r"iphone\d+,\d+"` (e.g., iPhone17,1, iPhone14,2)
+  - **Example filtered**: `device_name="RunGap"` + `device_model="iPhone17,1"` → rejected (not Apple Watch)
+  - **Example filtered**: `device_name="Garmin Forerunner 955"` → rejected (not Apple Watch)
 - **GarminFitModel**: Accepts only `manufacturer_code ∈ {1=Garmin, 263=Zwift}`
 - **PayloadFitModel**: No filtration (user-controlled uploads)
 
@@ -454,6 +464,7 @@ from the semantic API.
 | --- | --- | --- | --- |
 | athlete_id | string | Yes | Athlete identifier. |
 | source_file_name | string | Yes | Original filename (e.g., `2026-01-07-...fit`). |
+| source_logical_file_name | string | No | Preprocessing logical filename when content is transformed (for example `.fit.gz` → `.fit`). |
 | file_content_b64 | string | Yes | Base64-encoded FIT file content. |
 
 ### Optional fields (source provenance)
@@ -497,7 +508,7 @@ Ingestion payload fields can contain full provenance metadata, but NOT all field
     - Resolver includes virtual mappings by sport: `("cycling", "virtual_activity") -> "Indoor Cycle"`, `("running", "virtual_activity") -> "Indoor Run"`, `("walking", "virtual_activity") -> "Indoor Walk"`
   - **HealthFitModel** (overrides default):
     - Resolves Apple workout type **primarily** from HealthFit filename activity token (e.g., `"Indoor Cycling"` → `INDOOR_CYCLE`)
-    - Uses alias mapping for variations (e.g., `"indoor-cycling"` normalizes to `"Indoor Cycling"`)
+    - Requires canonical activity token format from the immutable filename contract (Apple workout types are space-separated labels)
     - If filename activity token is missing or unrecognized, falls back to FIT `sport`/`sub_sport` inference
     - Logs a warning when FIT fallback is used to flag potential export anomalies
 - `workout_id` is the stable client-facing identifier and should be **treated as immutable once created**.
@@ -520,20 +531,21 @@ It is intentionally separate from Workouts to keep workout entities small and st
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| status | string | Yes | `ingested`, `failed`, `skipped`, `filtered`. |
+| status | string | Yes | `ingested`, `failed`, `skipped_duplicate`, `filtered`. (`skipped` is not persisted for unchanged already-ingested short-circuits.) |
 | first_seen_at_utc | string | Yes | ISO 8601 UTC timestamp when first observed. |
 | last_attempt_at_utc | string | Yes | ISO 8601 UTC timestamp for latest attempt. |
 | retry_count | int | Yes | Retry count (increments only on failures). |
 | workout_id | string | No | Stable workout ID linked to Workouts table. |
 | ingestion_id | string | No | Deterministic source-scoped ingestion identifier. |
 | source_file_name | string | No | Original source filename (e.g., `2026-01-07-...fit`). |
+| source_logical_file_name | string | No | Preprocessing logical filename when content is transformed (for example `.fit.gz` → `.fit`). |
 | source_drive_id | string | No | Source drive ID (OneDrive). |
 | source_etag | string | No | OneDrive eTag (version token). |
 | source_ctag | string | No | OneDrive cTag (content version token). |
 | source_quickxor_hash | string | No | OneDrive quickXor hash for content. |
 | source_modified_at_utc | string | No | OneDrive last modified timestamp (ISO 8601 UTC). |
 | file_sha256 | string | No | SHA-256 hash of file content. |
-| ingest_version | string | Yes | Ingestion code version (current: `v13.0.31`). |
+| ingest_version | string | Yes | Ingestion code version (current: `v14.3.5`). |
 | ingested_at_utc | string | No | ISO 8601 UTC timestamp when status becomes `ingested`. |
 | error_message | string | No | Last error message (truncated). |
 
@@ -542,8 +554,8 @@ It is intentionally separate from Workouts to keep workout entities small and st
 - A file is considered **unchanged** when any of the following match previous state:
   `source_ctag`, `source_quickxor_hash`, `file_sha256`, `source_etag`, or
   `source_modified_at_utc` (in that order of preference).
-- Unchanged files with a prior status of `ingested`, `skipped`, `skipped_duplicate`, or `filtered` are skipped.
-- Skipped ingestions preserve prior provenance values.
+- Unchanged files are short-circuited only when prior status is `ingested`.
+- Short-circuit returns `status="skipped"` to caller for observability, but does not write a new `IngestionState` entity.
 
 ---
 
