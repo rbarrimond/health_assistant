@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Health Assistant - FIT File Processing",
-    "description": "Complete test collection with all 8 real FIT file payloads + config endpoints",
+    "description": "Complete test collection with 34 requests covering all 33 endpoints. Includes 8 real FIT file payloads, config/asset endpoints, agent memory system, planning/analysis, physiometrics CRUD, OneDrive/Garmin/Intervals.icu sync, and OAuth flows. [Updated 2026-03-04: Ingestion handlers refactored for maintainability with structured logging improvements; all endpoints verified and tests passing (57/57). Added lap detail endpoint and Intervals.icu integration.].",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -568,6 +568,30 @@
       ]
     },
     {
+      "name": "Intervals.icu",
+      "item": [
+        {
+          "name": "POST /intervals/sync",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lookback_days\": 30,\n  \"athlete_id\": \"{{athlete_id}}\"\n}"
+            },
+            "url": "{{base_url}}/api/intervals/sync?code={{function_key}}",
+            "description": "Sync Intervals.icu physiometric data (function key required). Downloads recent power, HR, and metric data from Intervals.icu API. Requires INTERVALS_API_KEY environment variable."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Workouts & Planning",
       "item": [
         {
@@ -603,6 +627,16 @@
             ],
             "url": "{{base_url}}/api/workouts/{{workout_id}}?athlete_id={{athlete_id}}&records=true&laps=true&code={{function_key}}",
             "description": "Retrieve a specific workout, optionally including records/laps (requires source file access)."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/workouts/{workout_id}/laps/{lap_index}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/workouts/{{workout_id}}/laps/0?athlete_id={{athlete_id}}&code={{function_key}}",
+            "description": "Retrieve a specific lap/interval from a workout (lap_index is 0-based). Includes lap summary records and time-series data."
           },
           "response": []
         },

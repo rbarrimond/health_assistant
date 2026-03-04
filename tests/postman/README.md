@@ -2,6 +2,8 @@
 
 **Quick Reference**: Ready-to-use API testing collection with 31 requests covering all endpoints.
 
+**Latest Update** (March 4, 2026): Ingestion handlers refactored for improved maintainability and structured logging. All 33 endpoints verified; 57/57 integration tests passing. Added lap detail endpoint and Intervals.icu sync. No breaking API changes.
+
 ## Quick Links
 
 - [API Alignment Report](./API_ALIGNMENT.md) - Verification that collection, openapi.yaml, and function_app.py are aligned
@@ -14,13 +16,13 @@ The Postman collection provides organized testing for:
 
 - ✅ **Agent Memory System** (6 requests) - Preferences, observations, context
 - ✅ **Planning & Analysis** (8 requests) - Planning context, workouts, rollups, zones
-- ✅ **Real Data Tests** (3 requests) - Actual FIT files (small, medium, large)
+- ✅ **Real Data Tests** (3 requests) - Actual FIT files (small, medium, large)  
 - ✅ **Physiometrics** (3 requests) - Body metrics CRUD operations
 - ✅ **Configuration** (4 requests) - Config management and asset endpoints
-- ✅ **Backend Integration** (7 requests) - OneDrive and Withings OAuth flows
+- ✅ **Backend Integration** (9 requests) - OneDrive sync, Garmin sync, Intervals.icu sync, Withings OAuth flows
 - ✅ **System Health** (1 request) - Health check endpoint
 
-**Total**: 32 pre-configured requests ready to run
+**Total**: 34 pre-configured requests ready to run
 
 ## Import Collection
 
