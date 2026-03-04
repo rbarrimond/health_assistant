@@ -89,6 +89,50 @@ class PhysiometricsSnapshot(BaseModel):
         description="When this snapshot was canonicalized",
     )
 
+    def to_storage_dict(self) -> dict:
+        """Convert snapshot to storage layer format.
+        
+        Storage layer uses nested dicts for heart_rate and power to maintain
+        backward compatibility with legacy Garmin ingestion format.
+        
+        This method ensures all canonical fields are explicitly mapped,
+        preventing silent field loss during schema evolution.
+        
+        Returns:
+            Dict matching physiometrics_storage.py entity schema
+        """
+        return {
+            # Body composition (Withings)
+            "weight_kg": self.weight_kg,
+            "fat_mass_kg": self.fat_mass_kg,
+            "muscle_mass_kg": self.muscle_mass_kg,
+            "bone_mass_kg": self.bone_mass_kg,
+            "body_fat_pct": self.body_fat_pct,
+            "visceral_fat_index": self.visceral_fat_index,
+            "metabolic_age_years": self.metabolic_age_years,
+            
+            # Heart rate metrics (nested for legacy compatibility)
+            "heart_rate": {
+                "basis": "LTHR",  # Default basis for Intervals/Garmin data
+                "lthr_bpm": self.hr_lthr_bpm,
+                "hr_max_bpm": self.hr_max_bpm,
+                "resting_hr_bpm": self.resting_hr_bpm,
+            },
+            
+            # Wellness metrics (Intervals)
+            "hrv_ln_rmssd": self.hrv_ln_rmssd,
+            "sleep_duration_min": self.sleep_duration_min,
+            "readiness_score": self.readiness_score,
+            
+            # Power metrics (nested for legacy compatibility)
+            "power": {
+                "ftp_watts": self.ftp_watts,
+            },
+            
+            # Aerobic capacity
+            "cycling_vo2max_ml_kg_min": self.cycling_vo2max_ml_kg_min,
+        }
+
     class Config:
         """Pydantic config for serialization."""
         json_encoders = {datetime: lambda v: v.isoformat() if v else None}

@@ -164,26 +164,8 @@ class IntervalsSyncHandler:
             parsed, athlete_id
         )
 
-        # Convert snapshot to storage dict (matching physiometrics_storage schema)
-        storage_dict = {
-            "weight_kg": snapshot.weight_kg,
-            "fat_mass_kg": snapshot.fat_mass_kg,
-            "muscle_mass_kg": snapshot.muscle_mass_kg,
-            "bone_mass_kg": snapshot.bone_mass_kg,
-            "body_fat_pct": snapshot.body_fat_pct,
-            "visceral_fat_index": snapshot.visceral_fat_index,
-            "metabolic_age_years": snapshot.metabolic_age_years,
-            "heart_rate": {
-                "basis": "LTHR",
-                "lthr_bpm": snapshot.hr_lthr_bpm,
-                "hr_max_bpm": snapshot.hr_max_bpm,
-                "resting_hr_bpm": snapshot.resting_hr_bpm or 60,
-            },
-            "power": {
-                "ftp_watts": snapshot.ftp_watts,
-            },
-            "cycling_vo2max_ml_kg_min": snapshot.cycling_vo2max_ml_kg_min,
-        }
+        # Convert snapshot to storage dict (explicit typed boundary)
+        storage_dict = snapshot.to_storage_dict()
 
         # Store physiometrics
         self.storage.physiometrics.store_physiometrics(

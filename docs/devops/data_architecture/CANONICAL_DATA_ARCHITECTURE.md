@@ -276,9 +276,9 @@ Schema (current + planned):
   • heart_rate_hr_max_bpm: Optional[float]
   • heart_rate_resting_bpm: Optional[float]
   
-  • hrv_ln_rmssd: Optional[float]  (log-normalized RMSSD from Intervals; planned)
-  • sleep_duration_min: Optional[float]  (from Intervals; planned)
-  • readiness_score: Optional[float]  (0-100 composite; from Garmin or Intervals; planned)
+  • hrv_ln_rmssd: Optional[float]  (log-normalized RMSSD from Intervals)
+  • sleep_duration_min: Optional[float]  (from Intervals)
+  • readiness_score: Optional[float]  (0-100 composite from Garmin or Intervals)
   
   • power_ftp_watts: Optional[float]
   • cycling_vo2max_ml_kg_min: Optional[float]

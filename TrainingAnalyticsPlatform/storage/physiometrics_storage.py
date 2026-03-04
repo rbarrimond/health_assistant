@@ -56,6 +56,9 @@ class PhysiometricsStorage:
             "visceral_fat_index": physiometrics_data.get("visceral_fat_index"),
             "metabolic_age_years": physiometrics_data.get("metabolic_age_years"),
             "cycling_vo2max_ml_kg_min": physiometrics_data.get("cycling_vo2max_ml_kg_min"),
+            "hrv_ln_rmssd": physiometrics_data.get("hrv_ln_rmssd"),
+            "sleep_duration_min": physiometrics_data.get("sleep_duration_min"),
+            "readiness_score": physiometrics_data.get("readiness_score"),
             "full_config_json": json.dumps(physiometrics_data),
         }
 

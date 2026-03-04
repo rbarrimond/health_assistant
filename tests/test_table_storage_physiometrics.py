@@ -239,3 +239,67 @@ class TestEnsurePhysiometricsTable:
             )
         ]
         assert "Physiometrics" in table_names
+
+class TestWellnessFieldsPersistence:
+    """Tests for wellness fields (HRV, sleep, readiness) storage."""
+
+    def test_store_physiometrics_persists_wellness_fields(self) -> None:
+        """Verify wellness fields are stored as table columns."""
+        mock_table_client = MagicMock()
+        storage = _make_storage(mock_table_client)
+
+        physiometrics_data = {
+            "hrv_ln_rmssd": 4.2,
+            "sleep_duration_min": 480.0,
+            "readiness_score": 85.0,
+            "heart_rate": {"basis": "LTHR", "resting_hr_bpm": 52},
+            "power": {"ftp_watts": 285},
+        }
+
+        storage.store_physiometrics("athlete123", physiometrics_data)
+
+        entity = mock_table_client.upsert_entity.call_args[0][0]
+        assert entity["hrv_ln_rmssd"] == pytest.approx(4.2)
+        assert entity["sleep_duration_min"] == pytest.approx(480.0)
+        assert entity["readiness_score"] == pytest.approx(85.0)
+
+    def test_store_physiometrics_handles_null_wellness_fields(self) -> None:
+        """Verify null wellness fields are stored as None for backward compatibility."""
+        mock_table_client = MagicMock()
+        storage = _make_storage(mock_table_client)
+
+        physiometrics_data = {
+            "hrv_ln_rmssd": None,
+            "sleep_duration_min": None,
+            "readiness_score": None,
+            "heart_rate": {"basis": "LTHR", "resting_hr_bpm": 52},
+            "power": {"ftp_watts": 285},
+        }
+
+        storage.store_physiometrics("athlete123", physiometrics_data)
+
+        entity = mock_table_client.upsert_entity.call_args[0][0]
+        assert entity["hrv_ln_rmssd"] is None
+        assert entity["sleep_duration_min"] is None
+        assert entity["readiness_score"] is None
+
+    def test_wellness_fields_in_full_config_json(self) -> None:
+        """Verify wellness fields are preserved in full_config_json audit blob."""
+        mock_table_client = MagicMock()
+        storage = _make_storage(mock_table_client)
+
+        physiometrics_data = {
+            "hrv_ln_rmssd": 4.2,
+            "sleep_duration_min": 480.0,
+            "readiness_score": 85.0,
+            "heart_rate": {"basis": "LTHR", "resting_hr_bpm": 52},
+            "power": {"ftp_watts": 285},
+        }
+
+        storage.store_physiometrics("athlete123", physiometrics_data)
+
+        entity = mock_table_client.upsert_entity.call_args[0][0]
+        full_config = json.loads(entity["full_config_json"])
+        assert full_config["hrv_ln_rmssd"] == pytest.approx(4.2)
+        assert full_config["sleep_duration_min"] == pytest.approx(480.0)
+        assert full_config["readiness_score"] == pytest.approx(85.0)

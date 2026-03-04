@@ -79,7 +79,7 @@ class TestIntervalsSyncHandlerHandle:
         """Test successful handling of a single measurement."""
         measurement = {
             "id": "2025-03-01",
-            "hrv": 42.5,
+            "hrvRMSSD": 42.5,
             "restingHR": 52,
             "sleepSecs": 28800,
             "readiness": 78,
@@ -98,14 +98,14 @@ class TestIntervalsSyncHandlerHandle:
         measurements = [
             {
                 "id": "2025-02-28",
-                "hrv": 40.0,
+                "hrvRMSSD": 40.0,
                 "restingHR": 53,
                 "sleepSecs": 27000,
                 "readiness": 75,
             },
             {
                 "id": "2025-03-01",
-                "hrv": 42.5,
+                "hrvRMSSD": 42.5,
                 "restingHR": 52,
                 "sleepSecs": 28800,
                 "readiness": 78,
@@ -148,7 +148,7 @@ class TestIntervalsSyncHandlerHandle:
         """Test handle when storage call fails."""
         measurement = {
             "id": "2025-03-01",
-            "hrv": 42.5,
+            "hrvRMSSD": 42.5,
             "restingHR": 52,
             "sleepSecs": 28800,
             "readiness": 78,
@@ -169,7 +169,7 @@ class TestIntervalsSyncHandlerHandle:
         measurements = [
             {
                 "id": "2025-02-28",
-                "hrv": 40.0,
+                "hrvRMSSD": 40.0,
                 "restingHR": 53,
                 "sleepSecs": 27000,
                 "readiness": 75,
@@ -205,7 +205,7 @@ class TestIntervalsSyncHandlerHandle:
         """Test that snapshot is properly converted to storage dict."""
         measurement = {
             "id": "2025-03-01",
-            "hrv": 42.5,
+            "hrvRMSSD": 42.5,
             "restingHR": 52,
             "sleepSecs": 28800,
             "readiness": 78,

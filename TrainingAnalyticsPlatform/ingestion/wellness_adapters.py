@@ -255,7 +255,7 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
 
         return {
             "date": raw_data.get("id") or raw_data.get("date"),
-            "hrv": raw_data.get("hrv"),  # Already ln(RMSSD)
+            "hrv": raw_data.get("hrvRMSSD") or raw_data.get("hrv"),  # Already ln(RMSSD)
             "rhr": raw_data.get("restingHR") if raw_data.get("restingHR") is not None else raw_data.get("rhr"),
             "sleep": sleep_minutes,
             "readiness": raw_data.get("readiness"),

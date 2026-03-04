@@ -66,7 +66,7 @@ class TestIntervalsicuClientWellness:
         mock_response.json.return_value = [
             {
                 "id": "2025-03-01",
-                "hrv": 42.5,
+                "hrvRMSSD": 42.5,
                 "restingHR": 52,
                 "sleepSecs": 28800,
                 "readiness": 78,
@@ -82,7 +82,7 @@ class TestIntervalsicuClientWellness:
 
         assert response == mock_response.json.return_value
         assert len(response) == 1
-        assert response[0]["hrv"] == pytest.approx(42.5)
+        assert response[0]["hrvRMSSD"] == pytest.approx(42.5)
 
     def test_get_athlete_wellness_default_dates(self, client):
         """Test wellness fetch with default date range."""
@@ -165,7 +165,7 @@ class TestIntervalsicuClientHRV:
         mock_response.json.return_value = [
             {
                 "id": "2025-03-01",
-                "hrv": 42.5,
+                "hrvRMSSD": 42.5,
             }
         ]
 
@@ -177,9 +177,9 @@ class TestIntervalsicuClientHRV:
             )
 
         assert response == mock_response.json.return_value
-        assert response[0]["hrv"] == pytest.approx(42.5)
+        assert response[0]["hrvRMSSD"] == pytest.approx(42.5)
         call_kwargs = mock_request.call_args[1]
-        assert call_kwargs["params"]["fields"] == "id,hrv"
+        assert call_kwargs["params"]["fields"] == "id,hrvRMSSD"
 
 
 class TestIntervalsicuClientReadiness:

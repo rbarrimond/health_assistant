@@ -130,7 +130,7 @@ class IntervalsicuClient:
             athlete_id=athlete_id,
             oldest=start_date,
             newest=end_date,
-            fields=["id", "hrv"],
+            fields=["id", "hrvRMSSD"],
         )
 
     def get_athlete_readiness(
