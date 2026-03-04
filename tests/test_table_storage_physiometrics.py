@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 from azure.core.exceptions import HttpResponseError
 
+from TrainingAnalyticsPlatform.platform.exceptions import StorageError
 from TrainingAnalyticsPlatform.storage.physiometrics_storage import PhysiometricsStorage
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import StorageInfrastructure
 
@@ -91,7 +92,7 @@ class TestStorePhysiometrics:
 
         physiometrics_data = {"heart_rate": {}, "power": {}}
 
-        with pytest.raises(HttpResponseError):
+        with pytest.raises(StorageError):
             storage.store_physiometrics("rob", physiometrics_data)
 
 
@@ -158,14 +159,13 @@ class TestGetPhysiometrics:
         assert result is None
 
     def test_get_physiometrics_query_error(self) -> None:
-        """Verify None returned on query error."""
+        """Verify typed error raised on query failure."""
         mock_table_client = MagicMock()
         mock_table_client.query_entities.side_effect = HttpResponseError("Query error")
         storage = _make_storage(mock_table_client)
 
-        result = storage.get_physiometrics("rob")
-
-        assert result is None
+        with pytest.raises(StorageError):
+            storage.get_physiometrics("rob")
 
 
 class TestListPhysiometricsHistory:
@@ -207,14 +207,13 @@ class TestListPhysiometricsHistory:
         assert len(result) == 5
 
     def test_list_physiometrics_history_query_error(self) -> None:
-        """Verify empty list returned on error."""
+        """Verify typed error raised on query failure."""
         mock_table_client = MagicMock()
         mock_table_client.query_entities.side_effect = HttpResponseError("Query error")
         storage = _make_storage(mock_table_client)
 
-        result = storage.list_physiometrics_history("rob", limit=10)
-
-        assert result == []
+        with pytest.raises(StorageError):
+            storage.list_physiometrics_history("rob", limit=10)
 
 
 class TestEnsurePhysiometricsTable:

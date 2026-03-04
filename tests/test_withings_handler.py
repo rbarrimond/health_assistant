@@ -275,8 +275,7 @@ class TestWithingsHandler:
         )
 
         # Assert
-        # Should still return 200 for webhook resilience
-        assert status == 200 or status == 500
+        assert status == 503
 
     def test_get_authorization_url_includes_instructions(self, handler, mock_withings_client):
         """Test authorization URL response includes helpful instructions."""

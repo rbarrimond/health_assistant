@@ -9,10 +9,12 @@ from urllib.parse import urlencode
 
 import requests
 
+from TrainingAnalyticsPlatform.platform.exceptions import ExternalServiceError
+
 logger = logging.getLogger(__name__)
 
 
-class OneDriveGraphError(RuntimeError):
+class OneDriveGraphError(ExternalServiceError):
     """Raised when Microsoft Graph calls fail."""
 
 
@@ -65,11 +67,16 @@ class OneDriveGraphClient:
             "redirect_uri": self.redirect_uri,
             "scope": self.scopes,
         }
-        response = requests.post(self.token_endpoint, data=data, timeout=30)
-        if not response.ok:
-            logger.error("Token exchange failed: %s", response.text)
-            raise OneDriveGraphError("Failed to exchange authorization code.")
-        return response.json()
+        try:
+            response = requests.post(self.token_endpoint, data=data, timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as exc:
+            logger.error("Token exchange failed: %s", exc)
+            raise OneDriveGraphError("Failed to exchange authorization code") from exc
+        except ValueError as exc:
+            logger.error("Token exchange returned invalid JSON")
+            raise OneDriveGraphError("Token exchange returned invalid response payload") from exc
 
     def refresh_access_token(self, refresh_token: str) -> Dict:
         """Refresh the access token using a refresh token."""
@@ -81,20 +88,30 @@ class OneDriveGraphClient:
             "redirect_uri": self.redirect_uri,
             "scope": self.scopes,
         }
-        response = requests.post(self.token_endpoint, data=data, timeout=30)
-        if not response.ok:
-            logger.error("Token refresh failed: %s", response.text)
-            raise OneDriveGraphError("Failed to refresh access token.")
-        return response.json()
+        try:
+            response = requests.post(self.token_endpoint, data=data, timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as exc:
+            logger.error("Token refresh failed: %s", exc)
+            raise OneDriveGraphError("Failed to refresh access token") from exc
+        except ValueError as exc:
+            logger.error("Token refresh returned invalid JSON")
+            raise OneDriveGraphError("Token refresh returned invalid response payload") from exc
 
     def get_drive_id(self, access_token: str) -> Optional[str]:
         """Return the user's drive id, if available."""
         url = f"{self.graph_base_url}/me/drive"
-        response = requests.get(url, headers=_auth_header(access_token), timeout=30)
-        if not response.ok:
-            logger.warning("Failed to get drive id: %s", response.text)
+        try:
+            response = requests.get(url, headers=_auth_header(access_token), timeout=30)
+            response.raise_for_status()
+            return response.json().get("id")
+        except requests.RequestException as exc:
+            logger.warning("Failed to get drive id: %s", exc)
             return None
-        return response.json().get("id")
+        except ValueError as exc:
+            logger.warning("Drive id response returned invalid JSON: %s", exc)
+            return None
 
     def list_files(
         self,
@@ -122,11 +139,13 @@ class OneDriveGraphClient:
     def download_file(self, *, access_token: str, item_id: str) -> bytes:
         """Download a OneDrive file by item id."""
         url = f"{self.graph_base_url}/me/drive/items/{item_id}/content"
-        response = requests.get(url, headers=_auth_header(access_token), timeout=60)
-        if not response.ok:
-            logger.error("Download failed: %s", response.text)
-            raise OneDriveGraphError("Failed to download OneDrive file.")
-        return response.content
+        try:
+            response = requests.get(url, headers=_auth_header(access_token), timeout=60)
+            response.raise_for_status()
+            return response.content
+        except requests.RequestException as exc:
+            logger.error("Download failed: %s", exc)
+            raise OneDriveGraphError("Failed to download OneDrive file") from exc
 
 
 def _auth_header(access_token: str) -> Dict[str, str]:
@@ -149,17 +168,22 @@ def _iter_drive_items(
     next_params: Optional[Dict[str, str]] = params
 
     while next_url:
-        response = requests.get(
-            next_url,
-            headers=_auth_header(access_token),
-            params=next_params,
-            timeout=30,
-        )
-        if not response.ok:
-            logger.error("List files failed: %s", response.text)
-            raise OneDriveGraphError("Failed to list OneDrive folder.")
+        try:
+            response = requests.get(
+                next_url,
+                headers=_auth_header(access_token),
+                params=next_params,
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+        except requests.RequestException as exc:
+            logger.error("List files failed: %s", exc)
+            raise OneDriveGraphError("Failed to list OneDrive folder") from exc
+        except ValueError as exc:
+            logger.error("List files returned invalid JSON")
+            raise OneDriveGraphError("Invalid OneDrive list response payload") from exc
 
-        data = response.json()
         for item in data.get("value", []):
             yield item
 

@@ -7,6 +7,7 @@ from typing import Dict, Optional
 
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 
+from TrainingAnalyticsPlatform.platform.exceptions import StorageError
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import StorageInfrastructure
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ class PhysiometricsStorage:
             return timestamp
         except HttpResponseError as e:
             logger.error("Error storing physiometrics: %s", e)
-            raise
+            raise StorageError("Failed to store physiometrics") from e
 
     def get_physiometrics(self, athlete_id: str) -> Optional[Dict]:
         """Retrieve the latest physiometrics config for an athlete."""
@@ -105,8 +106,8 @@ class PhysiometricsStorage:
         except ResourceNotFoundError:
             return None
         except HttpResponseError as e:
-            logger.warning("Error retrieving physiometrics for %s: %s", athlete_id, e)
-            return None
+            logger.error("Error retrieving physiometrics for %s: %s", athlete_id, e)
+            raise StorageError("Failed to retrieve physiometrics") from e
 
     def get_physiometrics_as_of(
         self,
@@ -159,13 +160,13 @@ class PhysiometricsStorage:
             return result
 
         except HttpResponseError as e:
-            logger.warning(
+            logger.error(
                 "Error retrieving physiometrics as of %s for %s: %s",
                 target_date,
                 athlete_id,
                 e,
             )
-            return None
+            raise StorageError("Failed to retrieve physiometrics history point") from e
 
     def list_physiometrics_history(
         self,
@@ -180,12 +181,12 @@ class PhysiometricsStorage:
             entities.sort(key=lambda x: x.get("RowKey", ""), reverse=True)
             return entities[:limit]
         except HttpResponseError as e:
-            logger.warning(
+            logger.error(
                 "Error retrieving physiometrics history for %s: %s",
                 athlete_id,
                 e,
             )
-            return []
+            raise StorageError("Failed to list physiometrics history") from e
 
     def get_physiometrics_history(
         self,
@@ -221,12 +222,12 @@ class PhysiometricsStorage:
             return entities
 
         except HttpResponseError as e:
-            logger.warning(
+            logger.error(
                 "Error retrieving physiometrics history for %s: %s",
                 athlete_id,
                 e,
             )
-            return []
+            raise StorageError("Failed to retrieve physiometrics history") from e
 
     def update_single_metric(
         self,

@@ -18,6 +18,7 @@ from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_bytes_h
 from TrainingAnalyticsPlatform.platform.exceptions import (
     DeviceFilteredError,
     FitParsingError,
+    HealthAssistantError,
     IngestionIdResolutionError,
     WorkoutIdCalculationError,
 )
@@ -519,6 +520,9 @@ class GarminSyncHandler:
         try:
             results = self.sync(athlete_id=athlete_id, lookback_days=lookback_days)
             return results, 200
+        except HealthAssistantError as exc:
+            logger.error("Garmin sync failed with typed error: %s", exc, exc_info=True)
+            return exc.to_response(include_message_alias=True)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Garmin sync failed: %s", exc, exc_info=True)
             return {"error": str(exc)}, 500

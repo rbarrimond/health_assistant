@@ -17,6 +17,7 @@ from TrainingAnalyticsPlatform.platform.config import Config as PlatformConfig
 from TrainingAnalyticsPlatform.platform.exceptions import (
     DeviceFilteredError,
     FitParsingError,
+    HealthAssistantError,
     IngestionIdResolutionError,
     PreprocessingError,
     WorkoutIdCalculationError,
@@ -326,6 +327,9 @@ class OneDriveSyncHandler:
         except ValueError as exc:
             logger.warning("Sync validation failed: %s", exc)
             return {"error": str(exc)}, 400
+        except HealthAssistantError as exc:
+            logger.error("Sync failed with typed error: %s", exc, exc_info=True)
+            return exc.to_response(include_message_alias=True)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Sync failed: %s", exc, exc_info=True)
             return {"error": "Sync failed"}, 500

@@ -155,5 +155,4 @@ class WithingsHandler:
 
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Error processing Withings webhook: %s", exc, exc_info=True)
-            # Still return 200 to avoid Withings retry flood
-            return "OK", 200
+            return "Temporary processing failure", 503

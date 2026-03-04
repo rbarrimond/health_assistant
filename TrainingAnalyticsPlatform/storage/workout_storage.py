@@ -163,8 +163,8 @@ class WorkoutStorage:
             # Entity doesn't exist yet - not an error
             return None
         except HttpResponseError as e:
-            logger.warning("Error checking ingestion state for %s: %s", ingestion_key, e)
-            return None
+            logger.error("Error checking ingestion state for %s: %s", ingestion_key, e)
+            raise StorageError("Failed to retrieve ingestion state") from e
 
     def get_ingestion_context(
         self,

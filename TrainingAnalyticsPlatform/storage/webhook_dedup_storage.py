@@ -6,6 +6,7 @@ from typing import Optional
 
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 
+from TrainingAnalyticsPlatform.platform.exceptions import StorageError
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import StorageInfrastructure
 
 logger = logging.getLogger(__name__)
@@ -36,8 +37,8 @@ class WebhookDedupStorage:
                 return False  # Not processed yet
 
         except HttpResponseError as e:
-            logger.warning("Error checking webhook deduplication: %s", e)
-            return False  # On error, allow processing
+            logger.error("Error checking webhook deduplication: %s", e)
+            raise StorageError("Failed to check webhook deduplication state") from e
 
     def mark_webhook_processed(
         self,
@@ -65,4 +66,4 @@ class WebhookDedupStorage:
 
         except HttpResponseError as e:
             logger.error("Error marking webhook as processed: %s", e)
-            # Don't raise - this shouldn't block webhook processing
+            raise StorageError("Failed to mark webhook as processed") from e

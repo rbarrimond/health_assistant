@@ -6,6 +6,7 @@ from typing import Dict, Optional
 
 from azure.core.exceptions import HttpResponseError
 
+from TrainingAnalyticsPlatform.platform.exceptions import StorageError
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import StorageInfrastructure
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ class OAuthTokenStorage:
             logger.info("Stored Withings tokens for %s (userid: %s)", athlete_id, withings_userid)
         except HttpResponseError as e:
             logger.error("Error storing Withings tokens: %s", e)
-            raise
+            raise StorageError("Failed to store Withings tokens") from e
 
     def get_withings_tokens(self, athlete_id: str) -> Optional[Dict]:
         """Retrieve Withings tokens by athlete."""
@@ -64,8 +65,8 @@ class OAuthTokenStorage:
             return dict(entities[0])
 
         except HttpResponseError as e:
-            logger.warning("Error retrieving Withings tokens for %s: %s", athlete_id, e)
-            return None
+            logger.error("Error retrieving Withings tokens for %s: %s", athlete_id, e)
+            raise StorageError("Failed to retrieve Withings tokens") from e
 
     def refresh_withings_token(
         self,
@@ -123,7 +124,7 @@ class OAuthTokenStorage:
             logger.info("Stored OneDrive tokens for %s", athlete_id)
         except HttpResponseError as e:
             logger.error("Error storing OneDrive tokens: %s", e)
-            raise
+            raise StorageError("Failed to store OneDrive tokens") from e
 
     def get_onedrive_tokens(self, athlete_id: str) -> Optional[Dict]:
         """Retrieve OneDrive tokens by athlete."""
@@ -135,8 +136,8 @@ class OAuthTokenStorage:
                 return None
             return dict(entities[0])
         except HttpResponseError as e:
-            logger.warning("Error retrieving OneDrive tokens for %s: %s", athlete_id, e)
-            return None
+            logger.error("Error retrieving OneDrive tokens for %s: %s", athlete_id, e)
+            raise StorageError("Failed to retrieve OneDrive tokens") from e
 
     def refresh_onedrive_token(
         self,
@@ -191,7 +192,7 @@ class OAuthTokenStorage:
             logger.info("Stored Garmin tokens for %s", athlete_id)
         except HttpResponseError as e:
             logger.error("Error storing Garmin tokens: %s", e)
-            raise
+            raise StorageError("Failed to store Garmin tokens") from e
 
     def get_garmin_tokens(self, athlete_id: str) -> Optional[Dict]:
         """Retrieve Garmin tokens by athlete."""
@@ -203,5 +204,5 @@ class OAuthTokenStorage:
                 return None
             return dict(entities[0])
         except HttpResponseError as e:
-            logger.warning("Error retrieving Garmin tokens for %s: %s", athlete_id, e)
-            return None
+            logger.error("Error retrieving Garmin tokens for %s: %s", athlete_id, e)
+            raise StorageError("Failed to retrieve Garmin tokens") from e
