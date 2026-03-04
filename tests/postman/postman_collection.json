@@ -26,6 +26,11 @@
       "type": "string"
     },
     {
+      "key": "intervals_icu_id",
+      "value": "i508584",
+      "type": "string"
+    },
+    {
       "key": "function_key",
       "value": "",
       "type": "string"
