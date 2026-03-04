@@ -202,3 +202,43 @@ In Plan mode:
 Analysis > Speculation  
 Clarity > Premature optimization  
 Explanation > Silent adjustment  
+
+---
+
+## X. Logging Discipline
+
+Logging in this system is part of the runtime contract, not optional diagnostics.
+
+Use logging to preserve traceability, causal context, and operational clarity across ingestion and API flows.
+
+- Prefer structured logs over free-form strings.
+- Include meaningful domain context using `extra={...}` rather than embedding all context in message text.
+- Preserve correlation context (`correlation_id`, `operation_id`, `traceparent`) across boundaries when available.
+- Keep log events semantically stable so monitoring queries remain reliable over time.
+
+Level semantics are mandatory:
+
+- `DEBUG` for detailed execution and skip-path diagnostics.
+- `INFO` for successful state transitions and expected operational milestones.
+- `WARNING` for degraded but non-fatal or expected-rejection scenarios.
+- `ERROR` for unexpected failures requiring investigation.
+
+Exception logging rules:
+
+- Do not swallow exceptions.
+- For unexpected failures, log with `exc_info=True`.
+- When translating exceptions across abstraction boundaries, preserve causality with explicit chaining:
+
+  raise DomainError("...") from exc
+
+- Do not replace low-level exceptions with context-free messages.
+
+Implementation alignment requirements:
+
+- Follow structured logging conventions defined in `TrainingAnalyticsPlatform/platform/logging_setup.py`.
+- Follow correlation and monitoring expectations defined in `docs/devops/MONITORING.md`.
+- Do not introduce ad-hoc logging formats that conflict with established JSON output conventions.
+
+Observability > Noise  
+Correlation > Convenience  
+Causality > Cosmetic messaging  
