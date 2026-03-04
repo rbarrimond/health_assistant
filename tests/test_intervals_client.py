@@ -23,6 +23,23 @@ class TestIntervalsicuClientInit:
         client = IntervalsicuClient(api_key="direct-key-456")
         assert client.api_key == "direct-key-456"
 
+    def test_init_with_athlete_id_from_env(self):
+        """Test initialization with athlete ID from environment."""
+        with patch.dict(os.environ, {"INTERVALS_API_KEY": "test-key", "INTERVALS_ATHLETE_ID": "i508584"}):
+            client = IntervalsicuClient()
+            assert client.athlete_id == "i508584"
+
+    def test_init_with_athlete_id_argument(self):
+        """Test initialization with athlete ID as argument."""
+        client = IntervalsicuClient(api_key="test-key", athlete_id="custom-id-123")
+        assert client.athlete_id == "custom-id-123"
+
+    def test_init_athlete_id_from_env_can_be_overridden(self):
+        """Test that athlete ID argument overrides environment."""
+        with patch.dict(os.environ, {"INTERVALS_API_KEY": "test-key", "INTERVALS_ATHLETE_ID": "i508584"}):
+            client = IntervalsicuClient(athlete_id="override-id")
+            assert client.athlete_id == "override-id"
+
     def test_init_missing_api_key_raises_error(self):
         """Test that missing API key raises ExternalServiceError."""
         with patch.dict(os.environ, {}, clear=True):

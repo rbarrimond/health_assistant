@@ -17,12 +17,13 @@ INTERVALS_API_BASE_URL = "https://intervals.icu/api/v1"
 class IntervalsicuClient:
     """Client for Intervals.icu API integration."""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, athlete_id: Optional[str] = None):
         """
         Initialize Intervals.icu client with API credentials.
 
         Args:
             api_key: API key for authentication (reads from INTERVALS_API_KEY env if not provided)
+            athlete_id: Athlete ID (reads from INTERVALS_ATHLETE_ID env if not provided)
 
         Raises:
             ExternalServiceError: If API key is not configured
@@ -33,6 +34,7 @@ class IntervalsicuClient:
                 "Intervals.icu API key not configured. Set INTERVALS_API_KEY environment variable."
             )
 
+        self.athlete_id = athlete_id or os.getenv("INTERVALS_ATHLETE_ID")
         self.base_url = INTERVALS_API_BASE_URL
         self.session = requests.Session()
         self.session.headers.update({
