@@ -817,7 +817,12 @@ def intervals_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     except ValueError:
         body = {}
 
-    athlete_id = body.get("athlete_id", os.getenv("DEFAULT_ATHLETE_ID", "rob"))
+    # Prioritize environment variable, then request body, then DEFAULT_ATHLETE_ID
+    athlete_id = (
+        os.getenv("INTERVALS_ATHLETE_ID")
+        or body.get("athlete_id")
+        or os.getenv("DEFAULT_ATHLETE_ID", "rob")
+    )
     lookback_days = body.get("lookback_days")
 
     handler = dependencies.intervals_service

@@ -587,7 +587,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"lookback_days\": 30,\n  \"athlete_id\": \"{{athlete_id}}\"\n}"
+              "raw": "{\n  \"lookback_days\": 30,\n  \"athlete_id\": \"{{intervals_icu_id}}\"\n}"
             },
             "url": "{{base_url}}/api/intervals/sync?code={{function_key}}",
             "description": "Sync Intervals.icu physiometric data (function key required). Downloads recent power, HR, and metric data from Intervals.icu API. Requires INTERVALS_API_KEY environment variable."
