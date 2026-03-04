@@ -805,6 +805,51 @@ def garmin_sync_timer(timer: func.TimerRequest) -> None:
 
 
 # ============================================================================
+# Intervals.icu Sync Endpoints
+# ============================================================================
+
+@app.route(route="intervals/sync", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+@endpoint
+def intervals_sync_http(req: func.HttpRequest) -> func.HttpResponse:
+    """HTTP-triggered Intervals.icu physiometrics sync."""
+    try:
+        body = req.get_json() if req.method == "POST" else {}
+    except ValueError:
+        body = {}
+
+    athlete_id = body.get("athlete_id", os.getenv("DEFAULT_ATHLETE_ID", "rob"))
+    lookback_days = body.get("lookback_days")
+
+    handler = dependencies.intervals_service
+    response, status = handler.handle(athlete_id, lookback_days)
+
+    return json_response(response, status)
+
+
+@app.timer_trigger(arg_name="timer", schedule="0 2 * * *")  # 2 AM UTC daily
+def intervals_sync_timer(timer: func.TimerRequest) -> None:
+    """Timer-triggered Intervals.icu physiometrics sync."""
+    if timer.past_due:
+        logger.warning("Intervals sync timer is past due")
+
+    try:
+        athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
+        handler = dependencies.intervals_service
+
+        response, status = handler.handle(athlete_id)
+
+        if status == 200:
+            logger.info("Intervals sync completed: %s", response)
+        else:
+            logger.warning("Intervals sync failed: %s", response)
+
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error("Intervals timer failed: %s", exc, exc_info=True)
+    finally:
+        logger.debug("Intervals timer trigger completed")
+
+
+# ============================================================================
 # Configuration Endpoints
 # ============================================================================
 

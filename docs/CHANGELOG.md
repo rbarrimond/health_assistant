@@ -10,6 +10,28 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-03
 
+### Intervals.icu Physiometrics Integration [integrations v1.0.0]
+
+- **Feature**: New Intervals.icu integration client for daily physiometrics syncing
+- **Components added**:
+  - `TrainingAnalyticsPlatform/integrations/intervals_client.py`: API client with bearer token auth
+  - `TrainingAnalyticsPlatform/handlers/intervals_sync_handler.py`: Handler for physiometrics ingestion
+  - Function endpoints: `POST /api/intervals/sync` (on-demand) + timer trigger (2 AM UTC daily)
+  - Tests: `tests/test_intervals_client.py`, `tests/test_intervals_sync_handler.py`
+- **Data flow**:
+  - Fetches HRV (ln(RMSSD)), resting HR, sleep duration, readiness scores from Intervals.icu API
+  - Maps through existing `IntervalsPhysiometricsAdapter` to `PhysiometricsSnapshot`
+  - Stores to `Physiometrics` table via `StorageCoordinator`
+- **Configuration**:
+  - `INTERVALS_API_KEY`: stored in Azure Key Vault (managed identity access)
+  - `INTERVALS_SYNC_LOOKBACK_DAYS`: configurable lookback (default 30 days)
+- **Error handling**:
+  - Graceful handling of auth failures (401), not found (404), rate limits (429)
+  - Partial success tolerance: invalid measurements logged but don't block batch
+  - All failures via `ExternalServiceError` (inherits from `HealthAssistantError`)
+- **Infrastructure**: Terraform resources for Key Vault secret (`intervals-api-key`) and Function App env var reference
+- No breaking changes; backward compatible with existing physiometrics storage
+
 ### Aerobic Decoupling Semantics Clarification [canonical_schema v2.0.1]
 
 - **Enhancement**: Clarify explicit sign convention for aerobic decoupling across all contracts

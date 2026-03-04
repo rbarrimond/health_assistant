@@ -12,10 +12,7 @@ from typing import Any, Dict, Optional, Union
 
 from pydantic import ValidationError
 
-from TrainingAnalyticsPlatform.models.wellness import (
-    PhysiometricsSnapshot,
-    TrainingStateSnapshot,
-)
+from TrainingAnalyticsPlatform.models.wellness import PhysiometricsSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -56,21 +53,21 @@ class BaseWellnessSourceAdapter(ABC):
     @abstractmethod
     def map_to_canonical(
         self, parsed: Dict[str, Any], athlete_id: str
-    ) -> Union[PhysiometricsSnapshot, TrainingStateSnapshot]:
-        """Map parsed data to canonical snapshot.
+    ) -> PhysiometricsSnapshot:
+        """Map parsed data to canonical physiometrics snapshot.
         
         Args:
             parsed: Parsed intermediate dict
             athlete_id: Athlete identifier
             
         Returns:
-            PhysiometricsSnapshot or TrainingStateSnapshot
+            PhysiometricsSnapshot
         """
         pass
 
     def adapt(
         self, raw_data: Dict[str, Any], athlete_id: str
-    ) -> Union[PhysiometricsSnapshot, TrainingStateSnapshot]:
+    ) -> PhysiometricsSnapshot:
         """Full pipeline: parse → validate → map.
         
         Args:
