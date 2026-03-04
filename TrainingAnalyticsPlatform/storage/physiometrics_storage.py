@@ -3,7 +3,7 @@
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 
@@ -15,6 +15,33 @@ logger = logging.getLogger(__name__)
 
 class PhysiometricsStorage:
     """Handle physiometrics and body metrics operations."""
+
+    # Field mapping constants (for _reconstruct_from_storage_entity)
+    _BODY_COMPOSITION_FIELDS = [
+        "weight_kg", "fat_mass_kg", "muscle_mass_kg", "bone_mass_kg",
+        "body_fat_pct", "visceral_fat_index", "metabolic_age_years",
+        "cycling_vo2max_ml_kg_min"
+    ]
+    _CORE_WELLNESS_FIELDS = ["hrv_ln_rmssd", "sleep_duration_min", "readiness_score"]
+    _SUBJECTIVE_WELLNESS_MAP = {
+        "subjective_soreness": "soreness",
+        "subjective_fatigue": "fatigue",
+        "subjective_stress": "stress",
+        "subjective_mood": "mood",
+        "subjective_motivation": "motivation",
+        "subjective_injury": "injury",
+    }
+    _NUTRITION_MAP = {
+        "nutrition_calories_kcal": "calories_kcal",
+        "nutrition_carbs_g": "carbs_g",
+        "nutrition_protein_g": "protein_g",
+        "nutrition_fat_g": "fat_g",
+    }
+    _ACTIVITY_BODY_MAP = {
+        "activity_steps": "steps",
+        "body_abdomen_cm": "abdomen_cm",
+        "sport_info_json": "sport_info_json",
+    }
 
     def __init__(self, infrastructure: StorageInfrastructure):
         """Initialize with storage infrastructure."""
@@ -59,6 +86,24 @@ class PhysiometricsStorage:
             "hrv_ln_rmssd": physiometrics_data.get("hrv_ln_rmssd"),
             "sleep_duration_min": physiometrics_data.get("sleep_duration_min"),
             "readiness_score": physiometrics_data.get("readiness_score"),
+            # Extended wellness columns
+            "subjective_soreness": physiometrics_data.get("soreness"),
+            "subjective_fatigue": physiometrics_data.get("fatigue"),
+            "subjective_stress": physiometrics_data.get("stress"),
+            "subjective_mood": physiometrics_data.get("mood"),
+            "subjective_motivation": physiometrics_data.get("motivation"),
+            "subjective_injury": physiometrics_data.get("injury"),
+            # Nutrition columns
+            "nutrition_calories_kcal": physiometrics_data.get("calories_kcal"),
+            "nutrition_carbs_g": physiometrics_data.get("carbs_g"),
+            "nutrition_protein_g": physiometrics_data.get("protein_g"),
+            "nutrition_fat_g": physiometrics_data.get("fat_g"),
+            # Activity columns
+            "activity_steps": physiometrics_data.get("steps"),
+            # Body composition
+            "body_abdomen_cm": physiometrics_data.get("abdomen_cm"),
+            # Sport metrics (serialized JSON)
+            "sport_info_json": physiometrics_data.get("sport_info_json"),
             "full_config_json": json.dumps(physiometrics_data),
         }
 
@@ -87,6 +132,49 @@ class PhysiometricsStorage:
             )
             raise StorageError("Failed to store physiometrics") from e
 
+    def _reconstruct_from_storage_entity(self, entity: Dict) -> Dict:
+        """Reconstruct canonical physiometrics from storage entity.
+        
+        Prevents silent field loss when full_config_json unavailable.
+        Delegates to helpers to reduce cognitive complexity.
+        """
+        result: Dict[str, Any] = {"heart_rate": self._get_heart_rate(entity), "power": self._get_power(entity)}
+        self._merge_fields(result, entity, self._BODY_COMPOSITION_FIELDS)
+        self._merge_fields(result, entity, self._CORE_WELLNESS_FIELDS)
+        self._merge_mapped(result, entity, self._SUBJECTIVE_WELLNESS_MAP)
+        self._merge_mapped(result, entity, self._NUTRITION_MAP)
+        self._merge_mapped(result, entity, self._ACTIVITY_BODY_MAP)
+        if entity.get("effective_date"):
+            result["effective_date"] = entity.get("effective_date")
+        if entity.get("data_source"):
+            result["data_source"] = entity.get("data_source")
+        return result
+
+    def _get_heart_rate(self, entity: Dict) -> Dict:
+        """Extract heart_rate nested structure."""
+        return {
+            "basis": entity.get("heart_rate_basis", "HRmax"),
+            "lthr_bpm": entity.get("heart_rate_lthr_bpm"),
+            "hr_max_bpm": entity.get("heart_rate_hr_max_bpm"),
+            "resting_hr_bpm": entity.get("heart_rate_resting_bpm") or 60,
+        }
+
+    def _get_power(self, entity: Dict) -> Dict:
+        """Extract power nested structure."""
+        return {"ftp_watts": entity.get("power_ftp_watts")}
+
+    def _merge_fields(self, result: Dict, entity: Dict, fields: list) -> None:
+        """Merge fields with direct name mapping."""
+        for field in fields:
+            if entity.get(field) is not None:
+                result[field] = entity.get(field)
+
+    def _merge_mapped(self, result: Dict, entity: Dict, mapping: Dict) -> None:
+        """Merge fields with storage→canonical name mapping."""
+        for storage_key, canonical_key in mapping.items():
+            if entity.get(storage_key) is not None:
+                result[canonical_key] = entity.get(storage_key)
+
     def get_physiometrics(self, athlete_id: str) -> Optional[Dict]:
         """Retrieve the latest physiometrics config for an athlete."""
         try:
@@ -102,27 +190,8 @@ class PhysiometricsStorage:
             if latest.get("full_config_json"):
                 return json.loads(latest["full_config_json"])
 
-            # Fallback: reconstruct from individual fields
-            result = {
-                "heart_rate": {
-                    "basis": latest.get("heart_rate_basis", "HRmax"),
-                    "lthr_bpm": latest.get("heart_rate_lthr_bpm"),
-                    "hr_max_bpm": latest.get("heart_rate_hr_max_bpm"),
-                    "resting_hr_bpm": latest.get("heart_rate_resting_bpm") or 60,
-                },
-                "power": {"ftp_watts": latest.get("power_ftp_watts")},
-            }
-
-            for metric_field in ["weight_kg", "fat_mass_kg", "muscle_mass_kg", "bone_mass_kg"]:
-                if latest.get(metric_field) is not None:
-                    result[metric_field] = latest.get(metric_field)
-
-            if latest.get("effective_date"):
-                result["effective_date"] = latest.get("effective_date")
-            if latest.get("data_source"):
-                result["data_source"] = latest.get("data_source")
-
-            return result
+            # Fallback: reconstruct from individual fields (prevents silent data loss)
+            return self._reconstruct_from_storage_entity(latest)
         except ResourceNotFoundError:
             return None
         except HttpResponseError as e:
@@ -157,35 +226,8 @@ class PhysiometricsStorage:
             if latest.get("full_config_json"):
                 return json.loads(latest["full_config_json"])
 
-            result = {
-                "heart_rate": {
-                    "basis": latest.get("heart_rate_basis", "HRmax"),
-                    "lthr_bpm": latest.get("heart_rate_lthr_bpm"),
-                    "hr_max_bpm": latest.get("heart_rate_hr_max_bpm"),
-                    "resting_hr_bpm": latest.get("heart_rate_resting_bpm") or 60,
-                },
-                "power": {"ftp_watts": latest.get("power_ftp_watts")},
-            }
-
-            for metric_field in [
-                "weight_kg",
-                "fat_mass_kg",
-                "muscle_mass_kg",
-                "bone_mass_kg",
-                "body_fat_pct",
-                "visceral_fat_index",
-                "metabolic_age_years",
-                "cycling_vo2max_ml_kg_min",
-            ]:
-                if latest.get(metric_field) is not None:
-                    result[metric_field] = latest.get(metric_field)
-
-            if latest.get("effective_date"):
-                result["effective_date"] = latest.get("effective_date")
-            if latest.get("data_source"):
-                result["data_source"] = latest.get("data_source")
-
-            return result
+            # Fallback: reconstruct from individual fields
+            return self._reconstruct_from_storage_entity(latest)
 
         except HttpResponseError as e:
             logger.error(

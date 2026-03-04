@@ -182,6 +182,20 @@ class WithingsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             hr_max_bpm=None,
             load=None,
             readiness_score=None,
+            # Extended wellness fields (not from Withings)
+            soreness=None,
+            fatigue=None,
+            stress=None,
+            mood=None,
+            motivation=None,
+            injury=None,
+            calories_kcal=None,
+            carbs_g=None,
+            protein_g=None,
+            fat_g=None,
+            steps=None,
+            abdomen_cm=None,
+            sport_info=None,
             data_sources="withings",
             measured_at_utc=date_obj,
         )
@@ -238,6 +252,20 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             hr_max_bpm=max_hr,
             load=None,
             readiness_score=parsed.get("readiness"),
+            # Extended wellness fields (not from Garmin)
+            soreness=None,
+            fatigue=None,
+            stress=None,
+            mood=None,
+            motivation=None,
+            injury=None,
+            calories_kcal=None,
+            carbs_g=None,
+            protein_g=None,
+            fat_g=None,
+            steps=None,
+            abdomen_cm=None,
+            sport_info=None,
             data_sources="garmin",
             measured_at_utc=None,
         )
@@ -259,13 +287,39 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             "rhr": raw_data.get("restingHR") if raw_data.get("restingHR") is not None else raw_data.get("rhr"),
             "sleep": sleep_minutes,
             "readiness": raw_data.get("readiness"),
+            # Subjective wellness
+            "soreness": raw_data.get("soreness"),
+            "fatigue": raw_data.get("fatigue"),
+            "stress": raw_data.get("stress"),
+            "mood": raw_data.get("mood"),
+            "motivation": raw_data.get("motivation"),
+            "injury": raw_data.get("injury"),
+            # Nutrition
+            "calories_kcal": raw_data.get("kcalConsumed"),
+            "carbs_g": raw_data.get("carbohydrates"),
+            "protein_g": raw_data.get("protein"),
+            "fat_g": raw_data.get("fatTotal"),
+            # Activity & body
+            "steps": raw_data.get("steps"),
+            "abdomen_cm": raw_data.get("abdomen"),
+            # Nested sport metrics (pass through)
+            "sport_info": raw_data.get("sportInfo"),
         }
 
     def validate_semantic_contract(self, parsed: Dict[str, Any]) -> None:
-        """Validate: at least one field present."""
-        fields = ["hrv", "rhr", "sleep", "readiness"]
-        if not any(parsed.get(f) is not None for f in fields):
-            raise AdapterError("No metrics in Intervals response")
+        """Validate: at least one field present (original or extended wellness)."""
+        # Original core wellness fields
+        core_fields = ["hrv", "rhr", "sleep", "readiness"]
+        # Extended wellness fields (v2.1.0+): subjective, nutrition, activity, body
+        extended_fields = [
+            "soreness", "fatigue", "stress", "mood", "motivation", "injury",
+            "calories_kcal", "carbs_g", "protein_g", "fat_g",
+            "steps", "abdomen_cm", "sport_info"
+        ]
+        # Accept measurement if ANY core or extended field is present
+        all_fields = core_fields + extended_fields
+        if not any(parsed.get(f) is not None for f in all_fields):
+            raise AdapterError("No core or extended wellness metrics in Intervals response")
 
     def map_to_canonical(
         self, parsed: Dict[str, Any], athlete_id: str
@@ -292,6 +346,19 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             hr_max_bpm=None,
             load=None,
             readiness_score=parsed.get("readiness"),
+            soreness=parsed.get("soreness"),
+            fatigue=parsed.get("fatigue"),
+            stress=parsed.get("stress"),
+            mood=parsed.get("mood"),
+            motivation=parsed.get("motivation"),
+            injury=parsed.get("injury"),
+            calories_kcal=parsed.get("calories_kcal"),
+            carbs_g=parsed.get("carbs_g"),
+            protein_g=parsed.get("protein_g"),
+            fat_g=parsed.get("fat_g"),
+            steps=parsed.get("steps"),
+            abdomen_cm=parsed.get("abdomen_cm"),
+            sport_info=parsed.get("sport_info"),
             data_sources="intervals",
             measured_at_utc=None,
         )

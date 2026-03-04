@@ -158,3 +158,136 @@ class TestPhysiometricsSnapshotToStorageDict:
         assert storage_dict["hrv_ln_rmssd"] == pytest.approx(4.2)
         assert storage_dict["sleep_duration_min"] == pytest.approx(480.0)
         assert storage_dict["heart_rate"]["resting_hr_bpm"] == pytest.approx(52.0)
+
+    def test_to_storage_dict_includes_extended_wellness_fields(self) -> None:
+        """Verify extended wellness fields (subjective, nutrition, activity, body composition) are included."""
+        snapshot = PhysiometricsSnapshot(  # type: ignore[call-arg]
+            athlete_id="athlete123",
+            effective_date="2026-03-04",
+            # Subjective wellness (0-10 scales)
+            soreness=3.0,
+            fatigue=4.0,
+            stress=2.0,
+            mood=8.0,
+            motivation=7.0,
+            injury=0.0,
+            # Nutrition (macros)
+            calories_kcal=2500.0,
+            carbs_g=300.0,
+            protein_g=150.0,
+            fat_g=80.0,
+            # Activity metrics
+            steps=12500,
+            # Body composition
+            abdomen_cm=85.5,
+            # Sport-specific info (nested array)
+            sport_info=[
+                {"type": "Ride", "load": 120.5, "ctl": 85.2},
+                {"type": "Run", "load": 45.3, "ctl": 42.1},
+            ],
+        )
+
+        storage_dict = snapshot.to_storage_dict()
+
+        # Verify subjective wellness fields
+        assert storage_dict["soreness"] == pytest.approx(3.0)
+        assert storage_dict["fatigue"] == pytest.approx(4.0)
+        assert storage_dict["stress"] == pytest.approx(2.0)
+        assert storage_dict["mood"] == pytest.approx(8.0)
+        assert storage_dict["motivation"] == pytest.approx(7.0)
+        assert storage_dict["injury"] == pytest.approx(0.0)
+
+        # Verify nutrition fields
+        assert storage_dict["calories_kcal"] == pytest.approx(2500.0)
+        assert storage_dict["carbs_g"] == pytest.approx(300.0)
+        assert storage_dict["protein_g"] == pytest.approx(150.0)
+        assert storage_dict["fat_g"] == pytest.approx(80.0)
+
+        # Verify activity fields
+        assert storage_dict["steps"] == 12500
+
+        # Verify body composition fields
+        assert storage_dict["abdomen_cm"] == pytest.approx(85.5)
+
+        # Verify sport_info is JSON-serialized
+        assert "sport_info_json" in storage_dict
+        assert isinstance(storage_dict["sport_info_json"], str)
+        import json
+        sport_data = json.loads(storage_dict["sport_info_json"])
+        assert len(sport_data) == 2
+        assert sport_data[0]["type"] == "Ride"
+        assert sport_data[1]["type"] == "Run"
+
+    def test_to_storage_dict_handles_null_extended_fields(self) -> None:
+        """Verify null extended wellness fields are included as None."""
+        snapshot = PhysiometricsSnapshot(  # type: ignore[call-arg]
+            athlete_id="athlete123",
+            effective_date="2026-03-04",
+            soreness=None,
+            fatigue=None,
+            stress=None,
+            mood=None,
+            motivation=None,
+            injury=None,
+            calories_kcal=None,
+            carbs_g=None,
+            protein_g=None,
+            fat_g=None,
+            steps=None,
+            abdomen_cm=None,
+            sport_info=None,
+        )
+
+        storage_dict = snapshot.to_storage_dict()
+
+        # Verify subjective wellness fields are present as None
+        assert "soreness" in storage_dict
+        assert storage_dict["soreness"] is None
+        assert "fatigue" in storage_dict
+        assert storage_dict["fatigue"] is None
+        assert "stress" in storage_dict
+        assert storage_dict["stress"] is None
+        assert "mood" in storage_dict
+        assert storage_dict["mood"] is None
+        assert "motivation" in storage_dict
+        assert storage_dict["motivation"] is None
+        assert "injury" in storage_dict
+        assert storage_dict["injury"] is None
+
+        # Verify nutrition fields are present as None
+        assert "calories_kcal" in storage_dict
+        assert storage_dict["calories_kcal"] is None
+        assert "carbs_g" in storage_dict
+        assert storage_dict["carbs_g"] is None
+        assert "protein_g" in storage_dict
+        assert storage_dict["protein_g"] is None
+        assert "fat_g" in storage_dict
+        assert storage_dict["fat_g"] is None
+
+        # Verify activity fields
+        assert "steps" in storage_dict
+        assert storage_dict["steps"] is None
+
+        # Verify body composition fields
+        assert "abdomen_cm" in storage_dict
+        assert storage_dict["abdomen_cm"] is None
+
+        # Verify sport_info_json is None when sport_info is None
+        assert "sport_info_json" in storage_dict
+        assert storage_dict["sport_info_json"] is None
+
+    def test_to_storage_dict_sport_info_empty_list(self) -> None:
+        """Verify empty sport_info list serializes to empty JSON array."""
+        snapshot = PhysiometricsSnapshot(  # type: ignore[call-arg]
+            athlete_id="athlete123",
+            effective_date="2026-03-04",
+            sport_info=[],
+        )
+
+        storage_dict = snapshot.to_storage_dict()
+
+        assert "sport_info_json" in storage_dict
+        assert isinstance(storage_dict["sport_info_json"], str)
+        import json
+        sport_data = json.loads(storage_dict["sport_info_json"])
+        assert sport_data == []

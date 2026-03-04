@@ -284,6 +284,24 @@ Schema (current + planned):
   • cycling_vo2max_ml_kg_min: Optional[float]
   • load: Optional[float]  (training load from Garmin; planned)
   
+  • subjective_soreness: Optional[float]  (0-10 scale; subjective wellness)
+  • subjective_fatigue: Optional[float]  (0-10 scale; subjective wellness)
+  • subjective_stress: Optional[float]  (0-10 scale; subjective wellness)
+  • subjective_mood: Optional[float]  (0-10 scale; subjective wellness)
+  • subjective_motivation: Optional[float]  (0-10 scale; subjective wellness)
+  • subjective_injury: Optional[float]  (0-10 scale; subjective wellness)
+  
+  • nutrition_calories_kcal: Optional[float]  (daily caloric intake)
+  • nutrition_carbs_g: Optional[float]  (carbohydrate intake in grams)
+  • nutrition_protein_g: Optional[float]  (protein intake in grams)
+  • nutrition_fat_g: Optional[float]  (fat intake in grams)
+  
+  • activity_steps: Optional[int]  (daily step count)
+  
+  • body_abdomen_cm: Optional[float]  (waist circumference in centimeters)
+  
+  • sport_info_json: Optional[str]  (JSON-serialized array of sport-specific metrics; e.g., [{"type": "Ride", "load": 120.5, "ctl": 85.2}])
+  
   • full_config_json: str  (JSON serialization of entire physiometrics_data dict; denormalized audit cache preserving all source data and schema evolution tolerance)
 ```
 

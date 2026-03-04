@@ -224,3 +224,164 @@ class TestIntervalsSyncHandlerHandle:
         assert kwargs["effective_date"] == "2025-03-01"
         assert "heart_rate" in kwargs["physiometrics_data"]
         assert "resting_hr_bpm" in kwargs["physiometrics_data"]["heart_rate"]
+
+
+class TestIntervalsPhysiometricsAdapter:
+    """Direct tests for IntervalsPhysiometricsAdapter field mapping."""
+
+    @pytest.fixture
+    def adapter(self):
+        """Provide an adapter instance."""
+        return IntervalsPhysiometricsAdapter()
+
+    def test_adapter_maps_extended_wellness_fields(self, adapter):
+        """Verify adapter extracts and maps all extended wellness fields from Intervals API."""
+        raw_data = {
+            "id": "2025-03-01",
+            # Original fields
+            "hrvRMSSD": 42.5,
+            "restingHR": 52,
+            "sleepSecs": 28800,
+            "readiness": 78,
+            # Extended wellness fields (subjective)
+            "soreness": 3.0,
+            "fatigue": 4.0,
+            "stress": 2.0,
+            "mood": 8.0,
+            "motivation": 7.0,
+            "injury": 0.0,
+            # Nutrition
+            "kcalConsumed": 2500.0,
+            "carbohydrates": 300.0,
+            "protein": 150.0,
+            "fatTotal": 80.0,
+            # Activity
+            "steps": 12500,
+            # Body composition
+            "abdomen": 85.5,
+            # Sport-specific
+            "sportInfo": [
+                {"type": "Ride", "load": 120.5, "ctl": 85.2},
+                {"type": "Run", "load": 45.3, "ctl": 42.1},
+            ],
+        }
+
+        # Parse raw API response
+        parsed = adapter._do_parse(raw_data)
+        # Map to canonical model
+        snapshot = adapter.map_to_canonical(parsed=parsed, athlete_id="test_athlete")
+
+        # Verify original fields still work
+        assert snapshot.effective_date == "2025-03-01"
+        assert snapshot.hrv_ln_rmssd == pytest.approx(42.5)
+        assert snapshot.resting_hr_bpm == pytest.approx(52.0)
+        assert snapshot.sleep_duration_min == pytest.approx(480.0)  # 28800 secs / 60
+        assert snapshot.readiness_score == pytest.approx(78.0)
+
+        # Verify subjective wellness fields
+        assert snapshot.soreness == pytest.approx(3.0)
+        assert snapshot.fatigue == pytest.approx(4.0)
+        assert snapshot.stress == pytest.approx(2.0)
+        assert snapshot.mood == pytest.approx(8.0)
+        assert snapshot.motivation == pytest.approx(7.0)
+        assert snapshot.injury == pytest.approx(0.0)
+
+        # Verify nutrition fields
+        assert snapshot.calories_kcal == pytest.approx(2500.0)
+        assert snapshot.carbs_g == pytest.approx(300.0)
+        assert snapshot.protein_g == pytest.approx(150.0)
+        assert snapshot.fat_g == pytest.approx(80.0)
+
+        # Verify activity fields
+        assert snapshot.steps == 12500
+
+        # Verify body composition fields
+        assert snapshot.abdomen_cm == pytest.approx(85.5)
+
+        # Verify sport_info
+        assert snapshot.sport_info is not None
+        assert len(snapshot.sport_info) == 2
+        assert snapshot.sport_info[0]["type"] == "Ride"
+        assert snapshot.sport_info[1]["type"] == "Run"
+
+    def test_adapter_handles_missing_extended_fields(self, adapter):
+        """Verify adapter handles missing extended fields gracefully (sets to None)."""
+        raw_data = {
+            "id": "2025-03-01",
+            # Only minimal required fields
+            "hrvRMSSD": 42.5,
+            "restingHR": 52,
+            "sleepSecs": 28800,
+            "readiness": 78,
+            # All extended fields missing
+        }
+
+        # Parse raw API response
+        parsed = adapter._do_parse(raw_data)
+        # Map to canonical model
+        snapshot = adapter.map_to_canonical(parsed=parsed, athlete_id="test_athlete")
+
+        # Verify extended fields are None when missing
+        assert snapshot.soreness is None
+        assert snapshot.fatigue is None
+        assert snapshot.stress is None
+        assert snapshot.mood is None
+        assert snapshot.motivation is None
+        assert snapshot.injury is None
+        assert snapshot.calories_kcal is None
+        assert snapshot.carbs_g is None
+        assert snapshot.protein_g is None
+        assert snapshot.fat_g is None
+        assert snapshot.steps is None
+        assert snapshot.abdomen_cm is None
+        assert snapshot.sport_info is None
+
+    def test_adapter_handles_partial_extended_fields(self, adapter):
+        """Verify adapter handles mix of present and missing extended fields."""
+        raw_data = {
+            "id": "2025-03-01",
+            "hrvRMSSD": 42.5,
+            "restingHR": 52,
+            "sleepSecs": 28800,
+            "readiness": 78,
+            # Only some extended fields present
+            "soreness": 3.0,
+            "steps": 10000,
+            "protein": 120.0,
+            # Others missing
+        }
+
+        # Parse raw API response
+        parsed = adapter._do_parse(raw_data)
+        # Map to canonical model
+        snapshot = adapter.map_to_canonical(parsed=parsed, athlete_id="test_athlete")
+
+        # Verify present fields are captured
+        assert snapshot.soreness == pytest.approx(3.0)
+        assert snapshot.steps == 10000
+        assert snapshot.protein_g == pytest.approx(120.0)
+
+        # Verify missing fields are None
+        assert snapshot.fatigue is None
+        assert snapshot.calories_kcal is None
+        assert snapshot.abdomen_cm is None
+        assert snapshot.sport_info is None
+
+    def test_adapter_sport_info_empty_list(self, adapter):
+        """Verify adapter handles empty sportInfo array."""
+        raw_data = {
+            "id": "2025-03-01",
+            "hrvRMSSD": 42.5,
+            "restingHR": 52,
+            "sleepSecs": 28800,
+            "readiness": 78,
+            "sportInfo": [],
+        }
+
+        # Parse raw API response
+        parsed = adapter._do_parse(raw_data)
+        # Map to canonical model
+        snapshot = adapter.map_to_canonical(parsed=parsed, athlete_id="test_athlete")
+
+        assert snapshot.sport_info == []
+

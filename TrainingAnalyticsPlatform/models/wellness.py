@@ -5,9 +5,10 @@ These models define the contract for daily state aggregates from external source
 these canonical snapshots.
 """
 
+import json
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -74,12 +75,36 @@ class PhysiometricsSnapshot(BaseModel):
         None, ge=0, le=100, description="Garmin readiness score (0-100)"
     )
 
+    # Subjective wellness scores (Intervals.icu self-reported metrics)
+    soreness: Optional[int] = Field(None, ge=0, le=10, description="Muscle soreness (0-10)")
+    fatigue: Optional[int] = Field(None, ge=0, le=10, description="Overall fatigue (0-10)")
+    stress: Optional[int] = Field(None, ge=0, le=10, description="Stress level (0-10)")
+    mood: Optional[int] = Field(None, ge=0, le=10, description="Mood state (0-10)")
+    motivation: Optional[int] = Field(None, ge=0, le=10, description="Training motivation (0-10)")
+    injury: Optional[int] = Field(None, ge=0, le=10, description="Injury severity (0-10)")
+
+    # Nutrition tracking (Intervals.icu dietary log)
+    calories_kcal: Optional[float] = Field(None, ge=0, description="Daily calorie intake in kcal")
+    carbs_g: Optional[float] = Field(None, ge=0, description="Carbohydrate intake in grams")
+    protein_g: Optional[float] = Field(None, ge=0, description="Protein intake in grams")
+    fat_g: Optional[float] = Field(None, ge=0, description="Fat intake in grams")
+
+    # Activity and body metrics
+    steps: Optional[int] = Field(None, ge=0, description="Daily step count")
+    abdomen_cm: Optional[float] = Field(None, ge=0, description="Abdominal circumference in cm")
+
+    # Nested sport-specific training metrics from Intervals.icu
+    sport_info: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="Per-sport metrics array: [{'type', 'eftp', 'wPrime', 'pMax'}, ...]"
+    )
+
     # Provenance and versioning
     data_sources: str = Field(
         default="", description="CSV of sources: withings,garmin,intervals"
     )
     canonical_version: str = Field(
-        default="2.0.0", description="Schema version of this snapshot"
+        default="2.1.0", description="Schema version of this snapshot"
     )
     measured_at_utc: Optional[datetime] = Field(
         None, description="Most specific timestamp available from measurements"
@@ -131,6 +156,27 @@ class PhysiometricsSnapshot(BaseModel):
             
             # Aerobic capacity
             "cycling_vo2max_ml_kg_min": self.cycling_vo2max_ml_kg_min,
+            
+            # Subjective wellness
+            "soreness": self.soreness,
+            "fatigue": self.fatigue,
+            "stress": self.stress,
+            "mood": self.mood,
+            "motivation": self.motivation,
+            "injury": self.injury,
+            
+            # Nutrition
+            "calories_kcal": self.calories_kcal,
+            "carbs_g": self.carbs_g,
+            "protein_g": self.protein_g,
+            "fat_g": self.fat_g,
+            
+            # Activity & body
+            "steps": self.steps,
+            "abdomen_cm": self.abdomen_cm,
+            
+            # Nested sport data (serialize to JSON string)
+            "sport_info_json": json.dumps(self.sport_info) if self.sport_info is not None else None,
         }
 
     class Config:

@@ -8,6 +8,33 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-05
+
+### Extended Wellness Field Ingestion [canonical v2.1.0, ingest v14.3.8]
+
+- **Feature**: Extended PhysiometricsSnapshot model to capture 15 additional wellness fields from Intervals.icu API
+- **New field categories**:
+  - **Subjective wellness** (0-10 scales): soreness, fatigue, stress, mood, motivation, injury
+  - **Nutrition** (macros): calories_kcal, carbs_g, protein_g, fat_g
+  - **Activity metrics**: steps (daily step count)
+  - **Body composition**: abdomen_cm (waist circumference)
+  - **Sport-specific data**: sport_info (nested array with type, load, CTL per sport)
+- **Storage strategy**:
+  - Dual persistence: Individual queryable columns (e.g., `subjective_soreness`, `nutrition_calories_kcal`) + full_config_json blob
+  - Nested sport_info array serialized to `sport_info_json` string column (JSON format)
+  - Azure Table Storage: 40 active columns (well under 252 limit)
+- **Implementation changes**:
+  - `PhysiometricsSnapshot` model: Added 15 Optional fields with Pydantic validation (ge=0, le=10 for subjective scales)
+  - `to_storage_dict()`: Extended with new field mappings and JSON serialization for sport_info
+  - `IntervalsPhysiometricsAdapter`: Extended `_do_parse()` to extract 20 fields (up from 5), updated `map_to_canonical()` with new parameters
+  - `physiometrics_storage.py`: Added 15 storage column mappings for queryable persistence
+- **Testing**: Comprehensive test coverage added
+  - Model tests: `test_to_storage_dict_includes_extended_wellness_fields()`, `test_to_storage_dict_handles_null_extended_fields()`, `test_to_storage_dict_sport_info_empty_list()`
+  - Adapter tests: `test_adapter_maps_extended_wellness_fields()`, `test_adapter_handles_missing_extended_fields()`, `test_adapter_handles_partial_extended_fields()`, `test_adapter_sport_info_empty_list()`
+- **Backward compatibility**: All new fields Optional (None-safe), no breaking changes to existing code
+- **Version**: canonical_version bumped from "2.0.0" → "2.1.0" (SemVer MINOR for additive non-breaking extension)
+- **API alignment**: Extracts fields from Intervals GET /api/v1/athlete/{id}/wellness endpoint (46 total fields available, 20 now captured)
+
 ## 2026-03-04
 
 ### Intervals Wellness API Contract Alignment [ingest v14.3.7, integrations v1.1.0]
