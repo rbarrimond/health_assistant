@@ -16,7 +16,7 @@ class TestPhysiometricsSnapshotToStorageDict:
             athlete_id="athlete123",
             effective_date="2026-03-04",
             hrv_ln_rmssd=4.2,
-            sleep_duration_min=480.0,
+            sleep_duration_sec=28800.0,
             readiness_score=85.0,
             resting_hr_bpm=52.0,
             ftp_watts=285.0,
@@ -25,7 +25,7 @@ class TestPhysiometricsSnapshotToStorageDict:
         storage_dict = snapshot.to_storage_dict()
 
         assert storage_dict["hrv_ln_rmssd"] == pytest.approx(4.2)
-        assert storage_dict["sleep_duration_min"] == pytest.approx(480.0)
+        assert storage_dict["sleep_duration_sec"] == pytest.approx(28800.0)
         assert storage_dict["readiness_score"] == pytest.approx(85.0)
 
     def test_to_storage_dict_includes_body_composition_fields(self) -> None:
@@ -89,7 +89,7 @@ class TestPhysiometricsSnapshotToStorageDict:
             athlete_id="athlete123",
             effective_date="2026-03-04",
             hrv_ln_rmssd=None,
-            sleep_duration_min=None,
+            sleep_duration_sec=None,
             readiness_score=None,
         )
 
@@ -97,8 +97,8 @@ class TestPhysiometricsSnapshotToStorageDict:
 
         assert "hrv_ln_rmssd" in storage_dict
         assert storage_dict["hrv_ln_rmssd"] is None
-        assert "sleep_duration_min" in storage_dict
-        assert storage_dict["sleep_duration_min"] is None
+        assert "sleep_duration_sec" in storage_dict
+        assert storage_dict["sleep_duration_sec"] is None
         assert "readiness_score" in storage_dict
         assert storage_dict["readiness_score"] is None
 
@@ -130,7 +130,7 @@ class TestPhysiometricsSnapshotToStorageDict:
             # Wellness
             hrv_ln_rmssd=4.2,
             resting_hr_bpm=52.0,
-            sleep_duration_min=480.0,
+            sleep_duration_sec=28800.0,
             readiness_score=85.0,
             # Performance
             ftp_watts=285.0,
@@ -144,7 +144,7 @@ class TestPhysiometricsSnapshotToStorageDict:
         # Verify all top-level fields present
         assert "weight_kg" in storage_dict
         assert "hrv_ln_rmssd" in storage_dict
-        assert "sleep_duration_min" in storage_dict
+        assert "sleep_duration_sec" in storage_dict
         assert "readiness_score" in storage_dict
         assert "heart_rate" in storage_dict
         assert "power" in storage_dict
@@ -156,7 +156,7 @@ class TestPhysiometricsSnapshotToStorageDict:
 
         # Spot-check values
         assert storage_dict["hrv_ln_rmssd"] == pytest.approx(4.2)
-        assert storage_dict["sleep_duration_min"] == pytest.approx(480.0)
+        assert storage_dict["sleep_duration_sec"] == pytest.approx(28800.0)
         assert storage_dict["heart_rate"]["resting_hr_bpm"] == pytest.approx(52.0)
 
     def test_to_storage_dict_includes_extended_wellness_fields(self) -> None:

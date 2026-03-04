@@ -32,7 +32,7 @@ class SourcePrecedenceResolver:
         # HRV/RHR/Sleep: Intervals preferred, backfill Garmin
         "hrv_ln_rmssd": ["intervals", "garmin"],
         "resting_hr_bpm": ["intervals", "garmin"],
-        "sleep_duration_min": ["intervals"],
+        "sleep_duration_sec": ["intervals"],
         # Training state: Garmin preferred
         "ftp_watts": ["garmin", "intervals"],
         "cycling_vo2max_ml_kg_min": ["garmin", "intervals"],
@@ -138,7 +138,7 @@ class PhysiometricsConsolidationHandler:
             metabolic_age_years=None,
             hrv_ln_rmssd=None,
             resting_hr_bpm=None,
-            sleep_duration_min=None,
+            sleep_duration_sec=None,
             ftp_watts=None,
             cycling_vo2max_ml_kg_min=None,
             hr_lthr_bpm=None,

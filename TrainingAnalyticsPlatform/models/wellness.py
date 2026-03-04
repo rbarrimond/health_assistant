@@ -58,8 +58,8 @@ class PhysiometricsSnapshot(BaseModel):
     resting_hr_bpm: Optional[float] = Field(
         None, ge=0, description="Resting heart rate in beats/minute"
     )
-    sleep_duration_min: Optional[float] = Field(
-        None, ge=0, description="Sleep duration in minutes"
+    sleep_duration_sec: Optional[float] = Field(
+        None, ge=0, description="Sleep duration in seconds"
     )
 
     # Garmin training state snapshot
@@ -115,7 +115,7 @@ class PhysiometricsSnapshot(BaseModel):
         default="", description="CSV of sources: withings,garmin,intervals"
     )
     canonical_version: str = Field(
-        default="2.3.0", description="Schema version of this snapshot"
+        default="2.4.0", description="Schema version of this snapshot"
     )
     measured_at_utc: Optional[datetime] = Field(
         None, description="Most specific timestamp available from measurements"
@@ -193,7 +193,7 @@ class PhysiometricsSnapshot(BaseModel):
             # Wellness metrics (Intervals)
             "hrv_ln_rmssd": self.hrv_ln_rmssd,
             "hrv_sdnn_ms": self.hrv_sdnn_ms,
-            "sleep_duration_min": self.sleep_duration_min,
+            "sleep_duration_sec": self.sleep_duration_sec,
             "readiness_score": self.readiness_score,
             
             # Power metrics (nested for legacy compatibility)

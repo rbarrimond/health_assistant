@@ -253,7 +253,7 @@ class TestWellnessFieldsPersistence:
 
         physiometrics_data = {
             "hrv_ln_rmssd": 4.2,
-            "sleep_duration_min": 480.0,
+            "sleep_duration_sec": 28800.0,
             "readiness_score": 85.0,
             "heart_rate": {"basis": "LTHR", "resting_hr_bpm": 52},
             "power": {"ftp_watts": 285},
@@ -263,7 +263,7 @@ class TestWellnessFieldsPersistence:
 
         entity = mock_table_client.upsert_entity.call_args[0][0]
         assert entity["hrv_ln_rmssd"] == pytest.approx(4.2)
-        assert entity["sleep_duration_min"] == pytest.approx(480.0)
+        assert entity["sleep_duration_sec"] == pytest.approx(28800.0)
         assert entity["readiness_score"] == pytest.approx(85.0)
 
     def test_store_physiometrics_handles_null_wellness_fields(self) -> None:
@@ -273,7 +273,7 @@ class TestWellnessFieldsPersistence:
 
         physiometrics_data = {
             "hrv_ln_rmssd": None,
-            "sleep_duration_min": None,
+            "sleep_duration_sec": None,
             "readiness_score": None,
             "heart_rate": {"basis": "LTHR", "resting_hr_bpm": 52},
             "power": {"ftp_watts": 285},
@@ -283,7 +283,7 @@ class TestWellnessFieldsPersistence:
 
         entity = mock_table_client.upsert_entity.call_args[0][0]
         assert entity["hrv_ln_rmssd"] is None
-        assert entity["sleep_duration_min"] is None
+        assert entity["sleep_duration_sec"] is None
         assert entity["readiness_score"] is None
 
     def test_wellness_fields_in_ext_json(self) -> None:
@@ -294,11 +294,11 @@ class TestWellnessFieldsPersistence:
         physiometrics_data = {
             "hrv_ln_rmssd": 4.2,
             "hrv_sdnn_ms": 41.8,
-            "sleep_duration_min": 480.0,
+            "sleep_duration_sec": 28800.0,
             "readiness_score": 85.0,
             "heart_rate": {"basis": "LTHR", "resting_hr_bpm": 52},
             "power": {"ftp_watts": 285},
-            "ext_json": '{"hrv_sdnn_ms":41.8,"sleep_duration_min":480.0}',
+            "ext_json": '{"hrv_sdnn_ms":41.8,"sleep_duration_sec":28800.0}',
         }
 
         storage.store_physiometrics("athlete123", physiometrics_data)
@@ -306,7 +306,7 @@ class TestWellnessFieldsPersistence:
         entity = mock_table_client.upsert_entity.call_args[0][0]
         ext_json = json.loads(entity["ext_json"])
         assert ext_json["hrv_sdnn_ms"] == pytest.approx(41.8)
-        assert ext_json["sleep_duration_min"] == pytest.approx(480.0)
+        assert ext_json["sleep_duration_sec"] == pytest.approx(28800.0)
 
     def test_get_physiometrics_uses_ext_json_when_present(self) -> None:
         """Verify reconstruction path is used when ext_json is present."""

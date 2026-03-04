@@ -286,7 +286,7 @@ class TestIntervalsPhysiometricsAdapter:
         assert snapshot.hrv_ln_rmssd == pytest.approx(42.5)
         assert snapshot.hrv_sdnn_ms == pytest.approx(38.2)
         assert snapshot.resting_hr_bpm == pytest.approx(52.0)
-        assert snapshot.sleep_duration_min == pytest.approx(480.0)  # 28800 secs / 60
+        assert snapshot.sleep_duration_sec == pytest.approx(28800.0)
         assert snapshot.readiness_score == pytest.approx(78.0)
         assert snapshot.weight_kg == pytest.approx(88.4)
         assert snapshot.body_fat_pct == pytest.approx(20.9)

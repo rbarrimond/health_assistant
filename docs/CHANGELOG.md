@@ -10,6 +10,23 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-04
 
+### Sleep Duration Field Refactor [canonical v2.4.0, ingest v14.3.11] **BREAKING**
+
+- **Schema change**: Renamed `sleep_duration_min` → `sleep_duration_sec` to store sleep in seconds (no conversion)
+- **Rationale**: Preserve raw Intervals API value (`sleepSecs`) without transformation, aligning with zero-loss ingestion principles
+- **Breaking changes**:
+  - Field name: `PhysiometricsSnapshot.sleep_duration_min` → `PhysiometricsSnapshot.sleep_duration_sec`
+  - Storage column: `sleep_duration_min` → `sleep_duration_sec`
+  - Unit: minutes → seconds (multiply previous values by 60)
+- **Adapter changes**:
+  - Removed seconds-to-minutes conversion in `IntervalsPhysiometricsAdapter._do_parse()`
+  - Now stores `sleepSecs` directly from Intervals API response
+- **Storage layer**: Updated column mappings and field references across all storage/adapter/handler code
+- **Versioning**:
+  - `PhysiometricsSnapshot.canonical_version` bumped `2.3.0` → `2.4.0` (MAJOR component: breaking field change)
+  - `INGEST_VERSION` bumped `v14.3.10` → `v14.3.11`
+- **Migration**: Active development branch; no data migration required (can overwrite existing records)
+
 ### Intervals Blob Contract Cleanup [canonical v2.3.0, ingest v14.3.10]
 
 - **Storage contract update**:
@@ -84,7 +101,7 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - **Schema mapping update**:
   - `id` (or legacy `date`) → `effective_date`
   - `restingHR` (or legacy `rhr`) → `resting_hr_bpm`
-  - `sleepSecs` (or legacy `sleep`) → `sleep_duration_min` (seconds converted to minutes)
+  - `sleepSecs` (or legacy `sleep`) → `sleep_duration_sec` (preserved in seconds)
   - `hrv` and `readiness` preserved
 - **Compatibility**: Keep client aliases for existing HRV/readiness helper methods via wellness endpoint
 - **Tests/docs**: Update Intervals client and sync handler tests plus wellness/architecture docs for updated contract

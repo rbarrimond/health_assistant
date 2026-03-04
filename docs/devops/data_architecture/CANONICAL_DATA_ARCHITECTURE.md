@@ -278,7 +278,7 @@ Schema (current + planned):
   
   • hrv_ln_rmssd: Optional[float]  (log-normalized RMSSD from Intervals)
   • hrv_sdnn_ms: Optional[float]  (HRV SDNN from Intervals)
-  • sleep_duration_min: Optional[float]  (from Intervals)
+  • sleep_duration_sec: Optional[float]  (from Intervals, raw seconds)
   • readiness_score: Optional[float]  (0-100 composite from Garmin or Intervals)
   
   • power_ftp_watts: Optional[float]

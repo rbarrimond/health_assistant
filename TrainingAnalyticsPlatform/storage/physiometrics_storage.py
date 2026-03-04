@@ -22,7 +22,7 @@ class PhysiometricsStorage:
         "body_fat_pct", "visceral_fat_index", "metabolic_age_years",
         "cycling_vo2max_ml_kg_min"
     ]
-    _CORE_WELLNESS_FIELDS = ["hrv_ln_rmssd", "hrv_sdnn_ms", "sleep_duration_min", "readiness_score"]
+    _CORE_WELLNESS_FIELDS = ["hrv_ln_rmssd", "hrv_sdnn_ms", "sleep_duration_sec", "readiness_score"]
     _SUBJECTIVE_WELLNESS_MAP = {
         "subjective_soreness": "soreness",
         "subjective_fatigue": "fatigue",
@@ -94,7 +94,7 @@ class PhysiometricsStorage:
             "cycling_vo2max_ml_kg_min": physiometrics_data.get("cycling_vo2max_ml_kg_min"),
             "hrv_ln_rmssd": physiometrics_data.get("hrv_ln_rmssd"),
             "hrv_sdnn_ms": physiometrics_data.get("hrv_sdnn_ms"),
-            "sleep_duration_min": physiometrics_data.get("sleep_duration_min"),
+            "sleep_duration_sec": physiometrics_data.get("sleep_duration_sec"),
             "readiness_score": physiometrics_data.get("readiness_score"),
             # Extended wellness columns
             "subjective_soreness": physiometrics_data.get("soreness"),

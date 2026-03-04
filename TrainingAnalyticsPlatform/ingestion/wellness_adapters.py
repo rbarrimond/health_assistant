@@ -175,7 +175,7 @@ class WithingsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             metabolic_age_years=None,
             hrv_ln_rmssd=None,
             resting_hr_bpm=None,
-            sleep_duration_min=None,
+            sleep_duration_sec=None,
             ftp_watts=None,
             cycling_vo2max_ml_kg_min=None,
             hr_lthr_bpm=None,
@@ -255,7 +255,7 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             metabolic_age_years=None,
             hrv_ln_rmssd=None,
             resting_hr_bpm=parsed.get("resting_hr"),
-            sleep_duration_min=None,
+            sleep_duration_sec=None,
             ftp_watts=parsed.get("ftp"),
             cycling_vo2max_ml_kg_min=parsed.get("vo2max_cycling"),
             hr_lthr_bpm=lthr,
@@ -296,10 +296,7 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
 
     def _do_parse(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """Extract wellness fields with compatibility aliases."""
-        sleep_minutes = raw_data.get("sleep")
-        sleep_secs = raw_data.get("sleepSecs")
-        if sleep_minutes is None and isinstance(sleep_secs, (int, float)):
-            sleep_minutes = sleep_secs / 60.0
+        sleep_seconds = raw_data.get("sleepSecs") or raw_data.get("sleep")
 
         return {
             "date": raw_data.get("id") or raw_data.get("date"),
@@ -307,7 +304,7 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             "hrv": raw_data.get("hrvRMSSD") or raw_data.get("hrv"),  # Already ln(RMSSD)
             "hrv_sdnn_ms": raw_data.get("hrvSDNN"),
             "rhr": raw_data.get("restingHR") if raw_data.get("restingHR") is not None else raw_data.get("rhr"),
-            "sleep": sleep_minutes,
+            "sleep_sec": sleep_seconds,
             "readiness": raw_data.get("readiness"),
             # Optional canonical body composition from Intervals
             "weight_kg": raw_data.get("weight"),
@@ -398,7 +395,7 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             hrv_ln_rmssd=parsed.get("hrv"),
             hrv_sdnn_ms=parsed.get("hrv_sdnn_ms"),
             resting_hr_bpm=parsed.get("rhr"),
-            sleep_duration_min=parsed.get("sleep"),
+            sleep_duration_sec=parsed.get("sleep_sec"),
             ftp_watts=None,
             cycling_vo2max_ml_kg_min=None,
             hr_lthr_bpm=None,
