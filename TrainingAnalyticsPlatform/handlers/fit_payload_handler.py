@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 class FitPayloadIngestionHandler(FitIngestionBaseHandler):
     """Ingest FIT payloads encoded as base64 plus metadata."""
 
+    _WORKOUT_TYPE_RESOLUTION_ERROR_MESSAGE = "Workout type resolution failed"
+
     def handle(self, *args, **kwargs) -> Tuple[Dict[str, Any], int]:
         """Handle ingestion requests (HTTP payloads)."""
         payload = self._extract_payload(args, kwargs)
@@ -30,45 +32,115 @@ class FitPayloadIngestionHandler(FitIngestionBaseHandler):
         """Process a payload containing base64 FIT file content and metadata."""
         athlete_id = payload.get("athlete_id", "rob")
         source_info: Optional[Dict[str, Any]] = None
-        file_bytes: Optional[bytes] = None
-
         try:
-            file_bytes = self._extract_payload_bytes(payload)
-            source_info = self._build_payload_source_info(payload, file_bytes)
-            return self.ingest_bytes(
-                athlete_id,
-                source_info,
-                file_bytes,
-                file_path=source_info.get("source_file_path"),
-            )
+            source_info, response = self._process_payload_ingestion(payload, athlete_id)
+            return response
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            return self._handle_payload_exception(athlete_id, source_info, exc)
 
-        except IngestionIdResolutionError as exc:
-            logger.error("FIT payload ingestion_id resolution failed: %s", exc)
+    def _process_payload_ingestion(
+        self,
+        payload: Dict[str, Any],
+        athlete_id: str,
+    ) -> Tuple[Dict[str, Any], Tuple[Dict[str, Any], int]]:
+        file_bytes = self._extract_payload_bytes(payload)
+        source_info = self._build_payload_source_info(payload, file_bytes)
+        response = self.ingest_bytes(
+            athlete_id,
+            source_info,
+            file_bytes,
+            file_path=source_info.get("source_file_path"),
+        )
+        return source_info, response
+
+    def _handle_payload_exception(
+        self,
+        athlete_id: str,
+        source_info: Optional[Dict[str, Any]],
+        exc: Exception,
+    ) -> Tuple[Dict[str, Any], int]:
+        if isinstance(exc, IngestionIdResolutionError):
+            logger.error(
+                "FIT payload ingestion_id resolution failed",
+                extra=self._payload_log_extra(athlete_id, source_info, exc),
+                exc_info=True,
+            )
             self._record_failure(athlete_id, source_info, str(exc))
             return exc.to_response()
-        except WorkoutIdCalculationError as exc:
-            logger.error("FIT payload workout_id calculation failed: %s", exc)
+
+        if isinstance(exc, WorkoutIdCalculationError):
+            logger.error(
+                "FIT payload workout_id calculation failed",
+                extra=self._payload_log_extra(athlete_id, source_info, exc),
+                exc_info=True,
+            )
             self._record_failure(athlete_id, source_info, str(exc))
             return exc.to_response()
-        except FitParsingError as exc:
-            logger.error("FIT payload parse failed: %s", exc)
+
+        if isinstance(exc, FitParsingError):
+            logger.error(
+                "FIT payload parse failed",
+                extra=self._payload_log_extra(athlete_id, source_info, exc),
+                exc_info=True,
+            )
             self._record_failure(athlete_id, source_info, str(exc))
             return exc.to_response()
-        except DeviceFilteredError as exc:
-            logger.warning("FIT payload filtered: %s", exc)
+
+        if isinstance(exc, DeviceFilteredError):
+            logger.warning(
+                "FIT payload filtered by device classification",
+                extra=self._payload_log_extra(athlete_id, source_info, exc, include_reason=True),
+            )
             return exc.to_response()
-        except (ValueError, TypeError) as exc:
-            logger.warning("FIT payload ingestion validation failed: %s", exc)
+
+        if isinstance(exc, (ValueError, TypeError)):
+            logger.warning(
+                "FIT payload ingestion validation failed",
+                extra=self._payload_log_extra(athlete_id, source_info, exc, include_ingestion_id=False),
+            )
             self._record_failure(athlete_id, source_info, str(exc))
             return {"status": "error", "error": str(exc)}, 400
-        except WorkoutTypeResolutionError as exc:
-            logger.error("Workout type resolution failed: %s", exc)
-            self._record_failure(athlete_id, source_info, "Workout type resolution failed")
-            return {"status": "error", "error": "Workout type resolution failed"}, 500
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger.error("FIT payload ingestion failed: %s", exc, exc_info=True)
-            self._record_failure(athlete_id, source_info, "Internal server error")
-            return {"status": "error", "error": "Internal server error"}, 500
+
+        if isinstance(exc, WorkoutTypeResolutionError):
+            logger.error(
+                self._WORKOUT_TYPE_RESOLUTION_ERROR_MESSAGE,
+                extra=self._payload_log_extra(athlete_id, source_info, exc),
+                exc_info=True,
+            )
+            self._record_failure(
+                athlete_id,
+                source_info,
+                self._WORKOUT_TYPE_RESOLUTION_ERROR_MESSAGE,
+            )
+            return {"status": "error", "error": self._WORKOUT_TYPE_RESOLUTION_ERROR_MESSAGE}, 500
+
+        logger.error(
+            "FIT payload ingestion failed",
+            extra=self._payload_log_extra(athlete_id, source_info, exc),
+            exc_info=True,
+        )
+        self._record_failure(athlete_id, source_info, "Internal server error")
+        return {"status": "error", "error": "Internal server error"}, 500
+
+    @staticmethod
+    def _payload_log_extra(
+        athlete_id: str,
+        source_info: Optional[Dict[str, Any]],
+        exc: Exception,
+        include_ingestion_id: bool = True,
+        include_reason: bool = False,
+    ) -> Dict[str, Any]:
+        extra = {
+            "athlete_id": athlete_id,
+            "source_system": source_info.get("source_system") if source_info else None,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+        if include_ingestion_id:
+            extra["ingestion_id"] = source_info.get("ingestion_id") if source_info else None
+        if include_reason:
+            extra["reason"] = str(exc)
+        return extra
 
     def _extract_payload(self, args: tuple, kwargs: dict) -> Dict[str, Any]:
         payload = kwargs.get("payload")

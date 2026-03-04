@@ -83,6 +83,8 @@ class OneDriveSyncConfig:
 class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
     """Ingest a single OneDrive item."""
 
+    _UNEXPECTED_ERROR_MESSAGE = "OneDrive ingestion failed"
+
     def __init__(
         self,
         storage: StorageCoordinator,
@@ -108,77 +110,182 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
         source_info: Optional[Dict] = None
 
         try:
-            item_meta = self._extract_item_metadata(item, drive_id)
-            source_info = self._build_source_info(item, item_meta)
-            source_info["ingestion_id"] = self._resolve_ingestion_id(source_info)
+            source_info, response = self._ingest_item(
+                athlete_id=athlete_id,
+                access_token=access_token,
+                item=item,
+                drive_id=drive_id,
+            )
+            return response
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            return self._handle_ingestion_exception(athlete_id, source_info, exc)
 
-            context = self.storage.workouts.get_ingestion_context(
-                athlete_id,
-                source_info,
-                ingestion_key=source_info["ingestion_id"],
+    def _ingest_item(
+        self,
+        *,
+        athlete_id: str,
+        access_token: str,
+        item: Dict,
+        drive_id: str | None,
+    ) -> tuple[Dict, tuple[Dict, int]]:
+        item_meta = self._extract_item_metadata(item, drive_id)
+        source_info = self._build_source_info(item, item_meta)
+        source_info["ingestion_id"] = self._resolve_ingestion_id(source_info)
+
+        context = self.storage.workouts.get_ingestion_context(
+            athlete_id,
+            source_info,
+            ingestion_key=source_info["ingestion_id"],
+        )
+        if isinstance(context, IngestionContext) and context.should_skip():
+            response = self._build_skip_response(athlete_id, source_info, context)
+            return source_info, response
+
+        raw_content = self._client.download_file(
+            access_token=access_token,
+            item_id=item["id"],
+        )
+
+        preprocessor = FitFilePreprocessor()
+        preprocessed = preprocessor.preprocess(raw_content, item["name"])
+
+        source_info["source_logical_file_name"] = preprocessed.logical_filename
+        source_info["file_sha256"] = compute_bytes_hash(preprocessed.content)
+        source_info["ingestion_id"] = self._resolve_ingestion_id(source_info)
+
+        _, workout_id = self._parse_and_store(
+            athlete_id,
+            source_info,
+            file_bytes=preprocessed.content,
+        )
+        return source_info, ({"status": "success", "workout_id": workout_id}, 200)
+
+    def _build_skip_response(
+        self,
+        athlete_id: str,
+        source_info: Dict,
+        context: IngestionContext,
+    ) -> tuple[Dict, int]:
+        workout_id = (
+            context.existing_state.get("workout_id")
+            if context.existing_state
+            else None
+        )
+        logger.debug(
+            "Skipping unchanged OneDrive FIT with existing ingested state",
+            extra={
+                "athlete_id": athlete_id,
+                "ingestion_key": context.ingestion_key,
+                "workout_id": workout_id,
+                "source_item_id": source_info.get("source_item_id"),
+                "source_system": "onedrive",
+                "status": "skipped_unchanged",
+            },
+        )
+        return {
+            "status": "skipped",
+            "workout_id": workout_id,
+            "message": "Unchanged content",
+        }, 200
+
+    def _handle_ingestion_exception(
+        self,
+        athlete_id: str,
+        source_info: Optional[Dict],
+        exc: Exception,
+    ) -> tuple[Dict, int]:
+        if isinstance(exc, IngestionIdResolutionError):
+            logger.error(
+                "OneDrive ingestion_id resolution failed",
+                extra=self._onedrive_error_extra(athlete_id, source_info, exc),
+                exc_info=True,
             )
-            should_skip = (
-                context.should_skip()
-                if isinstance(context, IngestionContext)
-                else False
-            )
-            if should_skip:
-                workout_id = (
-                    context.existing_state.get("workout_id")
-                    if context.existing_state
-                    else None
-                )
-                logger.debug(
-                    "Skipping unchanged OneDrive FIT with existing ingested state: "
-                    "athlete_id=%s ingestion_key=%s workout_id=%s source_item_id=%s",
+            self._record_failure(athlete_id, source_info, str(exc))
+            return exc.to_response(include_message_alias=True)
+
+        if isinstance(exc, WorkoutIdCalculationError):
+            logger.error(
+                "OneDrive workout_id calculation failed",
+                extra=self._onedrive_error_extra(
                     athlete_id,
-                    context.ingestion_key,
-                    workout_id,
-                    source_info.get("source_item_id"),
-                )
-                return {
-                    "status": "skipped",
-                    "workout_id": workout_id,
-                    "message": "Unchanged content",
-                }, 200
-
-            raw_content = self._client.download_file(
-                access_token=access_token, item_id=item["id"]
+                    source_info,
+                    exc,
+                    include_ingestion_id=True,
+                ),
+                exc_info=True,
             )
-            
-            # Preprocess file: handle decompression and validate FIT format
-            preprocessor = FitFilePreprocessor()
-            preprocessed = preprocessor.preprocess(raw_content, item["name"])
-            
-            source_info["source_logical_file_name"] = preprocessed.logical_filename
-            source_info["file_sha256"] = compute_bytes_hash(preprocessed.content)
-            source_info["ingestion_id"] = self._resolve_ingestion_id(source_info)
+            self._record_failure(athlete_id, source_info, str(exc))
+            return exc.to_response(include_message_alias=True)
 
-            _, workout_id = self._parse_and_store(
+        if isinstance(exc, PreprocessingError):
+            logger.error(
+                "OneDrive file preprocessing failed",
+                extra=self._onedrive_error_extra(athlete_id, source_info, exc),
+                exc_info=True,
+            )
+            self._record_failure(athlete_id, source_info, str(exc))
+            return exc.to_response(include_message_alias=True)
+
+        if isinstance(exc, FitParsingError):
+            logger.error(
+                "OneDrive FIT parsing failed",
+                extra=self._onedrive_error_extra(
+                    athlete_id,
+                    source_info,
+                    exc,
+                    include_ingestion_id=True,
+                ),
+                exc_info=True,
+            )
+            self._record_failure(athlete_id, source_info, str(exc))
+            return exc.to_response(include_message_alias=True)
+
+        if isinstance(exc, DeviceFilteredError):
+            logger.warning(
+                "OneDrive ingestion filtered by device classification",
+                extra=self._onedrive_error_extra(
+                    athlete_id,
+                    source_info,
+                    exc,
+                    include_reason=True,
+                ),
+            )
+            return exc.to_response(include_message_alias=True)
+
+        logger.error(
+            self._UNEXPECTED_ERROR_MESSAGE,
+            extra=self._onedrive_error_extra(
                 athlete_id,
                 source_info,
-                file_bytes=preprocessed.content,
-            )
-            return {"status": "success", "workout_id": workout_id}, 200
-        except IngestionIdResolutionError as exc:
-            logger.error("OneDrive ingestion_id resolution failed: %s", exc)
-            self._record_failure(athlete_id, source_info, str(exc))
-            return exc.to_response(include_message_alias=True)
-        except WorkoutIdCalculationError as exc:
-            logger.error("OneDrive workout_id calculation failed: %s", exc)
-            self._record_failure(athlete_id, source_info, str(exc))
-            return exc.to_response(include_message_alias=True)
-        except PreprocessingError as exc:
-            logger.error("OneDrive file preprocessing failed: %s", exc)
-            self._record_failure(athlete_id, source_info, str(exc))
-            return exc.to_response(include_message_alias=True)
-        except FitParsingError as exc:
-            logger.error("OneDrive FIT parsing failed: %s", exc)
-            self._record_failure(athlete_id, source_info, str(exc))
-            return exc.to_response(include_message_alias=True)
-        except DeviceFilteredError as exc:
-            logger.warning("OneDrive ingestion filtered: %s", exc)
-            return exc.to_response(include_message_alias=True)
+                exc,
+                include_ingestion_id=True,
+            ),
+            exc_info=True,
+        )
+        self._record_failure(athlete_id, source_info, self._UNEXPECTED_ERROR_MESSAGE)
+        return {"status": "error", "error": self._UNEXPECTED_ERROR_MESSAGE}, 500
+
+    @staticmethod
+    def _onedrive_error_extra(
+        athlete_id: str,
+        source_info: Optional[Dict],
+        exc: Exception,
+        *,
+        include_ingestion_id: bool = False,
+        include_reason: bool = False,
+    ) -> Dict:
+        extra = {
+            "athlete_id": athlete_id,
+            "source_system": "onedrive",
+            "source_item_id": source_info.get("source_item_id") if source_info else None,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+        if include_ingestion_id:
+            extra["ingestion_id"] = source_info.get("ingestion_id") if source_info else None
+        if include_reason:
+            extra["reason"] = str(exc)
+        return extra
 
     def _extract_item_metadata(self, item: Dict, drive_id: str | None) -> Dict:
         """Extract OneDrive fields used for ingest and state tracking."""
@@ -325,13 +432,42 @@ class OneDriveSyncHandler:
             result = self.sync(athlete_id=athlete_id, lookback_days=lookback_days)
             return result, 200
         except ValueError as exc:
-            logger.warning("Sync validation failed: %s", exc)
+            logger.warning(
+                "OneDrive sync validation failed",
+                extra={
+                    "athlete_id": athlete_id,
+                    "lookback_days": lookback_days,
+                    "source_system": "onedrive",
+                    "error_type": "ValueError",
+                    "error": str(exc),
+                },
+            )
             return {"error": str(exc)}, 400
         except HealthAssistantError as exc:
-            logger.error("Sync failed with typed error: %s", exc, exc_info=True)
+            logger.error(
+                "OneDrive sync failed with typed error",
+                extra={
+                    "athlete_id": athlete_id,
+                    "lookback_days": lookback_days,
+                    "source_system": "onedrive",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
             return exc.to_response(include_message_alias=True)
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger.error("Sync failed: %s", exc, exc_info=True)
+            logger.error(
+                "OneDrive sync failed",
+                extra={
+                    "athlete_id": athlete_id,
+                    "lookback_days": lookback_days,
+                    "source_system": "onedrive",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
             return {"error": "Sync failed"}, 500
 
     def _handle_async(self, athlete_id: str, lookback_days: int) -> Tuple[Dict, int]:
@@ -342,9 +478,30 @@ class OneDriveSyncHandler:
                 result = self.sync(
                     athlete_id=athlete_id, lookback_days=lookback_days
                 )
-                logger.info("Async sync completed: %s", result)
+                logger.info(
+                    "OneDrive async sync completed",
+                    extra={
+                        "athlete_id": athlete_id,
+                        "lookback_days": lookback_days,
+                        "source_system": "onedrive",
+                        "found": result.get("found"),
+                        "ingested": result.get("ingested"),
+                        "skipped": result.get("skipped"),
+                        "filtered": result.get("filtered"),
+                    },
+                )
             except Exception as exc:  # pylint: disable=broad-exception-caught
-                logger.error("Async sync failed: %s", exc, exc_info=True)
+                logger.error(
+                    "OneDrive async sync failed",
+                    extra={
+                        "athlete_id": athlete_id,
+                        "lookback_days": lookback_days,
+                        "source_system": "onedrive",
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                    exc_info=True,
+                )
 
         threading.Thread(target=_run_background_sync, daemon=True).start()
 
@@ -381,11 +538,16 @@ class OneDriveSyncHandler:
             if _is_within_lookback(item, cutoff_date, cutoff)
         ]
         logger.info(
-            "OneDrive filename/date filter: %s/%s within lookback_days=%s (cutoff=%s)",
-            len(files),
-            pre_filter_count,
-            lookback_days,
-            cutoff_date.isoformat(),
+            "OneDrive filename/date filter applied",
+            extra={
+                "athlete_id": athlete_id,
+                "source_system": "onedrive",
+                "files_after_filter": len(files),
+                "files_before_filter": pre_filter_count,
+                "lookback_days": lookback_days,
+                "cutoff_date": cutoff_date.isoformat(),
+                "folder_path": self._config.folder_path,
+            },
         )
 
         results = {

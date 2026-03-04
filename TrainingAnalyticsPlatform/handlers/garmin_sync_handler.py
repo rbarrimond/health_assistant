@@ -94,10 +94,13 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
         activity_name = activity.get("activityName", "Unknown")
 
         logger.info(
-            "Processing Garmin activity %s (%s) for athlete %s",
-            activity_id,
-            activity_name,
-            athlete_id,
+            "Processing Garmin activity",
+            extra={
+                "athlete_id": athlete_id,
+                "source_system": "garmin",
+                "activity_id": activity_id,
+                "activity_name": activity_name,
+            },
         )
 
         try:
@@ -109,7 +112,15 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
             fit_bytes = self._client.download_activity_fit(activity_id)
         except GarminConnectError as exc:
             logger.error(
-                "Failed to download FIT for activity %s: %s", activity_id, exc
+                "Failed to download FIT for Garmin activity",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "activity_id": activity_id,
+                    "error_type": "GarminConnectError",
+                    "error": str(exc),
+                },
+                exc_info=True,
             )
             return {
                 "status": "error",
@@ -117,7 +128,17 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
                 "activity_id": activity_id,
             }, 500
         except IngestionIdResolutionError as exc:
-            logger.error("Garmin ingestion_id resolution failed for %s: %s", activity_id, exc)
+            logger.error(
+                "Garmin ingestion_id resolution failed",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "activity_id": activity_id,
+                    "error_type": "IngestionIdResolutionError",
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
             self._record_failure(athlete_id, source_info, str(exc))
             return exc.to_response(
                 extra={"activity_id": activity_id},
@@ -150,12 +171,15 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
                 else None
             )
             logger.debug(
-                "Skipping unchanged Garmin FIT with existing ingested state: "
-                "athlete_id=%s ingestion_key=%s workout_id=%s source_item_id=%s",
-                athlete_id,
-                context.ingestion_key,
-                workout_id,
-                source_info.get("source_item_id"),
+                "Skipping unchanged Garmin FIT with existing ingested state",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "activity_id": activity_id,
+                    "ingestion_key": context.ingestion_key,
+                    "workout_id": workout_id,
+                    "status": "skipped_unchanged",
+                },
             )
             return {
                 "status": "skipped",
@@ -189,21 +213,52 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
                 file_bytes=fit_bytes,
             )
         except WorkoutIdCalculationError as exc:
-            logger.error("Garmin workout_id calculation failed for %s: %s", activity_id, exc)
+            logger.error(
+                "Garmin workout_id calculation failed",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "activity_id": activity_id,
+                    "ingestion_id": source_info.get("ingestion_id") if source_info else None,
+                    "error_type": "WorkoutIdCalculationError",
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
             self._record_failure(athlete_id, source_info, str(exc))
             return exc.to_response(
                 extra={"activity_id": activity_id},
                 include_message_alias=True,
             )
         except FitParsingError as exc:
-            logger.error("Garmin FIT parsing failed for %s: %s", activity_id, exc)
+            logger.error(
+                "Garmin FIT parsing failed",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "activity_id": activity_id,
+                    "ingestion_id": source_info.get("ingestion_id") if source_info else None,
+                    "error_type": "FitParsingError",
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
             self._record_failure(athlete_id, source_info, str(exc))
             return exc.to_response(
                 extra={"activity_id": activity_id},
                 include_message_alias=True,
             )
         except DeviceFilteredError as exc:
-            logger.warning("Garmin ingestion filtered for %s: %s", activity_id, exc)
+            logger.warning(
+                "Garmin ingestion filtered by device classification",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "activity_id": activity_id,
+                    "error_type": "DeviceFilteredError",
+                    "reason": str(exc),
+                },
+            )
             return exc.to_response(
                 extra={"activity_id": activity_id},
                 include_message_alias=True,
@@ -460,7 +515,16 @@ class GarminSyncHandler:
         try:
             self._client.login()
         except GarminConnectError as exc:
-            logger.error("Failed to authenticate with Garmin Connect: %s", exc)
+            logger.error(
+                "Failed to authenticate with Garmin Connect",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "error_type": "GarminConnectError",
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
             return {
                 "status": "error",
                 "message": f"Authentication failed: {exc}",
@@ -473,17 +537,31 @@ class GarminSyncHandler:
         try:
             activities = self._client.list_activities(start_date=cutoff, limit=100)
         except GarminConnectError as exc:
-            logger.error("Failed to list Garmin activities: %s", exc)
+            logger.error(
+                "Failed to list Garmin activities",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "lookback_days": lookback_days,
+                    "error_type": "GarminConnectError",
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
             return {
                 "status": "error",
                 "message": f"Failed to list activities: {exc}",
             }
 
         logger.info(
-            "Found %d Garmin activities within lookback_days=%s (cutoff=%s)",
-            len(activities),
-            lookback_days,
-            cutoff.date().isoformat(),
+            "Found Garmin activities within lookback window",
+            extra={
+                "athlete_id": athlete_id,
+                "source_system": "garmin",
+                "found_count": len(activities),
+                "lookback_days": lookback_days,
+                "cutoff_date": cutoff.date().isoformat(),
+            },
         )
 
         results = {
@@ -506,9 +584,14 @@ class GarminSyncHandler:
                 self._record_ingest_result(results, activity, body, status_code)
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 logger.error(
-                    "Failed to ingest Garmin activity %s: %s",
-                    activity.get("activityId"),
-                    exc,
+                    "Failed to ingest Garmin activity",
+                    extra={
+                        "athlete_id": athlete_id,
+                        "source_system": "garmin",
+                        "activity_id": activity.get("activityId"),
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
                     exc_info=True,
                 )
                 self._record_error_result(results, activity, exc)
@@ -521,10 +604,30 @@ class GarminSyncHandler:
             results = self.sync(athlete_id=athlete_id, lookback_days=lookback_days)
             return results, 200
         except HealthAssistantError as exc:
-            logger.error("Garmin sync failed with typed error: %s", exc, exc_info=True)
+            logger.error(
+                "Garmin sync failed with typed error",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "lookback_days": lookback_days,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
             return exc.to_response(include_message_alias=True)
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger.error("Garmin sync failed: %s", exc, exc_info=True)
+            logger.error(
+                "Garmin sync failed",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "lookback_days": lookback_days,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
             return {"error": str(exc)}, 500
 
     def _handle_async(self, athlete_id: str, lookback_days: int) -> Tuple[Dict, int]:
@@ -564,15 +667,41 @@ class GarminSyncHandler:
         if status_code == 200:
             if body.get("status") == "skipped":
                 results["skipped"] += 1
-                logger.info("Skipped Garmin activity %s (%s)", activity_id, activity_name)
+                logger.info(
+                    "Skipped Garmin activity",
+                    extra={
+                        "source_system": "garmin",
+                        "activity_id": activity_id,
+                        "activity_name": activity_name,
+                        "status": "skipped",
+                    },
+                )
             else:
                 results["ingested"] += 1
-                logger.info("Ingested Garmin activity %s (%s)", activity_id, activity_name)
+                logger.info(
+                    "Ingested Garmin activity",
+                    extra={
+                        "source_system": "garmin",
+                        "activity_id": activity_id,
+                        "activity_name": activity_name,
+                        "workout_id": body.get("workout_id"),
+                        "status": "success",
+                    },
+                )
         else:
             results["failed"] += 1
             error_msg = body.get("message", "Unknown error")
             results["errors"].append(f"{activity_id}: {error_msg}")
-            logger.error("Failed to ingest %s: %s", activity_id, error_msg)
+            logger.error(
+                "Failed to ingest Garmin activity",
+                extra={
+                    "source_system": "garmin",
+                    "activity_id": activity_id,
+                    "activity_name": activity_name,
+                    "error": error_msg,
+                    "status_code": status_code,
+                },
+            )
 
         results["items"].append({
             "activity_id": activity_id,

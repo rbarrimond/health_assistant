@@ -229,7 +229,15 @@ class SemanticLayer:
             return workout
 
         except HttpResponseError as e:
-            logger.error("Error retrieving workout %s: %s", workout_id, e)
+            logger.error(
+                "Error retrieving workout",
+                extra={
+                    "workout_id": workout_id,
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             return None
 
     # -------------------------------------------------------------------------
@@ -421,7 +429,17 @@ class SemanticLayer:
             return workouts
 
         except HttpResponseError as e:
-            logger.error("Error querying workouts: %s", e)
+            logger.error(
+                "Error querying workouts",
+                extra={
+                    "athlete_id": athlete_id,
+                    "start_date": start_date.isoformat() if start_date else None,
+                    "end_date": end_date.isoformat() if end_date else None,
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             return []
 
     def _get_month_partitions(
@@ -471,7 +489,15 @@ class SemanticLayer:
         try:
             metadata_blob = self.storage.workouts.load_metadata_json(lookup_id)
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger.debug("Could not load metadata blob for %s: %s", lookup_id, exc)
+            logger.debug(
+                "Could not load metadata blob",
+                extra={
+                    "lookup_id": lookup_id,
+                    "workout_id": workout_entity.workout_id,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
             metadata_blob = {}
         
         # Extract semantic zones from metadata blob (these contain session/enrichment data)
@@ -571,7 +597,15 @@ class SemanticLayer:
         try:
             df = self.storage.workouts.load_canonical_records(blob_name)
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger.warning("Failed to load canonical records %s: %s", blob_name, exc)
+            logger.warning(
+                "Failed to load canonical records",
+                extra={
+                    "blob_name": blob_name,
+                    "workout_id": workout_entity.workout_id,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
             return metrics
 
         if df.empty:
@@ -590,7 +624,14 @@ class SemanticLayer:
         try:
             canonical = CanonicalAnalyticsEngine.from_dataframe(df, metadata)
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger.warning("Canonical analytics computation failed: %s", exc)
+            logger.warning(
+                "Canonical analytics computation failed",
+                extra={
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                    "record_count": len(df),
+                },
+            )
             return {}
         return canonical.to_metrics_dict()
 
@@ -600,9 +641,13 @@ class SemanticLayer:
             payload = self.storage.workouts.load_laps_json(ingestion_id)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.warning(
-                "Failed to load laps.json for workout %s: %s",
-                workout_entity.workout_id,
-                exc,
+                "Failed to load laps.json",
+                extra={
+                    "workout_id": workout_entity.workout_id,
+                    "ingestion_id": ingestion_id,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
             )
             return None
         laps = payload.get("laps") if isinstance(payload, dict) else None
@@ -652,7 +697,17 @@ class SemanticLayer:
             }
 
         except HttpResponseError as e:
-            logger.error("Error retrieving lap %s for workout %s: %s", lap_index, workout_id, e)
+            logger.error(
+                "Error retrieving lap",
+                extra={
+                    "workout_id": workout_id,
+                    "athlete_id": athlete_id,
+                    "lap_index": lap_index,
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             return None
 
     def _load_fit_timeseries(
@@ -896,7 +951,16 @@ class SemanticLayer:
             return rollups
 
         except HttpResponseError as e:
-            logger.error("Error retrieving weekly rollups: %s", e)
+            logger.error(
+                "Error retrieving weekly rollups",
+                extra={
+                    "athlete_id": athlete_id,
+                    "weeks": weeks,
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             return []
 
     def _find_last_hard_day(self, workouts: List[Dict]) -> Optional[str]:
@@ -1117,8 +1181,14 @@ class SemanticLayer:
             )
 
             logger.info(
-                "Updated %s for %s: %s (source: %s)",
-                metric, athlete_id, value, source
+                "Updated physiometric",
+                extra={
+                    "athlete_id": athlete_id,
+                    "metric": metric,
+                    "value": value,
+                    "effective_date": effective_date,
+                    "source": source,
+                },
             )
 
             return {
@@ -1132,7 +1202,17 @@ class SemanticLayer:
             }
 
         except Exception as e:  # pylint: disable=broad-exception-caught
-            logger.error("Error updating physiometric: %s", e)
+            logger.error(
+                "Error updating physiometric",
+                extra={
+                    "athlete_id": athlete_id,
+                    "metric": metric,
+                    "value": value,
+                    "error_type": type(e).__name__,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             return {
                 "status": "error",
                 "error": str(e)

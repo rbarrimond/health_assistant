@@ -47,9 +47,26 @@ class OAuthTokenStorage:
         try:
             table_client = self.infra.get_table_client("WithingsTokens")
             table_client.upsert_entity(entity)
-            logger.info("Stored Withings tokens for %s (userid: %s)", athlete_id, withings_userid)
+            logger.info(
+                "Stored Withings tokens",
+                extra={
+                    "athlete_id": athlete_id,
+                    "withings_userid": withings_userid,
+                    "source_system": "withings",
+                },
+            )
         except HttpResponseError as e:
-            logger.error("Error storing Withings tokens: %s", e)
+            logger.error(
+                "Error storing Withings tokens",
+                extra={
+                    "athlete_id": athlete_id,
+                    "withings_userid": withings_userid,
+                    "source_system": "withings",
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             raise StorageError("Failed to store Withings tokens") from e
 
     def get_withings_tokens(self, athlete_id: str) -> Optional[Dict]:
@@ -65,7 +82,16 @@ class OAuthTokenStorage:
             return dict(entities[0])
 
         except HttpResponseError as e:
-            logger.error("Error retrieving Withings tokens for %s: %s", athlete_id, e)
+            logger.error(
+                "Error retrieving Withings tokens",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "withings",
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             raise StorageError("Failed to retrieve Withings tokens") from e
 
     def refresh_withings_token(
@@ -121,9 +147,24 @@ class OAuthTokenStorage:
         try:
             table_client = self.infra.get_table_client("OneDriveTokens")
             table_client.upsert_entity(entity)
-            logger.info("Stored OneDrive tokens for %s", athlete_id)
+            logger.info(
+                "Stored OneDrive tokens",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "onedrive",
+                },
+            )
         except HttpResponseError as e:
-            logger.error("Error storing OneDrive tokens: %s", e)
+            logger.error(
+                "Error storing OneDrive tokens",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "onedrive",
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             raise StorageError("Failed to store OneDrive tokens") from e
 
     def get_onedrive_tokens(self, athlete_id: str) -> Optional[Dict]:
@@ -136,7 +177,16 @@ class OAuthTokenStorage:
                 return None
             return dict(entities[0])
         except HttpResponseError as e:
-            logger.error("Error retrieving OneDrive tokens for %s: %s", athlete_id, e)
+            logger.error(
+                "Error retrieving OneDrive tokens",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "onedrive",
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             raise StorageError("Failed to retrieve OneDrive tokens") from e
 
     def refresh_onedrive_token(
@@ -189,9 +239,24 @@ class OAuthTokenStorage:
         try:
             table_client = self.infra.get_table_client("GarminTokens")
             table_client.upsert_entity(entity)
-            logger.info("Stored Garmin tokens for %s", athlete_id)
+            logger.info(
+                "Stored Garmin tokens",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                },
+            )
         except HttpResponseError as e:
-            logger.error("Error storing Garmin tokens: %s", e)
+            logger.error(
+                "Error storing Garmin tokens",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             raise StorageError("Failed to store Garmin tokens") from e
 
     def get_garmin_tokens(self, athlete_id: str) -> Optional[Dict]:
@@ -204,5 +269,14 @@ class OAuthTokenStorage:
                 return None
             return dict(entities[0])
         except HttpResponseError as e:
-            logger.error("Error retrieving Garmin tokens for %s: %s", athlete_id, e)
+            logger.error(
+                "Error retrieving Garmin tokens",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             raise StorageError("Failed to retrieve Garmin tokens") from e

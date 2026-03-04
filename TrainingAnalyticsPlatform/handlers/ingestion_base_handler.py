@@ -55,11 +55,13 @@ class FitIngestionBaseHandler(ABC):
             else None
         )
         logger.debug(
-            "Skipping unchanged FIT file with terminal ingested state: "
-            "athlete_id=%s ingestion_key=%s workout_id=%s",
-            athlete_id,
-            context.ingestion_key,
-            workout_id,
+            "Skipping unchanged FIT file with terminal ingested state",
+            extra={
+                "athlete_id": athlete_id,
+                "ingestion_key": context.ingestion_key,
+                "workout_id": workout_id,
+                "status": "terminal_ingested",
+            },
         )
         return True, workout_id
 
@@ -266,12 +268,16 @@ class FitIngestionBaseHandler(ABC):
 
         # Log device classification for monitoring
         logger.info(
-            "Device source classification: device_source_type=%s, "
-            "is_healthkit_synced=%s, device_name=%r, device_model=%r",
-            device_source_type,
-            is_healthkit_synced,
-            device_name,
-            device_model,
+            "Device source classification",
+            extra={
+                "athlete_id": athlete_id,
+                "device_source_type": device_source_type,
+                "is_healthkit_synced": is_healthkit_synced,
+                "device_name": device_name,
+                "device_model": device_model,
+                "device_manufacturer_code": device_manufacturer_code,
+                "device_product_code": device_product_code,
+            },
         )
 
         handler_name = self.__class__.__name__
@@ -329,10 +335,16 @@ class FitIngestionBaseHandler(ABC):
         reason: str,
     ) -> None:
         logger.warning(
-            "Device filtration rejected file: reason=%s, message=%s, source_info=%s",
-            reason,
-            message,
-            source_info,
+            "Device filtration rejected file",
+            extra={
+                "athlete_id": athlete_id,
+                "reason": reason,
+                "message": message,
+                "source_system": source_info.get("source_system"),
+                "ingestion_id": source_info.get("ingestion_id"),
+                "device_source_type": source_info.get("device_source_type"),
+                "device_manufacturer_code": source_info.get("device_manufacturer_code"),
+            },
         )
         self.storage.workouts.record_ingestion_state(
             athlete_id,

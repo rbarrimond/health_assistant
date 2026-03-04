@@ -111,10 +111,27 @@ class WorkoutStorage:
         try:
             table_client = self.infra.get_table_client("Workouts")
             table_client.upsert_entity(entity)
-            logger.info("Stored workout %s for %s", workout_id, athlete_id)
+            logger.info(
+                "Stored workout",
+                extra={
+                    "athlete_id": athlete_id,
+                    "workout_id": workout_id,
+                    "workout_type": identity.get("workout_type"),
+                    "status": "success",
+                },
+            )
             return workout_id
         except HttpResponseError as e:
-            logger.error("Error storing workout %s: %s", workout_id, e)
+            logger.error(
+                "Error storing workout",
+                extra={
+                    "athlete_id": athlete_id,
+                    "workout_id": workout_id,
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             raise StorageError("Failed to store workout") from e
 
     def record_ingestion_state(
@@ -144,9 +161,27 @@ class WorkoutStorage:
         try:
             table_client = self.infra.get_table_client("IngestionState")
             table_client.upsert_entity(entity)
-            logger.info("Recorded ingestion state for %s: %s", athlete_id, status)
+            logger.info(
+                "Recorded ingestion state",
+                extra={
+                    "athlete_id": athlete_id,
+                    "status": status,
+                    "ingestion_key": context.ingestion_key,
+                    "workout_id": context.workout_id,
+                },
+            )
         except HttpResponseError as e:
-            logger.error("Error recording ingestion state for %s: %s", athlete_id, e)
+            logger.error(
+                "Error recording ingestion state",
+                extra={
+                    "athlete_id": athlete_id,
+                    "status": status,
+                    "ingestion_key": context.ingestion_key,
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             raise StorageError("Failed to record ingestion state") from e
 
     def get_ingestion_state(
@@ -163,7 +198,16 @@ class WorkoutStorage:
             # Entity doesn't exist yet - not an error
             return None
         except HttpResponseError as e:
-            logger.error("Error checking ingestion state for %s: %s", ingestion_key, e)
+            logger.error(
+                "Error checking ingestion state",
+                extra={
+                    "athlete_id": athlete_id,
+                    "ingestion_key": ingestion_key,
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             raise StorageError("Failed to retrieve ingestion state") from e
 
     def get_ingestion_context(

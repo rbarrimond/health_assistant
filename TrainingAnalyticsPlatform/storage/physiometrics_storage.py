@@ -62,10 +62,27 @@ class PhysiometricsStorage:
         try:
             table_client = self.infra.get_table_client("Physiometrics")
             table_client.upsert_entity(entity)
-            logger.info("Stored physiometrics for %s at %s", athlete_id, timestamp)
+            logger.info(
+                "Stored physiometrics",
+                extra={
+                    "athlete_id": athlete_id,
+                    "timestamp": timestamp,
+                    "effective_date": physiometrics_data.get("effective_date"),
+                    "data_source": physiometrics_data.get("data_source"),
+                },
+            )
             return timestamp
         except HttpResponseError as e:
-            logger.error("Error storing physiometrics: %s", e)
+            logger.error(
+                "Error storing physiometrics",
+                extra={
+                    "athlete_id": athlete_id,
+                    "timestamp": timestamp,
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             raise StorageError("Failed to store physiometrics") from e
 
     def get_physiometrics(self, athlete_id: str) -> Optional[Dict]:
@@ -106,7 +123,15 @@ class PhysiometricsStorage:
         except ResourceNotFoundError:
             return None
         except HttpResponseError as e:
-            logger.error("Error retrieving physiometrics for %s: %s", athlete_id, e)
+            logger.error(
+                "Error retrieving physiometrics",
+                extra={
+                    "athlete_id": athlete_id,
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             raise StorageError("Failed to retrieve physiometrics") from e
 
     def get_physiometrics_as_of(
@@ -161,10 +186,14 @@ class PhysiometricsStorage:
 
         except HttpResponseError as e:
             logger.error(
-                "Error retrieving physiometrics as of %s for %s: %s",
-                target_date,
-                athlete_id,
-                e,
+                "Error retrieving physiometrics as of date",
+                extra={
+                    "athlete_id": athlete_id,
+                    "target_date": target_date,
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
             )
             raise StorageError("Failed to retrieve physiometrics history point") from e
 
@@ -182,9 +211,14 @@ class PhysiometricsStorage:
             return entities[:limit]
         except HttpResponseError as e:
             logger.error(
-                "Error retrieving physiometrics history for %s: %s",
-                athlete_id,
-                e,
+                "Error retrieving physiometrics history",
+                extra={
+                    "athlete_id": athlete_id,
+                    "limit": limit,
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
             )
             raise StorageError("Failed to list physiometrics history") from e
 
@@ -223,9 +257,16 @@ class PhysiometricsStorage:
 
         except HttpResponseError as e:
             logger.error(
-                "Error retrieving physiometrics history for %s: %s",
-                athlete_id,
-                e,
+                "Error retrieving physiometrics history range",
+                extra={
+                    "athlete_id": athlete_id,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "metrics": metrics,
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
             )
             raise StorageError("Failed to retrieve physiometrics history") from e
 
