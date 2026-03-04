@@ -182,6 +182,7 @@ class WithingsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             hr_max_bpm=None,
             load=None,
             readiness_score=None,
+            hrv_sdnn_ms=None,
             # Extended wellness fields (not from Withings)
             soreness=None,
             fatigue=None,
@@ -195,9 +196,18 @@ class WithingsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             fat_g=None,
             steps=None,
             abdomen_cm=None,
+            spo2_pct=None,
+            systolic_bp=None,
+            diastolic_bp=None,
+            vo2max_ml_kg_min=None,
+            menstrual_phase=None,
+            menstrual_phase_predicted=None,
             sport_info=None,
             data_sources="withings",
             measured_at_utc=date_obj,
+            source_updated_at_utc=None,
+            raw_intervals_icu_json=None,
+            ext_json=None,
         )
 
 
@@ -252,6 +262,7 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             hr_max_bpm=max_hr,
             load=None,
             readiness_score=parsed.get("readiness"),
+            hrv_sdnn_ms=None,
             # Extended wellness fields (not from Garmin)
             soreness=None,
             fatigue=None,
@@ -265,9 +276,18 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             fat_g=None,
             steps=None,
             abdomen_cm=None,
+            spo2_pct=None,
+            systolic_bp=None,
+            diastolic_bp=None,
+            vo2max_ml_kg_min=None,
+            menstrual_phase=None,
+            menstrual_phase_predicted=None,
             sport_info=None,
             data_sources="garmin",
             measured_at_utc=None,
+            source_updated_at_utc=None,
+            raw_intervals_icu_json=None,
+            ext_json=None,
         )
 
 
@@ -283,10 +303,15 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
 
         return {
             "date": raw_data.get("id") or raw_data.get("date"),
+            "source_updated_at_utc": raw_data.get("updated"),
             "hrv": raw_data.get("hrvRMSSD") or raw_data.get("hrv"),  # Already ln(RMSSD)
+            "hrv_sdnn_ms": raw_data.get("hrvSDNN"),
             "rhr": raw_data.get("restingHR") if raw_data.get("restingHR") is not None else raw_data.get("rhr"),
             "sleep": sleep_minutes,
             "readiness": raw_data.get("readiness"),
+            # Optional canonical body composition from Intervals
+            "weight_kg": raw_data.get("weight"),
+            "body_fat_pct": raw_data.get("bodyFat"),
             # Subjective wellness
             "soreness": raw_data.get("soreness"),
             "fatigue": raw_data.get("fatigue"),
@@ -302,8 +327,40 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             # Activity & body
             "steps": raw_data.get("steps"),
             "abdomen_cm": raw_data.get("abdomen"),
+            "spo2_pct": raw_data.get("spO2"),
+            "systolic_bp": raw_data.get("systolic"),
+            "diastolic_bp": raw_data.get("diastolic"),
+            "vo2max_ml_kg_min": raw_data.get("vo2max"),
+            "menstrual_phase": raw_data.get("menstrualPhase"),
+            "menstrual_phase_predicted": raw_data.get("menstrualPhasePredicted"),
             # Nested sport metrics (pass through)
             "sport_info": raw_data.get("sportInfo"),
+            # Raw source preservation (zero-loss)
+            "raw_intervals_icu_json": json.dumps(raw_data),
+            "ext_json": json.dumps(
+                {
+                    "hrv_sdnn_ms": raw_data.get("hrvSDNN"),
+                    "soreness": raw_data.get("soreness"),
+                    "fatigue": raw_data.get("fatigue"),
+                    "stress": raw_data.get("stress"),
+                    "mood": raw_data.get("mood"),
+                    "motivation": raw_data.get("motivation"),
+                    "injury": raw_data.get("injury"),
+                    "calories_kcal": raw_data.get("kcalConsumed"),
+                    "carbs_g": raw_data.get("carbohydrates"),
+                    "protein_g": raw_data.get("protein"),
+                    "fat_g": raw_data.get("fatTotal"),
+                    "abdomen_cm": raw_data.get("abdomen"),
+                    "spo2_pct": raw_data.get("spO2"),
+                    "systolic_bp": raw_data.get("systolic"),
+                    "diastolic_bp": raw_data.get("diastolic"),
+                    "vo2max_ml_kg_min": raw_data.get("vo2max"),
+                    "menstrual_phase": raw_data.get("menstrualPhase"),
+                    "menstrual_phase_predicted": raw_data.get("menstrualPhasePredicted"),
+                    "sport_info_json": json.dumps(raw_data.get("sportInfo")) if raw_data.get("sportInfo") is not None else None,
+                    "source_updated_at_utc": raw_data.get("updated"),
+                }
+            ),
         }
 
     def validate_semantic_contract(self, parsed: Dict[str, Any]) -> None:
@@ -314,7 +371,8 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
         extended_fields = [
             "soreness", "fatigue", "stress", "mood", "motivation", "injury",
             "calories_kcal", "carbs_g", "protein_g", "fat_g",
-            "steps", "abdomen_cm", "sport_info"
+            "steps", "abdomen_cm", "sport_info", "weight_kg", "body_fat_pct",
+            "hrv_sdnn_ms", "spo2_pct", "systolic_bp", "diastolic_bp", "vo2max_ml_kg_min"
         ]
         # Accept measurement if ANY core or extended field is present
         all_fields = core_fields + extended_fields
@@ -330,14 +388,15 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
         return PhysiometricsSnapshot(
             athlete_id=athlete_id,
             effective_date=date,
-            weight_kg=None,
+            weight_kg=parsed.get("weight_kg"),
             fat_mass_kg=None,
             muscle_mass_kg=None,
             bone_mass_kg=None,
-            body_fat_pct=None,
+            body_fat_pct=parsed.get("body_fat_pct"),
             visceral_fat_index=None,
             metabolic_age_years=None,
             hrv_ln_rmssd=parsed.get("hrv"),
+            hrv_sdnn_ms=parsed.get("hrv_sdnn_ms"),
             resting_hr_bpm=parsed.get("rhr"),
             sleep_duration_min=parsed.get("sleep"),
             ftp_watts=None,
@@ -358,9 +417,18 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             fat_g=parsed.get("fat_g"),
             steps=parsed.get("steps"),
             abdomen_cm=parsed.get("abdomen_cm"),
+            spo2_pct=parsed.get("spo2_pct"),
+            systolic_bp=parsed.get("systolic_bp"),
+            diastolic_bp=parsed.get("diastolic_bp"),
+            vo2max_ml_kg_min=parsed.get("vo2max_ml_kg_min"),
+            menstrual_phase=parsed.get("menstrual_phase"),
+            menstrual_phase_predicted=parsed.get("menstrual_phase_predicted"),
             sport_info=parsed.get("sport_info"),
             data_sources="intervals",
             measured_at_utc=None,
+            source_updated_at_utc=parsed.get("source_updated_at_utc"),
+            raw_intervals_icu_json=parsed.get("raw_intervals_icu_json"),
+            ext_json=parsed.get("ext_json"),
         )
 
 

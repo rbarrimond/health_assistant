@@ -4,5 +4,5 @@
 METADATA_SCHEMA_VERSION = "1.0.0"
 LAPS_SCHEMA_VERSION = "1.0.0"
 FIT_ANALYSIS_VERSION = "v1.0.0"
-INGEST_VERSION = "v14.3.6"  # (v14.3.5→v14.3.6) ENHANCEMENT: Robust HealthFit filename parsing with spelling tolerance for both Apple-canonical (Cycle/Walk) and FIT-aligned (Cycling/Walking) activity names, plus hyphenation flexibility
+INGEST_VERSION = "v14.3.10"  # (v14.3.9→v14.3.10) ENHANCEMENT: Blob contract cleanup for Intervals physiometrics; persist raw_intervals_icu_json + ext_json and remove recursive full_config_json duplication
 

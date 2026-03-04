@@ -22,7 +22,7 @@ class PhysiometricsStorage:
         "body_fat_pct", "visceral_fat_index", "metabolic_age_years",
         "cycling_vo2max_ml_kg_min"
     ]
-    _CORE_WELLNESS_FIELDS = ["hrv_ln_rmssd", "sleep_duration_min", "readiness_score"]
+    _CORE_WELLNESS_FIELDS = ["hrv_ln_rmssd", "hrv_sdnn_ms", "sleep_duration_min", "readiness_score"]
     _SUBJECTIVE_WELLNESS_MAP = {
         "subjective_soreness": "soreness",
         "subjective_fatigue": "fatigue",
@@ -40,7 +40,16 @@ class PhysiometricsStorage:
     _ACTIVITY_BODY_MAP = {
         "activity_steps": "steps",
         "body_abdomen_cm": "abdomen_cm",
+        "spo2_pct": "spo2_pct",
+        "systolic_bp": "systolic_bp",
+        "diastolic_bp": "diastolic_bp",
+        "vo2max_ml_kg_min": "vo2max_ml_kg_min",
+        "menstrual_phase": "menstrual_phase",
+        "menstrual_phase_predicted": "menstrual_phase_predicted",
         "sport_info_json": "sport_info_json",
+        "source_updated_at_utc": "source_updated_at_utc",
+        "raw_intervals_icu_json": "raw_intervals_icu_json",
+        "ext_json": "ext_json",
     }
 
     def __init__(self, infrastructure: StorageInfrastructure):
@@ -84,6 +93,7 @@ class PhysiometricsStorage:
             "metabolic_age_years": physiometrics_data.get("metabolic_age_years"),
             "cycling_vo2max_ml_kg_min": physiometrics_data.get("cycling_vo2max_ml_kg_min"),
             "hrv_ln_rmssd": physiometrics_data.get("hrv_ln_rmssd"),
+            "hrv_sdnn_ms": physiometrics_data.get("hrv_sdnn_ms"),
             "sleep_duration_min": physiometrics_data.get("sleep_duration_min"),
             "readiness_score": physiometrics_data.get("readiness_score"),
             # Extended wellness columns
@@ -102,9 +112,18 @@ class PhysiometricsStorage:
             "activity_steps": physiometrics_data.get("steps"),
             # Body composition
             "body_abdomen_cm": physiometrics_data.get("abdomen_cm"),
+            "spo2_pct": physiometrics_data.get("spo2_pct"),
+            "systolic_bp": physiometrics_data.get("systolic_bp"),
+            "diastolic_bp": physiometrics_data.get("diastolic_bp"),
+            "vo2max_ml_kg_min": physiometrics_data.get("vo2max_ml_kg_min"),
+            "menstrual_phase": physiometrics_data.get("menstrual_phase"),
+            "menstrual_phase_predicted": physiometrics_data.get("menstrual_phase_predicted"),
             # Sport metrics (serialized JSON)
             "sport_info_json": physiometrics_data.get("sport_info_json"),
-            "full_config_json": json.dumps(physiometrics_data),
+            # Raw source preservation (zero-loss ingestion)
+            "source_updated_at_utc": physiometrics_data.get("source_updated_at_utc"),
+            "raw_intervals_icu_json": physiometrics_data.get("raw_intervals_icu_json"),
+            "ext_json": physiometrics_data.get("ext_json"),
         }
 
         try:
@@ -135,7 +154,7 @@ class PhysiometricsStorage:
     def _reconstruct_from_storage_entity(self, entity: Dict) -> Dict:
         """Reconstruct canonical physiometrics from storage entity.
         
-        Prevents silent field loss when full_config_json unavailable.
+        Prevents silent field loss when legacy full_config_json is unavailable.
         Delegates to helpers to reduce cognitive complexity.
         """
         result: Dict[str, Any] = {"heart_rate": self._get_heart_rate(entity), "power": self._get_power(entity)}
@@ -144,6 +163,12 @@ class PhysiometricsStorage:
         self._merge_mapped(result, entity, self._SUBJECTIVE_WELLNESS_MAP)
         self._merge_mapped(result, entity, self._NUTRITION_MAP)
         self._merge_mapped(result, entity, self._ACTIVITY_BODY_MAP)
+        ext_json = entity.get("ext_json")
+        if isinstance(ext_json, str):
+            try:
+                result.update(json.loads(ext_json))
+            except json.JSONDecodeError:
+                result["ext_json"] = ext_json
         if entity.get("effective_date"):
             result["effective_date"] = entity.get("effective_date")
         if entity.get("data_source"):
@@ -187,6 +212,9 @@ class PhysiometricsStorage:
 
             # RowKey is effective_date (YYYY-MM-DD); sort to get latest
             latest = sorted(entities, key=lambda e: e.get("RowKey", ""))[-1]
+            if latest.get("ext_json"):
+                return self._reconstruct_from_storage_entity(latest)
+
             if latest.get("full_config_json"):
                 return json.loads(latest["full_config_json"])
 
@@ -222,6 +250,9 @@ class PhysiometricsStorage:
 
             entities.sort(key=lambda x: x.get("effective_date", ""), reverse=True)
             latest = entities[0]
+
+            if latest.get("ext_json"):
+                return self._reconstruct_from_storage_entity(latest)
 
             if latest.get("full_config_json"):
                 return json.loads(latest["full_config_json"])

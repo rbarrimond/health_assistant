@@ -51,21 +51,24 @@ class TestStorePhysiometrics:
         assert entity["heart_rate_basis"] == "HRmax"
         assert entity["power_ftp_watts"] == 285
 
-    def test_store_physiometrics_stores_full_json(self) -> None:
-        """Verify full config JSON is stored for auditability."""
+    def test_store_physiometrics_stores_raw_and_ext_json(self) -> None:
+        """Verify raw source blob and canonical ext blob are stored."""
         mock_table_client = MagicMock()
         storage = _make_storage(mock_table_client)
 
         physiometrics_data = {
             "heart_rate": {"basis": "HRmax"},
-            "power": {"ftp_watts": 250}
+            "power": {"ftp_watts": 250},
+            "raw_intervals_icu_json": '{"id":"2026-01-18"}',
+            "ext_json": '{"hrv_sdnn_ms":40.1}',
         }
 
         storage.store_physiometrics("rob", physiometrics_data)
 
         entity = mock_table_client.upsert_entity.call_args[0][0]
-        stored_json = json.loads(entity["full_config_json"])
-        assert stored_json == physiometrics_data
+        assert entity["raw_intervals_icu_json"] == '{"id":"2026-01-18"}'
+        assert entity["ext_json"] == '{"hrv_sdnn_ms":40.1}'
+        assert "full_config_json" not in entity
 
     def test_store_physiometrics_handles_null_values(self) -> None:
         """Verify null values are handled gracefully."""
@@ -283,23 +286,48 @@ class TestWellnessFieldsPersistence:
         assert entity["sleep_duration_min"] is None
         assert entity["readiness_score"] is None
 
-    def test_wellness_fields_in_full_config_json(self) -> None:
-        """Verify wellness fields are preserved in full_config_json audit blob."""
+    def test_wellness_fields_in_ext_json(self) -> None:
+        """Verify wellness fields are preserved in ext_json blob."""
         mock_table_client = MagicMock()
         storage = _make_storage(mock_table_client)
 
         physiometrics_data = {
             "hrv_ln_rmssd": 4.2,
+            "hrv_sdnn_ms": 41.8,
             "sleep_duration_min": 480.0,
             "readiness_score": 85.0,
             "heart_rate": {"basis": "LTHR", "resting_hr_bpm": 52},
             "power": {"ftp_watts": 285},
+            "ext_json": '{"hrv_sdnn_ms":41.8,"sleep_duration_min":480.0}',
         }
 
         storage.store_physiometrics("athlete123", physiometrics_data)
 
         entity = mock_table_client.upsert_entity.call_args[0][0]
-        full_config = json.loads(entity["full_config_json"])
-        assert full_config["hrv_ln_rmssd"] == pytest.approx(4.2)
-        assert full_config["sleep_duration_min"] == pytest.approx(480.0)
-        assert full_config["readiness_score"] == pytest.approx(85.0)
+        ext_json = json.loads(entity["ext_json"])
+        assert ext_json["hrv_sdnn_ms"] == pytest.approx(41.8)
+        assert ext_json["sleep_duration_min"] == pytest.approx(480.0)
+
+    def test_get_physiometrics_uses_ext_json_when_present(self) -> None:
+        """Verify reconstruction path is used when ext_json is present."""
+        mock_table_client = MagicMock()
+        mock_entity = {
+            "PartitionKey": "rob",
+            "RowKey": "2026-01-18",
+            "heart_rate_basis": "LTHR",
+            "heart_rate_resting_bpm": 50,
+            "power_ftp_watts": 285,
+            "weight_kg": 75.2,
+            "ext_json": '{"soreness":3,"menstrual_phase":"follicular"}',
+            "raw_intervals_icu_json": '{"id":"2026-01-18","ctl":22}',
+        }
+        mock_table_client.query_entities.return_value = [mock_entity]
+        storage = _make_storage(mock_table_client)
+
+        result = storage.get_physiometrics("rob")
+
+        assert result is not None
+        assert result["heart_rate"]["resting_hr_bpm"] == pytest.approx(50)
+        assert result["soreness"] == 3
+        assert result["menstrual_phase"] == "follicular"
+        assert result["raw_intervals_icu_json"] == '{"id":"2026-01-18","ctl":22}'

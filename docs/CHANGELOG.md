@@ -8,7 +8,48 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
-## 2026-03-05
+## 2026-03-04
+
+### Intervals Blob Contract Cleanup [canonical v2.3.0, ingest v14.3.10]
+
+- **Storage contract update**:
+  - Persist unmodified source payload in `raw_intervals_icu_json`
+  - Persist canonical extended metrics in `ext_json`
+  - Keep queryable scalar columns for filtering/analytics
+- **De-duplication**:
+  - Removed recursive duplication pattern that embedded source blobs inside `full_config_json`
+  - New writes no longer depend on `full_config_json`; legacy reads remain compatible
+- **Model/adapter changes**:
+  - `PhysiometricsSnapshot` now uses `raw_intervals_icu_json` + `ext_json`
+  - Intervals adapter populates both blobs while preserving canonical scalar mappings
+  - Withings/Garmin adapters keep these blobs as `None`
+- **Versioning**:
+  - `PhysiometricsSnapshot.canonical_version` bumped `2.2.0` → `2.3.0`
+  - `INGEST_VERSION` bumped `v14.3.9` → `v14.3.10`
+
+### Zero-Loss Intervals Ingestion + Minimal Canonical Boundary [canonical v2.2.0, ingest v14.3.9]
+
+- **Feature**: Preserve full Intervals daily payload while maintaining minimal queryable canonical metrics
+- **Canonical additions**:
+  - `hrv_sdnn_ms`, `spo2_pct`, `systolic_bp`, `diastolic_bp`, `vo2max_ml_kg_min`
+  - `menstrual_phase`, `menstrual_phase_predicted`
+  - `source_updated_at_utc`
+- **Raw catch-all preservation**:
+  - `source_payload_json`: full source day payload, serialized JSON
+  - `source_field_index_json`: sorted array of source field names present in payload
+- **Intervals mapping expansion**:
+  - Body composition pass-through from Intervals (`weight`, `bodyFat`) is now ingested as optional canonical values
+  - Existing extended fields retained (subjective, nutrition, activity, sport_info)
+- **Storage contract**:
+  - Added corresponding queryable columns in `Physiometrics` table for optional canonical metrics
+  - Added source payload columns to preserve zero-loss semantics
+  - Fallback reconstruction updated to include raw/source fields when `full_config_json` is unavailable
+- **Architecture policy**:
+  - Source precedence remains **post-ingestion** (semantic/read layer), not ingest-time
+  - Supports null-tolerant edge cases where one source is missing and another has data
+- **Versioning**:
+  - `PhysiometricsSnapshot.canonical_version` default updated `2.1.0` → `2.2.0`
+  - `INGEST_VERSION` updated `v14.3.6` → `v14.3.9`
 
 ### Extended Wellness Field Ingestion [canonical v2.1.0, ingest v14.3.8]
 
@@ -34,8 +75,6 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - **Backward compatibility**: All new fields Optional (None-safe), no breaking changes to existing code
 - **Version**: canonical_version bumped from "2.0.0" → "2.1.0" (SemVer MINOR for additive non-breaking extension)
 - **API alignment**: Extracts fields from Intervals GET /api/v1/athlete/{id}/wellness endpoint (46 total fields available, 20 now captured)
-
-## 2026-03-04
 
 ### Intervals Wellness API Contract Alignment [ingest v14.3.7, integrations v1.1.0]
 

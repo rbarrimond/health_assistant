@@ -238,11 +238,15 @@ class TestIntervalsPhysiometricsAdapter:
         """Verify adapter extracts and maps all extended wellness fields from Intervals API."""
         raw_data = {
             "id": "2025-03-01",
+            "updated": "2025-03-01T12:34:56.000+00:00",
             # Original fields
             "hrvRMSSD": 42.5,
+            "hrvSDNN": 38.2,
             "restingHR": 52,
             "sleepSecs": 28800,
             "readiness": 78,
+            "weight": 88.4,
+            "bodyFat": 20.9,
             # Extended wellness fields (subjective)
             "soreness": 3.0,
             "fatigue": 4.0,
@@ -259,6 +263,12 @@ class TestIntervalsPhysiometricsAdapter:
             "steps": 12500,
             # Body composition
             "abdomen": 85.5,
+            "spO2": 97,
+            "systolic": 128,
+            "diastolic": 76,
+            "vo2max": 46.2,
+            "menstrualPhase": "follicular",
+            "menstrualPhasePredicted": "ovulatory",
             # Sport-specific
             "sportInfo": [
                 {"type": "Ride", "load": 120.5, "ctl": 85.2},
@@ -274,9 +284,12 @@ class TestIntervalsPhysiometricsAdapter:
         # Verify original fields still work
         assert snapshot.effective_date == "2025-03-01"
         assert snapshot.hrv_ln_rmssd == pytest.approx(42.5)
+        assert snapshot.hrv_sdnn_ms == pytest.approx(38.2)
         assert snapshot.resting_hr_bpm == pytest.approx(52.0)
         assert snapshot.sleep_duration_min == pytest.approx(480.0)  # 28800 secs / 60
         assert snapshot.readiness_score == pytest.approx(78.0)
+        assert snapshot.weight_kg == pytest.approx(88.4)
+        assert snapshot.body_fat_pct == pytest.approx(20.9)
 
         # Verify subjective wellness fields
         assert snapshot.soreness == pytest.approx(3.0)
@@ -297,12 +310,21 @@ class TestIntervalsPhysiometricsAdapter:
 
         # Verify body composition fields
         assert snapshot.abdomen_cm == pytest.approx(85.5)
+        assert snapshot.spo2_pct == pytest.approx(97)
+        assert snapshot.systolic_bp == pytest.approx(128)
+        assert snapshot.diastolic_bp == pytest.approx(76)
+        assert snapshot.vo2max_ml_kg_min == pytest.approx(46.2)
+        assert snapshot.menstrual_phase == "follicular"
+        assert snapshot.menstrual_phase_predicted == "ovulatory"
 
         # Verify sport_info
         assert snapshot.sport_info is not None
         assert len(snapshot.sport_info) == 2
         assert snapshot.sport_info[0]["type"] == "Ride"
         assert snapshot.sport_info[1]["type"] == "Run"
+        assert snapshot.source_updated_at_utc == "2025-03-01T12:34:56.000+00:00"
+        assert snapshot.raw_intervals_icu_json is not None
+        assert snapshot.ext_json is not None
 
     def test_adapter_handles_missing_extended_fields(self, adapter):
         """Verify adapter handles missing extended fields gracefully (sets to None)."""

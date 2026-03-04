@@ -291,3 +291,33 @@ class TestPhysiometricsSnapshotToStorageDict:
         import json
         sport_data = json.loads(storage_dict["sport_info_json"])
         assert sport_data == []
+
+    def test_to_storage_dict_includes_raw_source_payload(self) -> None:
+        """Verify zero-loss source payload fields are serialized for storage."""
+        snapshot = PhysiometricsSnapshot(  # type: ignore[call-arg]
+            athlete_id="athlete123",
+            effective_date="2026-03-04",
+            hrv_sdnn_ms=37.8,
+            spo2_pct=98,
+            systolic_bp=124,
+            diastolic_bp=78,
+            vo2max_ml_kg_min=45.6,
+            menstrual_phase="follicular",
+            menstrual_phase_predicted="ovulatory",
+            source_updated_at_utc="2026-03-04T19:56:34.454+00:00",
+            raw_intervals_icu_json='{"id":"2026-03-04","weight":88.575}',
+            ext_json='{"vo2max_ml_kg_min":45.6,"menstrual_phase":"follicular"}',
+        )
+
+        storage_dict = snapshot.to_storage_dict()
+
+        assert storage_dict["hrv_sdnn_ms"] == pytest.approx(37.8)
+        assert storage_dict["spo2_pct"] == pytest.approx(98)
+        assert storage_dict["systolic_bp"] == pytest.approx(124)
+        assert storage_dict["diastolic_bp"] == pytest.approx(78)
+        assert storage_dict["vo2max_ml_kg_min"] == pytest.approx(45.6)
+        assert storage_dict["menstrual_phase"] == "follicular"
+        assert storage_dict["menstrual_phase_predicted"] == "ovulatory"
+        assert storage_dict["source_updated_at_utc"] == "2026-03-04T19:56:34.454+00:00"
+        assert storage_dict["raw_intervals_icu_json"] == '{"id":"2026-03-04","weight":88.575}'
+        assert storage_dict["ext_json"] == '{"vo2max_ml_kg_min":45.6,"menstrual_phase":"follicular"}'

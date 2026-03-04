@@ -277,6 +277,7 @@ Schema (current + planned):
   • heart_rate_resting_bpm: Optional[float]
   
   • hrv_ln_rmssd: Optional[float]  (log-normalized RMSSD from Intervals)
+  • hrv_sdnn_ms: Optional[float]  (HRV SDNN from Intervals)
   • sleep_duration_min: Optional[float]  (from Intervals)
   • readiness_score: Optional[float]  (0-100 composite from Garmin or Intervals)
   
@@ -299,10 +300,19 @@ Schema (current + planned):
   • activity_steps: Optional[int]  (daily step count)
   
   • body_abdomen_cm: Optional[float]  (waist circumference in centimeters)
+  • spo2_pct: Optional[float]  (blood oxygen saturation percentage)
+  • systolic_bp: Optional[float]  (systolic blood pressure)
+  • diastolic_bp: Optional[float]  (diastolic blood pressure)
+  • vo2max_ml_kg_min: Optional[float]  (VO2max)
+  • menstrual_phase: Optional[str]  (source-reported menstrual phase)
+  • menstrual_phase_predicted: Optional[str]  (source-predicted menstrual phase)
   
   • sport_info_json: Optional[str]  (JSON-serialized array of sport-specific metrics; e.g., [{"type": "Ride", "load": 120.5, "ctl": 85.2}])
+  • source_updated_at_utc: Optional[str]  (source-side updated timestamp, ISO 8601)
+  • ext_json: Optional[str]  (JSON serialization of canonical extended physiometrics fields)
+  • raw_intervals_icu_json: Optional[str]  (JSON serialization of full, unmodified Intervals source day payload)
   
-  • full_config_json: str  (JSON serialization of entire physiometrics_data dict; denormalized audit cache preserving all source data and schema evolution tolerance)
+  • full_config_json: Optional[str]  (legacy compatibility field for older rows; new writes use `ext_json` + scalar columns + `raw_intervals_icu_json`)
 ```
 
 **Idempotency**: Upsert per `(athlete_id, effective_date)` ensures that multiple snapshots for the same day from the same source merge deterministically. The `full_config_json` field preserves the complete input payload for auditability and schema evolution tolerance.

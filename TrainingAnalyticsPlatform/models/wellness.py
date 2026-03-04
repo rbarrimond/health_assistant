@@ -52,6 +52,9 @@ class PhysiometricsSnapshot(BaseModel):
     hrv_ln_rmssd: Optional[float] = Field(
         None, description="HRV (natural log of RMSSD) for modeling"
     )
+    hrv_sdnn_ms: Optional[float] = Field(
+        None, ge=0, description="HRV SDNN in milliseconds (Intervals)"
+    )
     resting_hr_bpm: Optional[float] = Field(
         None, ge=0, description="Resting heart rate in beats/minute"
     )
@@ -92,6 +95,14 @@ class PhysiometricsSnapshot(BaseModel):
     # Activity and body metrics
     steps: Optional[int] = Field(None, ge=0, description="Daily step count")
     abdomen_cm: Optional[float] = Field(None, ge=0, description="Abdominal circumference in cm")
+    spo2_pct: Optional[float] = Field(None, ge=0, le=100, description="Blood oxygen saturation percentage")
+    systolic_bp: Optional[float] = Field(None, ge=0, description="Systolic blood pressure")
+    diastolic_bp: Optional[float] = Field(None, ge=0, description="Diastolic blood pressure")
+    vo2max_ml_kg_min: Optional[float] = Field(None, ge=0, description="VO2max in ml/kg/min")
+    menstrual_phase: Optional[str] = Field(None, description="Menstrual cycle phase (Intervals)")
+    menstrual_phase_predicted: Optional[str] = Field(
+        None, description="Predicted menstrual phase (Intervals)"
+    )
 
     # Nested sport-specific training metrics from Intervals.icu
     sport_info: Optional[List[Dict[str, Any]]] = Field(
@@ -104,10 +115,19 @@ class PhysiometricsSnapshot(BaseModel):
         default="", description="CSV of sources: withings,garmin,intervals"
     )
     canonical_version: str = Field(
-        default="2.1.0", description="Schema version of this snapshot"
+        default="2.3.0", description="Schema version of this snapshot"
     )
     measured_at_utc: Optional[datetime] = Field(
         None, description="Most specific timestamp available from measurements"
+    )
+    source_updated_at_utc: Optional[str] = Field(
+        None, description="Source-reported update timestamp (ISO 8601)"
+    )
+    raw_intervals_icu_json: Optional[str] = Field(
+        None, description="Full unmodified Intervals.icu day payload JSON"
+    )
+    ext_json: Optional[str] = Field(
+        None, description="Canonical extended fields JSON blob for non-queryable metrics"
     )
     last_updated_utc: datetime = Field(
         default_factory=datetime.utcnow,
@@ -126,6 +146,32 @@ class PhysiometricsSnapshot(BaseModel):
         Returns:
             Dict matching physiometrics_storage.py entity schema
         """
+        sport_info_json = (
+            json.dumps(self.sport_info) if self.sport_info is not None else None
+        )
+        ext_payload = {
+            "hrv_sdnn_ms": self.hrv_sdnn_ms,
+            "soreness": self.soreness,
+            "fatigue": self.fatigue,
+            "stress": self.stress,
+            "mood": self.mood,
+            "motivation": self.motivation,
+            "injury": self.injury,
+            "calories_kcal": self.calories_kcal,
+            "carbs_g": self.carbs_g,
+            "protein_g": self.protein_g,
+            "fat_g": self.fat_g,
+            "abdomen_cm": self.abdomen_cm,
+            "spo2_pct": self.spo2_pct,
+            "systolic_bp": self.systolic_bp,
+            "diastolic_bp": self.diastolic_bp,
+            "vo2max_ml_kg_min": self.vo2max_ml_kg_min,
+            "menstrual_phase": self.menstrual_phase,
+            "menstrual_phase_predicted": self.menstrual_phase_predicted,
+            "sport_info_json": sport_info_json,
+            "source_updated_at_utc": self.source_updated_at_utc,
+        }
+
         return {
             # Body composition (Withings)
             "weight_kg": self.weight_kg,
@@ -146,6 +192,7 @@ class PhysiometricsSnapshot(BaseModel):
             
             # Wellness metrics (Intervals)
             "hrv_ln_rmssd": self.hrv_ln_rmssd,
+            "hrv_sdnn_ms": self.hrv_sdnn_ms,
             "sleep_duration_min": self.sleep_duration_min,
             "readiness_score": self.readiness_score,
             
@@ -174,9 +221,20 @@ class PhysiometricsSnapshot(BaseModel):
             # Activity & body
             "steps": self.steps,
             "abdomen_cm": self.abdomen_cm,
+            "spo2_pct": self.spo2_pct,
+            "systolic_bp": self.systolic_bp,
+            "diastolic_bp": self.diastolic_bp,
+            "vo2max_ml_kg_min": self.vo2max_ml_kg_min,
+            "menstrual_phase": self.menstrual_phase,
+            "menstrual_phase_predicted": self.menstrual_phase_predicted,
             
             # Nested sport data (serialize to JSON string)
-            "sport_info_json": json.dumps(self.sport_info) if self.sport_info is not None else None,
+            "sport_info_json": sport_info_json,
+
+            # Raw source preservation (zero-loss ingestion)
+            "source_updated_at_utc": self.source_updated_at_utc,
+            "raw_intervals_icu_json": self.raw_intervals_icu_json,
+            "ext_json": self.ext_json if self.ext_json is not None else json.dumps(ext_payload),
         }
 
     class Config:
