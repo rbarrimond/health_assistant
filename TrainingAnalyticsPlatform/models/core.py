@@ -1392,8 +1392,7 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
         }
         # Aerobic decoupling: positive = efficiency decline (fatigue), negative = efficiency improvement
         # Formula: ((EF_first / EF_second) - 1) × 100
-        # Guards: ef_first > 0, ef_second > 0 to avoid division issues and ensure valid ratio
-        if ef_first > 0 and ef_second > 0:
+        if ef_first > 0:
             metrics["decoupling_pct"] = round(((ef_first / ef_second) - 1) * 100, 2)
         return metrics
 

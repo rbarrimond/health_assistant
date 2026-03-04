@@ -10,11 +10,10 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-03
 
-### Aerobic Decoupling Edge-Case Robustness & Semantics Clarity [canonical_schema v2.0.1]
+### Aerobic Decoupling Semantics Clarification [canonical_schema v2.0.1]
 
-- **Fix**: Add deterministic edge-case guard for aerobic decoupling calculation at read time
-- **Guard**: `ef_second > 0` check in `CanonicalAnalyticsEngine._efficiency_summary()` prevents theoretical division-by-zero; `decoupling_pct` omitted (null) if either efficiency factor ≤ 0
-- **Semantics contract update** (affects persisted field interpretation): Clarify explicit sign convention across all contracts
+- **Enhancement**: Clarify explicit sign convention for aerobic decoupling across all contracts
+- **Semantics contract** (affects persisted field interpretation):
   - **Positive**: efficiency decline over time (aerobic fatigue/stress)
   - **Negative**: efficiency improvement over time (warming up or aerobic economy gains)
   - Formula: `decoupling_pct = ((EF_first / EF_second) - 1) * 100`
