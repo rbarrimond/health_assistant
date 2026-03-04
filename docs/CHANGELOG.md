@@ -8,6 +8,22 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-04
+
+### Intervals Wellness API Contract Alignment [ingest v14.3.7, integrations v1.1.0]
+
+- **Fix**: Align Intervals client to documented wellness API contract
+- **Auth update**: Use HTTP Basic API key auth (`API_KEY` username + API key password) instead of bearer API-key header
+- **Endpoint update**: Migrate to `/api/v1/athlete/{id}/wellness` with `oldest`/`newest` query params
+- **Schema mapping update**:
+  - `id` (or legacy `date`) → `effective_date`
+  - `restingHR` (or legacy `rhr`) → `resting_hr_bpm`
+  - `sleepSecs` (or legacy `sleep`) → `sleep_duration_min` (seconds converted to minutes)
+  - `hrv` and `readiness` preserved
+- **Compatibility**: Keep client aliases for existing HRV/readiness helper methods via wellness endpoint
+- **Tests/docs**: Update Intervals client and sync handler tests plus wellness/architecture docs for updated contract
+- No persisted schema changes; ingestion parsing semantics updated
+
 ## 2026-03-03
 
 ### Intervals.icu Physiometrics Integration [integrations v1.0.0]

@@ -247,19 +247,24 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
     """Converts Intervals.icu API responses."""
 
     def _do_parse(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract fields directly."""
+        """Extract wellness fields with compatibility aliases."""
+        sleep_minutes = raw_data.get("sleep")
+        sleep_secs = raw_data.get("sleepSecs")
+        if sleep_minutes is None and isinstance(sleep_secs, (int, float)):
+            sleep_minutes = sleep_secs / 60.0
+
         return {
-            "date": raw_data.get("date"),
+            "date": raw_data.get("id") or raw_data.get("date"),
             "hrv": raw_data.get("hrv"),  # Already ln(RMSSD)
-            "rhr": raw_data.get("rhr"),
-            "sleep": raw_data.get("sleep"),
+            "rhr": raw_data.get("restingHR") if raw_data.get("restingHR") is not None else raw_data.get("rhr"),
+            "sleep": sleep_minutes,
             "readiness": raw_data.get("readiness"),
         }
 
     def validate_semantic_contract(self, parsed: Dict[str, Any]) -> None:
         """Validate: at least one field present."""
         fields = ["hrv", "rhr", "sleep", "readiness"]
-        if not any(parsed.get(f) for f in fields):
+        if not any(parsed.get(f) is not None for f in fields):
             raise AdapterError("No metrics in Intervals response")
 
     def map_to_canonical(

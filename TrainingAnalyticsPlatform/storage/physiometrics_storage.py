@@ -35,7 +35,7 @@ class PhysiometricsStorage:
 
         entity = {
             "PartitionKey": athlete_id,
-            "RowKey": timestamp,
+            "RowKey": effective_date,
             "updated_at_utc": timestamp,
             "effective_date": effective_date,
             "data_source": data_source,
@@ -66,12 +66,11 @@ class PhysiometricsStorage:
                 "Stored physiometrics",
                 extra={
                     "athlete_id": athlete_id,
-                    "timestamp": timestamp,
-                    "effective_date": physiometrics_data.get("effective_date"),
-                    "data_source": physiometrics_data.get("data_source"),
+                    "effective_date": effective_date,
+                    "data_source": data_source,
                 },
             )
-            return timestamp
+            return effective_date
         except HttpResponseError as e:
             logger.error(
                 "Error storing physiometrics",
@@ -90,12 +89,13 @@ class PhysiometricsStorage:
         try:
             table_client = self.infra.get_table_client("Physiometrics")
             query = f"PartitionKey eq '{athlete_id}'"
-            entities = list(table_client.query_entities(query, top=1))
+            entities = list(table_client.query_entities(query))
 
             if not entities:
                 return None
 
-            latest = entities[0]
+            # RowKey is effective_date (YYYY-MM-DD); sort to get latest
+            latest = sorted(entities, key=lambda e: e.get("RowKey", ""))[-1]
             if latest.get("full_config_json"):
                 return json.loads(latest["full_config_json"])
 

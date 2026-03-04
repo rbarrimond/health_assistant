@@ -255,7 +255,14 @@ Two canonical aggregates (separate tables and blob storage):
 PartitionKey: athlete_id
 RowKey: YYYY-MM-DD (effective_date, local athlete timezone)
 
-Schema:
+Schema (current + planned):
+  • effective_date: str  (YYYY-MM-DD, RowKey component for idempotent upsert)
+  • updated_at_utc: datetime  (timestamp of last upsert; audit trail)
+  • measured_at_utc: Optional[datetime]  (timestamp of measurement collection)
+  • data_source: str  (primary source for this snapshot; e.g., "intervals", "withings", "garmin")
+  • data_sources: Optional[str]  (CSV of all contributing sources for consolidated days)
+  • canonical_version: str  (e.g., "2.0.0"; tracks schema evolution)
+  
   • weight_kg: Optional[float]
   • fat_mass_kg: Optional[float]
   • muscle_mass_kg: Optional[float]
@@ -264,24 +271,23 @@ Schema:
   • visceral_fat_index: Optional[float]
   • metabolic_age_years: Optional[int]
   
-  • hrv_ln_rmssd: Optional[float]  (from Intervals)
-  • resting_hr_bpm: Optional[float]
-  • sleep_duration_min: Optional[float]
+  • heart_rate_basis: str  (e.g., "LTHR", "HRmax")
+  • heart_rate_lthr_bpm: Optional[float]
+  • heart_rate_hr_max_bpm: Optional[float]
+  • heart_rate_resting_bpm: Optional[float]
   
-  • ftp_watts: Optional[float]  (from Garmin)
+  • hrv_ln_rmssd: Optional[float]  (log-normalized RMSSD from Intervals; planned)
+  • sleep_duration_min: Optional[float]  (from Intervals; planned)
+  • readiness_score: Optional[float]  (0-100 composite; from Garmin or Intervals; planned)
+  
+  • power_ftp_watts: Optional[float]
   • cycling_vo2max_ml_kg_min: Optional[float]
-  • hr_lthr_bpm: Optional[float]
-  • hr_max_bpm: Optional[float]
-  • load: Optional[float]
-  • readiness_score: Optional[float]  (0-100)
+  • load: Optional[float]  (training load from Garmin; planned)
   
-  • data_sources: CSV (e.g., "withings,garmin")
-  • canonical_version: str  (e.g., "2.0.0")
-  • measured_at_utc: Optional[datetime]
-  • last_updated_utc: datetime
+  • full_config_json: str  (JSON serialization of entire physiometrics_data dict; denormalized audit cache preserving all source data and schema evolution tolerance)
 ```
 
-**Idempotency**: Upsert per `(athlete_id, effective_date)`. Multiple source snapshots for same day merge via nightly consolidation job.
+**Idempotency**: Upsert per `(athlete_id, effective_date)` ensures that multiple snapshots for the same day from the same source merge deterministically. The `full_config_json` field preserves the complete input payload for auditability and schema evolution tolerance.
 
 #### 2. TrainingStateSnapshot
 
@@ -357,7 +363,7 @@ Content: Raw Garmin Connect API training state response (JSON)
 5. Upsert to `Physiometrics` table.
 6. Update `SourceIngestionState` to `status: processed`.
 
-#### Intervals.icu Wellness (Planned)
+#### Intervals.icu Wellness
 
 **Trigger**: Daily timer or manual sync endpoint
 
@@ -366,14 +372,14 @@ Content: Raw Garmin Connect API training state response (JSON)
 ```text
 Container: external-sources
 Path: physiometrics/{athlete_id}/intervals/daily/{YYYY-MM-DD}.json
-Content: Raw Intervals API wellness response (HRV, RHR, sleep; JSON)
+Content: Raw Intervals API wellness response (HRV, restingHR, sleepSecs, readiness; JSON)
 ```
 
 **Processor**: `IntervalsPhysiometricsProcessor`
 
 1. Query `SourceIngestionState` for blobs with `status: fetched` and `source: intervals`.
 2. Download blob → deserialize JSON.
-3. Validate semantic contract (HRV ln(RMSSD), RHR, sleep duration).
+3. Validate semantic contract (HRV ln(RMSSD), resting HR, sleep duration).
 4. Map to `PhysiometricsSnapshot` (Intervals-sourced fields).
 5. Upsert to `Physiometrics` table.
 6. Update `SourceIngestionState` to `status: processed`.
@@ -538,9 +544,9 @@ WELLNESS INGESTION (Blob-First Reproducible):
        • Upsert Physiometrics table
        • Mark SourceIngestionState: "processed"
   
-  [3] Intervals.icu (Planned)
+  [3] Intervals.icu
     → Timer or on-demand sync
-    → Fetch HRV/RHR/sleep + Store blob
+    → Fetch wellness records + Store blob
        external-sources/physiometrics/{athlete_id}/intervals/daily/{YYYY-MM-DD}.json
     → Record SourceIngestionState: "fetched"
     → IntervalsPhysiometricsProcessor runs:

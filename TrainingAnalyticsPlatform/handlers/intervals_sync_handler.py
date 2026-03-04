@@ -79,22 +79,20 @@ class IntervalsSyncHandler:
         )
 
         try:
-            # Fetch data from Intervals.icu
-            measurements = self.client.get_athlete_measurements(
+            wellness_records = self.client.get_athlete_wellness(
                 athlete_id=athlete_id,
-                start_date=start_date.isoformat(),
-                end_date=end_date.isoformat(),
+                oldest=start_date.isoformat(),
+                newest=end_date.isoformat(),
             )
 
-            if not measurements:
+            if not wellness_records:
                 logger.info("No measurements found for athlete %s", athlete_id)
                 return {"message": "No measurements found", "count": 0}, 200
 
-            # Process measurements via helper method
-            stored_count, errors = self._process_measurements(athlete_id, measurements)
+            stored_count, errors = self._process_wellness_records(athlete_id, wellness_records)
 
             return {
-                "message": f"Synced {stored_count} measurements",
+                "message": f"Synced {stored_count} wellness records",
                 "count": stored_count,
                 "errors": errors if errors else None,
             }, 200
@@ -107,14 +105,14 @@ class IntervalsSyncHandler:
             logger.error("Unexpected error in Intervals sync: %s", exc, exc_info=True)
             return {"error": "Internal server error"}, 500
 
-    def _process_measurements(
-        self, athlete_id: str, measurements: Dict[str, Any] | list
+    def _process_wellness_records(
+        self, athlete_id: str, wellness_records: Dict[str, Any] | list
     ) -> Tuple[int, list]:
-        """Process and store a batch of measurements.
+        """Process and store a batch of wellness records.
 
         Args:
             athlete_id: Athlete identifier
-            measurements: Single measurement dict or list of measurement dicts
+            wellness_records: Single wellness dict or list of wellness dicts
 
         Returns:
             Tuple of (count stored, list of error messages)
@@ -123,7 +121,7 @@ class IntervalsSyncHandler:
         errors: list = []
 
         # Handle both single dict and list responses from API
-        measurement_list = measurements if isinstance(measurements, list) else [measurements]
+        measurement_list = wellness_records if isinstance(wellness_records, list) else [wellness_records]
 
         for measurement in measurement_list:
             try:
@@ -196,8 +194,11 @@ class IntervalsSyncHandler:
         )
 
         logger.info(
-            "Stored physiometrics for athlete %s on %s",
-            athlete_id,
-            snapshot.effective_date,
+            "Stored physiometrics",
+            extra={
+                "athlete_id": athlete_id,
+                "effective_date": snapshot.effective_date,
+                "data_source": "intervals",
+            },
         )
 

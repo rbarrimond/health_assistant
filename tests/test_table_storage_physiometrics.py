@@ -25,7 +25,7 @@ class TestStorePhysiometrics:
     """Tests for store_physiometrics method."""
 
     def test_store_physiometrics_success(self) -> None:
-        """Verify physiometrics are stored with timestamp."""
+        """Verify physiometrics are stored with effective_date as RowKey for idempotency."""
         mock_table_client = MagicMock()
         storage = _make_storage(mock_table_client)
 
@@ -39,14 +39,15 @@ class TestStorePhysiometrics:
             "power": {"ftp_watts": 285}
         }
 
-        timestamp = storage.store_physiometrics("rob", physiometrics_data)
+        effective_date = storage.store_physiometrics("rob", physiometrics_data)
 
-        assert isinstance(timestamp, str)
-        assert "T" in timestamp  # ISO format
+        assert isinstance(effective_date, str)
+        assert "-" in effective_date  # YYYY-MM-DD format
         mock_table_client.upsert_entity.assert_called_once()
 
         entity = mock_table_client.upsert_entity.call_args[0][0]
         assert entity["PartitionKey"] == "rob"
+        assert entity["RowKey"] == effective_date  # RowKey is effective_date for idempotency
         assert entity["heart_rate_basis"] == "HRmax"
         assert entity["power_ftp_watts"] == 285
 

@@ -536,6 +536,100 @@ paths:
           description: Authentication failed - check GARMIN_EMAIL and GARMIN_PASSWORD
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/intervals/sync:
+    post:
+      summary: Sync Intervals.icu wellness data (HRV, resting HR, sleep, readiness)
+      operationId: intervalsSync
+      description: |
+        Fetch wellness records from Intervals.icu API using HTTP Basic authentication.
+        Wellness endpoint consolidates HRV, resting heart rate, sleep duration, and readiness score.
+        Requires INTERVALS_API_KEY (stored in Key Vault) and INTERVALS_ATHLETE_ID.
+      security:
+        - FunctionKey: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                athlete_id:
+                  type: string
+                  description: Athlete identifier (optional, defaults to DEFAULT_ATHLETE_ID or INTERVALS_ATHLETE_ID env var)
+                lookback_days:
+                  type: integer
+                  description: Number of days to look back for wellness records (default 30)
+            examples:
+              basicSync:
+                summary: Default sync (30 days)
+                value:
+                  athlete_id: rob
+              customLookback:
+                summary: Custom lookback period
+                value:
+                  athlete_id: rob
+                  lookback_days: 60
+      responses:
+        '200':
+          description: Sync completed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  athlete_id:
+                    type: string
+                  lookback_days:
+                    type: integer
+                  records_fetched:
+                    type: integer
+                    description: Total wellness records retrieved from Intervals.icu
+                  records_processed:
+                    type: integer
+                    description: Successfully ingested wellness records
+                  records_skipped:
+                    type: integer
+                    description: Duplicate or invalid records
+                  date_range:
+                    type: object
+                    properties:
+                      oldest:
+                        type: string
+                        format: date
+                        description: Earliest record date
+                      newest:
+                        type: string
+                        format: date
+                        description: Latest record date
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Authentication failed - check INTERVALS_API_KEY and INTERVALS_ATHLETE_ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Athlete not found in Intervals.icu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Intervals.icu API rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
 components:
   parameters:
     AthleteId:

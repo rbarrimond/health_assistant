@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Health Assistant - FIT File Processing",
-    "description": "Complete test collection with 34 requests covering all 33 endpoints. Includes 8 real FIT file payloads, config/asset endpoints, agent memory system, planning/analysis, physiometrics CRUD, OneDrive/Garmin/Intervals.icu sync, and OAuth flows. [Updated 2026-03-04: Ingestion handlers refactored for maintainability with structured logging improvements; all endpoints verified and tests passing (57/57). Added lap detail endpoint and Intervals.icu integration.].",
+    "description": "Complete test collection with 34 requests covering all 33 endpoints. Includes 8 real FIT file payloads, config/asset endpoints, agent memory system, planning/analysis, physiometrics CRUD, OneDrive/Garmin/Intervals.icu sync, and OAuth flows. [Updated 2026-03-04: Intervals.icu integration migrated to wellness API with HTTP Basic auth, unified endpoint, consolidated HRV/resting-HR/sleep/readiness fields; ingestion handlers refactored for maintainability with structured logging improvements; all endpoints verified and tests passing (57/57). Added lap detail endpoint.].",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -590,7 +590,7 @@
               "raw": "{\n  \"lookback_days\": 30,\n  \"athlete_id\": \"{{intervals_icu_id}}\"\n}"
             },
             "url": "{{base_url}}/api/intervals/sync?code={{function_key}}",
-            "description": "Sync Intervals.icu physiometric data (function key required). Downloads recent power, HR, and metric data from Intervals.icu API. Requires INTERVALS_API_KEY environment variable."
+            "description": "Sync Intervals.icu wellness data (function key required). Fetches wellness records including HRV, resting heart rate, sleep duration, and readiness score from Intervals.icu wellness API using HTTP Basic authentication. Requires INTERVALS_API_KEY and INTERVALS_ATHLETE_ID environment variables. Lookback defaults to 30 days."
           },
           "response": []
         }

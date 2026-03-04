@@ -67,7 +67,7 @@ class TestIntervalsSyncHandlerHandle:
 
     def test_handle_no_measurements(self, handler, mock_client):
         """Test handle when API returns no measurements."""
-        mock_client.get_athlete_measurements.return_value = []
+        mock_client.get_athlete_wellness.return_value = []
 
         response, status = handler.handle(athlete_id="test_athlete")
 
@@ -78,13 +78,13 @@ class TestIntervalsSyncHandlerHandle:
     def test_handle_success_single_measurement(self, handler, mock_storage, mock_client):
         """Test successful handling of a single measurement."""
         measurement = {
-            "date": "2025-03-01",
+            "id": "2025-03-01",
             "hrv": 42.5,
-            "rhr": 52,
-            "sleep": 480,
+            "restingHR": 52,
+            "sleepSecs": 28800,
             "readiness": 78,
         }
-        mock_client.get_athlete_measurements.return_value = [measurement]
+        mock_client.get_athlete_wellness.return_value = [measurement]
 
         response, status = handler.handle(athlete_id="test_athlete")
 
@@ -97,21 +97,21 @@ class TestIntervalsSyncHandlerHandle:
         """Test successful handling of multiple measurements."""
         measurements = [
             {
-                "date": "2025-02-28",
+                "id": "2025-02-28",
                 "hrv": 40.0,
-                "rhr": 53,
-                "sleep": 450,
+                "restingHR": 53,
+                "sleepSecs": 27000,
                 "readiness": 75,
             },
             {
-                "date": "2025-03-01",
+                "id": "2025-03-01",
                 "hrv": 42.5,
-                "rhr": 52,
-                "sleep": 480,
+                "restingHR": 52,
+                "sleepSecs": 28800,
                 "readiness": 78,
             },
         ]
-        mock_client.get_athlete_measurements.return_value = measurements
+        mock_client.get_athlete_wellness.return_value = measurements
 
         response, status = handler.handle(athlete_id="test_athlete")
 
@@ -121,20 +121,20 @@ class TestIntervalsSyncHandlerHandle:
 
     def test_handle_with_lookback_days(self, handler, mock_client):
         """Test handle with custom lookback days."""
-        mock_client.get_athlete_measurements.return_value = []
+        mock_client.get_athlete_wellness.return_value = []
 
         handler.handle(athlete_id="test_athlete", lookback_days=60)
 
         # Verify client was called with dates matching lookback
-        assert mock_client.get_athlete_measurements.called
-        call_kwargs = mock_client.get_athlete_measurements.call_args[1]
+        assert mock_client.get_athlete_wellness.called
+        call_kwargs = mock_client.get_athlete_wellness.call_args[1]
         assert call_kwargs["athlete_id"] == "test_athlete"
-        assert "start_date" in call_kwargs
-        assert "end_date" in call_kwargs
+        assert "oldest" in call_kwargs
+        assert "newest" in call_kwargs
 
     def test_handle_api_error(self, handler, mock_client):
         """Test handle when API call fails."""
-        mock_client.get_athlete_measurements.side_effect = ExternalServiceError(
+        mock_client.get_athlete_wellness.side_effect = ExternalServiceError(
             "API connection failed"
         )
 
@@ -147,13 +147,13 @@ class TestIntervalsSyncHandlerHandle:
     def test_handle_storage_error(self, handler, mock_storage, mock_client):
         """Test handle when storage call fails."""
         measurement = {
-            "date": "2025-03-01",
+            "id": "2025-03-01",
             "hrv": 42.5,
-            "rhr": 52,
-            "sleep": 480,
+            "restingHR": 52,
+            "sleepSecs": 28800,
             "readiness": 78,
         }
-        mock_client.get_athlete_measurements.return_value = [measurement]
+        mock_client.get_athlete_wellness.return_value = [measurement]
         mock_storage.physiometrics.store_physiometrics.side_effect = StorageError(
             "Storage failed"
         )
@@ -168,18 +168,18 @@ class TestIntervalsSyncHandlerHandle:
         """Test handle with partial success (some measurements fail)."""
         measurements = [
             {
-                "date": "2025-02-28",
+                "id": "2025-02-28",
                 "hrv": 40.0,
-                "rhr": 53,
-                "sleep": 450,
+                "restingHR": 53,
+                "sleepSecs": 27000,
                 "readiness": 75,
             },
             {
-                "date": "2025-03-01",
+                "id": "2025-03-01",
                 # Invalid - missing sleep field
             },
         ]
-        mock_client.get_athlete_measurements.return_value = measurements
+        mock_client.get_athlete_wellness.return_value = measurements
 
         response, status = handler.handle(athlete_id="test_athlete")
 
@@ -191,7 +191,7 @@ class TestIntervalsSyncHandlerHandle:
 
     def test_handle_unexpected_error(self, handler, mock_client):
         """Test handle when unexpected error occurs."""
-        mock_client.get_athlete_measurements.side_effect = RuntimeError("Unexpected error")
+        mock_client.get_athlete_wellness.side_effect = RuntimeError("Unexpected error")
 
         response, status = handler.handle(athlete_id="test_athlete")
 
@@ -204,13 +204,13 @@ class TestIntervalsSyncHandlerHandle:
     ):
         """Test that snapshot is properly converted to storage dict."""
         measurement = {
-            "date": "2025-03-01",
+            "id": "2025-03-01",
             "hrv": 42.5,
-            "rhr": 52,
-            "sleep": 480,
+            "restingHR": 52,
+            "sleepSecs": 28800,
             "readiness": 78,
         }
-        mock_client.get_athlete_measurements.return_value = [measurement]
+        mock_client.get_athlete_wellness.return_value = [measurement]
 
         _, status = handler.handle(athlete_id="test_athlete")
 
