@@ -5,18 +5,30 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 
+if TYPE_CHECKING:
+    from garminconnect import Garmin
+
+# Define fallback exception classes first
+class GarminConnectAuthenticationError(Exception):
+    """Exception raised for Garmin Connect authentication failures."""
+
+class GarminConnectConnectionError(Exception):
+    """Exception raised for Garmin Connect connection failures."""
+
+# Try to use the real implementations from garminconnect
 try:
-    from garminconnect import Garmin, GarminConnectAuthenticationError, GarminConnectConnectionError
+    from garminconnect import (
+        Garmin as GarminImpl,
+        GarminConnectAuthenticationError as _GarminAuthError,
+        GarminConnectConnectionError as _GarminConnError,
+    )
+    # Update our namespace to use the real implementations if available
+    GarminConnectAuthenticationError = _GarminAuthError  # type: ignore[assignment]
+    GarminConnectConnectionError = _GarminConnError  # type: ignore[assignment]
 except ImportError:  # pragma: no cover - optional dependency in test/runtime variants
-    Garmin = None  # type: ignore[assignment]
-
-    class GarminConnectAuthenticationError(Exception):
-        """Fallback authentication exception when garminconnect is unavailable."""
-
-    class GarminConnectConnectionError(Exception):
-        """Fallback connection exception when garminconnect is unavailable."""
+    GarminImpl = None  # type: ignore[assignment]
 
 from TrainingAnalyticsPlatform.ingestion.fit_file_preprocessor import FitFilePreprocessor
 from TrainingAnalyticsPlatform.platform.exceptions import PreprocessingError
@@ -40,7 +52,7 @@ class GarminConnectClient:
         """
         self.email = email or os.getenv("GARMIN_EMAIL")
         self.password = password or os.getenv("GARMIN_PASSWORD")
-        self.client: Optional[Garmin] = None
+        self.client: Optional[Garmin] = None  # type: ignore[name-defined]
 
     def login(self) -> None:
         """Authenticate with Garmin Connect using credentials.
@@ -52,13 +64,13 @@ class GarminConnectClient:
             raise GarminConnectError(
                 "Missing credentials. Set GARMIN_EMAIL and GARMIN_PASSWORD environment variables."
             )
-        if Garmin is None:
+        if GarminImpl is None:
             raise GarminConnectError(
                 "garminconnect dependency is not installed in this environment."
             )
 
         try:
-            self.client = Garmin(self.email, self.password)
+            self.client = GarminImpl(self.email, self.password)
             self.client.login()
             logger.info("Successfully authenticated with Garmin Connect")
         except GarminConnectAuthenticationError as exc:
@@ -156,9 +168,13 @@ class GarminConnectClient:
 
         try:
             # Use ORIGINAL format to get the FIT file
+            if GarminImpl is None:
+                raise GarminConnectError(
+                    "garminconnect dependency is not installed in this environment."
+                )
             fit_data = self.client.download_activity(
                 activity_id,
-                dl_fmt=Garmin.ActivityDownloadFormat.ORIGINAL,
+                dl_fmt=GarminImpl.ActivityDownloadFormat.ORIGINAL,
             )
         except GarminConnectError:
             raise  # Re-raise authentication or connection errors as-is
