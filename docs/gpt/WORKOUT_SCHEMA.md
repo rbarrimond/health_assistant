@@ -239,7 +239,7 @@ Extends the summary with derived metrics and optional lap summaries.
 
 |Field|Type|Required|Description|
 |---|---:|:---:|---|
-|decoupling_pct|float|⛔️|% change in efficiency between first/second halves|
+|decoupling_pct|float|⛔️|Aerobic decoupling % (positive = efficiency decline/fatigue, negative = efficiency improvement)|
 |hr_drift_bpm|float|⛔️|Avg HR second half minus first half|
 |ef_first_half|float|⛔️|Efficiency factor first half (AvgP / AvgHR)|
 |ef_second_half|float|⛔️|Efficiency factor second half|

@@ -562,3 +562,106 @@ class TestHelperMethods:
         workout = semantic_layer._entity_to_workout_dict(entity)
 
         assert "records" not in workout
+
+
+class TestDecouplingSignSemantics:
+    """Tests to verify aerobic decoupling sign semantics: positive = fatigue, negative = improvement."""
+
+    def test_detect_notable_flags_negative_decoupling_no_alert(self, semantic_layer):
+        """Negative decoupling (efficiency improvement) should not trigger high decoupling flag."""
+        workouts = [
+            {
+                "workout_id": "w1",
+                "duration_sec": 3600,
+                "decoupling_pct": -3.2,  # Efficiency improved
+            }
+        ]
+
+        flags = semantic_layer._detect_notable_flags(workouts)
+
+        # Should NOT have high decoupling flag for negative (improvement) values
+        assert not any("high decoupling" in flag for flag in flags)
+
+    def test_detect_notable_flags_zero_decoupling_no_alert(self, semantic_layer):
+        """Zero or near-zero decoupling should not trigger alert."""
+        workouts = [
+            {
+                "workout_id": "w1",
+                "duration_sec": 3600,
+                "decoupling_pct": 0.5,  # Very small positive, below threshold
+            }
+        ]
+
+        flags = semantic_layer._detect_notable_flags(workouts)
+
+        # Should NOT have high decoupling flag; threshold is > 5%
+        assert not any("high decoupling" in flag for flag in flags)
+
+    def test_efficiency_trends_preserves_negative_decoupling(self, semantic_layer, mock_storage):
+        """Efficiency trends endpoint should preserve and report negative decoupling values."""
+        # Mixed workouts: some positive (fatigue), some negative (improvement)
+        workouts = [
+            {
+                "workout_id": "w1",
+                "sport": "Cycling",
+                "start_time_utc": datetime(2026, 1, 15, tzinfo=timezone.utc).isoformat(),
+                "duration_sec": 3600,
+                "decoupling_pct": 6.5,  # Fatigue scenario
+                "hr_drift_bpm": 5.2,
+                "ef_overall": 1.45,
+            },
+            {
+                "workout_id": "w2",
+                "sport": "Cycling",
+                "start_time_utc": datetime(2026, 1, 16, tzinfo=timezone.utc).isoformat(),
+                "duration_sec": 3600,
+                "decoupling_pct": -2.1,  # Improvement scenario
+                "hr_drift_bpm": -1.8,
+                "ef_overall": 1.52,
+            },
+        ]
+
+        with patch.object(
+            semantic_layer, '_get_workouts_in_range', return_value=workouts
+        ):
+            trends = semantic_layer.get_efficiency_trends("rob", days=7)
+
+        # Check that we got both samples
+        assert len(trends["samples"]) == 2
+        
+        # Verify samples preserve sign
+        assert trends["samples"][0]["decoupling_pct"] == pytest.approx(6.5)
+        assert trends["samples"][1]["decoupling_pct"] == pytest.approx(-2.1)
+        
+        # Verify avg_decoupling also preserves sign semantics (average of 6.5 and -2.1)
+        expected_avg = (6.5 + (-2.1)) / 2
+        assert trends["summary"]["avg_decoupling"] == pytest.approx(expected_avg, abs=0.1)
+
+    def test_high_decoupling_threshold_respects_sign(self, semantic_layer):
+        """High decoupling flag should only trigger for positive values > 5%."""
+        test_cases = [
+            (7.0, True),      # Positive, above threshold
+            (5.1, True),      # Positive, barely above threshold
+            (5.0, False),     # At threshold (boundary)
+            (2.0, False),     # Positive but below threshold
+            (0.0, False),     # Zero
+            (-5.0, False),    # Negative (efficiency improvement)
+            (-10.0, False),   # Large negative improvement
+        ]
+
+        for decoupling_val, should_flag in test_cases:
+            workouts = [
+                {
+                    "workout_id": f"w_{decoupling_val}",
+                    "duration_sec": 3600,
+                    "decoupling_pct": decoupling_val,
+                }
+            ]
+
+            flags = semantic_layer._detect_notable_flags(workouts)
+            has_flag = any("high decoupling" in flag for flag in flags)
+
+            assert has_flag == should_flag, (
+                f"Decoupling {decoupling_val}: expected flag={should_flag}, "
+                f"got flag={has_flag}. Flags: {flags}"
+            )

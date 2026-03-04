@@ -10,6 +10,26 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-03
 
+### Aerobic Decoupling Edge-Case Robustness & Semantics Clarity [canonical_schema v2.0.1]
+
+- **Fix**: Add deterministic edge-case guard for aerobic decoupling calculation at read time
+- **Guard**: `ef_second > 0` check in `CanonicalAnalyticsEngine._efficiency_summary()` prevents theoretical division-by-zero; `decoupling_pct` omitted (null) if either efficiency factor ≤ 0
+- **Semantics contract update** (affects persisted field interpretation): Clarify explicit sign convention across all contracts
+  - **Positive**: efficiency decline over time (aerobic fatigue/stress)
+  - **Negative**: efficiency improvement over time (warming up or aerobic economy gains)
+  - Formula: `decoupling_pct = ((EF_first / EF_second) - 1) * 100`
+- **Contract updates**:
+  - `CANONICAL_ANALYTICS_DETERMINISTIC_FORMULA_CONTRACT.md`: Add semantics section with examples
+  - `WORKOUT_SCHEMA.md`: Clarify description as "positive = efficiency decline/fatigue, negative = improvement"
+  - `README.md`: Add explicit sign meaning to aerobic efficiency section
+  - `openapi.yaml`: Refine decoupling_pct description
+- **Test coverage**: Comprehensive sign-semantics tests in `test_semantic_layer.py`:
+  - Positive decoupling triggers "high decoupling" flag only when > 5%
+  - Negative decoupling (improvement) does not trigger alert
+  - Mixed workouts preserve sign in aggregations and API responses
+  - Boundary cases validated
+- Canonical schema version bumps (patch) to reflect persisted field semantics clarification
+
 ### HealthFit Robust Filename Parsing with Spelling Tolerance [ingest v14.3.6]
 
 - **Enhancement**: Tolerate both Apple Watch canonical and FIT-aligned activity type spellings in HealthFit filenames

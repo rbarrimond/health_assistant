@@ -341,6 +341,8 @@ health_assistant/
 
 - HR drift percentage (first half → second half)
 - Aerobic decoupling: `((EF_first / EF_second) - 1) × 100`
+  - **Positive sign** = efficiency decline (aerobic fatigue/stress during workout)
+  - **Negative sign** = efficiency improvement (aerobic warming up or economy gain)
 - Decoupling threshold detection (>5% = significant aerobic stress)
 
 **Physiological Extraction**:

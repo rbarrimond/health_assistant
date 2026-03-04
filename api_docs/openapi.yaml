@@ -1482,7 +1482,7 @@ components:
                 type: number
               decoupling_pct:
                 type: number
-                description: HR drift percentage (positive = fatigue)
+                description: Aerobic decoupling % (positive = efficiency declined over workout, negative = efficiency improved)
               hr_drift_bpm:
                 type: number
                 description: Absolute HR drift in beats per minute

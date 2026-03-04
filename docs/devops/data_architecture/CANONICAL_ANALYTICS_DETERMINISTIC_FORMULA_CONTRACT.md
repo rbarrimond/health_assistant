@@ -130,12 +130,17 @@ efficiency_factor_avg = normalized_power / hr_avg_bpm
 
 ## Cardiac Decoupling
 
+**Sign semantics:** Positive values indicate **efficiency decline over time** (aerobic fatigue), negative values indicate **efficiency improvement over time** (warming up or improved aerobic economy).
+
 ``` python
 EF1 = NP_first_half / HR_first_half
 EF2 = NP_second_half / HR_second_half
 
+# Positive = fatigue/aerobic stress (EF1 > EF2), Negative = improvement (EF1 < EF2)
 decoupling_pct = ((EF1 / EF2) - 1) * 100
 ```
+
+Edge cases: `decoupling_pct` is `null`/omitted if `EF1 ≤ 0` or `EF2 ≤ 0`.
 
 ## Durability Slope
 

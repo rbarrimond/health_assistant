@@ -19,7 +19,7 @@ from TrainingAnalyticsPlatform.ingestion.constants import INGEST_VERSION
 from TrainingAnalyticsPlatform.models import CanonicalRecordSet
 from TrainingAnalyticsPlatform.platform.exceptions import IngestionIdResolutionError
 
-CANONICAL_SCHEMA_VERSION = "2.0.0"
+CANONICAL_SCHEMA_VERSION = "2.0.1"
 WORKOUTS_CONTAINER = "workouts"
 
 logger = logging.getLogger(__name__)
