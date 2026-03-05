@@ -233,277 +233,431 @@ No scalar duplication unless required for query optimization.
 
 =====================================================================
 
-## Section V. Wellness Domain: Blob-First Reproducible Ingestion
+## Section V. Wellness Domain: Direct Ingestion (v3.0.0)
 
-### Storage Strategy: Three-Container Model
+### Architecture Paradigm
 
-| Container | Purpose | Data | Lifecycle |
-| --- | --- | --- | --- |
-| `workouts` | FIT workout artifacts | canonical.parquet, raw_fit.json.gz, laps.json, metadata.json | Immutable; keep indefinitely (archive after 1 year) |
-| `external-sources` | External API/vendor raw responses | Withings measurements, Garmin training state, Intervals HRV/RHR/sleep | Reproducible; archive after 90 days |
-| `backups` | Table backup snapshots | Daily exported Workouts/Physiometrics/TrainingState tables | Auto-cool after 30 days; delete after 90 days |
+**Direct Ingestion Model**: `Fetch → Validate → Upsert` (no blob storage)
 
-### Physiometrics Ingestion: Source → Blob → Canonical
+All wellness data flows directly from source APIs to the canonical `Physiometrics` table. No intermediate blob storage is used for physiometrics. This approach prioritizes operational simplicity and eliminates storage overhead for sparse, low-volume wellness measurements.
 
-Two canonical aggregates (separate tables and blob storage):
+**Single Canonical Table**: `Physiometrics` (Azure Table Storage)
 
-#### 1. PhysiometricsSnapshot
+**On-Demand Projection**: `TrainingState` computed fresh on request (no table)
 
-**Table**: `Physiometrics` (Azure Table Storage)
+### PhysiometricsSnapshot v3.0.0: Simplified Schema
+
+**Table**: `Physiometrics`
 
 ```text
-PartitionKey: athlete_id
-RowKey: YYYY-MM-DD (effective_date, local athlete timezone)
-
-Schema (current + planned):
-  • effective_date: str  (YYYY-MM-DD, RowKey component for idempotent upsert)
-  • updated_at_utc: datetime  (timestamp of last upsert; audit trail)
-  • measured_at_utc: Optional[datetime]  (timestamp of measurement collection)
-  • data_source: str  (primary source for this snapshot; e.g., "intervals", "withings", "garmin")
-  • data_sources: Optional[str]  (CSV of all contributing sources for consolidated days)
-  • canonical_version: str  (e.g., "2.0.0"; tracks schema evolution)
-  
-  • weight_kg: Optional[float]
-  • fat_mass_kg: Optional[float]
-  • muscle_mass_kg: Optional[float]
-  • bone_mass_kg: Optional[float]
-  • body_fat_pct: Optional[float]
-  • visceral_fat_index: Optional[float]
-  • metabolic_age_years: Optional[int]
-  
-  • heart_rate_basis: str  (e.g., "LTHR", "HRmax")
-  • heart_rate_lthr_bpm: Optional[float]
-  • heart_rate_hr_max_bpm: Optional[float]
-  • heart_rate_resting_bpm: Optional[float]
-  
-  • hrv_ln_rmssd: Optional[float]  (log-normalized RMSSD from Intervals)
-  • hrv_sdnn_ms: Optional[float]  (HRV SDNN from Intervals)
-  • sleep_duration_sec: Optional[float]  (from Intervals, raw seconds)
-  • readiness_score: Optional[float]  (0-100 composite from Garmin or Intervals)
-  
-  • power_ftp_watts: Optional[float]
-  • cycling_vo2max_ml_kg_min: Optional[float]
-  • load: Optional[float]  (training load from Garmin; planned)
-  
-  • subjective_soreness: Optional[float]  (0-10 scale; subjective wellness)
-  • subjective_fatigue: Optional[float]  (0-10 scale; subjective wellness)
-  • subjective_stress: Optional[float]  (0-10 scale; subjective wellness)
-  • subjective_mood: Optional[float]  (0-10 scale; subjective wellness)
-  • subjective_motivation: Optional[float]  (0-10 scale; subjective wellness)
-  • subjective_injury: Optional[float]  (0-10 scale; subjective wellness)
-  
-  • nutrition_calories_kcal: Optional[float]  (daily caloric intake)
-  • nutrition_carbs_g: Optional[float]  (carbohydrate intake in grams)
-  • nutrition_protein_g: Optional[float]  (protein intake in grams)
-  • nutrition_fat_g: Optional[float]  (fat intake in grams)
-  
-  • activity_steps: Optional[int]  (daily step count)
-  
-  • body_abdomen_cm: Optional[float]  (waist circumference in centimeters)
-  • spo2_pct: Optional[float]  (blood oxygen saturation percentage)
-  • systolic_bp: Optional[float]  (systolic blood pressure)
-  • diastolic_bp: Optional[float]  (diastolic blood pressure)
-  • vo2max_ml_kg_min: Optional[float]  (VO2max)
-  • menstrual_phase: Optional[str]  (source-reported menstrual phase)
-  • menstrual_phase_predicted: Optional[str]  (source-predicted menstrual phase)
-  
-  • sport_info_json: Optional[str]  (JSON-serialized array of sport-specific metrics; e.g., [{"type": "Ride", "load": 120.5, "ctl": 85.2}])
-  • source_updated_at_utc: Optional[str]  (source-side updated timestamp, ISO 8601)
-  • ext_json: Optional[str]  (JSON serialization of canonical extended physiometrics fields)
-  • raw_intervals_icu_json: Optional[str]  (JSON serialization of full, unmodified Intervals source day payload)
-  
-  • full_config_json: Optional[str]  (legacy compatibility field for older rows; new writes use `ext_json` + scalar columns + `raw_intervals_icu_json`)
+PartitionKey: {athlete_id}|{YYYY-MM}
+RowKey: DD
 ```
 
-**Idempotency**: Upsert per `(athlete_id, effective_date)` ensures that multiple snapshots for the same day from the same source merge deterministically. The `full_config_json` field preserves the complete input payload for auditability and schema evolution tolerance.
+This partitioning strategy enables efficient range queries for monthly rollups while maintaining daily granularity at the row level.
 
-#### 2. TrainingStateSnapshot
+**Schema**: Canonical 25-field model with exclusive source ownership
 
-**Table**: `TrainingState` (Azure Table Storage)
+```python
+# Metadata (4 fields)
+athlete_id: str                # Athlete identifier
+effective_date: str            # YYYY-MM-DD (local athlete timezone)
+data_sources: str              # CSV of contributing sources (e.g., "withings,intervals,garmin")
+canonical_version: str         # Schema version (default: "3.0.0")
+last_updated_utc: datetime     # Timestamp of last upsert
+
+# Body composition (Withings exclusive) - 5 fields
+weight_kg: Optional[float]              # Body weight
+fat_mass_kg: Optional[float]            # Fat mass
+muscle_mass_kg: Optional[float]         # Muscle mass
+bone_mass_kg: Optional[float]           # Bone mass
+body_fat_pct: Optional[float]           # Body fat percentage
+
+# Recovery metrics (Intervals exclusive) - 3 fields
+hrv_ln_rmssd: Optional[float]           # HRV (natural log of RMSSD)
+sleep_duration_sec: Optional[float]     # Sleep duration in seconds
+resting_hr_bpm: Optional[float]         # Resting heart rate (Intervals only; Garmin ignored)
+
+# Activity (Intervals exclusive) - 1 field
+steps: Optional[int]                    # Daily step count (Intervals only; Garmin ignored)
+
+# Nutrition (Intervals exclusive) - 4 fields
+calories_kcal: Optional[float]          # Daily calorie intake
+carbs_g: Optional[float]                # Carbohydrate intake
+protein_g: Optional[float]              # Protein intake
+fat_g: Optional[float]                  # Fat intake
+
+# Performance baselines (Garmin exclusive) - 4 fields
+ftp_watts: Optional[float]                     # Functional threshold power
+cycling_vo2max_ml_kg_min: Optional[float]      # Cycling VO2Max estimate
+hr_lthr_bpm: Optional[float]                   # Lactate threshold heart rate
+hr_max_bpm: Optional[float]                    # Maximum heart rate
+
+# Training state (Garmin exclusive) - 3 fields
+training_load: Optional[float]          # Garmin cumulative training load
+recovery_time_minutes: Optional[int]    # Garmin recovery time estimate
+readiness_score: Optional[float]        # Garmin readiness score (0-100)
+
+# Extended training metrics (Garmin exclusive) - 5 fields
+training_effect_aerobic: Optional[float]        # Aerobic training effect (0-5)
+training_effect_anaerobic: Optional[float]      # Anaerobic training effect (0-5)
+training_stress_score: Optional[float]          # Training stress score
+training_stress_balance: Optional[float]        # Training stress balance
+atp_probability: Optional[float]                # ATP/energy availability (0-100)
+```
+
+**Total**: 25 metric fields + 4 metadata fields = 29 fields
+
+### Source Precedence: Exclusive Ownership
+
+Each field is owned by **exactly one source** — no fallback chains. This ensures deterministic consolidation and clear data lineage.
+
+| Field Group | Exclusive Owner | Rationale |
+| ----------- | --------------- | --------- |
+| **Body composition** (5) | Withings | Medical-grade scale; most accurate |
+| **Recovery metrics** (3) | Intervals | Primary HRV/sleep tracking source; Garmin resting HR less reliable |
+| **Activity** (1) | Intervals | Garmin step count less accurate |
+| **Nutrition** (4) | Intervals | Explicit nutrition logging |
+| **Performance baselines** (4) | Garmin | Power meter data; calculated thresholds |
+| **Training state** (3) | Garmin | Proprietary training load algorithms |
+| **Extended training** (5) | Garmin | Proprietary recovery/readiness models |
+
+**Key Rules**:
+
+- **Intervals resting HR takes precedence** over Garmin (Garmin values ignored)
+- **Intervals steps take precedence** over Garmin (Garmin values ignored)
+- **Withings body composition exclusive** (Intervals weight/body fat ignored)
+
+### Ingestion Pathways: Direct Fetch Pattern
+
+#### 1. Withings Measurements
+
+**Trigger**: Webhook POST from Withings API → HTTP 200 ACK immediately
+
+**Flow**:
 
 ```text
-PartitionKey: athlete_id
-RowKey: YYYY-MM-DD (effective_date)
+1. Withings API POST → /api/withings/webhook
+2. Extract athlete_id, measurement date from payload
+3. Validate webhook signature (security)
+4. Check WebhookDeduplication table (idempotency)
+5. Fetch measurement details via WithingsClient.get_measurement()
+6. Convert to PhysiometricsSnapshot via WithingsPhysiometricsAdapter
+7. Upsert to Physiometrics table (atomic)
+8. Record in WebhookDeduplication table
+9. Return HTTP 200```
 
-Schema:
-  • cts_rolling_7d: Optional[float]  (Chronic Training Stress, last 7 days)
-  • cts_rolling_28d: Optional[float]  (last 28 days)
-  • ats_rolling: Optional[float]  (Acute Training Stress)
-  • fatigue_index: Optional[float]  (ATS/CTS ratio)
-  
-  • readiness_score: Optional[float]  (composite: HRV + load + HR)
-  • garmin_readiness_score: Optional[float]  (pass-through from Garmin)
-  • mood: Optional[int]  (user-reported 1-5)
-  • soreness: Optional[int]  (user-reported 1-5)
-  
-  • pred_recovery_days: Optional[int]
-  
-  • data_sources: CSV (e.g., "workouts,physiometrics,garmin")
-  • canonical_version: str  (e.g., "2.0.0")
-  • last_updated_utc: datetime
+**Adapter**: `WithingsPhysiometricsAdapter.map_to_canonical()`
+- Sets: `weight_kg`, `fat_mass_kg`, `muscle_mass_kg`, `bone_mass_kg`, `body_fat_pct`
+- All other fields: `None` (respects exclusive ownership)
+
+**Idempotency**: Upsert by `(athlete_id, effective_date)` ensures safe retries
+
+#### 2. Garmin Training State
+
+**Trigger**: Daily timer (3 AM UTC) or manual sync endpoint `/api/garmin/physiometrics/sync`
+
+**Flow**:
+```text
+1. Timer/HTTP trigger → GarminPhysiometricsHandler.sync_daily()
+2. Fetch training state via GarminConnectClient.get_training_state(date)
+3. Validate response structure
+4. Convert to PhysiometricsSnapshot via GarminTrainingStateAdapter
+5. Upsert to Physiometrics table (atomic)
+6. Return summary (dates processed, records upserted)
 ```
 
-**Idempotency**: Upsert per `(athlete_id, effective_date)`. Computed nightly from immutable `Workouts` + `Physiometrics` tables.
+**Adapter**: `GarminTrainingStateAdapter.map_to_canonical()`
 
-### Ingestion Pathways: Blob-First Pattern
+- Sets: `ftp_watts`, `cycling_vo2max_ml_kg_min`, `hr_lthr_bpm`, `hr_max_bpm`, `training_load`, `recovery_time_minutes`, `readiness_score`, `training_effect_aerobic`, `training_effect_anaerobic`, `training_stress_score`, `training_stress_balance`, `atp_probability`
+- **Explicitly ignores**: `resting_hr_bpm`, `steps` (Intervals exclusive)
+- All other fields: `None`
 
-#### Withings Measurements
+**Idempotency**: Upsert by `(athlete_id, effective_date)` ensures safe retries
 
-**Trigger**: Webhook POST → HTTP 200 ACK immediately (async processing)
+#### 3. Intervals.icu Wellness
 
-**Blob Storage**:
+**Trigger**: Daily timer or manual sync endpoint `/api/intervals/physiometrics/sync`
+
+**Flow**:
 
 ```text
-Container: external-sources
-Path: physiometrics/{athlete_id}/withings/webhooks/{webhook_enddate_unix}.json
-Content: Raw Withings API measurement response (JSON)
+1. Timer/HTTP trigger → IntervalsPhysiometricsHandler.sync_daily()
+2. Fetch wellness records via IntervalsClient.get_wellness(date_range)
+3. Validate response structure (check required fields)
+4. Convert to PhysiometricsSnapshot via IntervalsPhysiometricsAdapter
+5. Upsert to Physiometrics table (atomic)
+6. Return summary (dates processed, records upserted)
 ```
 
-**Deduplication**: Track in `WebhookDeduplication` table by `(athlete_id, withings_userid, enddate_unix)`.
+**Adapter**: `IntervalsPhysiometricsAdapter.map_to_canonical()`
 
-**Processor**: `WithingsPhysiometricsProcessor`
+- Sets: `hrv_ln_rmssd`, `sleep_duration_sec`, `resting_hr_bpm`, `steps`, `calories_kcal`, `carbs_g`, `protein_g`, `fat_g`
+- **Explicitly ignores**: `weight_kg`, `body_fat_pct` (Withings exclusive)
+- All other fields: `None`
 
-1. Query `SourceIngestionState` for blobs with `status: fetched` and `source: withings`.
-2. Download blob → deserialize JSON.
-3. Validate semantic contract (required fields: weight_kg, timestamp).
-4. Map to `PhysiometricsSnapshot` (extract effective_date from measurement timestamp).
-5. Upsert to `Physiometrics` table.
-6. Update `SourceIngestionState` to `status: processed`.
-
-#### Garmin Training State
-
-**Trigger**: Daily timer (3 AM UTC) or manual sync endpoint
-
-**Blob Storage**:
-
-```text
-Container: external-sources
-Path: physiometrics/{athlete_id}/garmin/daily/{YYYY-MM-DD}.json
-Content: Raw Garmin Connect API training state response (JSON)
-```
-
-**Processor**: `GarminTrainingStateProcessor`
-
-1. Query `SourceIngestionState` for blobs with `status: fetched` and `source: garmin_training_state`.
-2. Download blob → deserialize JSON.
-3. Validate semantic contract (required fields: ftp, vo2max, lthr, load, readiness).
-4. Map to `PhysiometricsSnapshot` (Garmin-sourced fields).
-5. Upsert to `Physiometrics` table.
-6. Update `SourceIngestionState` to `status: processed`.
-
-#### Intervals.icu Wellness
-
-**Trigger**: Daily timer or manual sync endpoint
-
-**Blob Storage**:
-
-```text
-Container: external-sources
-Path: physiometrics/{athlete_id}/intervals/daily/{YYYY-MM-DD}.json
-Content: Raw Intervals API wellness response (HRV, restingHR, sleepSecs, readiness; JSON)
-```
-
-**Processor**: `IntervalsPhysiometricsProcessor`
-
-1. Query `SourceIngestionState` for blobs with `status: fetched` and `source: intervals`.
-2. Download blob → deserialize JSON.
-3. Validate semantic contract (HRV ln(RMSSD), resting HR, sleep duration).
-4. Map to `PhysiometricsSnapshot` (Intervals-sourced fields).
-5. Upsert to `Physiometrics` table.
-6. Update `SourceIngestionState` to `status: processed`.
-
-### SourceIngestionState Tracking
-
-**Table**: `SourceIngestionState`
-
-```text
-PartitionKey: athlete_id
-RowKey: {source}_{blob_key_suffix}  (e.g., "withings_20260303_1234567890", "garmin_20260303")
-
-Schema:
-  • source: str  ("withings", "garmin", "intervals")
-  • blob_path: str  (full path in external-sources container)
-  • status: str  ("fetched" | "processed" | "failed")
-  • canonical_version: str  (version of processor that processed blob)
-  • processed_at_utc: datetime  (when processor completed)
-  • error: str  (if status: failed; truncated if > 1024 chars)
-  • retry_count: int  (incremented on failure; reset on success)
-  • last_attempt_at_utc: datetime
-```
-
-**Rules**:
-
-- On blob upload, insert row with `status: fetched`.
-- Processor marks `status: processed` after canonical table upsert succeeds.
-- On processor failure, record error + increment retry_count.
-- Idempotency: Processor checks `is_processed()` before re-processing same (source, effective_date).
+**Idempotency**: Upsert by `(athlete_id, effective_date)` ensures safe retries
 
 ### Consolidation: Multi-Source Merge (Nightly)
 
-**PhysiometricsConsolidationHandler** (runs after all source processors complete):
+**Handler**: `PhysiometricsConsolidationHandler`
 
-1. Query `Physiometrics` table for all rows with `effective_date` in past 7 days (catch late arrivals).
-2. For each `(athlete_id, effective_date)` group, apply source precedence rules:
-   - **Body mass**: Prefer Withings; fallback to Intervals.
-   - **Body composition**: Withings only.
-   - **HRV/RHR/Sleep**: Intervals preferred; backfill from Garmin if available.
-   - **Training state (FTP, VO2, LTHR)**: Garmin primary; Intervals if available.
-   - **Readiness**: Garmin preferred; compute composite if unavailable.
-3. Optionally write consolidated snapshot to separate row (or keep per-source at API layer).
-4. Emit audit log of merge decisions + sources used.
+**Trigger**: Nightly timer (4 AM UTC) or manual endpoint `/api/physiometrics/consolidate`
 
-**Idempotency**: Safe to re-run any day; merges are deterministic over immutable source snapshots.
+**Algorithm**:
+
+```text
+1. Query Physiometrics table for last 7 days (catch late arrivals)
+2. Group by (athlete_id, effective_date)
+3. For each group with multiple source rows:
+   a. Apply exclusive ownership rules (SourcePrecedenceResolver)
+   b. Merge fields from all sources into single canonical snapshot
+   c. Set data_sources = CSV of contributing sources
+   d. Upsert consolidated row to Physiometrics table
+4. Emit audit log of consolidation decisions
+```
+
+**Idempotency**: Safe to re-run any day; consolidation is deterministic over immutable source snapshots
+
+**SourcePrecedenceResolver.METRIC_SOURCES**:
+
+```python
+{
+    "weight_kg": ["withings"],
+    "fat_mass_kg": ["withings"],
+    "muscle_mass_kg": ["withings"],
+    "bone_mass_kg": ["withings"],
+    "body_fat_pct": ["withings"],
+    
+    "hrv_ln_rmssd": ["intervals"],
+    "sleep_duration_sec": ["intervals"],
+    "resting_hr_bpm": ["intervals"],  # Garmin ignored
+    
+    "steps": ["intervals"],  # Garmin ignored
+    
+    "calories_kcal": ["intervals"],
+    "carbs_g": ["intervals"],
+    "protein_g": ["intervals"],
+    "fat_g": ["intervals"],
+    
+    "ftp_watts": ["garmin"],
+    "cycling_vo2max_ml_kg_min": ["garmin"],
+    "hr_lthr_bpm": ["garmin"],
+    "hr_max_bpm": ["garmin"],
+    
+    "training_load": ["garmin"],
+    "recovery_time_minutes": ["garmin"],
+    "readiness_score": ["garmin"],
+    
+    "training_effect_aerobic": ["garmin"],
+    "training_effect_anaerobic": ["garmin"],
+    "training_stress_score": ["garmin"],
+    "training_stress_balance": ["garmin"],
+    "atp_probability": ["garmin"],
+}
+```
 
 ### Replay Capability
 
-To replay historic ingestion:
+To replay historic ingestion (when schema changes or bugs are fixed):
 
-1. **Replay Withings**: Query all `physiometrics/{athlete_id}/withings/webhooks/*.json` blobs; trigger `WithingsPhysiometricsProcessor` on each → overwrites `Physiometrics` rows (upsert idempotent).
-2. **Replay Garmin**: Query all `physiometrics/{athlete_id}/garmin/daily/*.json` blobs; trigger `GarminTrainingStateProcessor` on each → overwrites rows.
-3. **Replay Intervals**: Query all `physiometrics/{athlete_id}/intervals/daily/*.json` blobs; trigger `IntervalsPhysiometricsProcessor` on each → overwrites rows.
-4. **Replay Consolidation**: Re-run `PhysiometricsConsolidationHandler` (idempotent; computes from canonical tables).
-5. **Replay Training State**: Re-run `TrainingStateConsolidationHandler` (computes from immutable `Workouts` + `Physiometrics`).
+1. **Mark existing rows for reprocessing**: Update `canonical_version` to trigger adapter logic
+2. **Re-fetch from sources**: Call sync endpoints with `lookback_days` parameter
+3. **Re-consolidate**: Run `PhysiometricsConsolidationHandler` for affected dates
 
-**Audit Trail**: Each canonical row persists `canonical_version` + `last_updated_utc` + `data_sources`. Replay updates `last_updated_utc` but version remains (unless schema changed).
+**Limitations**: No blob archive exists for physiometrics. Replay depends on source API availability and retention policies.
 
 ### Error Handling & Recovery
 
 | Scenario | Action | Recovery |
-| --- | --- | --- |
-| Blob fetch failure | Retry 3x with exponential backoff | Defer to next scheduled run |
-| Processor validation failure | Record in `SourceIngestionState` with error | Manual intervention or auto-retry next run |
-| Table upsert failure | Retry 3x; on failure, record in `SourceIngestionState` | Manual intervention |
+| -------- | ------ | -------- |
+| Source API fetch failure | Retry 3x with exponential backoff | Defer to next scheduled run |
+| Adapter validation failure | Log error + skip record | Continue processing remaining records |
+| Table upsert failure | Retry 3x with exponential backoff | Record in application logs |
 | Consolidation job failure | Log + defer | Idempotent; safe to re-run next day |
-| Webhook dedup collision | Skip re-upload (check dedup table first) | Already processed; no action needed |
+| Webhook dedup collision | Skip processing (already handled) | No action needed |
 
 ### Schema Versioning
 
-- **Source Schema Version**: Tracks raw API response format (e.g., "withings_v1" if API changes).
-- **Canonical Version**: Tracks processor output schema (e.g., "2.0.0").
-- If source API schema changes → new source version; old blobs can be re-processed by versioned processor.
-- Changelog entry for version bumps; SemVer on breaking changes.
+- **Canonical Version**: `canonical_version` field tracks schema evolution (SemVer)
+- **Current Version**: `3.0.0` (simplified MVP with 25 fields)
+- **Breaking Changes**: Require major version bump + migration script
+- **Additive Changes**: Minor version bump (backward compatible)
+- **Bug Fixes**: Patch version bump
+
+**Version History**:
+
+- `3.0.0`: Simplified schema (25 fields); removed visceral_fat, metabolic_age, subjective wellness, sport_info, extended body metrics, menstrual tracking, raw JSON blobs, nested structures
+- `2.5.0`: Extended body composition + subjective wellness + sport_info
+- `2.0.0`: Base canonical schema with HRV/sleep/readiness
 
 =====================================================================
 
-## Section VI. Training State Domain: Derived Consolidation
+## Section VI. Training State Domain: On-Demand Projection
 
-See Section V above (TrainingStateSnapshot integrated into state schema).
+**IMPORTANT**: TrainingState is **NOT stored** in a table. It is computed on-demand for each API request.
 
-**Consolidation Job** (`TrainingStateConsolidationHandler`):
+### Architectural Decision
 
-1. Query `Workouts` table for `effective_date` in past 28 days.
-2. Sum TSS; compute rolling CTS (28-day) and ATS (7-day).
-3. Query latest `Physiometrics` snapshot for HRV and Garmin readiness.
-4. Compute composite readiness score (if not provided by Garmin).
-5. Upsert `TrainingState` table.
+**TrainingState is a pure projection** computed from:
 
-**Immutability**: Training State is purely derived from immutable canonical data; safe to recompute any time.
+1. **Workouts table** (TSS history for rolling 7-day and 28-day windows)
+2. **Physiometrics table** (HRV, readiness, Garmin training state)
 
-**Rules**:
+**No TrainingState table exists**. All metrics are computed fresh on each request using Pandas/NumPy for rolling aggregations.
 
-- Historical snapshots frozen.
-- Vendor model outputs (Garmin readiness, load) isolated from derived metrics.
-- Computation is deterministic and idempotent.
+### TrainingStateSnapshot Model
+
+**Purpose**: Read-only projection exposed via API
+
+**Schema**:
+
+```python
+athlete_id: str                           # Athlete identifier
+effective_date: str                       # YYYY-MM-DD (target date)
+
+# Rolling training stress (computed from Workouts)
+cts_rolling_7d: Optional[float]           # Chronic training stress (7-day avg)
+cts_rolling_28d: Optional[float]          # Chronic training stress (28-day avg)
+ats_rolling: Optional[float]              # Acute training stress (7-day)
+fatigue_index: Optional[float]            # ATS/CTS ratio (higher = more fatigued)
+
+# Readiness and recovery (from Physiometrics)
+readiness_score: Optional[float]          # Composite readiness (0-100)
+garmin_readiness_score: Optional[float]   # Garmin native readiness
+mood: Optional[int]                       # User-reported mood (1-5)
+soreness: Optional[int]                   # User-reported soreness (1-5)
+
+# Recovery prediction (computed)
+pred_recovery_days: Optional[int]         # Predicted days to full recovery
+
+# Provenance
+data_sources: str                         # "workouts,physiometrics"
+canonical_version: str                    # "3.0.0"
+computed_at_utc: datetime                 # When projection was computed
+```
+
+### On-Demand Computation
+
+**SemanticLayer Methods**:
+
+```python
+def compute_current_training_state(athlete_id: str) -> Dict:
+    """Compute current training state (today's date)."""
+    # 1. Query Workouts table for last 28 days
+    # 2. Calculate rolling TSS (7-day, 28-day)
+    # 3. Compute CTS (28-day avg), ATS (7-day avg), fatigue_index (ATS/CTS)
+    # 4. Query latest Physiometrics for HRV and readiness
+    # 5. Compute composite readiness (if Garmin readiness not available)
+    # 6. Return TrainingStateSnapshot (in-memory)
+
+def compute_training_state_history(athlete_id: str, days: int = 45) -> Dict:
+    """Compute training state for each day in date range."""
+    # 1. For each date in range:
+    #    a. Query Workouts for rolling 28-day window ending on that date
+    #    b. Compute CTS/ATS/fatigue_index at that point in time
+    #    c. Query Physiometrics for that date
+    # 2. Return list of TrainingStateSnapshot objects (all in-memory)
+```
+
+**Performance**: Azure Table queries are fast; Pandas rolling aggregation is efficient. Acceptable latency for read-only API (<500ms for 45-day history).
+
+### API Endpoints
+
+**Current Training State**:
+
+```http
+GET /api/training-state/current?athlete_id=rob
+
+Response:
+{
+  "athlete_id": "rob",
+  "effective_date": "2026-03-05",
+  "cts_rolling_7d": 42.5,
+  "cts_rolling_28d": 38.2,
+  "ats_rolling": 42.5,
+  "fatigue_index": 1.11,
+  "readiness_score": 75.0,
+  "garmin_readiness_score": 72.0,
+  "data_sources": "workouts,physiometrics",
+  "canonical_version": "3.0.0",
+  "computed_at_utc": "2026-03-05T14:30:00Z"
+}
+```
+
+**Training State History**:
+
+```http
+GET /api/training-state/history?athlete_id=rob&days=45
+
+Response:
+{
+  "athlete_id": "rob",
+  "query_window": {
+    "start_date": "2026-01-19",
+    "end_date": "2026-03-05",
+    "days": 45
+  },
+  "count": 45,
+  "data_points": [
+    {
+      "effective_date": "2026-01-19",
+      "cts_rolling_7d": 38.2,
+      "cts_rolling_28d": 35.1,
+      "ats_rolling": 38.2,
+      "fatigue_index": 1.09,
+      "readiness_score": 72.0,
+      "garmin_readiness_score": 70.0
+    },
+    // ... 44 more daily snapshots
+  ],
+  "computed_at_utc": "2026-03-05T14:30:00Z"
+}
+```
+
+### Computation Rules
+
+**Chronic Training Stress (CTS)**:
+
+- 7-day CTS = Sum(TSS last 7 days) / 7
+- 28-day CTS = Sum(TSS last 28 days) / 28
+
+**Acute Training Stress (ATS)**:
+
+- ATS = 7-day CTS (acute load is short-term average)
+
+**Fatigue Index**:
+
+- Fatigue Index = ATS / CTS (28-day)
+- Values < 1.0: Fresh (acute load below chronic baseline)
+- Values > 1.2: Fatigued (acute load elevated)
+
+**Composite Readiness**:
+
+- If Garmin readiness available: Use Garmin value
+- Otherwise: Weighted average of HRV (normalized) + inverse fatigue index
+- HRV normalization: ln_rmssd 2.5-4.5 → 0-100 scale
+- Fatigue normalization: fatigue_index 0.5-2.0 → 100-0 scale (inverted)
+
+### Immutability & Recomputability
+
+**TrainingState is deterministic**:
+
+- Same Workouts + Physiometrics data → Same TrainingState output
+- No side effects; read-only computation
+- Safe to compute multiple times; results identical
+
+**No storage overhead**:
+
+- No TrainingState table to maintain
+- No nightly consolidation job needed
+- No versioning or migration complexity
+- Compute cost negligible (Pandas efficient)
+
+**Trade-offs**:
+
+- **Pros**: Simpler architecture, no stale data, always fresh
+- **Cons**: Compute cost per request (acceptable for low traffic)
 
 =====================================================================
 

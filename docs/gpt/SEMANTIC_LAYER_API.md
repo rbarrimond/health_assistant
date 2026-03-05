@@ -823,15 +823,19 @@ Retrieve time-series physiometric data for trend analysis.
 
 ### Data Sources and Precedence
 
-Physiometrics are stored as snapshots. Reads prefer the most recent stored snapshot for the athlete. If no stored snapshots exist, the semantic layer falls back to config defaults, then to environment defaults.
+Physiometrics are stored as source snapshots and merged by metric precedence for consolidated reads.
+
+- Intervals.icu dominates wellness/recovery metrics.
+- Garmin dominates training metrics, FTP, and VO2Max metrics.
+- Withings dominates weight and body composition metrics.
 
 ### Current Physiometrics (Read)
 
-`GET /api/physiometrics/current` returns the latest snapshot with normalized metric fields plus metadata (`effective_date`, `data_source`). Use this for profile displays, training-zone context, and chat summaries.
+`GET /api/physiometrics/current` returns a consolidated daily snapshot using source precedence rules, with normalized metric fields plus metadata (`effective_date`, `data_sources`). Use this for profile displays, training-zone context, and chat summaries.
 
 ### Physiometrics History (Read)
 
-`GET /api/physiometrics/history` returns a time series over a bounded date window. If `metrics` is provided, only those fields plus metadata are returned per data point; otherwise the full snapshot is returned. Use this for trends and charts.
+`GET /api/physiometrics/history` returns source-row history over a bounded date window from stored Physiometrics entities. If `metrics` is provided, only those fields plus metadata are returned per data point; otherwise the full snapshot is returned. Use this for trends and charts.
 
 ---
 

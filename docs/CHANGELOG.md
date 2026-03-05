@@ -10,6 +10,169 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-05
 
+### **BREAKING:** PhysiometricsSnapshot v3.0.0 - Simplified Schema [canonical v3.0.0, ingest v15.0.0]
+
+Major schema simplification establishing canonical as facts-only layer with exclusive source ownership and direct ingestion.
+
+#### Schema Simplification: 30 Fields (down from 40+)
+
+**Retained Essential Fields (25 metric fields + 4 metadata + 1 data_sources = 30 total)**:
+
+- **Body composition (Withings exclusive)**: `weight_kg`, `fat_mass_kg`, `muscle_mass_kg`, `bone_mass_kg`, `body_fat_pct` (5 fields)
+- **Recovery metrics (Intervals exclusive)**: `hrv_ln_rmssd`, `sleep_duration_sec`, `resting_hr_bpm` (3 fields)
+- **Activity (Intervals exclusive)**: `steps` (1 field)
+- **Nutrition (Intervals exclusive)**: `calories_kcal`, `carbs_g`, `protein_g`, `fat_g` (4 fields)
+- **Performance baselines (Garmin exclusive)**: `ftp_watts`, `cycling_vo2max_ml_kg_min`, `hr_lthr_bpm`, `hr_max_bpm` (4 fields)
+- **Training state (Garmin exclusive)**: `training_load`, `recovery_time_minutes`, `readiness_score` (3 fields)
+- **Extended training (Garmin exclusive)**: `training_effect_aerobic`, `training_effect_anaerobic`, `training_stress_score`, `training_stress_balance`, `atp_probability` (5 fields)
+- **Metadata**: `athlete_id`, `effective_date`, `data_sources`, `canonical_version`, `last_updated_utc` (5 fields)
+
+**Removed Fields (15+ fields eliminated)**:
+
+- Body composition: `visceral_fat_index`, `metabolic_age_years` (marginal utility)
+- Recovery: `hrv_sdnn_ms` (RMSSD sufficient), `running_vo2max_ml_kg_min` (cycling primary use case)
+- Training: `lactate_threshold_hr_bpm` (deprecated in favor of `hr_lthr_bpm`)
+- Subjective wellness: `subjective_soreness`, `subjective_fatigue`, `subjective_stress`, `subjective_mood`, `subjective_motivation`, `subjective_injury` (6 fields - inconsistent manual entry)
+- Extended body metrics: `body_abdomen_cm`, `spo2_pct`, `systolic_bp`, `diastolic_bp`, `vo2max_ml_kg_min` (5 fields - not core training metrics)
+- Menstrual tracking: `menstrual_phase`, `menstrual_phase_predicted` (2 fields - out of scope for MVP)
+- Sport-specific: `sport_info_json` (redundant with Workouts table sport metadata)
+- Raw preservation: `raw_intervals_icu_json`, `ext_json`, `full_config_json` (3 fields - blob-first pattern abandoned)
+- Nested structures: `heart_rate` dict (resting/lthr/max), `power` dict (FTP) - flattened to scalar fields
+
+#### Exclusive Source Ownership (No Fallbacks)
+
+**Breaking change**: Each field now owned by **exactly one source**. Fallback chains eliminated for deterministic consolidation.
+
+**Source Precedence Table**:
+
+- **Withings exclusive**: All 5 body composition fields
+- **Intervals exclusive**: All 8 recovery/nutrition/activity fields (resting HR, steps)
+- **Garmin exclusive**: All 12 performance/training fields
+
+**Adapter changes**:
+
+- `GarminTrainingStateAdapter`: **Explicitly ignores** `resting_hr_bpm` and `steps` (Intervals exclusive)
+- `IntervalsPhysiometricsAdapter`: **Explicitly ignores** `weight_kg` and `body_fat_pct` (Withings exclusive)
+- `SourcePrecedenceResolver.METRIC_SOURCES`: Updated to single-source arrays (no fallbacks)
+
+#### Direct Ingestion Pattern (Blob-First Removed)
+
+**Breaking change**: Abandoned blob-first reproducible ingestion pattern.
+
+**Old flow**: `Fetch → Blob → SourceIngestionState → Processor → Canonical`  
+**New flow**: `Fetch → Validate → Upsert` (direct to Physiometrics table)
+
+**Removed components**:
+
+- `SourceIngestionState` table (blob processing tracker)
+- `external-sources` blob container (raw API responses)
+- Withings/Garmin/Intervals processor jobs
+- Replay-from-blob capability
+
+**Rationale**: Wellness data is sparse and low-volume; blob storage overhead not justified. Source APIs remain queryable for historic replay.
+
+#### Storage Schema Flattened
+
+**Breaking change**: Removed nested dictionary structures from `to_storage_dict()`.
+
+**Old structure**:
+
+```python
+"heart_rate": {"resting_bpm": 52, "lthr_bpm": 165, "max_bpm": 195}
+"power": {"ftp_watts": 285}
+```
+
+**New structure**:
+
+```python
+"resting_hr_bpm": 52
+"hr_lthr_bpm": 165
+"hr_max_bpm": 195
+"ftp_watts": 285
+```
+
+**Impact**: Simpler queries; no nested JSON parsing required.
+
+#### TrainingState: On-Demand Projection (Table Removed)
+
+**Breaking change**: `TrainingState` table **deleted**. TrainingState now computed on-demand for each API request.
+
+**Removed**:
+
+- `TrainingState` Azure Table Storage table
+- `TrainingStateConsolidationHandler` nightly job
+- `TrainingStateSnapshot` persistence logic
+
+**New architecture**:
+
+- `SemanticLayer.compute_current_training_state()`: Fresh computation from Workouts + Physiometrics
+- `SemanticLayer.compute_training_state_history()`: Daily projections for date range
+- API endpoints compute on request: `GET /api/training-state/current`, `GET /api/training-state/history`
+
+**Computation**:
+
+- Rolling TSS (7-day, 28-day windows) from Workouts table
+- CTS (chronic training stress) = TSS_28d / 28
+- ATS (acute training stress) = TSS_7d / 7
+- Fatigue index = ATS / CTS
+- Composite readiness from HRV + Garmin readiness
+
+**Performance**: Pandas/NumPy aggregation efficient; <500ms for 45-day history.
+
+#### Versioning & Migration
+
+- **Major version bump**: `canonical_version` `2.6.0` → `3.0.0`
+- **Ingest version bump**: `INGEST_VERSION` `v14.4.2` → `v15.0.0`
+- **Migration**: Breaking schema changes require replay from source APIs (no blob archive available)
+- **Backward compatibility**: None - v2.x code cannot read v3.0.0 schema
+
+#### Documentation Updates
+
+- **Section V**: Rewritten to document direct ingestion, 30-field schema, exclusive ownership
+- **Section VI**: Rewritten to emphasize TrainingState as projection (not table)
+- **Storage diagrams**: Updated to remove blob containers and TrainingState table
+
+#### Testing
+
+- **Updated**: 11 tests in `test_physiometrics_model.py` to v3.0.0 schema
+- **Removed assertions**: Deleted fields (visceral_fat, nested structures, subjective wellness, sport_info, raw JSON)
+- **Added tests**: Training state and extended training metrics validation
+- **Test results**: 11/11 passing
+
+#### Rationale
+
+This major version represents architectural discipline: canonical captures **raw facts only**, not derived analytics or speculative nice-to-have metrics. TrainingState projection enforces immutability (compute from immutable sources) and eliminates materialization complexity. Schema reduced to essential training intelligence fields with clear source responsibility boundaries.
+
+---
+
+## 2026-03-05 (Pre-v3.0.0)
+
+### Physiometrics Source Precedence Alignment [semantic layer, canonical v2.6.0]
+
+- **Policy alignment**: Consolidated physiometrics precedence now explicitly enforces source ownership by metric:
+  - Intervals.icu dominant for wellness/recovery fields (HRV, sleep, subjective metrics).
+  - Garmin dominant for training metrics, FTP, VO2Max, readiness, and training load fields.
+  - Withings dominant for weight/body composition fields (weight, fat mass, muscle mass, BMI-derived).
+- **Endpoint behavior change**: `GET /api/physiometrics/current` now consolidates the latest row per source (Intervals/Garmin/Withings) applying metric-level precedence rules instead of returning a single-source snapshot. Metadata fields added:
+  - `data_sources` (CSV): list of sources contributing to current snapshot
+  - `source_effective_dates` (dict): per-source date tracking for data freshness visibility
+- **Fix**: Consolidation now supports both `data_source` and `data_sources` source identity fields when resolving ownership.
+- **Fix**: Consolidation now resolves canonical-vs-storage aliases for physiometrics fields (e.g., `ftp_watts`/`power_ftp_watts`, `resting_hr_bpm`/`heart_rate_resting_bpm`).
+- **Fix**: Circular import resolved in semantic layer; extracted precedence constants locally to eliminate handlers package dependency for current endpoint.
+- **Tests**: Added 8 comprehensive tests in `test_physiometrics_current_consolidated.py` covering:
+  - Multi-source consolidation with per-source row fetching and latest-per-source tracking
+  - Metric-level precedence (Intervals wellness vs Garmin training vs Withings body comp)
+  - Timestamp-based tiebreaker when effective_date is identical across sources
+  - Storage alias field resolution
+- **Docs**: Updated semantic API and canonical architecture docs to reflect consolidated-vs-raw physiometrics read semantics; added explicit precedence matrix.
+
+### Garmin Training Status Payload Mapping Fix [ingest v14.4.2]
+
+- **Fix**: Updated Garmin physiometrics adapter to parse current Garmin Connect `get_training_status()` payload shape (`mostRecentVO2Max`, `mostRecentTrainingLoadBalance`, `mostRecentTrainingStatus.latestTrainingStatusData`) instead of only legacy flat keys.
+- **Impact**: Garmin training metrics now populate queryable Physiometrics columns during sync when values are present in the source payload.
+- **Versioning**:
+  - `INGEST_VERSION` bumped `v14.4.1` -> `v14.4.2`
+
 ### FIT Field Decoding Fix [ingest v14.4.1]
 
 - **Fix**: Normalize FIT `left_right_balance` field by extracting 7-bit percentage from raw uint8 byte. FIT spec encodes percentage in bits 0-6 with bit 7 as a right-side flag; fitdecode returns raw byte without masking. Apply `& 0x7F` mask during canonical record construction to ensure values conform to documented 0-100 constraint. Fixes validation errors on activities with biased left_right_balance values (e.g., raw byte 184 → 56% contribution). Structured logging records decode normalization for traceability.
