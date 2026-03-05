@@ -4,5 +4,5 @@
 METADATA_SCHEMA_VERSION = "1.0.0"
 LAPS_SCHEMA_VERSION = "1.0.0"
 FIT_ANALYSIS_VERSION = "v1.0.0"
-INGEST_VERSION = "v14.4.1"  # (v14.4.0→v14.4.1) Fixed FIT left_right_balance field decoding to mask raw byte (bits 0-6: percentage, bit 7: flag)
+INGEST_VERSION = "v15.0.0"  # (v14.4.2→v15.0.0) BREAKING: PhysiometricsSnapshot v3.0.0 - simplified to 30 fields, exclusive source ownership, direct ingestion (no blob storage), TrainingState projection (no table), flattened storage schema
 

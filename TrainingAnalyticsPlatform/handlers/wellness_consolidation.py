@@ -18,28 +18,53 @@ logger = logging.getLogger(__name__)
 
 
 class SourcePrecedenceResolver:
-    """Determines metric ownership by source precedence rules."""
+    """Determines metric ownership by source precedence rules.
+    
+    Schema v3.0.0 field ownership:
+    - Withings: exclusive for all body composition
+    - Intervals: exclusive for resting_hr_bpm, steps, nutrition (Garmin values ignored)
+    - Garmin: exclusive for training state and performance metrics
+    """
 
     METRIC_SOURCES = {
-        # Body composition: Withings only
+        # Body composition (Withings exclusive)
         "weight_kg": ["withings"],
         "fat_mass_kg": ["withings"],
         "muscle_mass_kg": ["withings"],
         "bone_mass_kg": ["withings"],
         "body_fat_pct": ["withings"],
-        "visceral_fat_index": ["withings"],
-        "metabolic_age_years": ["withings"],
-        # HRV/RHR/Sleep: Intervals preferred, backfill Garmin
-        "hrv_ln_rmssd": ["intervals", "garmin"],
-        "resting_hr_bpm": ["intervals", "garmin"],
+        
+        # Recovery metrics (Intervals exclusive)
+        "hrv_ln_rmssd": ["intervals"],
         "sleep_duration_sec": ["intervals"],
-        # Training state: Garmin preferred
-        "ftp_watts": ["garmin", "intervals"],
-        "cycling_vo2max_ml_kg_min": ["garmin", "intervals"],
-        "hr_lthr_bpm": ["garmin", "intervals"],
-        "hr_max_bpm": ["garmin", "intervals"],
-        "load": ["garmin"],
-        "readiness_score": ["garmin", "intervals"],
+        "resting_hr_bpm": ["intervals"],  # Intervals exclusive; Garmin ignored
+        
+        # Activity (Intervals exclusive)
+        "steps": ["intervals"],  # Intervals exclusive; Garmin ignored
+        
+        # Nutrition (Intervals exclusive)
+        "calories_kcal": ["intervals"],
+        "carbs_g": ["intervals"],
+        "protein_g": ["intervals"],
+        "fat_g": ["intervals"],
+        
+        # Performance baselines (Garmin exclusive)
+        "ftp_watts": ["garmin"],
+        "cycling_vo2max_ml_kg_min": ["garmin"],
+        "hr_lthr_bpm": ["garmin"],
+        "hr_max_bpm": ["garmin"],
+        
+        # Training state (Garmin exclusive)
+        "training_load": ["garmin"],
+        "recovery_time_minutes": ["garmin"],
+        "readiness_score": ["garmin"],
+        
+        # Extended training metrics (Garmin exclusive)
+        "training_effect_aerobic": ["garmin"],
+        "training_effect_anaerobic": ["garmin"],
+        "training_stress_score": ["garmin"],
+        "training_stress_balance": ["garmin"],
+        "atp_probability": ["garmin"],
     }
 
     @staticmethod
@@ -56,8 +81,22 @@ class PhysiometricsConsolidationHandler:
     applies source precedence rules, and optionally writes consolidated view.
     """
 
-    CONSOLIDATED_VERSION = "2.0.0"
+    CONSOLIDATED_VERSION = "3.0.0"
     METADATA_FIELDS = {"athlete_id", "effective_date", "data_sources", "canonical_version", "last_updated_utc"}
+    STORAGE_FIELD_ALIASES = {
+        # Legacy nested storage format aliases
+        "ftp_watts": ["ftp_watts", "power_ftp_watts"],
+        "hr_lthr_bpm": ["hr_lthr_bpm", "heart_rate_lthr_bpm"],
+        "hr_max_bpm": ["hr_max_bpm", "heart_rate_hr_max_bpm"],
+        "resting_hr_bpm": ["resting_hr_bpm", "heart_rate_resting_bpm"],
+        # Prefixed nutrition fields from older schemas
+        "calories_kcal": ["calories_kcal", "nutrition_calories_kcal"],
+        "carbs_g": ["carbs_g", "nutrition_carbs_g"],
+        "protein_g": ["protein_g", "nutrition_protein_g"],
+        "fat_g": ["fat_g", "nutrition_fat_g"],
+        # Activity fields
+        "steps": ["steps", "activity_steps"],
+    }
 
     def __init__(self, storage_client: StorageInfrastructureProtocol):
         """Initialize consolidation handler.
@@ -129,24 +168,41 @@ class PhysiometricsConsolidationHandler:
         return PhysiometricsSnapshot(
             athlete_id=athlete_id,
             effective_date=effective_date,
+            # Body composition (Withings)
             weight_kg=None,
             fat_mass_kg=None,
             muscle_mass_kg=None,
             bone_mass_kg=None,
             body_fat_pct=None,
-            visceral_fat_index=None,
-            metabolic_age_years=None,
+            # Recovery metrics (Intervals)
             hrv_ln_rmssd=None,
-            resting_hr_bpm=None,
             sleep_duration_sec=None,
+            resting_hr_bpm=None,
+            # Activity (Intervals)
+            steps=None,
+            # Nutrition (Intervals)
+            calories_kcal=None,
+            carbs_g=None,
+            protein_g=None,
+            fat_g=None,
+            # Performance baselines (Garmin)
             ftp_watts=None,
             cycling_vo2max_ml_kg_min=None,
             hr_lthr_bpm=None,
             hr_max_bpm=None,
-            load=None,
+            # Training state (Garmin)
+            training_load=None,
+            recovery_time_minutes=None,
             readiness_score=None,
+            # Extended training metrics (Garmin)
+            training_effect_aerobic=None,
+            training_effect_anaerobic=None,
+            training_stress_score=None,
+            training_stress_balance=None,
+            atp_probability=None,
+            # Metadata
             data_sources="",
-            measured_at_utc=None,
+            canonical_version="3.0.0",
         )
 
     def _apply_precedence_rules(
@@ -210,11 +266,42 @@ class PhysiometricsConsolidationHandler:
             Metric value or None if not found
         """
         for entity in source_entities:
-            entity_sources = entity.get("data_sources", "").split(",")
-            if source in entity_sources:
-                value = entity.get(metric_name)
+            if self._entity_has_source(entity, source):
+                value = self._get_entity_metric_value(entity, metric_name)
                 if value is not None:
                     return value
+        return None
+
+    @classmethod
+    def _entity_sources(cls, entity: Dict) -> Set[str]:
+        """Return normalized source identifiers for an entity."""
+        sources: Set[str] = set()
+        data_source = entity.get("data_source")
+        if isinstance(data_source, str) and data_source.strip():
+            sources.add(data_source.strip().lower())
+
+        data_sources = entity.get("data_sources")
+        if isinstance(data_sources, str) and data_sources.strip():
+            for value in data_sources.split(","):
+                normalized = value.strip().lower()
+                if normalized:
+                    sources.add(normalized)
+
+        return sources
+
+    @classmethod
+    def _entity_has_source(cls, entity: Dict, source: str) -> bool:
+        """Check whether entity originated from a specific source."""
+        return source.lower() in cls._entity_sources(entity)
+
+    @classmethod
+    def _get_entity_metric_value(cls, entity: Dict, metric_name: str) -> Optional[Any]:
+        """Resolve a canonical metric from canonical/storage alias columns."""
+        candidate_fields = cls.STORAGE_FIELD_ALIASES.get(metric_name, [metric_name])
+        for field_name in candidate_fields:
+            value = entity.get(field_name)
+            if value is not None:
+                return value
         return None
 
     def _apply_latest_timestamp(
@@ -232,8 +319,7 @@ class PhysiometricsConsolidationHandler:
         """
         for entity in source_entities:
             self._merge_entity_metrics(consolidated, entity)
-            entity_sources = entity.get("data_sources", "").split(",")
-            used_sources.update(entity_sources)
+            used_sources.update(self._entity_sources(entity))
 
     def _merge_entity_metrics(
         self, consolidated: PhysiometricsSnapshot, entity: Dict
@@ -249,7 +335,7 @@ class PhysiometricsConsolidationHandler:
                 continue
 
             if getattr(consolidated, metric_name, None) is None:
-                value = entity.get(metric_name)
+                value = self._get_entity_metric_value(entity, metric_name)
                 if value is not None:
                     setattr(consolidated, metric_name, value)
 
@@ -268,7 +354,7 @@ class PhysiometricsConsolidationHandler:
             athlete_id: Athlete identifier
             effective_date: Date in YYYY-MM-DD
         """
-        consolidated.data_sources = ",".join(sorted(used_sources))
+        consolidated.data_sources = ",".join(sorted(src for src in used_sources if src))
         consolidated.canonical_version = self.CONSOLIDATED_VERSION
         consolidated.last_updated_utc = datetime.now(timezone.utc)
 

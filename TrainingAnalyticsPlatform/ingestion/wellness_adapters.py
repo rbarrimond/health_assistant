@@ -166,48 +166,42 @@ class WithingsPhysiometricsAdapter(BaseWellnessSourceAdapter):
         return PhysiometricsSnapshot(
             athlete_id=athlete_id,
             effective_date=effective_date,
+            # Body composition (Withings exclusive)
             weight_kg=weight_kg,
             fat_mass_kg=fat_mass_kg,
             body_fat_pct=body_fat_pct,
             muscle_mass_kg=muscle_mass_kg,
             bone_mass_kg=bone_mass_kg,
-            visceral_fat_index=None,
-            metabolic_age_years=None,
+            # Recovery metrics (Intervals exclusive)
             hrv_ln_rmssd=None,
-            resting_hr_bpm=None,
             sleep_duration_sec=None,
-            ftp_watts=None,
-            cycling_vo2max_ml_kg_min=None,
-            hr_lthr_bpm=None,
-            hr_max_bpm=None,
-            load=None,
-            readiness_score=None,
-            hrv_sdnn_ms=None,
-            # Extended wellness fields (not from Withings)
-            soreness=None,
-            fatigue=None,
-            stress=None,
-            mood=None,
-            motivation=None,
-            injury=None,
+            resting_hr_bpm=None,
+            # Activity (Intervals exclusive)
+            steps=None,
+            # Nutrition (Intervals exclusive)
             calories_kcal=None,
             carbs_g=None,
             protein_g=None,
             fat_g=None,
-            steps=None,
-            abdomen_cm=None,
-            spo2_pct=None,
-            systolic_bp=None,
-            diastolic_bp=None,
-            vo2max_ml_kg_min=None,
-            menstrual_phase=None,
-            menstrual_phase_predicted=None,
-            sport_info=None,
+            # Performance baselines (Garmin exclusive)
+            ftp_watts=None,
+            cycling_vo2max_ml_kg_min=None,
+            hr_lthr_bpm=None,
+            hr_max_bpm=None,
+            # Training state (Garmin exclusive)
+            training_load=None,
+            recovery_time_minutes=None,
+            readiness_score=None,
+            # Extended training metrics (Garmin exclusive)
+            training_effect_aerobic=None,
+            training_effect_anaerobic=None,
+            training_stress_score=None,
+            training_stress_balance=None,
+            atp_probability=None,
+            # Metadata
             data_sources="withings",
-            measured_at_utc=date_obj,
-            source_updated_at_utc=None,
-            raw_intervals_icu_json=None,
-            ext_json=None,
+            canonical_version="3.0.0",
+        )
         )
 
 
@@ -228,11 +222,75 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
                 return value
         return None
 
+    @staticmethod
+    def _first_map_value(source: Dict[str, Any]) -> Dict[str, Any]:
+        """Return first dictionary value from a keyed map payload."""
+        if not isinstance(source, dict) or not source:
+            return {}
+        first_value = next(iter(source.values()))
+        return first_value if isinstance(first_value, dict) else {}
+
+    def _extract_training_context(self, training_status: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+        """Extract normalized Garmin v2 payload fragments used for metric mapping."""
+        most_recent_vo2max = self._extract_first(
+            training_status,
+            [("mostRecentVO2Max",)],
+        ) or {}
+
+        most_recent_training_status = self._extract_first(
+            training_status,
+            [("mostRecentTrainingStatus",)],
+        ) or {}
+        latest_training_status_map = self._extract_first(
+            most_recent_training_status,
+            [("latestTrainingStatusData",)],
+        ) or {}
+        latest_training_status = self._first_map_value(latest_training_status_map)
+
+        acute_training_load = self._extract_first(
+            latest_training_status,
+            [("acuteTrainingLoadDTO",)],
+        ) or {}
+
+        return {
+            "most_recent_vo2max": most_recent_vo2max,
+            "latest_training_status": latest_training_status,
+            "acute_training_load": acute_training_load,
+        }
+
+    def _extract_vo2_metrics(self, stats: Dict[str, Any], most_recent_vo2max: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract cycling and running VO2 max from legacy or current Garmin payloads."""
+        vo2max_cycling = stats.get("vo2MaxCycling", {}).get("value") or self._extract_first(
+            most_recent_vo2max,
+            [
+                ("cycling", "vo2MaxPreciseValue"),
+                ("cycling", "vo2MaxValue"),
+            ],
+        )
+        vo2max_running = stats.get("vo2MaxRunning", {}).get("value") or self._extract_first(
+            most_recent_vo2max,
+            [
+                ("running", "vo2MaxPreciseValue"),
+                ("running", "vo2MaxValue"),
+                ("generic", "vo2MaxPreciseValue"),
+                ("generic", "vo2MaxValue"),
+            ],
+        )
+        return {
+            "vo2max_cycling": vo2max_cycling,
+            "vo2max_running": vo2max_running,
+        }
+
     def _do_parse(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """Extract queryable Garmin metrics from summary and training status payloads."""
         summary = raw_data.get("summary", raw_data)
         training_status = raw_data.get("training_status", {})
         stats = summary.get("stats", summary)
+        context = self._extract_training_context(training_status)
+        most_recent_vo2max = context["most_recent_vo2max"]
+        latest_training_status = context["latest_training_status"]
+        acute_training_load = context["acute_training_load"]
+        vo2_metrics = self._extract_vo2_metrics(stats, most_recent_vo2max)
 
         training_effect = self._extract_first(
             training_status,
@@ -254,8 +312,8 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
 
         return {
             "ftp": stats.get("functionThreshold"),
-            "vo2max_cycling": stats.get("vo2MaxCycling", {}).get("value"),
-            "vo2max_running": stats.get("vo2MaxRunning", {}).get("value"),
+            "vo2max_cycling": vo2_metrics["vo2max_cycling"],
+            "vo2max_running": vo2_metrics["vo2max_running"],
             "max_hr": stats.get("maxHeartRate"),
             "resting_hr": stats.get("restingHeartRate"),
             "readiness": stats.get("readiness", {}).get("score"),
@@ -264,6 +322,19 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
                 [
                     ("trainingLoad", "load"),
                     ("trainingLoad",),
+                ],
+            )
+            or self._extract_first(
+                latest_training_status,
+                [
+                    ("weeklyTrainingLoad",),
+                ],
+            )
+            or self._extract_first(
+                acute_training_load,
+                [
+                    ("dailyTrainingLoadAcute",),
+                    ("dailyTrainingLoadChronic",),
                 ],
             ),
             "training_effect_aerobic": self._extract_first(
@@ -298,12 +369,24 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
                     ("trainingStressScore",),
                     ("tss",),
                 ],
+            )
+            or self._extract_first(
+                acute_training_load,
+                [
+                    ("dailyTrainingLoadAcute",),
+                ],
             ),
             "training_stress_balance": self._extract_first(
                 training_status,
                 [
                     ("trainingStressBalance",),
                     ("stressBalance",),
+                ],
+            )
+            or self._extract_first(
+                acute_training_load,
+                [
+                    ("dailyAcuteChronicWorkloadRatio",),
                 ],
             ),
             "atp_probability": self._extract_first(
@@ -359,7 +442,11 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
     def map_to_canonical(
         self, parsed: Dict[str, Any], athlete_id: str
     ) -> PhysiometricsSnapshot:
-        """Map to PhysiometricsSnapshot."""
+        """Map to PhysiometricsSnapshot.
+        
+        Note: Garmin's resting_hr_bpm and steps are intentionally ignored per schema v3.0.0.
+        Intervals is the exclusive source for these metrics (Garmin values inaccurate).
+        """
         # Prefer Garmin lactate threshold HR; fallback to estimate from max HR.
         max_hr = parsed.get("max_hr")
         lthr = parsed.get("lactate_threshold_hr_bpm") or (
@@ -370,55 +457,42 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             athlete_id=athlete_id,
             effective_date=parsed.get("effective_date")
             or datetime.now(timezone.utc).date().isoformat(),
+            # Body composition (Withings exclusive)
             weight_kg=None,
             fat_mass_kg=None,
             body_fat_pct=None,
             muscle_mass_kg=None,
             bone_mass_kg=None,
-            visceral_fat_index=None,
-            metabolic_age_years=None,
+            # Recovery metrics (Intervals exclusive)
             hrv_ln_rmssd=None,
-            resting_hr_bpm=parsed.get("resting_hr"),
             sleep_duration_sec=None,
+            resting_hr_bpm=None,  # Intervals exclusive; Garmin ignored
+            # Activity (Intervals exclusive)
+            steps=None,  # Intervals exclusive; Garmin ignored
+            # Nutrition (Intervals exclusive)
+            calories_kcal=None,
+            carbs_g=None,
+            protein_g=None,
+            fat_g=None,
+            # Performance baselines (Garmin exclusive)
             ftp_watts=parsed.get("ftp"),
             cycling_vo2max_ml_kg_min=parsed.get("vo2max_cycling"),
-            running_vo2max_ml_kg_min=parsed.get("vo2max_running"),
             hr_lthr_bpm=lthr,
-            lactate_threshold_hr_bpm=parsed.get("lactate_threshold_hr_bpm"),
             hr_max_bpm=max_hr,
-            load=parsed.get("training_load"),
-            readiness_score=parsed.get("readiness"),
+            # Training state (Garmin exclusive)
             training_load=parsed.get("training_load"),
+            recovery_time_minutes=parsed.get("recovery_time_minutes"),
+            readiness_score=parsed.get("readiness"),
+            # Extended training metrics (Garmin exclusive)
             training_effect_aerobic=parsed.get("training_effect_aerobic"),
             training_effect_anaerobic=parsed.get("training_effect_anaerobic"),
             training_stress_score=parsed.get("training_stress_score"),
             training_stress_balance=parsed.get("training_stress_balance"),
             atp_probability=parsed.get("atp_probability"),
-            recovery_time_minutes=parsed.get("recovery_time_minutes"),
-            hrv_sdnn_ms=None,
-            # Extended wellness fields (not from Garmin)
-            soreness=None,
-            fatigue=None,
-            stress=None,
-            mood=None,
-            motivation=None,
-            injury=None,
-            calories_kcal=None,
-            carbs_g=None,
-            protein_g=None,
-            fat_g=None,
-            steps=None,
-            abdomen_cm=None,
-            spo2_pct=None,
-            systolic_bp=None,
-            diastolic_bp=None,
-            vo2max_ml_kg_min=None,
-            menstrual_phase=None,
-            menstrual_phase_predicted=None,
-            sport_info=None,
+            # Metadata
             data_sources="garmin",
-            measured_at_utc=None,
-            source_updated_at_utc=None,
+            canonical_version="3.0.0",
+        )
             raw_intervals_icu_json=None,
             ext_json=parsed.get("ext_json"),
         )
@@ -428,137 +502,95 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
     """Converts Intervals.icu API responses."""
 
     def _do_parse(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract wellness fields with compatibility aliases."""
+        """Extract wellness fields matching schema v3.0.0 scope.
+        
+        Includes recovery metrics, activity, and nutrition only.
+        Subjective wellness and extended body metrics excluded from MVP.
+        """
         sleep_seconds = raw_data.get("sleepSecs") or raw_data.get("sleep")
 
         return {
             "date": raw_data.get("id") or raw_data.get("date"),
-            "source_updated_at_utc": raw_data.get("updated"),
+            # Recovery metrics (Intervals exclusive)
             "hrv": raw_data.get("hrvRMSSD") or raw_data.get("hrv"),  # Already ln(RMSSD)
-            "hrv_sdnn_ms": raw_data.get("hrvSDNN"),
             "rhr": raw_data.get("restingHR") if raw_data.get("restingHR") is not None else raw_data.get("rhr"),
             "sleep_sec": sleep_seconds,
             "readiness": raw_data.get("readiness"),
-            # Optional canonical body composition from Intervals
-            "weight_kg": raw_data.get("weight"),
-            "body_fat_pct": raw_data.get("bodyFat"),
-            # Subjective wellness
-            "soreness": raw_data.get("soreness"),
-            "fatigue": raw_data.get("fatigue"),
-            "stress": raw_data.get("stress"),
-            "mood": raw_data.get("mood"),
-            "motivation": raw_data.get("motivation"),
-            "injury": raw_data.get("injury"),
-            # Nutrition
+            # Nutrition (Intervals exclusive)
             "calories_kcal": raw_data.get("kcalConsumed"),
             "carbs_g": raw_data.get("carbohydrates"),
             "protein_g": raw_data.get("protein"),
             "fat_g": raw_data.get("fatTotal"),
-            # Activity & body
+            # Activity (Intervals exclusive)
             "steps": raw_data.get("steps"),
-            "abdomen_cm": raw_data.get("abdomen"),
-            "spo2_pct": raw_data.get("spO2"),
-            "systolic_bp": raw_data.get("systolic"),
-            "diastolic_bp": raw_data.get("diastolic"),
-            "vo2max_ml_kg_min": raw_data.get("vo2max"),
-            "menstrual_phase": raw_data.get("menstrualPhase"),
-            "menstrual_phase_predicted": raw_data.get("menstrualPhasePredicted"),
-            # Nested sport metrics (pass through)
-            "sport_info": raw_data.get("sportInfo"),
-            # Raw source preservation (zero-loss)
-            "raw_intervals_icu_json": json.dumps(raw_data),
-            "ext_json": json.dumps(
-                {
-                    "hrv_sdnn_ms": raw_data.get("hrvSDNN"),
-                    "soreness": raw_data.get("soreness"),
-                    "fatigue": raw_data.get("fatigue"),
-                    "stress": raw_data.get("stress"),
-                    "mood": raw_data.get("mood"),
-                    "motivation": raw_data.get("motivation"),
-                    "injury": raw_data.get("injury"),
-                    "calories_kcal": raw_data.get("kcalConsumed"),
-                    "carbs_g": raw_data.get("carbohydrates"),
-                    "protein_g": raw_data.get("protein"),
-                    "fat_g": raw_data.get("fatTotal"),
-                    "abdomen_cm": raw_data.get("abdomen"),
-                    "spo2_pct": raw_data.get("spO2"),
-                    "systolic_bp": raw_data.get("systolic"),
-                    "diastolic_bp": raw_data.get("diastolic"),
-                    "vo2max_ml_kg_min": raw_data.get("vo2max"),
-                    "menstrual_phase": raw_data.get("menstrualPhase"),
-                    "menstrual_phase_predicted": raw_data.get("menstrualPhasePredicted"),
-                    "sport_info_json": json.dumps(raw_data.get("sportInfo")) if raw_data.get("sportInfo") is not None else None,
-                    "source_updated_at_utc": raw_data.get("updated"),
-                }
-            ),
         }
 
     def validate_semantic_contract(self, parsed: Dict[str, Any]) -> None:
-        """Validate: at least one field present (original or extended wellness)."""
-        # Original core wellness fields
-        core_fields = ["hrv", "rhr", "sleep", "readiness"]
-        # Extended wellness fields (v2.1.0+): subjective, nutrition, activity, body
-        extended_fields = [
-            "soreness", "fatigue", "stress", "mood", "motivation", "injury",
-            "calories_kcal", "carbs_g", "protein_g", "fat_g",
-            "steps", "abdomen_cm", "sport_info", "weight_kg", "body_fat_pct",
-            "hrv_sdnn_ms", "spo2_pct", "systolic_bp", "diastolic_bp", "vo2max_ml_kg_min"
-        ]
-        # Accept measurement if ANY core or extended field is present
-        all_fields = core_fields + extended_fields
+        """Validate: at least one field present in schema v3.0.0.
+        
+        Intervals provides recovery metrics, activity, and nutrition.
+        Subjective wellness and extended body metrics excluded from MVP.
+        """
+        # Recovery metrics (Intervals exclusive)
+        recovery_fields = ["hrv", "rhr", "sleep_sec", "readiness"]
+        # Nutrition (Intervals exclusive)
+        nutrition_fields = ["calories_kcal", "carbs_g", "protein_g", "fat_g"]
+        # Activity (Intervals exclusive)
+        activity_fields = ["steps"]
+        
+        all_fields = recovery_fields + nutrition_fields + activity_fields
         if not any(parsed.get(f) is not None for f in all_fields):
             raise AdapterError("No core or extended wellness metrics in Intervals response")
 
     def map_to_canonical(
         self, parsed: Dict[str, Any], athlete_id: str
     ) -> PhysiometricsSnapshot:
-        """Map to PhysiometricsSnapshot."""
+        """Map to PhysiometricsSnapshot.
+        
+        Intervals provides recovery metrics (HRV, sleep, resting HR), activity (steps),
+        and nutrition. Body composition (weight, body fat) ignored per schema v3.0.0
+        (Withings exclusive).
+        """
         date = parsed.get("date", datetime.now(timezone.utc).date().isoformat())
 
         return PhysiometricsSnapshot(
             athlete_id=athlete_id,
             effective_date=date,
-            weight_kg=parsed.get("weight_kg"),
+            # Body composition (Withings exclusive; Intervals ignored)
+            weight_kg=None,
             fat_mass_kg=None,
             muscle_mass_kg=None,
             bone_mass_kg=None,
-            body_fat_pct=parsed.get("body_fat_pct"),
-            visceral_fat_index=None,
-            metabolic_age_years=None,
+            body_fat_pct=None,
+            # Recovery metrics (Intervals exclusive)
             hrv_ln_rmssd=parsed.get("hrv"),
-            hrv_sdnn_ms=parsed.get("hrv_sdnn_ms"),
-            resting_hr_bpm=parsed.get("rhr"),
             sleep_duration_sec=parsed.get("sleep_sec"),
-            ftp_watts=None,
-            cycling_vo2max_ml_kg_min=None,
-            hr_lthr_bpm=None,
-            hr_max_bpm=None,
-            load=None,
-            readiness_score=parsed.get("readiness"),
-            soreness=parsed.get("soreness"),
-            fatigue=parsed.get("fatigue"),
-            stress=parsed.get("stress"),
-            mood=parsed.get("mood"),
-            motivation=parsed.get("motivation"),
-            injury=parsed.get("injury"),
+            resting_hr_bpm=parsed.get("rhr"),
+            # Activity (Intervals exclusive)
+            steps=parsed.get("steps"),
+            # Nutrition (Intervals exclusive)
             calories_kcal=parsed.get("calories_kcal"),
             carbs_g=parsed.get("carbs_g"),
             protein_g=parsed.get("protein_g"),
             fat_g=parsed.get("fat_g"),
-            steps=parsed.get("steps"),
-            abdomen_cm=parsed.get("abdomen_cm"),
-            spo2_pct=parsed.get("spo2_pct"),
-            systolic_bp=parsed.get("systolic_bp"),
-            diastolic_bp=parsed.get("diastolic_bp"),
-            vo2max_ml_kg_min=parsed.get("vo2max_ml_kg_min"),
-            menstrual_phase=parsed.get("menstrual_phase"),
-            menstrual_phase_predicted=parsed.get("menstrual_phase_predicted"),
-            sport_info=parsed.get("sport_info"),
+            # Performance baselines (Garmin exclusive)
+            ftp_watts=None,
+            cycling_vo2max_ml_kg_min=None,
+            hr_lthr_bpm=None,
+            hr_max_bpm=None,
+            # Training state (Garmin exclusive)
+            training_load=None,
+            recovery_time_minutes=None,
+            readiness_score=parsed.get("readiness"),  # Intervals fallback; Garmin preferred
+            # Extended training metrics (Garmin exclusive)
+            training_effect_aerobic=None,
+            training_effect_anaerobic=None,
+            training_stress_score=None,
+            training_stress_balance=None,
+            atp_probability=None,
+            # Metadata
             data_sources="intervals",
-            measured_at_utc=None,
-            source_updated_at_utc=parsed.get("source_updated_at_utc"),
-            raw_intervals_icu_json=parsed.get("raw_intervals_icu_json"),
-            ext_json=parsed.get("ext_json"),
+            canonical_version="3.0.0",
         )
 
 
