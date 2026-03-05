@@ -222,17 +222,40 @@ class TestSemanticLayerPhysiometrics:
             return SemanticLayer()
 
     def test_get_current_physiometrics(self, layer):
-        """Test retrieving current physiometric snapshot."""
-        layer.storage.physiometrics.get_physiometrics = MagicMock(
-            return_value={
-                "heart_rate": {"lthr_bpm": 175, "hr_max_bpm": 195},
-                "power": {"ftp_watts": 285},
-                "weight_kg": 75.2,
-                "cycling_vo2max_ml_kg_min": 52.3,
+        """Test retrieving current physiometrics consolidated across sources."""
+        mock_table = MagicMock()
+        mock_table.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-01-19",
                 "effective_date": "2026-01-19",
                 "data_source": "withings",
-            }
-        )
+                "updated_at_utc": "2026-01-19T08:00:00+00:00",
+                "weight_kg": 75.2,
+                "body_fat_pct": 16.4,
+            },
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-01-20",
+                "effective_date": "2026-01-20",
+                "data_source": "intervals",
+                "updated_at_utc": "2026-01-20T08:15:00+00:00",
+                "hrv_ln_rmssd": 3.9,
+                "heart_rate_resting_bpm": 48,
+                "sleep_duration_sec": 28600,
+            },
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-01-20",
+                "effective_date": "2026-01-20",
+                "data_source": "garmin",
+                "updated_at_utc": "2026-01-20T08:20:00+00:00",
+                "power_ftp_watts": 285,
+                "cycling_vo2max_ml_kg_min": 52.3,
+                "training_load": 310.0,
+            },
+        ]
+        layer.storage.infrastructure.get_table_client = MagicMock(return_value=mock_table)
 
         result = layer.get_current_physiometrics("rob")
 
@@ -240,6 +263,9 @@ class TestSemanticLayerPhysiometrics:
         assert result["weight_kg"] == pytest.approx(75.2)
         assert result["cycling_vo2max_ml_kg_min"] == pytest.approx(52.3)
         assert result["power"]["ftp_watts"] == 285
+        assert result["heart_rate"]["resting_hr_bpm"] == 48
+        assert result["training_load"] == pytest.approx(310.0)
+        assert sorted(result["data_sources"]) == ["garmin", "intervals", "withings"]
 
     def test_update_physiometric_value(self, layer):
         """Test updating a single physiometric value."""
