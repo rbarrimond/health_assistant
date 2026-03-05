@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Health Assistant - FIT File Processing",
-    "description": "Complete test collection with 34 requests covering all 33 endpoints. Includes 8 real FIT file payloads, config/asset endpoints, agent memory system, planning/analysis, physiometrics CRUD, OneDrive/Garmin/Intervals.icu sync, and OAuth flows. [Updated 2026-03-04: Intervals.icu integration migrated to wellness API with HTTP Basic auth, unified endpoint, consolidated HRV/resting-HR/sleep/readiness fields; ingestion handlers refactored for maintainability with structured logging improvements; all endpoints verified and tests passing (57/57). Added lap detail endpoint.].",
+    "description": "Complete test collection with 34 requests covering all 33 endpoints. Includes 8 real FIT file payloads, config/asset endpoints, agent memory system, planning/analysis, physiometrics CRUD, OneDrive/Garmin/Intervals.icu sync, and OAuth flows. [Updated 2026-03-05: FIT field normalization fix for left_right_balance (v14.4.1) - extracts 7-bit percentage from raw uint8 byte with bit 7 flag; canonical schema v2.0.1; separate Garmin activity sync and physiometrics (wellness) sync endpoints both operational; all tests passing (57/57).]",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [

@@ -1,12 +1,14 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Operations)
-  version: "2.0.2"
+  version: "2.0.3"
   description: |
     Operational and admin endpoints for Health Assistant.
     Includes ingestion, config, integrations, and plugin assets.
     
     Workout metrics including zones and enhanced analytics are computed at read-time from canonical substrate using athlete's current physiometric configuration. All derived metrics are computed deterministically by CanonicalAnalyticsEngine.
+    
+    [v2.0.3] Fixed FIT left_right_balance field decoding (bits 0-6 = percentage, bit 7 = flag).
 servers:
   - url: https://health.azure.barrimond.net
     description: Azure Functions host

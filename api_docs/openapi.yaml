@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Semantic/GPT)
-  version: "3.0.1"
+  version: "3.0.2"
   description: |
     Deterministic workout and physiometric API consumed by ChatGPT Actions.
     Returns workout metrics including zones and enhanced analytics computed at read-time from canonical substrate using athlete's current physiometric configuration. All derived metrics are computed deterministically by CanonicalAnalyticsEngine.
