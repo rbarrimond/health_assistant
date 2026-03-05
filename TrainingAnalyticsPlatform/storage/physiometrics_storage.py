@@ -20,9 +20,19 @@ class PhysiometricsStorage:
     _BODY_COMPOSITION_FIELDS = [
         "weight_kg", "fat_mass_kg", "muscle_mass_kg", "bone_mass_kg",
         "body_fat_pct", "visceral_fat_index", "metabolic_age_years",
-        "cycling_vo2max_ml_kg_min"
+        "cycling_vo2max_ml_kg_min", "running_vo2max_ml_kg_min"
     ]
     _CORE_WELLNESS_FIELDS = ["hrv_ln_rmssd", "hrv_sdnn_ms", "sleep_duration_sec", "readiness_score"]
+    _GARMIN_TRAINING_FIELDS = [
+        "training_load",
+        "training_effect_aerobic",
+        "training_effect_anaerobic",
+        "training_stress_score",
+        "training_stress_balance",
+        "atp_probability",
+        "recovery_time_minutes",
+        "lactate_threshold_hr_bpm",
+    ]
     _SUBJECTIVE_WELLNESS_MAP = {
         "subjective_soreness": "soreness",
         "subjective_fatigue": "fatigue",
@@ -92,10 +102,19 @@ class PhysiometricsStorage:
             "visceral_fat_index": physiometrics_data.get("visceral_fat_index"),
             "metabolic_age_years": physiometrics_data.get("metabolic_age_years"),
             "cycling_vo2max_ml_kg_min": physiometrics_data.get("cycling_vo2max_ml_kg_min"),
+            "running_vo2max_ml_kg_min": physiometrics_data.get("running_vo2max_ml_kg_min"),
             "hrv_ln_rmssd": physiometrics_data.get("hrv_ln_rmssd"),
             "hrv_sdnn_ms": physiometrics_data.get("hrv_sdnn_ms"),
             "sleep_duration_sec": physiometrics_data.get("sleep_duration_sec"),
             "readiness_score": physiometrics_data.get("readiness_score"),
+            "training_load": physiometrics_data.get("training_load"),
+            "training_effect_aerobic": physiometrics_data.get("training_effect_aerobic"),
+            "training_effect_anaerobic": physiometrics_data.get("training_effect_anaerobic"),
+            "training_stress_score": physiometrics_data.get("training_stress_score"),
+            "training_stress_balance": physiometrics_data.get("training_stress_balance"),
+            "atp_probability": physiometrics_data.get("atp_probability"),
+            "recovery_time_minutes": physiometrics_data.get("recovery_time_minutes"),
+            "lactate_threshold_hr_bpm": physiometrics_data.get("lactate_threshold_hr_bpm"),
             # Extended wellness columns
             "subjective_soreness": physiometrics_data.get("soreness"),
             "subjective_fatigue": physiometrics_data.get("fatigue"),
@@ -160,6 +179,7 @@ class PhysiometricsStorage:
         result: Dict[str, Any] = {"heart_rate": self._get_heart_rate(entity), "power": self._get_power(entity)}
         self._merge_fields(result, entity, self._BODY_COMPOSITION_FIELDS)
         self._merge_fields(result, entity, self._CORE_WELLNESS_FIELDS)
+        self._merge_fields(result, entity, self._GARMIN_TRAINING_FIELDS)
         self._merge_mapped(result, entity, self._SUBJECTIVE_WELLNESS_MAP)
         self._merge_mapped(result, entity, self._NUTRITION_MAP)
         self._merge_mapped(result, entity, self._ACTIVITY_BODY_MAP)

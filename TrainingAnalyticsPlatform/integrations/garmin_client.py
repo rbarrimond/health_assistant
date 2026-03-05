@@ -35,6 +35,8 @@ from TrainingAnalyticsPlatform.platform.exceptions import PreprocessingError
 
 logger = logging.getLogger(__name__)
 
+NOT_AUTHENTICATED_ERROR = "Not authenticated. Call login() first."
+
 
 class GarminConnectError(RuntimeError):
     """Raised when Garmin Connect API calls fail."""
@@ -101,7 +103,7 @@ class GarminConnectClient:
             GarminConnectError: If API call fails
         """
         if not self.client:
-            raise GarminConnectError("Not authenticated. Call login() first.")
+            raise GarminConnectError(NOT_AUTHENTICATED_ERROR)
 
         try:
             # Default lookback: 30 days
@@ -151,6 +153,38 @@ class GarminConnectClient:
         except ValueError:
             return False
 
+    def _ensure_authenticated_client(self) -> Garmin:
+        """Return authenticated Garmin client, logging in lazily if needed."""
+        if self.client is None:
+            self.login()
+        if self.client is None:
+            raise GarminConnectError(NOT_AUTHENTICATED_ERROR)
+        return self.client
+
+    def get_user_summary(self, date_str: str) -> Dict[str, Any]:
+        """Fetch Garmin daily user summary for a specific date (YYYY-MM-DD)."""
+        client = self._ensure_authenticated_client()
+        try:
+            return cast(Dict[str, Any], client.get_user_summary(date_str))
+        except Exception as exc:
+            logger.error("Failed to fetch Garmin user summary for %s: %s", date_str, exc)
+            raise GarminConnectError(
+                f"Failed to fetch Garmin user summary for {date_str}"
+            ) from exc
+
+    def get_training_status(self, date_str: str) -> Dict[str, Any]:
+        """Fetch Garmin training status for a specific date (YYYY-MM-DD)."""
+        client = self._ensure_authenticated_client()
+        try:
+            return cast(Dict[str, Any], client.get_training_status(date_str))
+        except Exception as exc:
+            logger.error(
+                "Failed to fetch Garmin training status for %s: %s", date_str, exc
+            )
+            raise GarminConnectError(
+                f"Failed to fetch Garmin training status for {date_str}"
+            ) from exc
+
     def download_activity_fit(self, activity_id: str) -> bytes:
         """Download FIT file for a specific activity.
         
@@ -164,7 +198,7 @@ class GarminConnectClient:
             GarminConnectError: If download fails or file cannot be processed
         """
         if not self.client:
-            raise GarminConnectError("Not authenticated. Call login() first.")
+            raise GarminConnectError(NOT_AUTHENTICATED_ERROR)
 
         try:
             # Use ORIGINAL format to get the FIT file

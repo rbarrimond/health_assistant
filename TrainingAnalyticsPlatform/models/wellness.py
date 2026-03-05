@@ -67,6 +67,9 @@ class PhysiometricsSnapshot(BaseModel):
     cycling_vo2max_ml_kg_min: Optional[float] = Field(
         None, ge=0, description="Estimated VO2Max in ml/kg/min"
     )
+    running_vo2max_ml_kg_min: Optional[float] = Field(
+        None, ge=0, description="Estimated running VO2Max in ml/kg/min"
+    )
     hr_lthr_bpm: Optional[float] = Field(
         None, ge=0, description="Lactate threshold heart rate in beats/minute"
     )
@@ -76,6 +79,30 @@ class PhysiometricsSnapshot(BaseModel):
     load: Optional[float] = Field(None, ge=0, description="Garmin training load proxy")
     readiness_score: Optional[float] = Field(
         None, ge=0, le=100, description="Garmin readiness score (0-100)"
+    )
+    training_load: Optional[float] = Field(
+        None, ge=0, description="Garmin cumulative training load"
+    )
+    training_effect_aerobic: Optional[float] = Field(
+        None, ge=0, le=5, description="Garmin aerobic training effect (0-5)"
+    )
+    training_effect_anaerobic: Optional[float] = Field(
+        None, ge=0, le=5, description="Garmin anaerobic training effect (0-5)"
+    )
+    training_stress_score: Optional[float] = Field(
+        None, ge=0, description="Garmin training stress score"
+    )
+    training_stress_balance: Optional[float] = Field(
+        None, description="Garmin training stress balance"
+    )
+    atp_probability: Optional[float] = Field(
+        None, ge=0, le=100, description="Garmin ATP/energy availability percentage"
+    )
+    recovery_time_minutes: Optional[int] = Field(
+        None, ge=0, description="Garmin estimated recovery time in minutes"
+    )
+    lactate_threshold_hr_bpm: Optional[float] = Field(
+        None, ge=0, description="Garmin reported lactate threshold heart rate"
     )
 
     # Subjective wellness scores (Intervals.icu self-reported metrics)
@@ -115,7 +142,7 @@ class PhysiometricsSnapshot(BaseModel):
         default="", description="CSV of sources: withings,garmin,intervals"
     )
     canonical_version: str = Field(
-        default="2.4.0", description="Schema version of this snapshot"
+        default="2.5.0", description="Schema version of this snapshot"
     )
     measured_at_utc: Optional[datetime] = Field(
         None, description="Most specific timestamp available from measurements"
@@ -203,6 +230,15 @@ class PhysiometricsSnapshot(BaseModel):
             
             # Aerobic capacity
             "cycling_vo2max_ml_kg_min": self.cycling_vo2max_ml_kg_min,
+            "running_vo2max_ml_kg_min": self.running_vo2max_ml_kg_min,
+            "training_load": self.training_load,
+            "training_effect_aerobic": self.training_effect_aerobic,
+            "training_effect_anaerobic": self.training_effect_anaerobic,
+            "training_stress_score": self.training_stress_score,
+            "training_stress_balance": self.training_stress_balance,
+            "atp_probability": self.atp_probability,
+            "recovery_time_minutes": self.recovery_time_minutes,
+            "lactate_threshold_hr_bpm": self.lactate_threshold_hr_bpm,
             
             # Subjective wellness
             "soreness": self.soreness,

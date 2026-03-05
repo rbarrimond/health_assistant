@@ -804,6 +804,56 @@ def garmin_sync_timer(timer: func.TimerRequest) -> None:
         logger.debug("Garmin timer trigger completed")
 
 
+@app.route(
+    route="garmin/physiometrics/sync",
+    methods=["POST"],
+    auth_level=func.AuthLevel.FUNCTION,
+)
+@endpoint
+def garmin_physiometrics_sync_http(req: func.HttpRequest) -> func.HttpResponse:
+    """HTTP-triggered Garmin physiometrics sync (summary + training status)."""
+    try:
+        body = req.get_json() if req.method == "POST" else {}
+    except ValueError:
+        body = {}
+
+    athlete_id = (
+        body.get("athlete_id")
+        or req.params.get("athlete_id")
+        or os.getenv("DEFAULT_ATHLETE_ID", "rob")
+    )
+    lookback_days = body.get("lookback_days")
+    if lookback_days is None:
+        lookback_days = req.params.get("lookback_days")
+
+    handler = dependencies.garmin_physiometrics_service
+    response, status = handler.handle(athlete_id, lookback_days)
+    return json_response(response, status)
+
+
+@app.timer_trigger(arg_name="timer", schedule="0 30 3 * * *")  # 3:30 AM UTC daily
+def garmin_physiometrics_sync_timer(timer: func.TimerRequest) -> None:
+    """Timer-triggered Garmin physiometrics sync."""
+    if timer.past_due:
+        logger.warning("Garmin physiometrics sync timer is past due")
+
+    try:
+        athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
+        handler = dependencies.garmin_physiometrics_service
+
+        response, status = handler.handle(athlete_id)
+
+        if status == 200:
+            logger.info("Garmin physiometrics sync completed: %s", response)
+        else:
+            logger.warning("Garmin physiometrics sync failed: %s", response)
+
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error("Garmin physiometrics timer failed: %s", exc, exc_info=True)
+    finally:
+        logger.debug("Garmin physiometrics timer trigger completed")
+
+
 # ============================================================================
 # Intervals.icu Sync Endpoints
 # ============================================================================

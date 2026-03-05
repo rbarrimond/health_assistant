@@ -22,6 +22,9 @@ from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import (
     GarminSyncConfig,
 )
 from TrainingAnalyticsPlatform.handlers.intervals_sync_handler import IntervalsSyncHandler
+from TrainingAnalyticsPlatform.handlers.garmin_physiometrics_sync_handler import (
+    GarminPhysiometricsSyncHandler,
+)
 from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
 from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
 from TrainingAnalyticsPlatform.integrations.withings_client import WithingsClient
@@ -100,6 +103,16 @@ class FunctionAppDependencies:
             client=client,
         )
         logger.info("Intervals.icu service initialized")
+        return handler
+
+    @cached_property
+    def garmin_physiometrics_service(self) -> GarminPhysiometricsSyncHandler:
+        """Return a cached Garmin physiometrics sync handler instance."""
+        handler = GarminPhysiometricsSyncHandler(
+            storage=self.storage,
+            client=self.garmin_client,
+        )
+        logger.info("Garmin physiometrics service initialized")
         return handler
 
     def warmup(self) -> None:

@@ -14,6 +14,7 @@ from .garmin_sync_handler import (
     GarminSyncIngestionHandler,
     GarminSyncConfig,
 )
+from .garmin_physiometrics_sync_handler import GarminPhysiometricsSyncHandler
 from .query_handler import QueryHandler
 from .physiometrics_handler import PhysiometricsHandler
 from .withings_handler import WithingsHandler
@@ -32,6 +33,7 @@ __all__ = [
     "GarminSyncRequest",
     "GarminSyncIngestionHandler",
     "GarminSyncConfig",
+    "GarminPhysiometricsSyncHandler",
     "QueryHandler",
     "PhysiometricsHandler",
     "WithingsHandler",

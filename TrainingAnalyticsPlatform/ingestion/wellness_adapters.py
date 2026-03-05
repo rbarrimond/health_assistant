@@ -212,40 +212,164 @@ class WithingsPhysiometricsAdapter(BaseWellnessSourceAdapter):
 
 
 class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
-    """Converts Garmin Connect API userSummary responses."""
+    """Converts Garmin Connect user summary + training status responses."""
+
+    @staticmethod
+    def _extract_first(source: Dict[str, Any], paths: list[tuple[str, ...]]) -> Any:
+        """Return the first non-null nested value from candidate paths."""
+        for path in paths:
+            value: Any = source
+            for key in path:
+                if not isinstance(value, dict):
+                    value = None
+                    break
+                value = value.get(key)
+            if value is not None:
+                return value
+        return None
 
     def _do_parse(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract from nested stats structure."""
-        stats = raw_data.get("stats", {})
+        """Extract queryable Garmin metrics from summary and training status payloads."""
+        summary = raw_data.get("summary", raw_data)
+        training_status = raw_data.get("training_status", {})
+        stats = summary.get("stats", summary)
+
+        training_effect = self._extract_first(
+            training_status,
+            [
+                ("trainingEffect",),
+                ("trainingEffectValues",),
+            ],
+        ) or {}
+
+        lactate_threshold_hr = self._extract_first(
+            training_status,
+            [
+                ("lactateThresholdHeartRate",),
+                ("lactateThreshold", "heartRate"),
+                ("recoveryMetrics", "lactateThresholdHeartRate"),
+                ("recoveryMetrics", "lthr"),
+            ],
+        )
+
         return {
             "ftp": stats.get("functionThreshold"),
             "vo2max_cycling": stats.get("vo2MaxCycling", {}).get("value"),
+            "vo2max_running": stats.get("vo2MaxRunning", {}).get("value"),
             "max_hr": stats.get("maxHeartRate"),
             "resting_hr": stats.get("restingHeartRate"),
             "readiness": stats.get("readiness", {}).get("score"),
+            "training_load": self._extract_first(
+                training_status,
+                [
+                    ("trainingLoad", "load"),
+                    ("trainingLoad",),
+                ],
+            ),
+            "training_effect_aerobic": self._extract_first(
+                training_status,
+                [
+                    ("trainingEffectAerobic",),
+                    ("aerobicTrainingEffect",),
+                    ("aerobic",),
+                ],
+            )
+            if not isinstance(training_effect, dict)
+            else self._extract_first(
+                training_effect,
+                [("aerobic",), ("aerobicValue",)],
+            ),
+            "training_effect_anaerobic": self._extract_first(
+                training_status,
+                [
+                    ("trainingEffectAnaerobic",),
+                    ("anaerobicTrainingEffect",),
+                    ("anaerobic",),
+                ],
+            )
+            if not isinstance(training_effect, dict)
+            else self._extract_first(
+                training_effect,
+                [("anaerobic",), ("anaerobicValue",)],
+            ),
+            "training_stress_score": self._extract_first(
+                training_status,
+                [
+                    ("trainingStressScore",),
+                    ("tss",),
+                ],
+            ),
+            "training_stress_balance": self._extract_first(
+                training_status,
+                [
+                    ("trainingStressBalance",),
+                    ("stressBalance",),
+                ],
+            ),
+            "atp_probability": self._extract_first(
+                training_status,
+                [
+                    ("atpProbability",),
+                    ("atpProability",),
+                    ("atp",),
+                ],
+            ),
+            "recovery_time_minutes": self._extract_first(
+                training_status,
+                [
+                    ("recoveryTimeMinutes",),
+                    ("recoveryMinutes",),
+                ],
+            ),
+            "lactate_threshold_hr_bpm": lactate_threshold_hr,
+            "effective_date": summary.get("calendarDate"),
+            "ext_json": json.dumps(
+                {
+                    "summary": summary,
+                    "training_status": training_status,
+                }
+            ),
         }
 
-    def validate_semantic_contract(self, parsed: Dict[str, Any]) -> None:
-        """Validate ranges: FTP 150-400W, VO2Max 30-100."""
-        ftp = parsed.get("ftp")
-        if ftp and (ftp < 150 or ftp > 400):
-            raise AdapterError(f"FTP out of range: {ftp}")
+    @staticmethod
+    def _validate_range(
+        parsed: Dict[str, Any], key: str, minimum: float, maximum: float, label: str
+    ) -> None:
+        """Validate optional numeric field within inclusive range."""
+        value = parsed.get(key)
+        if value is None:
+            return
+        if value < minimum or value > maximum:
+            raise AdapterError(f"{label} out of range: {value}")
 
-        vo2max = parsed.get("vo2max_cycling")
-        if vo2max and (vo2max < 30 or vo2max > 100):
-            raise AdapterError(f"VO2Max out of range: {vo2max}")
+    def validate_semantic_contract(self, parsed: Dict[str, Any]) -> None:
+        """Validate Garmin metric ranges for canonical integrity."""
+        checks = [
+            ("ftp", 150, 400, "FTP"),
+            ("vo2max_cycling", 30, 100, "VO2Max"),
+            ("vo2max_running", 20, 100, "Running VO2Max"),
+            ("training_effect_aerobic", 0, 5, "Aerobic training effect"),
+            ("training_effect_anaerobic", 0, 5, "Anaerobic training effect"),
+            ("atp_probability", 0, 100, "ATP probability"),
+            ("lactate_threshold_hr_bpm", 80, 220, "Lactate threshold HR"),
+        ]
+        for key, minimum, maximum, label in checks:
+            self._validate_range(parsed, key, minimum, maximum, label)
 
     def map_to_canonical(
         self, parsed: Dict[str, Any], athlete_id: str
     ) -> PhysiometricsSnapshot:
         """Map to PhysiometricsSnapshot."""
-        # Estimate LTHR as 85% of max HR
+        # Prefer Garmin lactate threshold HR; fallback to estimate from max HR.
         max_hr = parsed.get("max_hr")
-        lthr = int(max_hr * 0.85) if max_hr else None
+        lthr = parsed.get("lactate_threshold_hr_bpm") or (
+            int(max_hr * 0.85) if max_hr else None
+        )
 
         return PhysiometricsSnapshot(
             athlete_id=athlete_id,
-            effective_date=datetime.now(timezone.utc).date().isoformat(),
+            effective_date=parsed.get("effective_date")
+            or datetime.now(timezone.utc).date().isoformat(),
             weight_kg=None,
             fat_mass_kg=None,
             body_fat_pct=None,
@@ -258,10 +382,19 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             sleep_duration_sec=None,
             ftp_watts=parsed.get("ftp"),
             cycling_vo2max_ml_kg_min=parsed.get("vo2max_cycling"),
+            running_vo2max_ml_kg_min=parsed.get("vo2max_running"),
             hr_lthr_bpm=lthr,
+            lactate_threshold_hr_bpm=parsed.get("lactate_threshold_hr_bpm"),
             hr_max_bpm=max_hr,
-            load=None,
+            load=parsed.get("training_load"),
             readiness_score=parsed.get("readiness"),
+            training_load=parsed.get("training_load"),
+            training_effect_aerobic=parsed.get("training_effect_aerobic"),
+            training_effect_anaerobic=parsed.get("training_effect_anaerobic"),
+            training_stress_score=parsed.get("training_stress_score"),
+            training_stress_balance=parsed.get("training_stress_balance"),
+            atp_probability=parsed.get("atp_probability"),
+            recovery_time_minutes=parsed.get("recovery_time_minutes"),
             hrv_sdnn_ms=None,
             # Extended wellness fields (not from Garmin)
             soreness=None,
@@ -287,7 +420,7 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             measured_at_utc=None,
             source_updated_at_utc=None,
             raw_intervals_icu_json=None,
-            ext_json=None,
+            ext_json=parsed.get("ext_json"),
         )
 
 

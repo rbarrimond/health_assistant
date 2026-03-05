@@ -10,6 +10,32 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-04
 
+### Garmin Physiometrics Expansion [canonical v2.5.0, ingest v14.4.0]
+
+- **Feature**: Added Garmin physiometrics sync path that ingests both daily summary and training status.
+- **New endpoint**: `POST /api/garmin/physiometrics/sync`
+- **New timer**: Garmin physiometrics sync runs daily at 3:30 AM UTC.
+- **Garmin client additions**:
+  - `get_user_summary(date)` for daily summary metrics
+  - `get_training_status(date)` for training effect/recovery metrics
+- **Canonical physiometrics additions** (queryable):
+  - `running_vo2max_ml_kg_min`
+  - `training_load`
+  - `training_effect_aerobic`
+  - `training_effect_anaerobic`
+  - `training_stress_score`
+  - `training_stress_balance`
+  - `atp_probability`
+  - `recovery_time_minutes`
+  - `lactate_threshold_hr_bpm`
+- **LTHR behavior change**:
+  - `hr_lthr_bpm` now prefers Garmin-reported lactate threshold HR when available.
+  - Falls back to `85%` of max HR only when training status does not provide LTHR.
+- **Storage changes**: Added direct columns for the new queryable Garmin training fields while preserving full source payloads in `ext_json`.
+- **Versioning**:
+  - `PhysiometricsSnapshot.canonical_version` bumped `2.4.0` → `2.5.0`
+  - `INGEST_VERSION` bumped `v14.3.11` → `v14.4.0`
+
 ### Sleep Duration Field Refactor [canonical v2.4.0, ingest v14.3.11] **BREAKING**
 
 - **Schema change**: Renamed `sleep_duration_min` → `sleep_duration_sec` to store sleep in seconds (no conversion)
