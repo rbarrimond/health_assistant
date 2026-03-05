@@ -99,6 +99,26 @@ class CanonicalRecord(BaseModel):
         elevation = msg.get_value("altitude", fallback=None)
         temperature = msg.get_value("temperature", fallback=None)
         lr_balance = msg.get_value("left_right_balance", fallback=None)
+
+        # FIT record message left_right_balance is uint8 with bits 0-6 containing
+        # the percentage value (0-127 range) and bit 7 containing a right-side flag.
+        # fitdecode returns the raw byte; mask to extract the percentage contribution.
+        if lr_balance is not None and isinstance(lr_balance, (int, float)):
+            raw_value = int(lr_balance)
+            masked_value = raw_value & 0x7F  # Extract bits 0-6
+            if masked_value != raw_value:
+                logger.debug(
+                    "Normalized left/right balance from FIT raw byte",
+                    extra={
+                        "fit_field_decode": {
+                            "field": "left_right_balance",
+                            "raw_byte": raw_value,
+                            "masked_percentage": masked_value,
+                        }
+                    },
+                )
+            lr_balance = float(masked_value)
+
         # Note: respiration_rate and rr_interval require special handling
         # respiration_rate is rare and device-specific
         # rr_interval comes from HRV messages, not record messages

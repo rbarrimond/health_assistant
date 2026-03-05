@@ -440,3 +440,64 @@ def test_resampling_aggregates_rr_intervals():
         for rv in rr_vals
         if rv is not None
     )
+
+
+# =========================================================================
+# FIT Field Decoding Tests
+# =========================================================================
+
+
+def test_canonical_record_from_fit_message_masks_left_right_balance():
+    """Test that left_right_balance is masked from raw byte (bits 0-6) to percentage."""
+    # FIT spec: left_right_balance uint8 where bits 0-6 = percentage, bit 7 = right flag
+    # Raw byte 184 (0xB8 = 10111000) → bits 0-6 = 0111000 = 56%
+    base_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+    msg = MockFitDataMessage(
+        "record",
+        timestamp=base_time,
+        power=100,
+        left_right_balance=184,  # Raw FIT byte with flag bit set
+    )
+
+    record = CanonicalRecord.from_fit_message(msg)  # type: ignore
+
+    # Should be masked to 56 (184 & 0x7F = 56)
+    assert record is not None
+    assert record.lr_balance_pct == pytest.approx(56.0)
+
+
+def test_canonical_record_from_fit_message_preserves_clean_balance():
+    """Test that left_right_balance within 0-100 range passes through correctly."""
+    base_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+    msg = MockFitDataMessage(
+        "record",
+        timestamp=base_time,
+        power=100,
+        left_right_balance=75,  # Already within range
+    )
+
+    record = CanonicalRecord.from_fit_message(msg)  # type: ignore
+
+    # Should pass through unchanged (75 & 0x7F = 75)
+    assert record is not None
+    assert record.lr_balance_pct == pytest.approx(75.0)
+
+
+def test_canonical_record_from_fit_message_handles_none_balance():
+    """Test that left_right_balance=None is handled gracefully."""
+    base_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+    msg = MockFitDataMessage(
+        "record",
+        timestamp=base_time,
+        power=100,
+        left_right_balance=None,
+    )
+
+    record = CanonicalRecord.from_fit_message(msg)  # type: ignore
+
+    # Should pass through as None
+    assert record is not None
+    assert record.lr_balance_pct is None

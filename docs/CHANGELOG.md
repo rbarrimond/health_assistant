@@ -8,6 +8,12 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-05
+
+### FIT Field Decoding Fix [ingest v14.4.1]
+
+- **Fix**: Normalize FIT `left_right_balance` field by extracting 7-bit percentage from raw uint8 byte. FIT spec encodes percentage in bits 0-6 with bit 7 as a right-side flag; fitdecode returns raw byte without masking. Apply `& 0x7F` mask during canonical record construction to ensure values conform to documented 0-100 constraint. Fixes validation errors on activities with biased left_right_balance values (e.g., raw byte 184 → 56% contribution). Structured logging records decode normalization for traceability.
+
 ## 2026-03-04
 
 ### Garmin Physiometrics Expansion [canonical v2.5.0, ingest v14.4.0]
