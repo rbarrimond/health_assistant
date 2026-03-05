@@ -492,9 +492,6 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             data_sources="garmin",
             canonical_version="3.0.0",
         )
-            raw_intervals_icu_json=None,
-            ext_json=parsed.get("ext_json"),
-        )
 
 
 class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
