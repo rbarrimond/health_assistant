@@ -630,6 +630,88 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/garmin/physiometrics/sync:
+    post:
+      summary: Sync Garmin physiometrics data (user summary + training status)
+      operationId: garminPhysiometricsSync
+      description: |
+        Fetch physiometrics data from Garmin Connect using user summary and training status endpoints.
+        Retrieves daily metrics including VO2Max, training load, training effect (aerobic/anaerobic),
+        training stress score, ATP probability, recovery time, and lactate threshold heart rate.
+        Requires Garmin Connect credentials (EMAIL and PASSWORD stored in Key Vault).
+      security:
+        - FunctionKey: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                athlete_id:
+                  type: string
+                  description: Athlete identifier (optional, defaults to DEFAULT_ATHLETE_ID env var)
+                lookback_days:
+                  type: integer
+                  description: Number of days to look back for physiometrics data (default 7)
+            examples:
+              basicSync:
+                summary: Default sync (7 days)
+                value:
+                  athlete_id: rob
+              customLookback:
+                summary: Custom lookback period
+                value:
+                  athlete_id: rob
+                  lookback_days: 14
+      responses:
+        '200':
+          description: Sync completed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  athlete_id:
+                    type: string
+                  lookback_days:
+                    type: integer
+                  records_processed:
+                    type: integer
+                    description: Successfully ingested physiometrics records (days with valid data)
+                  date_range:
+                    type: object
+                    properties:
+                      start:
+                        type: string
+                        format: date
+                        description: Start date of sync window
+                      end:
+                        type: string
+                        format: date
+                        description: End date of sync window (inclusive)
+                required:
+                  - status
+                  - athlete_id
+                  - lookback_days
+                  - records_processed
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Authentication failed - check Garmin Connect credentials (EMAIL/PASSWORD in Key Vault)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
 components:
   parameters:
     AthleteId:
