@@ -188,6 +188,10 @@ class MockFitDataMessage:
         """Mock get_value method to retrieve field values."""
         return self._field_values.get(field_name, fallback)
 
+    def get_raw_value(self, field_name: str, fallback=None):
+        """Mock get_raw_value method (same as get_value since mock doesn't apply enum rendering)."""
+        return self._field_values.get(field_name, fallback)
+
 
 def test_hrv_merging_with_timestamped_message():  # pylint: disable=protected-access
     """Test HRV grouping with timestamped messages (Mode 1: authoritative timestamp)."""

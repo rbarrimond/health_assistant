@@ -188,7 +188,7 @@ class TestWorkoutEntitySchema:
             "has_power": True,
             "has_hr": True,
             "has_gps": True,
-            "canonical_schema_version": "v2.0.0",
+            "canonical_schema_version": "2.0.1",
             "canonical_records_blob": "metadata/w-001.parquet",
             "records_count": 3600,
             "laps_count": 0,

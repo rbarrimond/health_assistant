@@ -98,14 +98,16 @@ class CanonicalRecord(BaseModel):
         distance = msg.get_value("distance", fallback=None)
         elevation = msg.get_value("altitude", fallback=None)
         temperature = msg.get_value("temperature", fallback=None)
-        lr_balance = msg.get_value("left_right_balance", fallback=None)
 
         # FIT record message left_right_balance is uint8 with bits 0-6 containing
         # the percentage value (0-127 range) and bit 7 containing a right-side flag.
-        # fitdecode returns the raw byte; mask to extract the percentage contribution.
-        if lr_balance is not None and isinstance(lr_balance, (int, float)):
-            raw_value = int(lr_balance)
-            masked_value = raw_value & 0x7F  # Extract bits 0-6
+        # Use get_raw_value() to bypass enum rendering (0x80 → 'right', 0x7F → 'mask')
+        # and work with the numeric byte directly for masking.
+        lr_balance = None
+        lr_balance_raw = msg.get_raw_value("left_right_balance", fallback=None)
+        if lr_balance_raw is not None and isinstance(lr_balance_raw, (int, float)):
+            raw_value = int(lr_balance_raw)
+            masked_value = raw_value & 0x7F  # Extract bits 0-6 (percentage, 0-127)
             if masked_value != raw_value:
                 logger.debug(
                     "Normalized left/right balance from FIT raw byte",
@@ -137,6 +139,7 @@ class CanonicalRecord(BaseModel):
             lr_balance_pct=cast(Optional[float], lr_balance),
             rr_intervals_sec=rr_intervals_sec,
         )
+
 
 
 class CanonicalRecordSet(BaseModel):

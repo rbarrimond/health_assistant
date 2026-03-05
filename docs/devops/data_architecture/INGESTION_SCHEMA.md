@@ -44,7 +44,7 @@ Canonical schema documentation is centralized in this document.
 - `canonical_schema_version` persisted in Workouts is sourced from `CANONICAL_SCHEMA_VERSION` in `TrainingAnalyticsPlatform/storage/table_storage.py`.
 - The value is attached during ingestion in `FitIngestionBaseHandler._parse_and_store()`.
 
-Current canonical schema version: `1.4.0`.
+Current canonical schema version: `2.0.1`.
 
 ### Change management contract
 
