@@ -395,6 +395,25 @@
           "response": []
         },
         {
+          "name": "PATCH /api/agent/preferences/{preference_id}",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/agent/preferences/REPLACE_WITH_PREFERENCE_ID?code={{function_key}}",
+            "description": "Update a specific preference (priority, status, category, details). Function key required.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"athlete_id\": \"{{athlete_id}}\",\n  \"priority\": \"high\",\n  \"status\": \"active\",\n  \"category\": \"training_goal\",\n  \"summary\": \"Updated goal\",\n  \"details\": \"Focus on aerobic capacity building\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
           "name": "GET /api/agent/observations",
           "request": {
             "method": "GET",
@@ -567,6 +586,25 @@
             },
             "url": "{{base_url}}/api/garmin/sync?code={{function_key}}",
             "description": "Run Garmin Connect sync (function key required). Downloads FIT files from recent activities. Defaults to async=true; set async=false for blocking."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /garmin/physiometrics/sync",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lookback_days\": 7,\n  \"athlete_id\": \"{{athlete_id}}\",\n  \"async\": false\n}"
+            },
+            "url": "{{base_url}}/api/garmin/physiometrics/sync?code={{function_key}}",
+            "description": "Sync Garmin physiometrics data (function key required). Downloads user summary and training status data (VO2Max, training load, training effect, recovery time). Stores data in Physiometrics table. Defaults to async=true; set async=false for blocking."
           },
           "response": []
         }
