@@ -7,16 +7,84 @@ It shapes data for reasoning, constrains scope, and encodes how humans think abo
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Tuple, TypedDict
+from typing import Any, Dict, List, Optional, Set, Tuple, TypedDict
 import pandas as pd
 
 from azure.core.exceptions import HttpResponseError
 
 from TrainingAnalyticsPlatform.models.core import CanonicalAnalyticsEngine
+from TrainingAnalyticsPlatform.models.wellness import TrainingStateSnapshot
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import WorkoutEntity
 
 logger = logging.getLogger(__name__)
 UTC_OFFSET = "+00:00"
+
+# Keep source precedence local to avoid circular import with handlers package.
+PHYSIOMETRICS_SOURCE_PRECEDENCE = {
+    "weight_kg": ["withings"],
+    "fat_mass_kg": ["withings"],
+    "muscle_mass_kg": ["withings"],
+    "bone_mass_kg": ["withings"],
+    "body_fat_pct": ["withings"],
+    "visceral_fat_index": ["withings"],
+    "metabolic_age_years": ["withings"],
+    "hrv_ln_rmssd": ["intervals", "garmin"],
+    "hrv_sdnn_ms": ["intervals", "garmin"],
+    "resting_hr_bpm": ["intervals", "garmin"],
+    "sleep_duration_sec": ["intervals", "garmin"],
+    "soreness": ["intervals"],
+    "fatigue": ["intervals"],
+    "stress": ["intervals"],
+    "mood": ["intervals"],
+    "motivation": ["intervals"],
+    "injury": ["intervals"],
+    "calories_kcal": ["intervals"],
+    "carbs_g": ["intervals"],
+    "protein_g": ["intervals"],
+    "fat_g": ["intervals"],
+    "steps": ["intervals", "garmin"],
+    "abdomen_cm": ["intervals", "withings"],
+    "spo2_pct": ["intervals", "garmin"],
+    "systolic_bp": ["intervals"],
+    "diastolic_bp": ["intervals"],
+    "vo2max_ml_kg_min": ["intervals", "garmin"],
+    "menstrual_phase": ["intervals"],
+    "menstrual_phase_predicted": ["intervals"],
+    "ftp_watts": ["garmin", "intervals"],
+    "cycling_vo2max_ml_kg_min": ["garmin", "intervals"],
+    "running_vo2max_ml_kg_min": ["garmin", "intervals"],
+    "hr_lthr_bpm": ["garmin", "intervals"],
+    "hr_max_bpm": ["garmin", "intervals"],
+    "load": ["garmin"],
+    "readiness_score": ["garmin", "intervals"],
+    "training_load": ["garmin"],
+    "training_effect_aerobic": ["garmin"],
+    "training_effect_anaerobic": ["garmin"],
+    "training_stress_score": ["garmin"],
+    "training_stress_balance": ["garmin"],
+    "atp_probability": ["garmin"],
+    "recovery_time_minutes": ["garmin"],
+    "lactate_threshold_hr_bpm": ["garmin"],
+}
+
+PHYSIOMETRICS_STORAGE_FIELD_ALIASES = {
+    "ftp_watts": ["ftp_watts", "power_ftp_watts"],
+    "hr_lthr_bpm": ["hr_lthr_bpm", "heart_rate_lthr_bpm"],
+    "hr_max_bpm": ["hr_max_bpm", "heart_rate_hr_max_bpm"],
+    "resting_hr_bpm": ["resting_hr_bpm", "heart_rate_resting_bpm"],
+    "soreness": ["soreness", "subjective_soreness"],
+    "fatigue": ["fatigue", "subjective_fatigue"],
+    "stress": ["stress", "subjective_stress"],
+    "mood": ["mood", "subjective_mood"],
+    "motivation": ["motivation", "subjective_motivation"],
+    "injury": ["injury", "subjective_injury"],
+    "calories_kcal": ["calories_kcal", "nutrition_calories_kcal"],
+    "carbs_g": ["carbs_g", "nutrition_carbs_g"],
+    "protein_g": ["protein_g", "nutrition_protein_g"],
+    "fat_g": ["fat_g", "nutrition_fat_g"],
+    "steps": ["steps", "activity_steps"],
+    "abdomen_cm": ["abdomen_cm", "body_abdomen_cm"],
+}
 
 
 class DevFieldSummary(TypedDict):
@@ -1071,53 +1139,201 @@ class SemanticLayer:
         Returns:
             Dict containing current weight, FTP, LTHR, cycling VO2Max, body composition, etc.
         """
-        config = self.storage.physiometrics.get_physiometrics(athlete_id)
-
-        if not config:
+        source_rows = self._get_latest_source_rows(athlete_id)
+        if not source_rows:
             return {
                 "athlete_id": athlete_id,
                 "error": "No physiometrics data found"
             }
 
+        merged = self._resolve_current_from_precedence(source_rows)
+        data_sources = sorted(source_rows.keys())
+        source_effective_dates = {
+            source: row.get("effective_date")
+            for source, row in source_rows.items()
+            if row.get("effective_date")
+        }
+        latest_effective_date = max(source_effective_dates.values()) if source_effective_dates else None
+
         # Extract values for easy consumption
         result = {
             "athlete_id": athlete_id,
             "heart_rate": {
-                "basis": config.get("heart_rate", {}).get("basis"),
-                "lthr_bpm": config.get("heart_rate", {}).get("lthr_bpm"),
-                "hr_max_bpm": config.get("heart_rate", {}).get("hr_max_bpm"),
-                "resting_hr_bpm": config.get("heart_rate", {}).get("resting_hr_bpm"),
+                "basis": merged.get("heart_rate_basis"),
+                "lthr_bpm": merged.get("hr_lthr_bpm"),
+                "hr_max_bpm": merged.get("hr_max_bpm"),
+                "resting_hr_bpm": merged.get("resting_hr_bpm"),
             },
             "power": {
-                "ftp_watts": config.get("power", {}).get("ftp_watts"),
+                "ftp_watts": merged.get("ftp_watts"),
             },
         }
 
         # Add body composition if present
-        if config.get("weight_kg") is not None:
-            result["weight_kg"] = config.get("weight_kg")
-        if config.get("fat_mass_kg") is not None:
-            result["fat_mass_kg"] = config.get("fat_mass_kg")
-        if config.get("muscle_mass_kg") is not None:
-            result["muscle_mass_kg"] = config.get("muscle_mass_kg")
-        if config.get("bone_mass_kg") is not None:
-            result["bone_mass_kg"] = config.get("bone_mass_kg")
-        if config.get("body_fat_pct") is not None:
-            result["body_fat_pct"] = config.get("body_fat_pct")
-        if config.get("visceral_fat_index") is not None:
-            result["visceral_fat_index"] = config.get("visceral_fat_index")
-        if config.get("metabolic_age_years") is not None:
-            result["metabolic_age_years"] = config.get("metabolic_age_years")
-        if config.get("cycling_vo2max_ml_kg_min") is not None:
-            result["cycling_vo2max_ml_kg_min"] = config.get("cycling_vo2max_ml_kg_min")
+        optional_metrics = [
+            "weight_kg",
+            "fat_mass_kg",
+            "muscle_mass_kg",
+            "bone_mass_kg",
+            "body_fat_pct",
+            "visceral_fat_index",
+            "metabolic_age_years",
+            "cycling_vo2max_ml_kg_min",
+            "running_vo2max_ml_kg_min",
+            "training_load",
+            "training_effect_aerobic",
+            "training_effect_anaerobic",
+            "training_stress_score",
+            "training_stress_balance",
+            "atp_probability",
+            "recovery_time_minutes",
+            "lactate_threshold_hr_bpm",
+            "hrv_ln_rmssd",
+            "hrv_sdnn_ms",
+            "sleep_duration_sec",
+            "readiness_score",
+            "soreness",
+            "fatigue",
+            "stress",
+            "mood",
+            "motivation",
+            "injury",
+            "steps",
+            "spo2_pct",
+            "systolic_bp",
+            "diastolic_bp",
+        ]
+        for metric_name in optional_metrics:
+            if merged.get(metric_name) is not None:
+                result[metric_name] = merged.get(metric_name)
 
         # Add metadata
-        if config.get("effective_date"):
-            result["effective_date"] = config.get("effective_date")
-        if config.get("data_source"):
-            result["data_source"] = config.get("data_source")
+        if latest_effective_date:
+            result["effective_date"] = latest_effective_date
+        result["data_sources"] = data_sources
+        if source_effective_dates:
+            result["source_effective_dates"] = source_effective_dates
 
         return result
+
+    @staticmethod
+    def _parse_iso_timestamp(value: Optional[str]) -> datetime:
+        """Parse ISO timestamp; fallback to minimum UTC time when missing/invalid."""
+        if not value:
+            return datetime.min.replace(tzinfo=timezone.utc)
+        normalized = value.replace("Z", UTC_OFFSET)
+        try:
+            parsed = datetime.fromisoformat(normalized)
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=timezone.utc)
+            return parsed
+        except ValueError:
+            return datetime.min.replace(tzinfo=timezone.utc)
+
+    @staticmethod
+    def _canonical_sources_from_row(row: Dict[str, Any]) -> Set[str]:
+        """Return canonical source IDs present in a physiometrics row."""
+        sources: Set[str] = set()
+        singular = row.get("data_source")
+        if isinstance(singular, str) and singular.strip():
+            sources.add(singular.strip().lower())
+        csv_sources = row.get("data_sources")
+        if isinstance(csv_sources, str) and csv_sources.strip():
+            for value in csv_sources.split(","):
+                normalized = value.strip().lower()
+                if normalized:
+                    sources.add(normalized)
+        return sources
+
+    @staticmethod
+    def _effective_date_from_row(row: Dict[str, Any]) -> str:
+        """Return the row's effective date fallback key for ordering."""
+        return row.get("effective_date") or row.get("RowKey", "")
+
+    def _is_row_newer(self, candidate: Dict[str, Any], existing: Dict[str, Any]) -> bool:
+        """Compare two source rows and return whether candidate is newer."""
+        candidate_effective = self._effective_date_from_row(candidate)
+        existing_effective = self._effective_date_from_row(existing)
+        if candidate_effective > existing_effective:
+            return True
+        if candidate_effective < existing_effective:
+            return False
+        return self._parse_iso_timestamp(candidate.get("updated_at_utc")) > self._parse_iso_timestamp(
+            existing.get("updated_at_utc")
+        )
+
+    def _update_latest_for_source(
+        self,
+        latest_per_source: Dict[str, Dict[str, Any]],
+        source: str,
+        row: Dict[str, Any],
+    ) -> None:
+        """Insert/replace latest row for a source based on date and update timestamp."""
+        existing = latest_per_source.get(source)
+        if existing is None or self._is_row_newer(row, existing):
+            latest_per_source[source] = row
+
+    def _get_latest_source_rows(self, athlete_id: str) -> Dict[str, Dict[str, Any]]:
+        """Get latest physiometrics row per source for the athlete."""
+        table_client = self.storage.infrastructure.get_table_client("Physiometrics")
+        rows = list(table_client.query_entities(f"PartitionKey eq '{athlete_id}'"))
+        tracked_sources = {"intervals", "garmin", "withings"}
+        latest_per_source: Dict[str, Dict[str, Any]] = {}
+
+        for row in rows:
+            for source in self._canonical_sources_from_row(row):
+                if source not in tracked_sources:
+                    continue
+                self._update_latest_for_source(latest_per_source, source, row)
+
+        return latest_per_source
+
+    @staticmethod
+    def _resolve_row_metric_value(row: Dict[str, Any], metric_name: str) -> Optional[Any]:
+        """Resolve a metric from canonical/storage alias columns."""
+        candidate_fields = PHYSIOMETRICS_STORAGE_FIELD_ALIASES.get(metric_name, [metric_name])
+        for field_name in candidate_fields:
+            value = row.get(field_name)
+            if value is not None:
+                return value
+        return None
+
+    def _resolve_metric_from_sources(
+        self,
+        metric_name: str,
+        sources: List[str],
+        latest_source_rows: Dict[str, Dict[str, Any]],
+    ) -> Tuple[Optional[Any], Optional[str]]:
+        """Resolve one metric using source precedence order."""
+        for source in sources:
+            row = latest_source_rows.get(source)
+            if row is None:
+                continue
+            value = self._resolve_row_metric_value(row, metric_name)
+            if value is not None:
+                return value, row.get("heart_rate_basis")
+        return None, None
+
+    def _resolve_current_from_precedence(
+        self, latest_source_rows: Dict[str, Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Resolve consolidated metric values from latest source rows using precedence."""
+        resolved: Dict[str, Any] = {}
+
+        for metric_name, sources in PHYSIOMETRICS_SOURCE_PRECEDENCE.items():
+            metric_value, basis = self._resolve_metric_from_sources(
+                metric_name,
+                sources,
+                latest_source_rows,
+            )
+            if metric_value is None:
+                continue
+            resolved[metric_name] = metric_value
+            if metric_name in {"hr_lthr_bpm", "hr_max_bpm", "resting_hr_bpm"}:
+                if isinstance(basis, str) and basis.strip():
+                    resolved["heart_rate_basis"] = basis
+
+        return resolved
 
     def get_physiometrics_trends(self, athlete_id: str, days: int = 90,
                                 metrics: Optional[List[str]] = None) -> Dict:
@@ -1245,3 +1461,279 @@ class SemanticLayer:
             "workout_id": workout_id,
             "override": physiometrics_override,
         }
+
+    # -------------------------------------------------------------------------
+    # Training State Projections (On-Demand Computation)
+    # -------------------------------------------------------------------------
+
+    def compute_current_training_state(self, athlete_id: str) -> Dict:
+        """
+        Compute current training state on-demand from Workouts + Physiometrics.
+
+        IMPORTANT: TrainingState is a pure projection - NOT stored in a table.
+        Computed fresh for each API request.
+
+        Args:
+            athlete_id: Athlete identifier
+
+        Returns:
+            Dict containing TrainingStateSnapshot with:
+            - cts_rolling_7d, cts_rolling_28d, ats_rolling, fatigue_index
+            - readiness_score, garmin_readiness_score
+            - effective_date (today)
+        """
+        end_date = datetime.now(timezone.utc).date()
+        
+        # Compute TrainingStateSnapshot for today
+        snapshot = self._compute_training_state_for_date(athlete_id, end_date)
+        
+        return {
+            "athlete_id": athlete_id,
+            "effective_date": snapshot.effective_date,
+            "cts_rolling_7d": snapshot.cts_rolling_7d,
+            "cts_rolling_28d": snapshot.cts_rolling_28d,
+            "ats_rolling": snapshot.ats_rolling,
+            "fatigue_index": snapshot.fatigue_index,
+            "readiness_score": snapshot.readiness_score,
+            "garmin_readiness_score": snapshot.garmin_readiness_score,
+            "mood": snapshot.mood,
+            "soreness": snapshot.soreness,
+            "pred_recovery_days": snapshot.pred_recovery_days,
+            "data_sources": snapshot.data_sources,
+            "canonical_version": snapshot.canonical_version,
+            "computed_at_utc": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def compute_training_state_history(
+        self, athlete_id: str, days: int = 45
+    ) -> Dict:
+        """
+        Compute training state history on-demand for a date range.
+
+        Computes TrainingStateSnapshot for each day in the range by querying
+        Workouts table and calculating rolling TSS. NOT stored - pure projection.
+
+        Args:
+            athlete_id: Athlete identifier
+            days: Number of days to look back (default 45)
+
+        Returns:
+            Dict with query window and list of daily training state snapshots
+        """
+        end_date = datetime.now(timezone.utc).date()
+        start_date = end_date - timedelta(days=days)
+        
+        # Compute training state for each day in range
+        snapshots = []
+        current_date = start_date
+        
+        while current_date <= end_date:
+            snapshot = self._compute_training_state_for_date(athlete_id, current_date)
+            snapshots.append({
+                "effective_date": snapshot.effective_date,
+                "cts_rolling_7d": snapshot.cts_rolling_7d,
+                "cts_rolling_28d": snapshot.cts_rolling_28d,
+                "ats_rolling": snapshot.ats_rolling,
+                "fatigue_index": snapshot.fatigue_index,
+                "readiness_score": snapshot.readiness_score,
+                "garmin_readiness_score": snapshot.garmin_readiness_score,
+            })
+            current_date += timedelta(days=1)
+        
+        return {
+            "athlete_id": athlete_id,
+            "query_window": {
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "days": days,
+            },
+            "count": len(snapshots),
+            "data_points": snapshots,
+            "computed_at_utc": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def _compute_training_state_for_date(
+        self, athlete_id: str, date: Any  # datetime.date
+    ) -> TrainingStateSnapshot:
+        """
+        Compute TrainingStateSnapshot for a specific date (internal helper).
+
+        Args:
+            athlete_id: Athlete identifier
+            date: Target date (datetime.date)
+
+        Returns:
+            TrainingStateSnapshot with computed training state metrics
+        """
+        # Get table clients
+        workouts_table = self.storage.infrastructure.get_table_client("Workouts")
+        phys_table = self.storage.infrastructure.get_table_client("Physiometrics")
+
+        # Compute rolling TSS from Workouts
+        tss_7d, tss_28d = self._compute_rolling_tss(
+            athlete_id, date, workouts_table
+        )
+
+        # Compute CTS and ATS (Training Stress Balance model)
+        cts_7d = tss_7d / 7.0 if tss_7d else 0.0  # Acute (7-day average)
+        cts_28d = tss_28d / 28.0 if tss_28d else 0.0  # Chronic (28-day average)
+
+        ats = cts_7d  # ATS = CTS over 7 days
+        cts = cts_28d  # CTS = long-term load
+
+        # Fatigue index = ATS / CTS; higher = more fatigued
+        fatigue_index = None
+        if cts and cts > 0:
+            fatigue_index = ats / cts
+
+        # Fetch latest Physiometrics for HRV and readiness
+        physio_filter = f"PartitionKey eq '{athlete_id}'"
+        try:
+            physio_entities = list(phys_table.query_entities(physio_filter))
+            physio_entities.sort(
+                key=lambda e: e.get("effective_date", ""), reverse=True
+            )
+            latest_physio = physio_entities[0] if physio_entities else {}
+        except HttpResponseError:
+            latest_physio = {}
+
+        # Extract HRV and readiness from latest physiometrics
+        hrv_ln = latest_physio.get("hrv_ln_rmssd")
+        garmin_readiness = latest_physio.get("readiness_score")
+        
+        # Compute composite readiness (if not provided by Garmin)
+        composite_readiness = self._compute_composite_readiness(
+            hrv_ln, fatigue_index, garmin_readiness
+        )
+
+        # Build TrainingStateSnapshot
+        snapshot = TrainingStateSnapshot(
+            athlete_id=athlete_id,
+            effective_date=date.isoformat(),
+            cts_rolling_7d=cts_7d,
+            cts_rolling_28d=cts_28d,
+            ats_rolling=ats,
+            fatigue_index=fatigue_index,
+            readiness_score=composite_readiness or garmin_readiness,
+            garmin_readiness_score=garmin_readiness,
+            mood=None,
+            soreness=None,
+            pred_recovery_days=None,
+            data_sources="workouts,physiometrics",
+            canonical_version="3.0.0",
+        )
+
+        logger.debug(
+            "Computed training state for %s on %s: CTS_7d=%.1f, CTS_28d=%.1f, fatigue_idx=%.2f",
+            athlete_id,
+            date.isoformat(),
+            cts_7d,
+            cts_28d,
+            fatigue_index or 0,
+        )
+
+        return snapshot
+
+    def _compute_rolling_tss(
+        self,
+        athlete_id: str,
+        end_date: Any,  # datetime.date
+        workouts_table: Any,
+    ) -> Tuple[float, float]:
+        """
+        Compute rolling TSS for last 7 and 28 days from Workouts table.
+
+        Args:
+            athlete_id: Athlete identifier
+            end_date: End date (datetime.date)
+            workouts_table: Workouts table client
+
+        Returns:
+            Tuple of (tss_7d, tss_28d)
+        """
+        start_date_7 = end_date - timedelta(days=7)
+        start_date_28 = end_date - timedelta(days=28)
+
+        # Query workouts for this athlete
+        filter_str = f"PartitionKey eq '{athlete_id}'"
+        try:
+            workout_entities = list(workouts_table.query_entities(filter_str))
+        except HttpResponseError:
+            return 0.0, 0.0
+
+        tss_7d = 0.0
+        tss_28d = 0.0
+
+        for entity in workout_entities:
+            tss = entity.get("tss", 0)
+            if not tss:
+                continue
+
+            # Parse start_time_utc
+            start_str = entity.get("start_time_utc")
+            if not start_str:
+                continue
+
+            try:
+                start_dt = datetime.fromisoformat(start_str.replace("Z", UTC_OFFSET))
+                start_date = start_dt.date()
+            except (ValueError, AttributeError):
+                continue
+
+            # Accumulate TSS
+            if start_date_28 <= start_date <= end_date:
+                tss_28d += tss
+            if start_date_7 <= start_date <= end_date:
+                tss_7d += tss
+
+        return tss_7d, tss_28d
+
+    def _compute_composite_readiness(
+        self,
+        hrv_ln: Optional[float],
+        fatigue_index: Optional[float],
+        garmin_readiness: Optional[float],
+    ) -> Optional[float]:
+        """
+        Compute composite readiness score (0-100) from HRV and fatigue.
+
+        Simple weighted model:
+        - HRV (ln_rmssd): typically 2.5-4.5, normalized to 0-100
+        - Fatigue index: typically 0.5-2.0, inverted and normalized
+        - Garmin readiness: preferred if available
+
+        Args:
+            hrv_ln: Natural log of RMSSD (HRV metric)
+            fatigue_index: ATS/CTS ratio (higher = more fatigued)
+            garmin_readiness: Garmin native readiness score (0-100)
+
+        Returns:
+            Composite readiness score (0-100), or None if insufficient data
+        """
+        # Prefer Garmin readiness if available
+        if garmin_readiness is not None:
+            return garmin_readiness
+
+        # Otherwise compute from HRV and fatigue index
+        if hrv_ln is None and fatigue_index is None:
+            return None
+
+        score_components = []
+
+        # HRV component (normalize ln_rmssd from 2.5-4.5 to 0-100)
+        if hrv_ln is not None:
+            hrv_normalized = max(0, min(100, (hrv_ln - 2.5) / 2.0 * 100))
+            score_components.append(hrv_normalized)
+
+        # Fatigue component (invert fatigue_index: lower fatigue = higher readiness)
+        if fatigue_index is not None:
+            # Typical range: 0.5 (fresh) to 2.0 (fatigued)
+            # Invert: 2.0 -> 0, 0.5 -> 100
+            fatigue_normalized = max(0, min(100, (2.0 - fatigue_index) / 1.5 * 100))
+            score_components.append(fatigue_normalized)
+
+        if not score_components:
+            return None
+
+        # Weighted average
+        return sum(score_components) / len(score_components)
