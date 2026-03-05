@@ -22,8 +22,15 @@ class PhysiometricsSnapshot(BaseModel):
     RowKey: YYYY-MM-DD (effective_date, local athlete timezone)
 
     This snapshot represents the canonical view of an athlete's daily body state,
-    integrating measurements from Withings (weight, body composition), Intervals
-    (HRV, RHR, sleep), and Garmin training state (FTP, VO2Max, LTHR).
+    integrating measurements from:
+    - Withings: body composition (weight, fat/muscle/bone mass, body fat %)
+    - Intervals: recovery metrics (HRV, sleep, resting HR), activity (steps), nutrition
+    - Garmin: performance baselines (FTP, VO2Max, LTHR), training state (load, readiness)
+
+    Field ownership and precedence:
+    - Withings: exclusive for all body composition
+    - Intervals: exclusive for resting_hr_bpm, steps (Garmin values ignored as inaccurate)
+    - Garmin: exclusive for training state and performance metrics
 
     Nullable fields support sparse data (not all sources report all metrics daily).
     """
@@ -33,7 +40,7 @@ class PhysiometricsSnapshot(BaseModel):
         description="YYYY-MM-DD in athlete's local timezone (row key)"
     )
 
-    # Withings body composition metrics
+    # Body composition (Withings exclusive)
     weight_kg: Optional[float] = Field(None, ge=0, description="Body weight in kg")
     fat_mass_kg: Optional[float] = Field(None, ge=0, description="Fat mass in kg")
     muscle_mass_kg: Optional[float] = Field(None, ge=0, description="Muscle mass in kg")
@@ -41,34 +48,33 @@ class PhysiometricsSnapshot(BaseModel):
     body_fat_pct: Optional[float] = Field(
         None, ge=0, le=100, description="Body fat percentage"
     )
-    visceral_fat_index: Optional[float] = Field(
-        None, ge=0, description="Withings visceral fat index"
-    )
-    metabolic_age_years: Optional[int] = Field(
-        None, ge=0, description="Estimated metabolic age in years"
-    )
 
-    # Intervals wellness metrics
+    # Recovery metrics (Intervals exclusive)
     hrv_ln_rmssd: Optional[float] = Field(
         None, description="HRV (natural log of RMSSD) for modeling"
-    )
-    hrv_sdnn_ms: Optional[float] = Field(
-        None, ge=0, description="HRV SDNN in milliseconds (Intervals)"
-    )
-    resting_hr_bpm: Optional[float] = Field(
-        None, ge=0, description="Resting heart rate in beats/minute"
     )
     sleep_duration_sec: Optional[float] = Field(
         None, ge=0, description="Sleep duration in seconds"
     )
+    resting_hr_bpm: Optional[float] = Field(
+        None, ge=0, description="Resting heart rate (Intervals exclusive; Garmin ignored)"
+    )
 
-    # Garmin training state snapshot
+    # Activity (Intervals exclusive)
+    steps: Optional[int] = Field(
+        None, ge=0, description="Daily step count (Intervals exclusive; Garmin ignored)"
+    )
+
+    # Nutrition (Intervals exclusive)
+    calories_kcal: Optional[float] = Field(None, ge=0, description="Daily calorie intake in kcal")
+    carbs_g: Optional[float] = Field(None, ge=0, description="Carbohydrate intake in grams")
+    protein_g: Optional[float] = Field(None, ge=0, description="Protein intake in grams")
+    fat_g: Optional[float] = Field(None, ge=0, description="Fat intake in grams")
+
+    # Performance baselines (Garmin exclusive)
     ftp_watts: Optional[float] = Field(None, ge=0, description="Functional threshold power in watts")
     cycling_vo2max_ml_kg_min: Optional[float] = Field(
-        None, ge=0, description="Estimated VO2Max in ml/kg/min"
-    )
-    running_vo2max_ml_kg_min: Optional[float] = Field(
-        None, ge=0, description="Estimated running VO2Max in ml/kg/min"
+        None, ge=0, description="Estimated cycling VO2Max in ml/kg/min"
     )
     hr_lthr_bpm: Optional[float] = Field(
         None, ge=0, description="Lactate threshold heart rate in beats/minute"
@@ -76,13 +82,19 @@ class PhysiometricsSnapshot(BaseModel):
     hr_max_bpm: Optional[float] = Field(
         None, ge=0, description="Maximum heart rate in beats/minute"
     )
-    load: Optional[float] = Field(None, ge=0, description="Garmin training load proxy")
-    readiness_score: Optional[float] = Field(
-        None, ge=0, le=100, description="Garmin readiness score (0-100)"
-    )
+
+    # Training state (Garmin exclusive)
     training_load: Optional[float] = Field(
         None, ge=0, description="Garmin cumulative training load"
     )
+    recovery_time_minutes: Optional[int] = Field(
+        None, ge=0, description="Garmin estimated recovery time in minutes"
+    )
+    readiness_score: Optional[float] = Field(
+        None, ge=0, le=100, description="Garmin readiness score (0-100)"
+    )
+
+    # Extended training metrics (Garmin exclusive)
     training_effect_aerobic: Optional[float] = Field(
         None, ge=0, le=5, description="Garmin aerobic training effect (0-5)"
     )
@@ -98,63 +110,13 @@ class PhysiometricsSnapshot(BaseModel):
     atp_probability: Optional[float] = Field(
         None, ge=0, le=100, description="Garmin ATP/energy availability percentage"
     )
-    recovery_time_minutes: Optional[int] = Field(
-        None, ge=0, description="Garmin estimated recovery time in minutes"
-    )
-    lactate_threshold_hr_bpm: Optional[float] = Field(
-        None, ge=0, description="Garmin reported lactate threshold heart rate"
-    )
-
-    # Subjective wellness scores (Intervals.icu self-reported metrics)
-    soreness: Optional[int] = Field(None, ge=0, le=10, description="Muscle soreness (0-10)")
-    fatigue: Optional[int] = Field(None, ge=0, le=10, description="Overall fatigue (0-10)")
-    stress: Optional[int] = Field(None, ge=0, le=10, description="Stress level (0-10)")
-    mood: Optional[int] = Field(None, ge=0, le=10, description="Mood state (0-10)")
-    motivation: Optional[int] = Field(None, ge=0, le=10, description="Training motivation (0-10)")
-    injury: Optional[int] = Field(None, ge=0, le=10, description="Injury severity (0-10)")
-
-    # Nutrition tracking (Intervals.icu dietary log)
-    calories_kcal: Optional[float] = Field(None, ge=0, description="Daily calorie intake in kcal")
-    carbs_g: Optional[float] = Field(None, ge=0, description="Carbohydrate intake in grams")
-    protein_g: Optional[float] = Field(None, ge=0, description="Protein intake in grams")
-    fat_g: Optional[float] = Field(None, ge=0, description="Fat intake in grams")
-
-    # Activity and body metrics
-    steps: Optional[int] = Field(None, ge=0, description="Daily step count")
-    abdomen_cm: Optional[float] = Field(None, ge=0, description="Abdominal circumference in cm")
-    spo2_pct: Optional[float] = Field(None, ge=0, le=100, description="Blood oxygen saturation percentage")
-    systolic_bp: Optional[float] = Field(None, ge=0, description="Systolic blood pressure")
-    diastolic_bp: Optional[float] = Field(None, ge=0, description="Diastolic blood pressure")
-    vo2max_ml_kg_min: Optional[float] = Field(None, ge=0, description="VO2max in ml/kg/min")
-    menstrual_phase: Optional[str] = Field(None, description="Menstrual cycle phase (Intervals)")
-    menstrual_phase_predicted: Optional[str] = Field(
-        None, description="Predicted menstrual phase (Intervals)"
-    )
-
-    # Nested sport-specific training metrics from Intervals.icu
-    sport_info: Optional[List[Dict[str, Any]]] = Field(
-        None,
-        description="Per-sport metrics array: [{'type', 'eftp', 'wPrime', 'pMax'}, ...]"
-    )
 
     # Provenance and versioning
     data_sources: str = Field(
         default="", description="CSV of sources: withings,garmin,intervals"
     )
     canonical_version: str = Field(
-        default="2.5.0", description="Schema version of this snapshot"
-    )
-    measured_at_utc: Optional[datetime] = Field(
-        None, description="Most specific timestamp available from measurements"
-    )
-    source_updated_at_utc: Optional[str] = Field(
-        None, description="Source-reported update timestamp (ISO 8601)"
-    )
-    raw_intervals_icu_json: Optional[str] = Field(
-        None, description="Full unmodified Intervals.icu day payload JSON"
-    )
-    ext_json: Optional[str] = Field(
-        None, description="Canonical extended fields JSON blob for non-queryable metrics"
+        default="3.0.0", description="Schema version (3.0.0 = simplified MVP)"
     )
     last_updated_utc: datetime = Field(
         default_factory=datetime.utcnow,
@@ -173,104 +135,45 @@ class PhysiometricsSnapshot(BaseModel):
         Returns:
             Dict matching physiometrics_storage.py entity schema
         """
-        sport_info_json = (
-            json.dumps(self.sport_info) if self.sport_info is not None else None
-        )
-        ext_payload = {
-            "hrv_sdnn_ms": self.hrv_sdnn_ms,
-            "soreness": self.soreness,
-            "fatigue": self.fatigue,
-            "stress": self.stress,
-            "mood": self.mood,
-            "motivation": self.motivation,
-            "injury": self.injury,
-            "calories_kcal": self.calories_kcal,
-            "carbs_g": self.carbs_g,
-            "protein_g": self.protein_g,
-            "fat_g": self.fat_g,
-            "abdomen_cm": self.abdomen_cm,
-            "spo2_pct": self.spo2_pct,
-            "systolic_bp": self.systolic_bp,
-            "diastolic_bp": self.diastolic_bp,
-            "vo2max_ml_kg_min": self.vo2max_ml_kg_min,
-            "menstrual_phase": self.menstrual_phase,
-            "menstrual_phase_predicted": self.menstrual_phase_predicted,
-            "sport_info_json": sport_info_json,
-            "source_updated_at_utc": self.source_updated_at_utc,
-        }
-
         return {
-            # Body composition (Withings)
+            # Body composition (Withings exclusive)
             "weight_kg": self.weight_kg,
             "fat_mass_kg": self.fat_mass_kg,
             "muscle_mass_kg": self.muscle_mass_kg,
             "bone_mass_kg": self.bone_mass_kg,
             "body_fat_pct": self.body_fat_pct,
-            "visceral_fat_index": self.visceral_fat_index,
-            "metabolic_age_years": self.metabolic_age_years,
             
-            # Heart rate metrics (nested for legacy compatibility)
-            "heart_rate": {
-                "basis": "LTHR",  # Default basis for Intervals/Garmin data
-                "lthr_bpm": self.hr_lthr_bpm,
-                "hr_max_bpm": self.hr_max_bpm,
-                "resting_hr_bpm": self.resting_hr_bpm,
-            },
-            
-            # Wellness metrics (Intervals)
+            # Recovery metrics (Intervals exclusive)
             "hrv_ln_rmssd": self.hrv_ln_rmssd,
-            "hrv_sdnn_ms": self.hrv_sdnn_ms,
             "sleep_duration_sec": self.sleep_duration_sec,
-            "readiness_score": self.readiness_score,
+            "resting_hr_bpm": self.resting_hr_bpm,
             
-            # Power metrics (nested for legacy compatibility)
-            "power": {
-                "ftp_watts": self.ftp_watts,
-            },
+            # Activity (Intervals exclusive)
+            "steps": self.steps,
             
-            # Aerobic capacity
-            "cycling_vo2max_ml_kg_min": self.cycling_vo2max_ml_kg_min,
-            "running_vo2max_ml_kg_min": self.running_vo2max_ml_kg_min,
-            "training_load": self.training_load,
-            "training_effect_aerobic": self.training_effect_aerobic,
-            "training_effect_anaerobic": self.training_effect_anaerobic,
-            "training_stress_score": self.training_stress_score,
-            "training_stress_balance": self.training_stress_balance,
-            "atp_probability": self.atp_probability,
-            "recovery_time_minutes": self.recovery_time_minutes,
-            "lactate_threshold_hr_bpm": self.lactate_threshold_hr_bpm,
-            
-            # Subjective wellness
-            "soreness": self.soreness,
-            "fatigue": self.fatigue,
-            "stress": self.stress,
-            "mood": self.mood,
-            "motivation": self.motivation,
-            "injury": self.injury,
-            
-            # Nutrition
+            # Nutrition (Intervals exclusive)
             "calories_kcal": self.calories_kcal,
             "carbs_g": self.carbs_g,
             "protein_g": self.protein_g,
             "fat_g": self.fat_g,
             
-            # Activity & body
-            "steps": self.steps,
-            "abdomen_cm": self.abdomen_cm,
-            "spo2_pct": self.spo2_pct,
-            "systolic_bp": self.systolic_bp,
-            "diastolic_bp": self.diastolic_bp,
-            "vo2max_ml_kg_min": self.vo2max_ml_kg_min,
-            "menstrual_phase": self.menstrual_phase,
-            "menstrual_phase_predicted": self.menstrual_phase_predicted,
+            # Performance baselines (Garmin exclusive)
+            "ftp_watts": self.ftp_watts,
+            "cycling_vo2max_ml_kg_min": self.cycling_vo2max_ml_kg_min,
+            "hr_lthr_bpm": self.hr_lthr_bpm,
+            "hr_max_bpm": self.hr_max_bpm,
             
-            # Nested sport data (serialize to JSON string)
-            "sport_info_json": sport_info_json,
-
-            # Raw source preservation (zero-loss ingestion)
-            "source_updated_at_utc": self.source_updated_at_utc,
-            "raw_intervals_icu_json": self.raw_intervals_icu_json,
-            "ext_json": self.ext_json if self.ext_json is not None else json.dumps(ext_payload),
+            # Training state (Garmin exclusive)
+            "training_load": self.training_load,
+            "recovery_time_minutes": self.recovery_time_minutes,
+            "readiness_score": self.readiness_score,
+            
+            # Extended training metrics (Garmin exclusive)
+            "training_effect_aerobic": self.training_effect_aerobic,
+            "training_effect_anaerobic": self.training_effect_anaerobic,
+            "training_stress_score": self.training_stress_score,
+            "training_stress_balance": self.training_stress_balance,
+            "atp_probability": self.atp_probability,
         }
 
     class Config:
@@ -333,7 +236,7 @@ class TrainingStateSnapshot(BaseModel):
         default="", description="CSV of sources: workouts,physiometrics,garmin"
     )
     canonical_version: str = Field(
-        default="2.0.0", description="Schema version of this snapshot"
+        default="3.0.0", description="Schema version of this snapshot"
     )
     last_updated_utc: datetime = Field(
         default_factory=datetime.utcnow, description="When snapshot was computed"

@@ -157,6 +157,7 @@ class WorkoutMetricsModel(BaseModel):
             is_indoor=metadata.get("is_indoor"),
             start_time_utc=metadata.get("start_time_utc") or metrics.get("start_time_utc"),
             local_tz_offset=local_tz_offset,
+            timezone=local_tz_offset,
             duration_sec=metadata.get("duration_sec") or metrics.get("duration_sec"),
             moving_time_sec=metadata.get("moving_time_sec") or metrics.get("moving_time_sec"),
         )
@@ -516,7 +517,7 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
                 return tuple(chain.from_iterable(tuples))
 
             rr_frame[rr_col] = df[[rr_col]].resample("1s").apply(
-                lambda x: concatenate_rr_tuples(x[rr_col].values)
+                lambda x: concatenate_rr_tuples(x[rr_col].values)  # type: ignore[arg-type]
             )
 
         resampled = pd.concat([mean_frame, last_frame, rr_frame], axis=1)
