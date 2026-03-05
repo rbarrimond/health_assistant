@@ -293,7 +293,7 @@ class FitIngestionBaseHandler(ABC):
             self._record_filtered_ingestion(
                 athlete_id,
                 source_info,
-                message=message,
+                filter_message=message,
                 reason=reason,
             )
             raise DeviceFilteredError(
@@ -315,7 +315,7 @@ class FitIngestionBaseHandler(ABC):
                 self._record_filtered_ingestion(
                     athlete_id,
                     source_info,
-                    message=message,
+                    filter_message=message,
                     reason=reason,
                 )
                 raise DeviceFilteredError(
@@ -331,7 +331,7 @@ class FitIngestionBaseHandler(ABC):
         athlete_id: str,
         source_info: Dict[str, Any],
         *,
-        message: str,
+        filter_message: str,
         reason: str,
     ) -> None:
         logger.warning(
@@ -339,7 +339,7 @@ class FitIngestionBaseHandler(ABC):
             extra={
                 "athlete_id": athlete_id,
                 "reason": reason,
-                "message": message,
+                "filter_message": filter_message,
                 "source_system": source_info.get("source_system"),
                 "ingestion_id": source_info.get("ingestion_id"),
                 "device_source_type": source_info.get("device_source_type"),
@@ -350,7 +350,7 @@ class FitIngestionBaseHandler(ABC):
             athlete_id,
             source_info,
             status="filtered",
-            error=f"{reason}:{message}",
+            error=f"{reason}:{filter_message}",
             ingestion_id=source_info.get("ingestion_id"),
             ingestion_key=source_info.get("ingestion_id"),
         )
