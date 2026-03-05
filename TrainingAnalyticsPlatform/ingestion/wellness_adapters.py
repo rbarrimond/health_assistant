@@ -202,7 +202,6 @@ class WithingsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             data_sources="withings",
             canonical_version="3.0.0",
         )
-        )
 
 
 class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
