@@ -7,6 +7,9 @@ from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
 
 logger = logging.getLogger(__name__)
 
+# Error message constants
+ERROR_MISSING_ATHLETE_ID = "Missing required parameter: athlete_id"
+
 
 class PhysiometricsHandler:
     """Handles physiometric data operations."""
@@ -25,7 +28,7 @@ class PhysiometricsHandler:
             Tuple of (response_dict, status_code)
         """
         if not athlete_id:
-            return {"error": "Missing required parameter: athlete_id"}, 400
+            return {"error": ERROR_MISSING_ATHLETE_ID}, 400
 
         try:
             result = self.semantic_layer.get_current_physiometrics(athlete_id)
@@ -51,7 +54,7 @@ class PhysiometricsHandler:
             Tuple of (response_dict, status_code)
         """
         if not athlete_id:
-            return {"error": "Missing required parameter: athlete_id"}, 400
+            return {"error": ERROR_MISSING_ATHLETE_ID}, 400
 
         try:
             days = min(days, 365)  # Cap at 365
@@ -143,3 +146,58 @@ class PhysiometricsHandler:
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Error updating physiometrics: %s", exc, exc_info=True)
             return {"error": "Failed to update physiometrics"}, 500
+
+    def get_training_state_current(self, athlete_id: str) -> Tuple[Dict[str, Any], int]:
+        """Get current training state (on-demand projection from Workouts + Physiometrics).
+
+        Args:
+            athlete_id: Athlete identifier
+
+        Returns:
+            Tuple of (response_dict, status_code) containing:
+            - cts_rolling_7d, cts_rolling_28d (chronic training stress)
+            - ats_rolling (acute training stress)
+            - fatigue_index (ATS/CTS ratio)
+            - readiness_score, garmin_readiness_score
+        """
+        if not athlete_id:
+            return {"error": ERROR_MISSING_ATHLETE_ID}, 400
+
+        try:
+            result = self.semantic_layer.compute_current_training_state(athlete_id)
+            return result, 200
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.error("Error computing training state: %s", exc, exc_info=True)
+            return {"error": "Failed to compute training state"}, 500
+
+    def get_training_state_history(
+        self,
+        athlete_id: str,
+        days: int = 45
+    ) -> Tuple[Dict[str, Any], int]:
+        """Get training state history (on-demand projection for date range).
+
+        Args:
+            athlete_id: Athlete identifier
+            days: Number of days to look back (default 45, max 90)
+
+        Returns:
+            Tuple of (response_dict, status_code) containing:
+            - query_window (start_date, end_date, days)
+            - data_points (list of daily training state snapshots)
+        """
+        if not athlete_id:
+            return {"error": ERROR_MISSING_ATHLETE_ID}, 400
+
+        try:
+            days = min(days, 90)  # Cap at 90 days
+
+            result = self.semantic_layer.compute_training_state_history(
+                athlete_id=athlete_id,
+                days=days
+            )
+
+            return result, 200
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.error("Error computing training state history: %s", exc, exc_info=True)
+            return {"error": "Failed to compute training state history"}, 500

@@ -542,6 +542,54 @@ def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
 
 
 # ============================================================================
+# Training State Endpoints (On-Demand Projections)
+# ============================================================================
+
+@app.route(route="training-state/current", methods=["GET"])
+@endpoint
+def get_current_training_state(req: func.HttpRequest) -> func.HttpResponse:
+    """Get current training state (computed on-demand from Workouts + Physiometrics).
+    
+    IMPORTANT: TrainingState is NOT stored - computed fresh for each request.
+    
+    Returns:
+        - cts_rolling_7d, cts_rolling_28d (chronic training stress)
+        - ats_rolling (acute training stress)
+        - fatigue_index (ATS/CTS ratio)
+        - readiness_score, garmin_readiness_score
+    """
+    athlete_id = req.params.get("athlete_id", "rob")
+
+    handler = PhysiometricsHandler(dependencies.semantic_layer)
+    result, status = handler.get_training_state_current(athlete_id)
+
+    return json_response(result, status)
+
+
+@app.route(route="training-state/history", methods=["GET"])
+@endpoint
+def get_training_state_history(req: func.HttpRequest) -> func.HttpResponse:
+    """Get training state history (computed on-demand for date range).
+    
+    IMPORTANT: TrainingState is NOT stored - computed fresh for each request.
+    
+    Args:
+        athlete_id: Athlete identifier (default: "rob")
+        days: Number of days to look back (default: 45, max: 90)
+    
+    Returns:
+        List of daily training state snapshots with rolling TSS and fatigue metrics.
+    """
+    athlete_id = req.params.get("athlete_id", "rob")
+    days = int(req.params.get("days", "45"))
+
+    handler = PhysiometricsHandler(dependencies.semantic_layer)
+    result, status = handler.get_training_state_history(athlete_id, days)
+
+    return json_response(result, status)
+
+
+# ============================================================================
 # Agent Memory Endpoints
 # ============================================================================
 
