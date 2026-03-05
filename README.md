@@ -2,7 +2,7 @@
 
 Azure Function App that parses FIT workout files from multiple sources (OneDrive Personal, Garmin Connect, direct upload), integrates body metrics from Withings, and provides a comprehensive Semantic API for training intelligence powered by ChatGPT.
 
-**Status**: ✅ Production Ready - Deployed with 31 Endpoints, 330 Tests, Agent Memory System
+**Status**: ✅ Production Ready - Deployed with 37 Endpoints, 330 Tests, Agent Memory System
 
 ## Quick Navigation
 
@@ -184,7 +184,7 @@ See [config/README.md](./config/README.md) for detailed physiometrics configurat
 
 ```text
 health_assistant/
-├── function_app.py               # Azure Functions HTTP adapter (31 endpoints)
+├── function_app.py               # Azure Functions HTTP adapter (37 endpoints)
 ├── pyproject.toml                # Build configuration & dependencies
 ├── requirements.txt              # Runtime dependencies for Azure
 ├── local.settings.json           # Local development secrets (not committed)
@@ -232,7 +232,7 @@ health_assistant/
 │   ├── BACKENDS.md               # OneDrive/Withings/Garmin integration
 │   ├── DEPLOYMENT.md             # Azure deployment procedures
 │   ├── MONITORING.md             # Power BI dashboards & monitoring
-│   ├── SEMANTIC_LAYER_API.md     # Complete API reference (31 endpoints)
+│   ├── SEMANTIC_LAYER_API.md     # Complete API reference (37 endpoints)
 │   ├── WORKOUT_SCHEMA.md         # Data model specification (100+ fields)
 │   ├── WORKOUT_INTELLIGENCE_AGENT_VISION.md  # System design philosophy
 │   ├── GPT_ACTIONS_GUIDE.md      # ChatGPT integration guide
@@ -1059,7 +1059,7 @@ See [docs/DEPLOYMENT.md](./docs/devops/DEPLOYMENT.md#scaling-and-performance) fo
 |-|-|-|
 |[DEPLOYMENT.md](./docs/devops/DEPLOYMENT.md)|Azure deployment procedures|DevOps, Infrastructure|
 |[BACKENDS.md](./docs/devops/BACKENDS.md)|OneDrive, Withings, Garmin integration|Developers, Users|
-|[SEMANTIC_LAYER_API.md](./docs/gpt/SEMANTIC_LAYER_API.md)|Complete API reference (31 endpoints)|Developers, GPT Config|
+|[SEMANTIC_LAYER_API.md](./docs/gpt/SEMANTIC_LAYER_API.md)|Complete API reference (37 endpoints)|Developers, GPT Config|
 |[WORKOUT_SCHEMA.md](./docs/gpt/WORKOUT_SCHEMA.md)|Data model (100+ fields)|Developers, Data Analysts|
 |[AGENT_MEMORY.md](./docs/gpt/AGENT_MEMORY.md)|GPT memory system architecture|GPT Developers|
 |[MONITORING.md](./docs/devops/MONITORING.md)|Power BI dashboards & monitoring|Athletes, Analysts|

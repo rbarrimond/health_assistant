@@ -276,7 +276,7 @@ base64 -i your_workout.fit
 
 ## Additional Resources
 
-- [Complete API Reference](../../docs/gpt/SEMANTIC_LAYER_API.md) - All 31 endpoints documented
+- [Complete API Reference](../../docs/gpt/SEMANTIC_LAYER_API.md) - All 37 endpoints documented
 - [Test Data Files](../data/README.md) - FIT file details and conversion scripts
 - [Main Testing Guide](../README.md) - Complete test suite (330 tests)
 - [API Alignment Report](./API_ALIGNMENT.md) - Collection consistency verification

@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Health Assistant - FIT File Processing",
-    "description": "Complete test collection with 34 requests covering all 33 endpoints. Includes 8 real FIT file payloads, config/asset endpoints, agent memory system, planning/analysis, physiometrics CRUD, OneDrive/Garmin/Intervals.icu sync, and OAuth flows. [Updated 2026-03-05: FIT field normalization fix for left_right_balance (v14.4.1) - extracts 7-bit percentage from raw uint8 byte with bit 7 flag; canonical schema v2.0.1; separate Garmin activity sync and physiometrics (wellness) sync endpoints both operational; all tests passing (57/57).]",
+    "description": "Complete test collection with 37 requests covering all 36 endpoints. Includes 8 real FIT file payloads, config/asset endpoints, agent memory system, planning/analysis, physiometrics CRUD, TrainingState projection endpoints, OneDrive/Garmin/Intervals.icu sync, and OAuth flows. [Updated 2026-03-05: PhysiometricsSnapshot v3.0.0 (30-field schema with exclusive source ownership), TrainingState on-demand projection (no table storage), INGEST_VERSION v15.0.0 - direct ingestion architecture; canonical schema v3.0.0; separate Garmin activity sync and physiometrics (wellness) sync endpoints operational; all core tests passing.]",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -353,6 +353,31 @@
       ]
     },
     {
+      "name": "Training State",
+      "item": [
+        {
+          "name": "GET /api/training-state/current",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/training-state/current?athlete_id={{athlete_id}}&code={{function_key}}",
+            "description": "Current training state computed on-demand from Workouts + Physiometrics. Returns CTS (7d/28d), ATS, fatigue_index, readiness_score, and Garmin metrics. No table storage - pure projection."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/training-state/history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/training-state/history?athlete_id={{athlete_id}}&days=45&code={{function_key}}",
+            "description": "Training state history (max 90 days). On-demand projection with rolling TSS computation. Returns time-series of daily training state snapshots."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Agent Memory",
       "item": [
         {
@@ -492,7 +517,7 @@
             "method": "POST",
             "header": [],
             "url": "{{base_url}}/api/withings/webhook?code={{function_key}}",
-            "description": "Webhook payload for weight notifications.",
+            "description": "Webhook payload for Withings notifications. Triggers sync of body composition data. v3.0.0 schema: Withings exclusively owns body composition fields (weight_kg, fat_mass_kg, muscle_mass_kg, bone_mass_kg, body_fat_pct). Stores in Physiometrics table with canonical_version='3.0.0'.",
             "body": {
               "mode": "urlencoded",
               "urlencoded": [
@@ -604,7 +629,7 @@
               "raw": "{\n  \"lookback_days\": 7,\n  \"athlete_id\": \"{{athlete_id}}\",\n  \"async\": false\n}"
             },
             "url": "{{base_url}}/api/garmin/physiometrics/sync?code={{function_key}}",
-            "description": "Sync Garmin physiometrics data (function key required). Downloads user summary and training status data (VO2Max, training load, training effect, recovery time). Stores data in Physiometrics table. Defaults to async=true; set async=false for blocking."
+            "description": "Sync Garmin physiometrics data (function key required). Downloads user summary and training status data (VO2Max, training load, training effect, recovery time, readiness score, ATP probability). v3.0.0 schema: Garmin owns performance (ftp_watts, cycling_vo2max_ml_kg_min, hr_lthr_bpm, hr_max_bpm), training state (training_load, recovery_time_minutes, readiness_score), and extended training metrics (training_effect_*, training_stress_score, training_stress_balance, atp_probability). Stores in Physiometrics table with canonical_version='3.0.0'. Defaults to async=true; set async=false for blocking."
           },
           "response": []
         }
@@ -628,7 +653,7 @@
               "raw": "{\n  \"lookback_days\": 30,\n  \"athlete_id\": \"{{intervals_icu_id}}\"\n}"
             },
             "url": "{{base_url}}/api/intervals/sync?code={{function_key}}",
-            "description": "Sync Intervals.icu wellness data (function key required). Fetches wellness records including HRV, resting heart rate, sleep duration, and readiness score from Intervals.icu wellness API using HTTP Basic authentication. Requires INTERVALS_API_KEY and INTERVALS_ATHLETE_ID environment variables. Lookback defaults to 30 days."
+            "description": "Sync Intervals.icu wellness data (function key required). Fetches wellness records from Intervals.icu wellness API using HTTP Basic authentication. v3.0.0 schema: Intervals owns recovery (hrv_ln_rmssd, sleep_duration_sec, resting_hr_bpm), activity (steps), and nutrition (calories_kcal, carbs_g, protein_g, fat_g). Stores in Physiometrics table with canonical_version='3.0.0'. Requires INTERVALS_API_KEY and INTERVALS_ATHLETE_ID environment variables. Lookback defaults to 30 days."
           },
           "response": []
         }

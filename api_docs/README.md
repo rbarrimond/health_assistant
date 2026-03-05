@@ -7,8 +7,8 @@ This directory contains the OpenAPI specifications for the Health Assistant API.
 ### `openapi.yaml` (Semantic/Read API)
 
 - **Purpose**: Read-only endpoints for ChatGPT Actions integration
-- **Operations**: 10 endpoints (within ChatGPT's 30-operation limit)
-- **Scope**: Agent context, planning, workouts, rollups, analysis, physiometrics
+- **Operations**: 12 endpoints (within ChatGPT's 30-operation limit)
+- **Scope**: Agent context, planning, workouts, rollups, analysis, physiometrics, training state
 - **Auth**: Function key required for most endpoints
 - **Use Case**: Primary spec for GPT Actions configuration
 
@@ -43,6 +43,8 @@ The specs are **independent** with minimal overlap (only `/api/health` appears i
 - `GET /api/analysis/efficiency` - Efficiency trends
 - `GET /api/physiometrics/current` - Current metrics
 - `GET /api/physiometrics/history` - Body metrics trends
+- `GET /api/training-state/current` - Current training state
+- `GET /api/training-state/history` - Training state history
 
 ### Operations/Admin (openapi.operations.yaml)
 

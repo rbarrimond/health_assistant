@@ -1,11 +1,13 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Semantic/GPT)
-  version: "3.0.2"
+  version: "3.1.0"
   description: |
     Deterministic workout and physiometric API consumed by ChatGPT Actions.
     Returns workout metrics including zones and enhanced analytics computed at read-time from canonical substrate using athlete's current physiometric configuration. All derived metrics are computed deterministically by CanonicalAnalyticsEngine.
 
+    Version 3.1.0 adds training state projection endpoints (on-demand computation from workouts + physiometrics).
+    
     This spec contains GPT-facing endpoints, including preference and observation updates.
     At conversation start, call /api/agent/context and /api/planning/context to load live preferences, observations, workload, and readiness signals.
     For broader operational endpoints (config, ingestion, webhooks), see openapi.operations.yaml.
@@ -594,6 +596,76 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/training-state/current:
+    get:
+      summary: Get current training state
+      operationId: getCurrentTrainingState
+      description: Computes on-demand training state projection from recent workouts and current physiometrics. Includes TSS, training load, recovery metrics, and readiness signals.
+      parameters:
+        - name: athlete_id
+          in: query
+          required: false
+          description: Athlete identifier (defaults to 'rob')
+          schema:
+            type: string
+            default: rob
+      security:
+        - FunctionKey: []
+      responses:
+        '200':
+          description: Current training state snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrainingStateSnapshot'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/training-state/history:
+    get:
+      summary: Get training state time series
+      operationId: getTrainingStateHistory
+      description: Computes historical training state projections. Each snapshot reflects training load, recovery, and readiness at that point in time.
+      parameters:
+        - name: athlete_id
+          in: query
+          required: false
+          description: Athlete identifier (defaults to 'rob')
+          schema:
+            type: string
+            default: rob
+        - name: days
+          in: query
+          required: false
+          description: Days to look back (default 90, max 365)
+          schema:
+            type: integer
+            format: int32
+            default: 90
+            maximum: 365
+      security:
+        - FunctionKey: []
+      responses:
+        '200':
+          description: Time-series training state data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  athlete_id:
+                    type: string
+                  days:
+                    type: integer
+                  snapshots:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TrainingStateSnapshot'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
 components:
   parameters:
     AthleteId:
@@ -960,21 +1032,141 @@ components:
         - count
     PhysiometricSnapshot:
       type: object
-      description: Key-value map of the latest physiometric metrics for the athlete.
+      description: Daily physiometrics snapshot aggregating body state from all sources (Withings, Intervals, Garmin). Version 3.0.0 uses exclusive ownership for all fields.
       properties:
         athlete_id:
           type: string
-        heart_rate:
-          type: object
-        power:
-          type: object
+          description: Athlete identifier (partition key)
+        effective_date:
+          type: string
+          format: date
+          description: Effective date (YYYY-MM-DD) in athlete local timezone
+        # Body composition (Withings exclusive)
         weight_kg:
           type: number
-      additionalProperties:
-        oneOf:
-          - type: number
-          - type: string
-          - type: object
+          description: Body weight in kg
+          minimum: 0
+        fat_mass_kg:
+          type: number
+          description: Fat mass in kg
+          minimum: 0
+        muscle_mass_kg:
+          type: number
+          description: Muscle mass in kg
+          minimum: 0
+        bone_mass_kg:
+          type: number
+          description: Bone mass in kg
+          minimum: 0
+        body_fat_pct:
+          type: number
+          description: Body fat percentage
+          minimum: 0
+          maximum: 100
+        # Recovery metrics (Intervals exclusive)
+        hrv_ln_rmssd:
+          type: number
+          description: HRV (natural log of RMSSD) for modeling
+        sleep_duration_sec:
+          type: number
+          description: Sleep duration in seconds
+          minimum: 0
+        resting_hr_bpm:
+          type: number
+          description: Resting heart rate (Intervals exclusive; Garmin ignored)
+          minimum: 0
+        # Activity (Intervals exclusive)
+        steps:
+          type: integer
+          description: Daily step count (Intervals exclusive; Garmin ignored)
+          minimum: 0
+        # Nutrition (Intervals exclusive)
+        calories_kcal:
+          type: number
+          description: Daily calorie intake in kcal
+          minimum: 0
+        carbs_g:
+          type: number
+          description: Carbohydrate intake in grams
+          minimum: 0
+        protein_g:
+          type: number
+          description: Protein intake in grams
+          minimum: 0
+        fat_g:
+          type: number
+          description: Fat intake in grams
+          minimum: 0
+        # Performance baselines (Garmin exclusive)
+        ftp_watts:
+          type: number
+          description: Functional threshold power in watts
+          minimum: 0
+        cycling_vo2max_ml_kg_min:
+          type: number
+          description: Estimated cycling VO2Max in ml/kg/min
+          minimum: 0
+        hr_lthr_bpm:
+          type: number
+          description: Lactate threshold heart rate in beats/minute
+          minimum: 0
+        hr_max_bpm:
+          type: number
+          description: Maximum heart rate in beats/minute
+          minimum: 0
+        # Training state (Garmin exclusive)
+        training_load:
+          type: number
+          description: Garmin cumulative training load
+          minimum: 0
+        recovery_time_minutes:
+          type: integer
+          description: Garmin estimated recovery time in minutes
+          minimum: 0
+        readiness_score:
+          type: number
+          description: Garmin readiness score (0-100)
+          minimum: 0
+          maximum: 100
+        # Extended training metrics (Garmin exclusive)
+        training_effect_aerobic:
+          type: number
+          description: Garmin aerobic training effect (0-5)
+          minimum: 0
+          maximum: 5
+        training_effect_anaerobic:
+          type: number
+          description: Garmin anaerobic training effect (0-5)
+          minimum: 0
+          maximum: 5
+        training_stress_score:
+          type: number
+          description: Garmin training stress score
+          minimum: 0
+        training_stress_balance:
+          type: number
+          description: Garmin training stress balance
+        atp_probability:
+          type: number
+          description: Garmin ATP/energy availability percentage
+          minimum: 0
+          maximum: 100
+        # Provenance and versioning
+        data_sources:
+          type: string
+          description: "CSV of sources: withings,garmin,intervals"
+          default: ""
+        canonical_version:
+          type: string
+          description: Schema version (3.0.0 = simplified MVP)
+          default: "3.0.0"
+        last_updated_utc:
+          type: string
+          format: date-time
+          description: When this snapshot was canonicalized
+      required:
+        - athlete_id
+        - effective_date
     PhysiometricHistory:
       type: object
       properties:
@@ -999,6 +1191,71 @@ components:
             type: object
             additionalProperties: true
       additionalProperties: true
+    TrainingStateSnapshot:
+      type: object
+      description: Daily training state snapshot computed from workouts and physiometrics. All metrics are derived and idempotent; safe to recompute any time.
+      properties:
+        athlete_id:
+          type: string
+          description: Athlete identifier (partition key)
+        effective_date:
+          type: string
+          format: date
+          description: Effective date (YYYY-MM-DD) in athlete local timezone
+        cts_rolling_7d:
+          type: number
+          description: Chronic training stress (7 days)
+          minimum: 0
+        cts_rolling_28d:
+          type: number
+          description: Chronic training stress (28 days)
+          minimum: 0
+        ats_rolling:
+          type: number
+          description: Acute training stress (7 days)
+          minimum: 0
+        fatigue_index:
+          type: number
+          description: Fatigue index (ATS / CTS; higher = more fatigued)
+        readiness_score:
+          type: number
+          description: Composite readiness (HRV + load + HR)
+          minimum: 0
+          maximum: 100
+        garmin_readiness_score:
+          type: number
+          description: Garmin native readiness score
+          minimum: 0
+          maximum: 100
+        mood:
+          type: integer
+          description: User-reported mood (1-5)
+          minimum: 1
+          maximum: 5
+        soreness:
+          type: integer
+          description: User-reported soreness (1-5)
+          minimum: 1
+          maximum: 5
+        pred_recovery_days:
+          type: integer
+          description: Predicted days to full recovery
+          minimum: 0
+        data_sources:
+          type: string
+          description: "CSV of sources: workouts,physiometrics,garmin"
+          default: ""
+        canonical_version:
+          type: string
+          description: Schema version of this snapshot
+          default: "3.0.0"
+        last_updated_utc:
+          type: string
+          format: date-time
+          description: When snapshot was computed
+      required:
+        - athlete_id
+        - effective_date
     UpdatePhysiometricRequest:
       type: object
       required:

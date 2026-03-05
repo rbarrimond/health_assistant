@@ -44,6 +44,8 @@ GET /api/planning/context?athlete_id=rob&days=45
 | `/api/analysis/efficiency` | Efficiency trends | `?athlete_id=rob&days=90` |
 | `/api/physiometrics/current` | Current metrics | `?athlete_id=rob` |
 | `/api/physiometrics/history` | Body metrics trends | `?athlete_id=rob&days=90` |
+| `/api/training-state/current` | Current training state | `?athlete_id=rob` |
+| `/api/training-state/history` | Training state trends | `?athlete_id=rob&days=90` |
 
 **Operational usage:** See [GPT_ACTIONS_GUIDE.md](./GPT_ACTIONS_GUIDE.md) for call order and integration examples.
 
