@@ -105,6 +105,42 @@ Structured logging now includes boolean flags for each parsed metric:
 
 **SemVer Bump**: Ingestion v15.1.0 → v15.1.1 (patch bug fix to storage mapping + handler ID separation semantics).
 
+### **BREAKING:** Configuration Precedence Reversed - PhysiometricsSnapshot Primary
+
+**Issue**: Configuration system prioritized environment variables over frequently-updated PhysiometricsSnapshot data from Azure Table Storage.
+
+**Old (Wrong) Precedence**:
+1. Environment variables (highest priority) ❌
+2. physiometrics.json or Table Storage
+3. Hard defaults
+
+**New (Correct) Precedence** [`platform/config.py`]:
+1. **PhysiometricsSnapshot from Table Storage** (primary - updated frequently) ✅
+2. Environment variables (fallback - only if physiometrics missing)
+3. Hard defaults (only if both above missing)
+
+**Changes** (`TrainingAnalyticsPlatform/platform/config.py`):
+
+- `hr_config()`: Loads physiometrics heart_rate block FIRST, then checks env vars as fallback
+- `power_config()`: Loads physiometrics power block FIRST, then checks `DEFAULT_FTP` env var as fallback
+- `_resolve_lthr_bpm()` and `_resolve_hr_max_bpm()`: Check physiometrics values FIRST before env var
+- Simplified method signatures: Removed `env_basis` parameter from helpers; check physiometrics data structure directly
+
+**Updated Documentation** [`config/README.md`]:
+
+- "Configuration Precedence" section now accurate: Table Storage → Env Vars → Defaults
+- Added emphasis: "Frequently updated with current athlete metrics (LTHR, FTP, etc.)" for Table Storage tier
+
+**Test Updates** (`tests/test_config.py`):
+
+- Renamed: `test_hr_config_env_override_*` → `test_hr_config_env_fallback_*`
+- Added: `test_hr_config_physiometrics_overrides_env_basis` — verifies physiometrics takes priority
+- Added: `test_hr_config_physiometrics_overrides_env_resting_hr` — verifies physiometrics takes priority
+- Added: `test_power_config_physiometrics_overrides_env` — verifies physiometrics takes priority
+- All 31 config tests pass ✅
+
+**Impact**: Workouts now use current athlete physiometrics (LTHR, FTP, HR zones) from Table Storage exclusively. Environment variables serve only as fallback for unset values or local development.
+
 ## 2026-03-06-earlier
 
 ### **BREAKING:** PhysiometricsSnapshot v3.0.0 - Simplified Schema [canonical v3.0.0, ingest v15.0.0]

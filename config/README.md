@@ -81,28 +81,29 @@ Create your local file from the example and do not commit it.
 
 The Health Assistant Config system loads configuration values in this order (highest to lowest priority):
 
-1. **Azure Table Storage** (highest priority - recommended for production)
+1. **Azure Table Storage** (highest priority - recommended for production and runtime updates)
    - Stored in `Physiometrics` table via `table_storage` module
-   - Allows runtime updates without redeployment
+   - Frequently updated with current athlete metrics (LTHR, FTP, etc.)
+   - Allows runtime updates without redeployment via `/api/config/update` endpoint
    - Requires `AzureWebJobsStorage` or `AZURE_STORAGE_ACCOUNT_URL` configured
-   - Managed via `/api/config/update` endpoint
 
-2. **Environment Variables** (deployment-level overrides)
+2. **Environment Variables** (fallback - deployment-level overrides)
+   - Only used if corresponding value is **missing** from Table Storage
    - `ATHLETE_TIMEZONE` - IANA timezone name for athlete's home location (e.g., `America/New_York`) used to disambiguate UTC offsets and resolve Zwift/virtual workout timezones
    - `HR_ZONE_BASIS` - Heart rate zone calculation method (`HRmax`, `LTHR`, or `HRR`)
-   - `HR_ZONE_REFERENCE_BPM` - Maximum HR or LTHR value (0 = auto-detect)
+   - `HR_ZONE_REFERENCE_BPM` - Maximum HR or LTHR value (only used if Table Storage missing)
    - `HR_RESTING_BPM` - Resting heart rate for HRR method
    - `DEFAULT_FTP` - Functional Threshold Power in watts
    - `PHYSIOMETRICS_PATH` - Custom path to physiometrics.json file
    - Set via Azure Function App Settings or `local.settings.json`
 
-3. **Filesystem Configuration** (local development)
-   - Loaded from `config/physiometrics.json`
+3. **Filesystem Configuration** (development/legacy fallback)
+   - Loaded from `config/physiometrics.json` only if Table Storage unavailable
    - Location can be overridden with `PHYSIOMETRICS_PATH` env var
-   - Used primarily for local development and testing
-   - Not recommended for production
+   - Intended for local development and testing
+   - Not recommended for production (lacks audit trail)
 
-4. **Hard Defaults** (lowest priority - fallback values)
+4. **Hard Defaults** (lowest priority - only if all above missing)
    - HR basis: `HRmax`
    - Resting HR: `60 bpm`
    - Maximum HR: `190 bpm`

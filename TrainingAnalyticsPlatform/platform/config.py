@@ -74,11 +74,16 @@ class PowerConfig:
 
 
 class Config:
-    """Configuration loaded from physiometrics.json with env var fallback.
+    """Configuration loaded with PhysiometricsSnapshot as primary source.
+
+    Precedence (highest to lowest priority):
+    1) PhysiometricsSnapshot from Azure Table Storage (primary - updated frequently)
+    2) Environment variables (fallback - deployment-level overrides)
+    3) Hard defaults (lowest - only if both above missing)
 
     Design intent:
-    - `physiometrics.json` represents *current athlete truth*.
-    - Env vars can override for deployments / experiments.
+    - PhysiometricsSnapshot represents *current athlete truth* and is updated at runtime.
+    - Env vars provide deployment-level overrides only when physiometrics missing.
     - Ingestion snapshots all relevant values into workout rows.
     """
 
@@ -232,24 +237,25 @@ class Config:
         """Return heart-rate configuration.
 
         Precedence:
-        1) Env vars (deployment overrides)
-        2) physiometrics.json
-        3) hard defaults
+        1) PhysiometricsSnapshot from Table Storage (primary - updated frequently)
+        2) Environment variables (fallback - only if physiometrics missing)
+        3) Hard defaults (only if both above missing)
         """
+        pm = cls.load_physiometrics() or {}
+        hr = pm.get("heart_rate", {}) if isinstance(pm, dict) else {}
+
         env_basis = os.getenv("HR_ZONE_BASIS")
         env_ref = _as_int(os.getenv("HR_ZONE_REFERENCE_BPM"))
         env_rest = _as_int(os.getenv("HR_RESTING_BPM"))
 
-        pm = cls.load_physiometrics() or {}
-        hr = pm.get("heart_rate", {}) if isinstance(pm, dict) else {}
-
-        # Determine basis: env override, config file, or default
-        basis = (env_basis or hr.get("basis") or "HRmax").strip()
+        # Determine basis: physiometrics first, then env override, then default
+        basis = (hr.get("basis") or env_basis or "HRmax").strip()
 
         # Determine reference values based on basis
-        lthr_bpm = cls._resolve_lthr_bpm(env_basis, env_ref, basis, hr)
-        hr_max_bpm = cls._resolve_hr_max_bpm(env_basis, env_ref, basis, hr)
-        resting_hr_bpm = env_rest or _as_int(hr.get("resting_hr_bpm")) or 60
+        # Pass physiometrics dict, env vars, and basis to helpers
+        lthr_bpm = cls._resolve_lthr_bpm(hr, env_ref, basis)
+        hr_max_bpm = cls._resolve_hr_max_bpm(hr, env_ref, basis)
+        resting_hr_bpm = _as_int(hr.get("resting_hr_bpm")) or env_rest or 60
 
         zones = cls._resolve_hr_zones(hr)
 
@@ -263,29 +269,45 @@ class Config:
 
     @staticmethod
     def _resolve_lthr_bpm(
-            env_basis: Optional[str],
+            hr: Dict[str, Any],
             env_ref: Optional[int],
-            basis: str,
-            hr: Dict[str, Any]) -> Optional[int]:
-        """Resolve LTHR value from environment or config."""
-        if env_basis == "LTHR" and env_ref is not None:
+            basis: str) -> Optional[int]:
+        """Resolve LTHR value from physiometrics or environment.
+
+        Precedence:
+        1) Physiometrics heart_rate.lthr_bpm (primary)
+        2) Environment variable HR_ZONE_REFERENCE_BPM if basis is LTHR (fallback)
+        3) None if not available
+        """
+        # Check physiometrics first
+        pm_lthr = _as_int(hr.get("lthr_bpm"))
+        if pm_lthr is not None:
+            return pm_lthr
+        # Use env var only if basis is LTHR and env_ref is set
+        if basis == "LTHR" and env_ref is not None:
             return env_ref
-        if env_basis is None and basis == "LTHR" and env_ref is not None:
-            return env_ref
-        return _as_int(hr.get("lthr_bpm"))
+        return None
 
     @staticmethod
     def _resolve_hr_max_bpm(
-            env_basis: Optional[str],
+            hr: Dict[str, Any],
             env_ref: Optional[int],
-            basis: str,
-            hr: Dict[str, Any]) -> Optional[int]:
-        """Resolve HR max value from environment or config."""
-        if env_basis == "HRmax" and env_ref is not None:
+            basis: str) -> Optional[int]:
+        """Resolve HR max value from physiometrics or environment.
+
+        Precedence:
+        1) Physiometrics heart_rate.hr_max_bpm (primary)
+        2) Environment variable HR_ZONE_REFERENCE_BPM if basis is HRmax (fallback)
+        3) None if not available
+        """
+        # Check physiometrics first
+        pm_max = _as_int(hr.get("hr_max_bpm"))
+        if pm_max is not None:
+            return pm_max
+        # Use env var only if basis is HRmax and env_ref is set
+        if basis == "HRmax" and env_ref is not None:
             return env_ref
-        if env_basis is None and basis == "HRmax" and env_ref is not None:
-            return env_ref
-        return _as_int(hr.get("hr_max_bpm"))
+        return None
 
     @staticmethod
     def _resolve_hr_zones(hr: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
@@ -331,16 +353,17 @@ class Config:
         """Return power configuration.
 
         Precedence:
-        1) Env vars (deployment overrides)
-        2) physiometrics.json
-        3) hard defaults
+        1) PhysiometricsSnapshot from Table Storage (primary - updated frequently)
+        2) Environment variables (fallback - only if physiometrics missing)
+        3) Hard defaults (only if both above missing)
         """
-        env_ftp = _as_int(os.getenv("DEFAULT_FTP"))
-
         pm = cls.load_physiometrics() or {}
         pwr = pm.get("power", {}) if isinstance(pm, dict) else {}
 
-        ftp_watts = env_ftp or _as_int(pwr.get("ftp_watts")) or 250
+        env_ftp = _as_int(os.getenv("DEFAULT_FTP"))
+
+        # Check physiometrics first, then env var, then hard default
+        ftp_watts = _as_int(pwr.get("ftp_watts")) or env_ftp or 250
 
         zones = cls._resolve_power_zones(pwr)
 

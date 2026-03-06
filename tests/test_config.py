@@ -162,8 +162,8 @@ class TestConfigHrConfig:
         assert hr_cfg.basis == "HRmax"
         assert hr_cfg.resting_hr_bpm == 60
 
-    def test_hr_config_env_override_basis(self) -> None:
-        """Verify environment variable overrides basis."""
+    def test_hr_config_env_fallback_basis(self) -> None:
+        """Verify environment variable used as fallback when physiometrics missing."""
         with patch.dict(os.environ, {"HR_ZONE_BASIS": "LTHR"}):
             with patch.object(Config, "load_physiometrics", return_value=None):
                 Config._physiometrics_cache = None
@@ -171,14 +171,34 @@ class TestConfigHrConfig:
 
         assert hr_cfg.basis == "LTHR"
 
-    def test_hr_config_env_override_resting_hr(self) -> None:
-        """Verify environment variable overrides resting HR."""
+    def test_hr_config_physiometrics_overrides_env_basis(self) -> None:
+        """Verify physiometrics basis takes priority over env variable."""
+        config_data = {"heart_rate": {"basis": "HRR"}}
+        with patch.dict(os.environ, {"HR_ZONE_BASIS": "LTHR"}):
+            with patch.object(Config, "load_physiometrics", return_value=config_data):
+                Config._physiometrics_cache = None
+                hr_cfg = Config.hr_config()
+
+        assert hr_cfg.basis == "HRR"  # physiometrics wins, not env var
+
+    def test_hr_config_env_fallback_resting_hr(self) -> None:
+        """Verify environment variable used as fallback when physiometrics missing."""
         with patch.dict(os.environ, {"HR_RESTING_BPM": "50"}):
             with patch.object(Config, "load_physiometrics", return_value=None):
                 Config._physiometrics_cache = None
                 hr_cfg = Config.hr_config()
 
         assert hr_cfg.resting_hr_bpm == 50
+
+    def test_hr_config_physiometrics_overrides_env_resting_hr(self) -> None:
+        """Verify physiometrics resting HR takes priority over env variable."""
+        config_data = {"heart_rate": {"resting_hr_bpm": 48}}
+        with patch.dict(os.environ, {"HR_RESTING_BPM": "50"}):
+            with patch.object(Config, "load_physiometrics", return_value=config_data):
+                Config._physiometrics_cache = None
+                hr_cfg = Config.hr_config()
+
+        assert hr_cfg.resting_hr_bpm == 48  # physiometrics wins, not env var
 
     def test_hr_config_from_physiometrics_file(self) -> None:
         """Verify loading from physiometrics.json."""
@@ -223,14 +243,24 @@ class TestConfigPowerConfig:
 
         assert pwr_cfg.ftp_watts == 250
 
-    def test_power_config_env_override(self) -> None:
-        """Verify environment variable overrides FTP."""
+    def test_power_config_env_fallback(self) -> None:
+        """Verify environment variable used as fallback when physiometrics missing."""
         with patch.dict(os.environ, {"DEFAULT_FTP": "320"}):
             with patch.object(Config, "load_physiometrics", return_value=None):
                 Config._physiometrics_cache = None
                 pwr_cfg = Config.power_config()
 
         assert pwr_cfg.ftp_watts == 320
+
+    def test_power_config_physiometrics_overrides_env(self) -> None:
+        """Verify physiometrics FTP takes priority over env variable."""
+        config_data = {"power": {"ftp_watts": 300}}
+        with patch.dict(os.environ, {"DEFAULT_FTP": "320"}):
+            with patch.object(Config, "load_physiometrics", return_value=config_data):
+                Config._physiometrics_cache = None
+                pwr_cfg = Config.power_config()
+
+        assert pwr_cfg.ftp_watts == 300  # physiometrics wins, not env var
 
     def test_power_config_from_physiometrics_file(self) -> None:
         """Verify loading from physiometrics.json."""
