@@ -1,10 +1,16 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Semantic/GPT)
-  version: "3.1.0"
+  version: "3.2.0"
   description: |
     Deterministic workout and physiometric API consumed by ChatGPT Actions.
     Returns workout metrics including zones and enhanced analytics computed at read-time from canonical substrate using athlete's current physiometric configuration. All derived metrics are computed deterministically by CanonicalAnalyticsEngine.
+
+    **Version 3.2.0 (Breaking Change)**: 
+    - New `WorkoutProjection` model for efficient planning context and list queries (lightweight identity + summary + data flags, no computation)
+    - `/api/workouts` and `/api/planning/context.recent_workouts` now return `WorkoutProjection` instead of full `WorkoutSummary`
+    - For full metrics (HR zones, power zones, efficiency, duration curves), query `/api/workouts/{workout_id}` (returns `WorkoutDetail`)
+    - Projections reduce payload size ~40-50% and enable batch operations without metric computation overhead
 
     Version 3.1.0 adds training state projection endpoints (on-demand computation from workouts + physiometrics).
     
@@ -277,6 +283,10 @@ paths:
   /api/planning/context:
     get:
       summary: Get planning context for training decisions
+      description: |
+        Primary planning endpoint for training decisions. Returns recent workouts as lightweight 
+        `WorkoutProjection` objects (v3.2.0+) for efficient batch queries. For full metrics, 
+        drill down via `/api/workouts/{workout_id}`.
       operationId: planningContext
       security:
         - FunctionKey: []
@@ -297,7 +307,7 @@ paths:
             maximum: 365
       responses:
         '200':
-          description: Planning context payload
+          description: Planning context payload with WorkoutProjection objects in recent_workouts
           content:
             application/json:
               schema:
@@ -309,6 +319,10 @@ paths:
   /api/workouts:
     get:
       summary: Query workouts with filters
+      description: |
+        List workouts as lightweight `WorkoutProjection` objects (v3.2.0+) for efficient 
+        batch queries without metric computation. For full metrics (HR zones, power zones, efficiency, 
+        duration curves), query `/api/workouts/{workout_id}` which returns `WorkoutDetail`.
       operationId: listWorkouts
       security:
         - FunctionKey: []
@@ -346,7 +360,7 @@ paths:
             type: string
       responses:
         '200':
-          description: List of workouts
+          description: List of WorkoutProjection objects
           content:
             application/json:
               schema:
@@ -1410,7 +1424,11 @@ components:
                 additionalProperties: true
     PlanningContext:
       type: object
-      description: Aggregated planning context for the athlete.
+      description: |
+        Aggregated planning context for training decisions.
+        
+        **Breaking Change in v3.2.0**: `recent_workouts` now returns lightweight `WorkoutProjection` 
+        objects instead of full `WorkoutSummary`. For full metrics, query `/api/workouts/{workout_id}`.
       properties:
         athlete_id:
           type: string
@@ -1418,8 +1436,9 @@ components:
           type: object
         recent_workouts:
           type: array
+          description: List of WorkoutProjection objects (lightweight summaries for efficient batch queries)
           items:
-            type: object
+            $ref: '#/components/schemas/WorkoutProjection'
         weekly_rollups:
           type: array
           items:
@@ -1441,9 +1460,135 @@ components:
         workouts:
           type: array
           items:
-            $ref: '#/components/schemas/WorkoutSummary'
+            $ref: '#/components/schemas/WorkoutProjection'
+    WorkoutProjection:
+      type: object
+      description: |
+        Lightweight workout projection optimized for efficient batch queries and planning context.
+        
+        Contains identity, session summary, data capability flags, and sport-specific peaks—all extracted directly 
+        from Workouts table + metadata.json without computation. Reduced payload (~40-50% smaller than WorkoutSummary) 
+        enables efficient planning context and list operations.
+        
+        Use for: `/api/workouts?limit=50`, `/api/planning/context` (recent_workouts)
+        
+        For full metrics (HR zones, power zones, efficiency, duration curves, decoupling), query 
+        `/api/workouts/{workout_id}` which returns `WorkoutDetail`.
+        
+        **Breaking Change in v3.2.0**: Replaces `WorkoutSummary` in list/planning endpoints for efficiency.
+      required:
+        - workout_id
+        - athlete_id
+        - sport
+        - start_time_utc
+        - duration_sec
+        - has_power
+        - has_hr
+        - has_gps
+      properties:
+        workout_id:
+          type: string
+          description: Unique workout identifier
+        athlete_id:
+          type: string
+          description: Athlete identifier
+        sport:
+          type: string
+          description: Primary sport/activity type
+        sub_sport:
+          type: [string, "null"]
+          description: Sub-sport classification
+        workout_name:
+          type: [string, "null"]
+          description: User-provided workout name
+        device_name:
+          type: [string, "null"]
+          description: Device name (e.g., 'Robert's Apple Watch', 'Garmin Edge 1050')
+        device_manufacturer:
+          type: [string, "null"]
+          description: Device manufacturer (Apple, Garmin, Wahoo, etc.)
+        start_time_utc:
+          type: string
+          format: date-time
+          description: ISO 8601 UTC timestamp
+        local_tz_offset:
+          type: [string, "null"]
+          description: Local wall-clock UTC offset (e.g., 'UTC-05:00')
+        timezone:
+          type: [string, "null"]
+          description: IANA timezone name (e.g., 'America/New_York')
+        duration_sec:
+          type: number
+          description: Total elapsed time in seconds
+        moving_time_sec:
+          type: [number, "null"]
+          description: Active moving time in seconds
+        distance_m:
+          type: [number, "null"]
+          description: GPS distance in meters
+        elevation_gain_m:
+          type: [number, "null"]
+          description: Elevation gain in meters
+        elevation_loss_m:
+          type: [number, "null"]
+          description: Elevation loss in meters
+        calories_kcal:
+          type: [number, "null"]
+          description: Total energy expenditure in kilocalories
+        has_power:
+          type: boolean
+          description: Workout contains power meter data
+        has_hr:
+          type: boolean
+          description: Workout contains heart rate data
+        has_gps:
+          type: boolean
+          description: Workout contains GPS data
+        hr_avg_bpm:
+          type: [number, "null"]
+          description: Average heart rate (bpm) — populated if has_hr=true
+        hr_max_bpm:
+          type: [number, "null"]
+          description: Max heart rate (bpm) — populated if has_hr=true
+        pwr_avg_watts:
+          type: [number, "null"]
+          description: Average power (watts) — populated if has_power=true
+        pwr_max_watts:
+          type: [number, "null"]
+          description: Max power (watts) — populated if has_power=true
+        pwr_normalized_watts:
+          type: [number, "null"]
+          description: Normalized power (watts) — populated if has_power=true
+        cad_avg_rpm:
+          type: [number, "null"]
+          description: Average cadence (rpm)
+        cad_max_rpm:
+          type: [number, "null"]
+          description: Max cadence (rpm)
+        is_indoor:
+          type: boolean
+          description: Workout was performed indoors
+        race_flag:
+          type: boolean
+          description: Marked as race/competitive event
+        commute_flag:
+          type: boolean
+          description: Marked as commute workout
+        ingestion_version:
+          type: [string, "null"]
+          description: Ingestion pipeline version
+        ingestion_timestamp_utc:
+          type: [string, "null"]
+          format: date-time
+          description: ISO 8601 UTC timestamp of ingestion
     WorkoutSummary:
       type: object
+      deprecated: true
+      description: |
+        **Deprecated in v3.2.0** — Use `WorkoutProjection` instead.
+        
+        Full workout summary with all queryable fields. (Kept for backward compatibility and reference;
+        replaced by lighter `WorkoutProjection` in `/api/workouts` and `/api/planning/context`.)
       properties:
         workout_id:
           type: string

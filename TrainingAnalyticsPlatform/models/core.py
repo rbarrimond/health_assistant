@@ -365,6 +365,89 @@ class WorkoutMetricsModel(BaseModel):
         )
 
 
+# ============================================================================
+# PLANNING API: WorkoutProjection
+# ============================================================================
+
+
+class WorkoutProjection(BaseModel):
+    """Lightweight projection of workout for efficient planning context pulls.
+    
+    Built from Workouts table + metadata.json at read-time, this projection optimizes
+    for batch queries where clients need summary information for training decisions
+    (TSS, readiness, workload analysis) without full metric computation overhead.
+    
+    Contains only:
+    - Identity fields (workout_id, sport, device, timestamps)
+    - Session summary (duration, distance, elevation, calories)
+    - Data availability flags (has_power, has_hr, has_gps)
+    - Sport-specific peaks (HR/power/cadence averages and maximums)
+    - Status flags (indoor, race, commute)
+    - Provenance metadata (ingestion version, timestamp)
+    
+    All fields extracted directly from WorkoutEntity + metadata.json (no computation).
+    Capability-dependent fields (HR/power metrics) are Optional based on has_hr/has_power.
+    
+    Use this for:
+    - Batch planning context queries (/api/planning/context)
+    - Efficient workout list responses (/api/workouts?limit=50)
+    
+    For full metrics including zones, efficiency, duration curves, duration curves, duration curve analysis:
+    call /api/workouts/{workout_id} (returns WorkoutDetail).
+    
+    Example:
+        >>> projection = build_workout_projection(workout_entity, metadata_dict)
+        >>> print(f"{projection.sport} - {projection.duration_sec}s - HR avg: {projection.hr_avg_bpm}")
+    """
+    
+    model_config = ConfigDict(extra="forbid")
+    
+    # Identity
+    workout_id: str = Field(..., description="Unique workout identifier")
+    athlete_id: str = Field(..., description="Athlete identifier")
+    sport: str = Field(..., description="Primary sport/activity type (cycling, running, etc.)")
+    sub_sport: Optional[str] = Field(None, description="Sub-sport (road_cycling, trail_running, etc.)")
+    workout_name: Optional[str] = Field(None, description="User-provided workout name")
+    device_name: Optional[str] = Field(None, description="Device name (Robert's Apple Watch, Garmin Edge, etc.)")
+    device_manufacturer: Optional[str] = Field(None, description="Device manufacturer (Apple, Garmin, Wahoo, etc.)")
+    
+    # Timing
+    start_time_utc: str = Field(..., description=ISO_8601_UTC_DESC)
+    local_tz_offset: Optional[str] = Field(None, description="Local timezone offset (e.g., '-05:00')")
+    timezone: Optional[str] = Field(None, description="IANA timezone name (e.g., 'America/New_York')")
+    duration_sec: float = Field(..., ge=0, description="Total elapsed time in seconds")
+    moving_time_sec: Optional[float] = Field(None, ge=0, description="Active moving time in seconds")
+    
+    # Distance & Elevation
+    distance_m: Optional[float] = Field(None, ge=0, description="GPS distance in meters")
+    elevation_gain_m: Optional[float] = Field(None, ge=0, description="Elevation gain in meters")
+    elevation_loss_m: Optional[float] = Field(None, ge=0, description="Elevation loss in meters")
+    calories_kcal: Optional[float] = Field(None, ge=0, description="Total energy expenditure in kilocalories")
+    
+    # Data Availability Flags
+    has_power: bool = Field(..., description="Workout contains power meter data")
+    has_hr: bool = Field(..., description="Workout contains heart rate data")
+    has_gps: bool = Field(..., description="Workout contains GPS data")
+    
+    # Sport-Specific Peaks (capability-dependent, Optional)
+    hr_avg_bpm: Optional[float] = Field(None, ge=30, le=240, description="Average heart rate (bpm) - populated if has_hr=True")
+    hr_max_bpm: Optional[float] = Field(None, ge=30, le=240, description="Max heart rate (bpm) - populated if has_hr=True")
+    pwr_avg_watts: Optional[float] = Field(None, ge=0, description="Average power (watts) - populated if has_power=True")
+    pwr_max_watts: Optional[float] = Field(None, ge=0, description="Max power (watts) - populated if has_power=True")
+    pwr_normalized_watts: Optional[float] = Field(None, ge=0, description="Normalized power (watts) - populated if has_power=True")
+    cad_avg_rpm: Optional[float] = Field(None, ge=0, description="Average cadence (rpm)")
+    cad_max_rpm: Optional[float] = Field(None, ge=0, description="Max cadence (rpm)")
+    
+    # Status Flags
+    is_indoor: bool = Field(default=False, description="Workout was performed indoors")
+    race_flag: bool = Field(default=False, description="Marked as race/competitive event")
+    commute_flag: bool = Field(default=False, description="Marked as commute workout")
+    
+    # Provenance
+    ingestion_version: Optional[str] = Field(None, description="Ingestion pipeline version")
+    ingestion_timestamp_utc: Optional[str] = Field(None, description=ISO_8601_UTC_DESC)
+
+
 class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-methods
     """Computation engine for deriving workout analytics from canonical 1 Hz substrate.
     

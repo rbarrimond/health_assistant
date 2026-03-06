@@ -8,6 +8,67 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-05
+
+### **BREAKING:** Semantic API v3.2.0 - Workout Projections for Efficient Planning Context
+
+**New Feature**: Introduced lightweight `WorkoutProjection` model for efficient batch queries.
+
+**Motivation**: Planning context and workout list operations previously returned full `WorkoutSummary` objects (80+ flattened fields including all HR zones, power zones, efficiency metrics). This required full metric computation on every query and resulted in large payloads (~500 fields per workout, ~100-150 when flattened). `WorkoutProjection` optimizes for the common case: batch planning pulls where clients need identity + summary + data flags without deep analysis.
+
+**Changes**:
+
+#### Models [core.py]
+
+- **New**: `WorkoutProjection` typed model in `TrainingAnalyticsPlatform/models/core.py`
+  - Identity: workout_id, sport, device, timestamps
+  - Session summary: duration, distance, elevation, calories
+  - Data availability flags: has_power, has_hr, has_gps
+  - Sport peaks if available: hr_avg/max_bpm, pwr_avg/max_watts, pwr_normalized_watts, cad_avg/max_rpm
+  - Status/enrichment flags: is_indoor, race_flag, commute_flag
+  - Provenance: ingestion_version, ingestion_timestamp_utc
+  - Built directly from Workouts table + metadata.json (no computation)
+
+#### Semantic Layer [semantic_layer.py]
+
+- **New**: `build_workout_projection(entity, ingestion_id)` — Builder method to construct projections from table entities
+- **New**: `_get_workout_projections_in_range()` — Query method returning `WorkoutProjection[]` (efficient batch alternative to `_get_workouts_in_range`)
+- **Updated**: `get_planning_context()` — Now returns `recent_workouts` as `WorkoutProjection[]`; maintains full workouts internally for analysis (last_hard_day, etc.)
+- **Updated**: `get_workouts()` — Now returns projections for list responses (clients drill down via `/api/workouts/{workout_id}` for full metrics)
+
+#### OpenAPI [openapi.yaml]
+
+- **Version bump**: v3.1.0 → v3.2.0 (breaking change)
+- **New schema**: `WorkoutProjection` (documented as optimized for batch queries)
+- **Updated schema**: `WorkoutSummary` marked `deprecated: true` (backward reference only)
+- **Updated response types**:
+  - `/api/workouts`: `WorkoutsList.workouts` items now `WorkoutProjection` (was `WorkoutSummary`)
+  - `/api/planning/context`: `recent_workouts` now `WorkoutProjection[]` (was generic `object[]`)
+- **Updated descriptions**: Documented new response format and migration path ("For full metrics, query `/api/workouts/{workout_id}`")
+
+**Breaking Changes**:
+
+| Endpoint | v3.1.0 (Old) | v3.2.0 (New) | Migration |
+| --- | --- | --- | --- |
+| `GET /api/workouts?limit=50` | `WorkoutSummary[]` (80+ fields) | `WorkoutProjection[]` (30 fields) | Clients using zone fields (hr_z2_sec, etc.) must call `/api/workouts/{workout_id}` to get full `WorkoutDetail` |
+| `GET /api/planning/context` | `recent_workouts`: `WorkoutSummary[]` | `recent_workouts`: `WorkoutProjection[]` | Same as above |
+| `GET /api/workouts/{workout_id}` | `WorkoutDetail` (full metrics) | `WorkoutDetail` (full metrics) | **No change** — still returns all zones, efficiency, duration curves |
+
+**Benefits**:
+
+- **Payload reduction**: ~40-50% smaller responses (30 direct fields vs 80+ computed)
+- **Computation savings**: No metric computation for list/planning queries (avoid CanonicalAnalyticsEngine overhead)
+- **Batch efficiency**: Planning context can load 10-50 workouts without metric computation
+- **Preserved drill-down**: Full metrics still available via `/api/workouts/{workout_id}`
+
+**Backward Compatibility**:
+
+- Old clients expecting `WorkoutSummary` in list responses will see incompatible schema
+- Recommended: Update consumers to handle `WorkoutProjection` and fetch full details on demand
+- `WorkoutSummary` schema preserved in OpenAPI for reference but deprecated
+
+**Ingestion SemVer**: [models/core.py v1.0.0] — `WorkoutProjection` is new, non-breaking for ingestion pipeline
+
 ## 2026-03-06
 
 ### Storage & Endpoint Fixes + ID Separation [ingestion v15.1.1]
