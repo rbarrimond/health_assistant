@@ -42,6 +42,7 @@ class IntervalsSyncHandler:
 
     def handle(
         self,
+        intervals_athlete_id: str,
         athlete_id: str,
         lookback_days: Optional[int] = None,
     ) -> Tuple[Dict[str, Any], int]:
@@ -49,14 +50,19 @@ class IntervalsSyncHandler:
         Fetch and store physiometrics from Intervals.icu.
 
         Args:
-            athlete_id: Athlete identifier in Intervals.icu
+            intervals_athlete_id: Athlete identifier in Intervals.icu (for API URL)
+            athlete_id: Athlete identifier for storage partition
             lookback_days: How many days back to fetch (default from env or 30)
 
         Returns:
             Tuple of (response_dict, http_status_code)
         """
+        if not intervals_athlete_id:
+            logger.warning("Missing intervals_athlete_id for Intervals sync")
+            return {"error": "intervals_athlete_id parameter required"}, 400
+        
         if not athlete_id:
-            logger.warning("Missing athlete_id for Intervals sync")
+            logger.warning("Missing athlete_id for storage")
             return {"error": "athlete_id parameter required"}, 400
 
         # Determine lookback period
@@ -72,23 +78,26 @@ class IntervalsSyncHandler:
         start_date = end_date - timedelta(days=lookback_days)
 
         logger.info(
-            "Syncing Intervals.icu data for athlete %s from %s to %s",
+            "Syncing Intervals.icu data: fetching with intervals_athlete_id=%s, storing to athlete_id=%s from %s to %s",
+            intervals_athlete_id,
             athlete_id,
             start_date.isoformat(),
             end_date.isoformat(),
         )
 
         try:
+            # Fetch using intervals_athlete_id (Intervals backend identity)
             wellness_records = self.client.get_athlete_wellness(
-                athlete_id=athlete_id,
+                athlete_id=intervals_athlete_id,
                 oldest=start_date.isoformat(),
                 newest=end_date.isoformat(),
             )
 
             if not wellness_records:
-                logger.info("No measurements found for athlete %s", athlete_id)
+                logger.info("No measurements found for intervals_athlete_id=%s", intervals_athlete_id)
                 return {"message": "No measurements found", "count": 0}, 200
 
+            # Process and store using storage athlete_id
             stored_count, errors = self._process_wellness_records(athlete_id, wellness_records)
 
             return {

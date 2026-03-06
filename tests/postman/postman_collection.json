@@ -650,7 +650,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"lookback_days\": 30,\n  \"athlete_id\": \"{{intervals_icu_id}}\"\n}"
+              "raw": "{\n  \"lookback_days\": 30,\n  \"intervals_athlete_id\": \"{{intervals_icu_id}}\",\n  \"athlete_id\": \"{{athlete_id}}\"\n}"
             },
             "url": "{{base_url}}/api/intervals/sync?code={{function_key}}",
             "description": "Sync Intervals.icu wellness data (function key required). Fetches wellness records from Intervals.icu wellness API using HTTP Basic authentication. v3.0.0 schema: Intervals owns recovery (hrv_ln_rmssd, sleep_duration_sec, resting_hr_bpm), activity (steps), and nutrition (calories_kcal, carbs_g, protein_g, fat_g). Stores in Physiometrics table with canonical_version='3.0.0'. Requires INTERVALS_API_KEY and INTERVALS_ATHLETE_ID environment variables. Lookback defaults to 30 days."

@@ -51,17 +51,29 @@ class TestIntervalsSyncHandlerInit:
 
 
 class TestIntervalsSyncHandlerHandle:
-    """Tests for handler.handle() method."""
+    """Tests for handler.handle() method with split IDs."""
 
-    def test_handle_missing_athlete_id(self, handler):
-        """Test handle with missing athlete_id."""
-        response, status = handler.handle(athlete_id=None)
+    def test_handle_missing_intervals_athlete_id(self, handler):
+        """Test handle with missing intervals_athlete_id returns 400."""
+        response, status = handler.handle(
+            intervals_athlete_id=None, athlete_id="rob"
+        )
         assert status == 400
-        assert "athlete_id" in response.get("error", "").lower()
+        assert "intervals_athlete_id" in response.get("error", "").lower()
 
-    def test_handle_empty_athlete_id(self, handler):
-        """Test handle with empty string athlete_id."""
-        response, status = handler.handle(athlete_id="")
+    def test_handle_empty_intervals_athlete_id(self, handler):
+        """Test handle with empty string intervals_athlete_id returns 400."""
+        response, status = handler.handle(
+            intervals_athlete_id="", athlete_id="rob"
+        )
+        assert status == 400
+        assert "intervals_athlete_id" in response.get("error", "").lower()
+
+    def test_handle_missing_storage_athlete_id(self, handler):
+        """Test handle with missing athlete_id returns 400."""
+        response, status = handler.handle(
+            intervals_athlete_id="i508584", athlete_id=None
+        )
         assert status == 400
         assert "athlete_id" in response.get("error", "").lower()
 
@@ -69,14 +81,20 @@ class TestIntervalsSyncHandlerHandle:
         """Test handle when API returns no measurements."""
         mock_client.get_athlete_wellness.return_value = []
 
-        response, status = handler.handle(athlete_id="test_athlete")
+        response, status = handler.handle(
+            intervals_athlete_id="i508584", athlete_id="rob"
+        )
 
         assert status == 200
         assert response["count"] == 0
         assert "no measurements" in response.get("message", "").lower()
+        # Verify client called with intervals_athlete_id
+        mock_client.get_athlete_wellness.assert_called_once()
+        call_kwargs = mock_client.get_athlete_wellness.call_args[1]
+        assert call_kwargs["athlete_id"] == "i508584"
 
     def test_handle_success_single_measurement(self, handler, mock_storage, mock_client):
-        """Test successful handling of a single measurement."""
+        """Test successful handling with split IDs."""
         measurement = {
             "id": "2025-03-01",
             "hrvRMSSD": 42.5,
@@ -86,12 +104,23 @@ class TestIntervalsSyncHandlerHandle:
         }
         mock_client.get_athlete_wellness.return_value = [measurement]
 
-        response, status = handler.handle(athlete_id="test_athlete")
+        response, status = handler.handle(
+            intervals_athlete_id="i508584", athlete_id="rob"
+        )
 
         assert status == 200
         assert response["count"] == 1
         assert "synced" in response.get("message", "").lower()
+        
+        # Verify client called with intervals_athlete_id
+        mock_client.get_athlete_wellness.assert_called_once()
+        call_kwargs = mock_client.get_athlete_wellness.call_args[1]
+        assert call_kwargs["athlete_id"] == "i508584"
+        
+        # Verify storage called with athlete_id (storage partition)
         mock_storage.physiometrics.store_physiometrics.assert_called_once()
+        store_call_kwargs = mock_storage.physiometrics.store_physiometrics.call_args[1]
+        assert store_call_kwargs["athlete_id"] == "rob"
 
     def test_handle_success_multiple_measurements(self, handler, mock_storage, mock_client):
         """Test successful handling of multiple measurements."""
@@ -113,22 +142,30 @@ class TestIntervalsSyncHandlerHandle:
         ]
         mock_client.get_athlete_wellness.return_value = measurements
 
-        response, status = handler.handle(athlete_id="test_athlete")
+        response, status = handler.handle(
+            intervals_athlete_id="i508584", athlete_id="rob"
+        )
 
         assert status == 200
         assert response["count"] == 2
         assert mock_storage.physiometrics.store_physiometrics.call_count == 2
+        
+        # Verify all storage calls used correct athlete_id
+        for call in mock_storage.physiometrics.store_physiometrics.call_args_list:
+            assert call[1]["athlete_id"] == "rob"
 
     def test_handle_with_lookback_days(self, handler, mock_client):
         """Test handle with custom lookback days."""
         mock_client.get_athlete_wellness.return_value = []
 
-        handler.handle(athlete_id="test_athlete", lookback_days=60)
+        handler.handle(
+            intervals_athlete_id="i508584", athlete_id="rob", lookback_days=60
+        )
 
         # Verify client was called with dates matching lookback
         assert mock_client.get_athlete_wellness.called
         call_kwargs = mock_client.get_athlete_wellness.call_args[1]
-        assert call_kwargs["athlete_id"] == "test_athlete"
+        assert call_kwargs["athlete_id"] == "i508584"
         assert "oldest" in call_kwargs
         assert "newest" in call_kwargs
 
@@ -138,7 +175,9 @@ class TestIntervalsSyncHandlerHandle:
             "API connection failed"
         )
 
-        response, status = handler.handle(athlete_id="test_athlete")
+        response, status = handler.handle(
+            intervals_athlete_id="i508584", athlete_id="rob"
+        )
 
         assert status == 502
         assert "error" in response
@@ -158,7 +197,9 @@ class TestIntervalsSyncHandlerHandle:
             "Storage failed"
         )
 
-        response, status = handler.handle(athlete_id="test_athlete")
+        response, status = handler.handle(
+            intervals_athlete_id="i508584", athlete_id="rob"
+        )
 
         assert status == 200  # Partial success - error caught and logged
         assert response["count"] == 0
@@ -181,7 +222,9 @@ class TestIntervalsSyncHandlerHandle:
         ]
         mock_client.get_athlete_wellness.return_value = measurements
 
-        response, status = handler.handle(athlete_id="test_athlete")
+        response, status = handler.handle(
+            intervals_athlete_id="i508584", athlete_id="rob"
+        )
 
         # First measurement succeeds, second fails validation
         assert status == 200
@@ -193,7 +236,9 @@ class TestIntervalsSyncHandlerHandle:
         """Test handle when unexpected error occurs."""
         mock_client.get_athlete_wellness.side_effect = RuntimeError("Unexpected error")
 
-        response, status = handler.handle(athlete_id="test_athlete")
+        response, status = handler.handle(
+            intervals_athlete_id="i508584", athlete_id="rob"
+        )
 
         assert status == 500
         assert "error" in response
@@ -212,18 +257,23 @@ class TestIntervalsSyncHandlerHandle:
         }
         mock_client.get_athlete_wellness.return_value = [measurement]
 
-        _, status = handler.handle(athlete_id="test_athlete")
+        _, status = handler.handle(
+            intervals_athlete_id="i508584", athlete_id="rob"
+        )
 
         assert status == 200
         # Verify storage was called with proper structure
         call_args = mock_storage.physiometrics.store_physiometrics.call_args
         assert call_args is not None
         kwargs = call_args[1]
-        assert kwargs["athlete_id"] == "test_athlete"
+        assert kwargs["athlete_id"] == "rob"
         assert kwargs["data_source"] == "intervals"
         assert kwargs["effective_date"] == "2025-03-01"
-        assert "heart_rate" in kwargs["physiometrics_data"]
-        assert "resting_hr_bpm" in kwargs["physiometrics_data"]["heart_rate"]
+        # Verify flat keys from schema v3.0.0 are present
+        assert "resting_hr_bpm" in kwargs["physiometrics_data"]
+        assert "hrv_ln_rmssd" in kwargs["physiometrics_data"]
+        assert "readiness_score" in kwargs["physiometrics_data"]
+        assert "sleep_duration_sec" in kwargs["physiometrics_data"]
 
 
 class TestIntervalsPhysiometricsAdapter:

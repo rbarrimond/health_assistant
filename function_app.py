@@ -911,53 +911,91 @@ def garmin_physiometrics_sync_timer(timer: func.TimerRequest) -> None:
 def intervals_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     """HTTP-triggered Intervals.icu physiometrics sync.
     
-    Athlete ID resolution (in priority order):
-    1. Request body: {"athlete_id": "..."}
-    2. Query parameter: ?athlete_id=...
-    3. Environment: INTERVALS_ATHLETE_ID
-    4. Environment: DEFAULT_ATHLETE_ID (default: "rob")
+    Resolves two independent athlete identities:
+    
+    1. intervals_athlete_id (for Intervals API URL calls) - priority order:
+       - Request body: {"intervals_athlete_id": "..."}
+       - Query parameter: ?intervals_athlete_id=...
+       - Environment: INTERVALS_ATHLETE_ID
+       - Error (required for API fetch)
+    
+    2. athlete_id (for storage partition) - priority order:
+       - Request body: {"athlete_id": "..."}
+       - Query parameter: ?athlete_id=...
+       - Environment: DEFAULT_ATHLETE_ID (default: "rob")
+    
+    Returns 400 if intervals_athlete_id cannot be resolved (API identity is required).
+    Storage athlete_id has a safe default fallback.
     """
     try:
         body = req.get_json() if req.method == "POST" else {}
     except ValueError:
         body = {}
 
-    # Request takes precedence over environment (manual sync should override defaults)
+    # Resolve intervals_athlete_id for API fetch (required)
+    intervals_athlete_id = (
+        body.get("intervals_athlete_id")
+        or req.params.get("intervals_athlete_id")
+        or os.getenv("INTERVALS_ATHLETE_ID")
+    )
+    
+    # Resolve athlete_id for storage partition (has safe default)
     athlete_id = (
         body.get("athlete_id")
         or req.params.get("athlete_id")
-        or os.getenv("INTERVALS_ATHLETE_ID")
         or os.getenv("DEFAULT_ATHLETE_ID", "rob")
     )
+    
     lookback_days = body.get("lookback_days") or req.params.get("lookback_days")
 
-    # Log resolved athlete_id source for auditability
+    # Validate intervals_athlete_id (required for API)
+    if not intervals_athlete_id:
+        logger.warning("Missing intervals_athlete_id for Intervals sync")
+        return json_response({"error": "intervals_athlete_id parameter required"}, 400)
+
+    # Log resolved sources for auditability
+    if body.get("intervals_athlete_id"):
+        logger.info("Intervals sync: intervals_athlete_id from request body")
+    elif req.params.get("intervals_athlete_id"):
+        logger.info("Intervals sync: intervals_athlete_id from query parameter")
+    else:
+        logger.info("Intervals sync: intervals_athlete_id from INTERVALS_ATHLETE_ID env")
+    
     if body.get("athlete_id"):
         logger.info("Intervals sync: athlete_id from request body")
     elif req.params.get("athlete_id"):
         logger.info("Intervals sync: athlete_id from query parameter")
-    elif os.getenv("INTERVALS_ATHLETE_ID"):
-        logger.info("Intervals sync: athlete_id from INTERVALS_ATHLETE_ID env")
     else:
         logger.info("Intervals sync: athlete_id from DEFAULT_ATHLETE_ID fallback")
 
     handler = dependencies.intervals_service
-    response, status = handler.handle(athlete_id, lookback_days)
+    response, status = handler.handle(
+        intervals_athlete_id=intervals_athlete_id,
+        athlete_id=athlete_id,
+        lookback_days=lookback_days,
+    )
 
     return json_response(response, status)
 
 
 @app.timer_trigger(arg_name="timer", schedule="0 2 * * *")  # 2 AM UTC daily
 def intervals_sync_timer(timer: func.TimerRequest) -> None:
-    """Timer-triggered Intervals.icu physiometrics sync."""
+    """Timer-triggered Intervals.icu physiometrics sync.
+    
+    Uses INTERVALS_ATHLETE_ID for API fetch and DEFAULT_ATHLETE_ID for storage.
+    """
     if timer.past_due:
         logger.warning("Intervals sync timer is past due")
 
     try:
+        intervals_athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
         athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
         handler = dependencies.intervals_service
 
-        response, status = handler.handle(athlete_id)
+        response, status = handler.handle(
+            intervals_athlete_id=intervals_athlete_id,
+            athlete_id=athlete_id,
+        )
 
         if status == 200:
             logger.info("Intervals sync completed: %s", response)

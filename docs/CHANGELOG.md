@@ -10,36 +10,69 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-06
 
-### Storage & Endpoint Fixes [ingestion v15.1.0]
+### Storage & Endpoint Fixes + ID Separation [ingestion v15.1.1]
 
 #### Fixed: Resting HR Storage Mapping Bug
 
 **Issue**: Physiometrics snapshot flat key `resting_hr_bpm` (from Intervals adapter) was not being read by storage layer. Storage layer attempted to read nested `heart_rate.resting_hr_bpm` (legacy pattern), which was absent in Intervals flow, causing all resting HR values to default to 60.
 
 **Fix** (`physiometrics_storage.py:94`): Implemented three-tier fallback:
+
 1. Check flat key `resting_hr_bpm` (Intervals path — primary)
 2. Fall back to nested `heart_rate.resting_hr_bpm` (legacy compatibility)
 3. Default to 60 if both absent
 
 **Impact**: Intervals ingestion now correctly persists actual resting HR values instead of forcing 60.
 
-#### Fixed: Intervals Endpoint Athlete ID Routing
+#### Fixed: Intervals Endpoint + Handler ID Separation (Critical)
 
-**Issue**: `/api/intervals/sync` endpoint ignored body and query parameters for athlete_id, always using `INTERVALS_ATHLETE_ID` environment variable. This prevented manual requests targeting alternate athletes (e.g., `GET /api/intervals/sync?athlete_id=i508584`).
+**Issue**: Intervals sync endpoint and handler used one `athlete_id` for two distinct purposes:
 
-**Fix** (`function_app.py:918`): Reordered athlete_id resolution precedence:
-- **Old**: `INTERVALS_ATHLETE_ID` env → body → `DEFAULT_ATHLETE_ID`
-- **New**: body → query params → `INTERVALS_ATHLETE_ID` env → `DEFAULT_ATHLETE_ID`
+1. Intervals API URL identity (e.g., `i508584` — Intervals backend account ID)
+2. Storage partition identity (e.g., `rob` — local canonical athlete)
 
-**Added**: Diagnostic logging tracking resolved athlete_id source (body/query/env/default).
+This coupling prevented fetching data from one Intervals account (e.g., `i508584`) while storing under a canonical athlete partition (e.g., `rob`). Additionally, physiometrics from different sources (Intervals, Garmin) for the same athlete were fragmented across multiple partitions instead of being co-located.
 
-**Impact**: Manual sync requests now correctly target specified athlete, enabling targeted testing and recovery workflows.
+**Fix** (`function_app.py:909–990` + `intervals_sync_handler.py:34–73`): Split identities explicitly; unify partition key by canonical athlete.
+
+**Endpoint resolution** (`function_app.py`):
+
+- `intervals_athlete_id`: body → query params → `INTERVALS_ATHLETE_ID` env (required for API fetch, returns 400 if absent)
+- `athlete_id`: body → query params → `DEFAULT_ATHLETE_ID` env → default `"rob"` (canonical athlete for storage partition)
+
+**Handler signature** (`intervals_sync_handler.py`):
+
+- Changed `handle(athlete_id, lookback_days)` → `handle(intervals_athlete_id, athlete_id, lookback_days)`
+- Uses `intervals_athlete_id` only for `client.get_athlete_wellness(...)` API call
+- Uses `athlete_id` only for storage PartitionKey and canonical snapshot mapping
+- Validates `intervals_athlete_id` required; `athlete_id` has default fallback
+- **All physiometrics for the same canonical athlete (`athlete_id`) are now co-located in one table partition**, regardless of source (Intervals, Garmin, etc.)
+
+**Storage Impact**: Partition key is canonical `athlete_id`. Example:
+
+- Fetch from Intervals account `i508584`, store under canonical athlete `rob`:
+  - PartitionKey: `rob` (not `i508584`)
+  - RowKey: `effective_date`
+- All Intervals + Garmin + other source data for athlete `rob` accumulates in same partition
+
+**Migration Note**: Existing Intervals physiometrics stored under partition `i508584` (from before split) remain as-is. New Intervals syncs use canonical partition `athlete_id`.
+
+Example request:
+
+```http
+POST /api/intervals/sync?intervals_athlete_id=i508584&athlete_id=rob&lookback_days=7
+```
+
+→ Fetches using `i508584` from Intervals backend API  
+→ Stores with PartitionKey=`rob` in Physiometrics table (canonical athlete partition)  
+→ All data for athlete `rob` now co-located regardless of source
 
 #### Enhanced: Intervals Handler Diagnostics
 
 **Feature** (`intervals_sync_handler.py:165`): Added field-presence diagnostics before validation in `_store_single_measurement()`.
 
 Structured logging now includes boolean flags for each parsed metric:
+
 - `has_hrv` — hrv_ln_rmssd present in source
 - `has_readiness` — readiness_score present in source
 - `has_nutrition` — nutrition fields (carbs/protein/fat) present in source
@@ -49,22 +82,30 @@ Structured logging now includes boolean flags for each parsed metric:
 
 #### Added: Test Coverage
 
-**Endpoint tests** (`test_function_app_extras.py`): 5 new tests for athlete_id resolution precedence:
-- `test_intervals_sync_athlete_id_from_body`
-- `test_intervals_sync_athlete_id_from_query_param`
-- `test_intervals_sync_athlete_id_from_env`
-- `test_intervals_sync_athlete_id_fallback_to_default`
-- `test_intervals_sync_lookback_days_from_query_param`
+**Endpoint tests** (`test_function_app_extras.py`): 6 new tests for split ID behavior:
 
-**Storage tests** (`test_table_storage_physiometrics.py`): 4 new persistence assertions:
-- `test_store_physiometrics_resting_hr_from_flat_key` — verify flat key consumed
-- `test_store_physiometrics_resting_hr_defaults_to_60_when_absent` — verify default only applied appropriately
-- `test_store_physiometrics_nutrition_macros_persisted` — verify carbs/protein/fat columns populated
-- Implicit coverage for hrv/readiness via field-presence diagnostics
+- `test_intervals_sync_requires_intervals_athlete_id` — verify API ID is required
+- `test_intervals_sync_intervals_athlete_id_from_body` — body precedence for fetch ID
+- `test_intervals_sync_intervals_athlete_id_from_query_param` — query param fallback for fetch ID
+- `test_intervals_sync_intervals_athlete_id_from_env` — env fallback for fetch ID
+- `test_intervals_sync_athlete_id_defaults_to_default_athlete_id` — storage ID default
+- `test_intervals_sync_lookback_days_from_query_param` — lookback_days parameter
 
-**SemVer Bump**: Ingestion v15.0.0 → v15.1.0 (non-breaking bug fix to storage mapping and endpoint routing).
+**Handler tests** (`test_intervals_sync_handler.py`): Updated to assert split IDs:
 
-## 2026-03-05
+- Handler receives both `intervals_athlete_id` and `athlete_id` as separate parameters
+- `client.get_athlete_wellness()` called with `intervals_athlete_id` (fetch identity)
+- `store_physiometrics()` called with `athlete_id` (storage partition identity)
+
+**Storage tests** (`test_table_storage_physiometrics.py`): 4 persistence assertions:
+
+- `test_store_physiometrics_resting_hr_from_flat_key`
+- `test_store_physiometrics_resting_hr_defaults_to_60_when_absent`
+- `test_store_physiometrics_nutrition_macros_persisted`
+
+**SemVer Bump**: Ingestion v15.1.0 → v15.1.1 (patch bug fix to storage mapping + handler ID separation semantics).
+
+## 2026-03-06-earlier
 
 ### **BREAKING:** PhysiometricsSnapshot v3.0.0 - Simplified Schema [canonical v3.0.0, ingest v15.0.0]
 

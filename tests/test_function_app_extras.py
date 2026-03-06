@@ -551,73 +551,35 @@ class TestOneDriveHelpersAndEndpoints:
 
 
 class TestIntervalsEndpointHandlers:
-    """Tests for Intervals.icu sync endpoint athlete_id resolution."""
+    """Tests for Intervals.icu sync endpoint ID splitting."""
 
-    def test_intervals_sync_athlete_id_from_body(self, monkeypatch):
-        """Test that request body athlete_id takes precedence."""
-        monkeypatch.setenv("INTERVALS_ATHLETE_ID", "env_athlete")
-        monkeypatch.setenv("DEFAULT_ATHLETE_ID", "default_athlete")
-
-        req = MagicMock(spec=func.HttpRequest)
-        req.method = "POST"
-        req.get_json.return_value = {"athlete_id": "body_athlete", "lookback_days": 30}
-        req.params = {}
-
-        mock_handler = MagicMock()
-        mock_handler.handle.return_value = ({"count": 10}, 200)
-
-        with _patch_dependency("intervals_service", mock_handler):
-            response = function_app.intervals_sync_http(req)
-
-        assert response.status_code == 200
-        mock_handler.handle.assert_called_once_with("body_athlete", 30)
-
-    def test_intervals_sync_athlete_id_from_query_param(self, monkeypatch):
-        """Test that query parameter athlete_id is used when body is absent."""
-        monkeypatch.setenv("INTERVALS_ATHLETE_ID", "env_athlete")
-        monkeypatch.setenv("DEFAULT_ATHLETE_ID", "default_athlete")
-
-        req = MagicMock(spec=func.HttpRequest)
-        req.method = "POST"
-        req.get_json.return_value = {"lookback_days": 30}
-        req.params = {"athlete_id": "query_athlete"}
-
-        mock_handler = MagicMock()
-        mock_handler.handle.return_value = ({"count": 10}, 200)
-
-        with _patch_dependency("intervals_service", mock_handler):
-            response = function_app.intervals_sync_http(req)
-
-        assert response.status_code == 200
-        mock_handler.handle.assert_called_once_with("query_athlete", 30)
-
-    def test_intervals_sync_athlete_id_from_env(self, monkeypatch):
-        """Test that env INTERVALS_ATHLETE_ID is used when request is absent."""
-        monkeypatch.setenv("INTERVALS_ATHLETE_ID", "env_athlete")
-        monkeypatch.setenv("DEFAULT_ATHLETE_ID", "default_athlete")
-
-        req = MagicMock(spec=func.HttpRequest)
-        req.method = "POST"
-        req.get_json.return_value = {"lookback_days": 30}
-        req.params = {}
-
-        mock_handler = MagicMock()
-        mock_handler.handle.return_value = ({"count": 10}, 200)
-
-        with _patch_dependency("intervals_service", mock_handler):
-            response = function_app.intervals_sync_http(req)
-
-        assert response.status_code == 200
-        mock_handler.handle.assert_called_once_with("env_athlete", 30)
-
-    def test_intervals_sync_athlete_id_fallback_to_default(self, monkeypatch):
-        """Test fallback to DEFAULT_ATHLETE_ID when no source provided."""
+    def test_intervals_sync_requires_intervals_athlete_id(self, monkeypatch):
+        """Test that missing intervals_athlete_id returns 400."""
+        monkeypatch.setenv("DEFAULT_ATHLETE_ID", "rob")
         monkeypatch.delenv("INTERVALS_ATHLETE_ID", raising=False)
-        monkeypatch.setenv("DEFAULT_ATHLETE_ID", "default_athlete")
 
         req = MagicMock(spec=func.HttpRequest)
         req.method = "POST"
-        req.get_json.return_value = {"lookback_days": 30}
+        req.get_json.return_value = {"athlete_id": "rob"}
+        req.params = {}
+
+        response = function_app.intervals_sync_http(req)
+
+        assert response.status_code == 400
+        assert "intervals_athlete_id" in response.get_body().decode().lower()
+
+    def test_intervals_sync_intervals_athlete_id_from_body(self, monkeypatch):
+        """Test intervals_athlete_id from request body takes precedence."""
+        monkeypatch.setenv("INTERVALS_ATHLETE_ID", "env_intervals")
+        monkeypatch.setenv("DEFAULT_ATHLETE_ID", "default_storage")
+
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {
+            "intervals_athlete_id": "body_intervals",
+            "athlete_id": "body_storage",
+            "lookback_days": 30,
+        }
         req.params = {}
 
         mock_handler = MagicMock()
@@ -627,16 +589,91 @@ class TestIntervalsEndpointHandlers:
             response = function_app.intervals_sync_http(req)
 
         assert response.status_code == 200
-        mock_handler.handle.assert_called_once_with("default_athlete", 30)
+        mock_handler.handle.assert_called_once()
+        call_kwargs = mock_handler.handle.call_args[1]
+        assert call_kwargs["intervals_athlete_id"] == "body_intervals"
+        assert call_kwargs["athlete_id"] == "body_storage"
+        assert call_kwargs["lookback_days"] == 30
+
+    def test_intervals_sync_intervals_athlete_id_from_query_param(self, monkeypatch):
+        """Test intervals_athlete_id from query param when body absent."""
+        monkeypatch.setenv("INTERVALS_ATHLETE_ID", "env_intervals")
+        monkeypatch.setenv("DEFAULT_ATHLETE_ID", "default_storage")
+
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {}
+        req.params = {
+            "intervals_athlete_id": "query_intervals",
+            "athlete_id": "query_storage",
+            "lookback_days": "7",
+        }
+
+        mock_handler = MagicMock()
+        mock_handler.handle.return_value = ({"count": 5}, 200)
+
+        with _patch_dependency("intervals_service", mock_handler):
+            response = function_app.intervals_sync_http(req)
+
+        assert response.status_code == 200
+        call_kwargs = mock_handler.handle.call_args[1]
+        assert call_kwargs["intervals_athlete_id"] == "query_intervals"
+        assert call_kwargs["athlete_id"] == "query_storage"
+        assert call_kwargs["lookback_days"] == "7"
+
+    def test_intervals_sync_intervals_athlete_id_from_env(self, monkeypatch):
+        """Test intervals_athlete_id from env INTERVALS_ATHLETE_ID fallback."""
+        monkeypatch.setenv("INTERVALS_ATHLETE_ID", "env_intervals")
+        monkeypatch.setenv("DEFAULT_ATHLETE_ID", "default_storage")
+
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {"athlete_id": "custom_storage"}
+        req.params = {}
+
+        mock_handler = MagicMock()
+        mock_handler.handle.return_value = ({"count": 1}, 200)
+
+        with _patch_dependency("intervals_service", mock_handler):
+            response = function_app.intervals_sync_http(req)
+
+        assert response.status_code == 200
+        call_kwargs = mock_handler.handle.call_args[1]
+        assert call_kwargs["intervals_athlete_id"] == "env_intervals"
+        assert call_kwargs["athlete_id"] == "custom_storage"
+
+    def test_intervals_sync_athlete_id_defaults_to_default_athlete_id(
+        self, monkeypatch
+    ):
+        """Test storage athlete_id defaults to DEFAULT_ATHLETE_ID."""
+        monkeypatch.setenv("INTERVALS_ATHLETE_ID", "env_intervals")
+        monkeypatch.setenv("DEFAULT_ATHLETE_ID", "default_storage")
+
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {"intervals_athlete_id": "i508584"}
+        req.params = {}
+
+        mock_handler = MagicMock()
+        mock_handler.handle.return_value = ({"count": 0}, 200)
+
+        with _patch_dependency("intervals_service", mock_handler):
+            response = function_app.intervals_sync_http(req)
+
+        assert response.status_code == 200
+        call_kwargs = mock_handler.handle.call_args[1]
+        assert call_kwargs["intervals_athlete_id"] == "i508584"
+        assert call_kwargs["athlete_id"] == "default_storage"
 
     def test_intervals_sync_lookback_days_from_query_param(self, monkeypatch):
         """Test that lookback_days can come from query parameter."""
+        monkeypatch.setenv("INTERVALS_ATHLETE_ID", "i508584")
         monkeypatch.setenv("DEFAULT_ATHLETE_ID", "rob")
 
         req = MagicMock(spec=func.HttpRequest)
         req.method = "POST"
         req.get_json.return_value = {}
-        req.params = {"athlete_id": "rob", "lookback_days": "60"}
+        req.params = {"lookback_days": "60"}
 
         mock_handler = MagicMock()
         mock_handler.handle.return_value = ({"count": 20}, 200)
@@ -645,5 +682,8 @@ class TestIntervalsEndpointHandlers:
             response = function_app.intervals_sync_http(req)
 
         assert response.status_code == 200
-        # lookback_days is a string from params, handler will parse it
-        mock_handler.handle.assert_called_once_with("rob", "60")
+        call_kwargs = mock_handler.handle.call_args[1]
+        assert call_kwargs["intervals_athlete_id"] == "i508584"
+        assert call_kwargs["athlete_id"] == "rob"
+        assert call_kwargs["lookback_days"] == "60"
+
