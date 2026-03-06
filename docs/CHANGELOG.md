@@ -110,11 +110,13 @@ Structured logging now includes boolean flags for each parsed metric:
 **Issue**: Configuration system prioritized environment variables over frequently-updated PhysiometricsSnapshot data from Azure Table Storage.
 
 **Old (Wrong) Precedence**:
+
 1. Environment variables (highest priority) ❌
 2. physiometrics.json or Table Storage
 3. Hard defaults
 
 **New (Correct) Precedence** [`platform/config.py`]:
+
 1. **PhysiometricsSnapshot from Table Storage** (primary - updated frequently) ✅
 2. Environment variables (fallback - only if physiometrics missing)
 3. Hard defaults (only if both above missing)
