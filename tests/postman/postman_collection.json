@@ -266,16 +266,6 @@
           "response": []
         },
         {
-          "name": "POST /config/reload",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": "{{base_url}}/api/config/reload?code={{function_key}}",
-            "description": "Reload config from physiometrics.json"
-          },
-          "response": []
-        },
-        {
           "name": "GET /.well-known/ai-plugin.json",
           "request": {
             "method": "GET",

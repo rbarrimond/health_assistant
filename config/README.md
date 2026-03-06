@@ -113,13 +113,14 @@ The Health Assistant Config system loads configuration values in this order (hig
 **Configuration Loading**:
 
 - Config is loaded once at Function App startup (singleton pattern)
-- Reload configuration: `POST /api/config/reload` (admin endpoint)
-- Update configuration: `POST /api/config/update` (admin endpoint)
-- View configuration history: `GET /api/config/history` (admin endpoint)
+- Update configuration: `POST /api/config/update` (admin endpoint) - updates athlete metrics in Table Storage
+- View configuration history: `GET /api/config/history` (admin endpoint) - audit trail of configuration changes
 
 ## Local Development Setup
 
-### Physiometrics Configuration
+### Athlete Metrics Configuration (physiometrics.json)
+
+For **local development only**. In production, use `/api/config/update` endpoint to store metrics in Table Storage.
 
 **Step 1**: Copy the example file:
 
@@ -127,7 +128,7 @@ The Health Assistant Config system loads configuration values in this order (hig
 cp config/physiometrics.json.example config/physiometrics.json
 ```
 
-**Step 2**: Edit `config/physiometrics.json` with your athlete-specific metrics:
+**Step 2**: Edit `config/physiometrics.json` with your athlete-specific metrics (local fallback):
 
 ```json
 {

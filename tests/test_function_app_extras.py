@@ -619,7 +619,7 @@ class TestIntervalsEndpointHandlers:
         call_kwargs = mock_handler.handle.call_args[1]
         assert call_kwargs["intervals_athlete_id"] == "query_intervals"
         assert call_kwargs["athlete_id"] == "query_storage"
-        assert call_kwargs["lookback_days"] == "7"
+        assert call_kwargs["lookback_days"] == 7
 
     def test_intervals_sync_intervals_athlete_id_from_env(self, monkeypatch):
         """Test intervals_athlete_id from env INTERVALS_ATHLETE_ID fallback."""
@@ -685,5 +685,5 @@ class TestIntervalsEndpointHandlers:
         call_kwargs = mock_handler.handle.call_args[1]
         assert call_kwargs["intervals_athlete_id"] == "i508584"
         assert call_kwargs["athlete_id"] == "rob"
-        assert call_kwargs["lookback_days"] == "60"
+        assert call_kwargs["lookback_days"] == 60
 

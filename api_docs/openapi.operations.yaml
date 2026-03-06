@@ -326,27 +326,6 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/config/reload:
-    post:
-      summary: Reload physiometrics configuration from disk
-      operationId: reloadConfig
-      security:
-        - FunctionKey: []
-      responses:
-        '200':
-          description: Configuration reloaded
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ConfigSnapshot'
-        '404':
-          description: Physiometrics file not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
-          $ref: '#/components/responses/InternalError'
   /api/config/update:
     post:
       summary: Update physiometrics configuration

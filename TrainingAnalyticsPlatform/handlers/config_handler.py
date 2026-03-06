@@ -12,53 +12,6 @@ logger = logging.getLogger(__name__)
 class ConfigHandler:
     """Handles physiometrics configuration operations."""
 
-    def reload_config(self) -> Tuple[Dict[str, Any], int]:
-        """Reload configuration from disk/storage.
-
-        Returns:
-            Tuple of (response_dict, status_code)
-        """
-        try:
-            config_data = Config.load_physiometrics(force_reload=True)
-
-            if config_data is None:
-                logger.warning("Physiometrics file not found at %s",
-                               Config.physiometrics_file())
-                return {
-                    "error": "Physiometrics file not found",
-                    "path": str(Config.physiometrics_file())
-                }, 404
-
-            hr_cfg = Config.hr_config()
-            pwr_cfg = Config.power_config()
-
-            return {
-                "status": "success",
-                "message": "Configuration reloaded from disk",
-                "heart_rate": {
-                    "basis": hr_cfg.basis,
-                    "lthr_bpm": hr_cfg.lthr_bpm,
-                    "hr_max_bpm": hr_cfg.hr_max_bpm,
-                    "resting_hr_bpm": hr_cfg.resting_hr_bpm,
-                },
-                "power": {
-                    "ftp_watts": pwr_cfg.ftp_watts,
-                }
-            }, 200
-
-        except json.JSONDecodeError as exc:
-            logger.error("JSON parsing error in physiometrics file: %s", exc)
-            return {
-                "error": "Invalid JSON in physiometrics file",
-                "details": str(exc)
-            }, 500
-        except (OSError, IOError, ValueError, KeyError) as exc:
-            logger.error("Error reloading config: %s", exc, exc_info=True)
-            return {
-                "error": "Failed to reload configuration",
-                "details": str(exc)
-            }, 500
-
     def update_config(self, config_data: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
         """Update configuration and persist to storage.
 

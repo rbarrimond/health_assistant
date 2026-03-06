@@ -947,6 +947,12 @@ def intervals_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     )
     
     lookback_days = body.get("lookback_days") or req.params.get("lookback_days")
+    if lookback_days is not None:
+        try:
+            lookback_days = int(lookback_days)
+        except (ValueError, TypeError):
+            logger.warning("Invalid lookback_days, using default", extra={"lookback_days": lookback_days})
+            lookback_days = None
 
     # Validate intervals_athlete_id (required for API)
     if not intervals_athlete_id:
@@ -1011,16 +1017,6 @@ def intervals_sync_timer(timer: func.TimerRequest) -> None:
 # ============================================================================
 # Configuration Endpoints
 # ============================================================================
-
-@app.route(route="config/reload", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
-@endpoint
-def reload_config(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable=unused-argument
-    """Reload physiometrics configuration from disk."""
-    handler = ConfigHandler()
-    result, status = handler.reload_config()
-
-    return json_response(result, status)
-
 
 @app.route(route="config/update", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
 @endpoint

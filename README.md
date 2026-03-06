@@ -443,8 +443,7 @@ health_assistant/
 
 **Configuration** (3 endpoints):
 
-- `POST /api/config/reload` - Reload configuration from all sources
-- `POST /api/config/update` - Update physiometrics configuration
+- `POST /api/config/update` - Update athlete metrics (stored in Table Storage)
 - `GET /api/config/history` - Configuration audit trail
 
 **Backend Integration** (10 endpoints):
