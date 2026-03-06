@@ -1,9 +1,11 @@
 # Ingestion Schema
 
-Version: 15.0.39
+Version: 15.1.0
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
+
+**Version 15.1.0 changes** (2026-03-06): Fixed resting HR storage mapping bug (flat → nested key fallback) and intervals endpoint athlete_id routing (precedence: body → query → env → default). See [CHANGELOG.md](../../CHANGELOG.md) for details.
 
 For historical changes, see [CHANGELOG.md](../../CHANGELOG.md).
 

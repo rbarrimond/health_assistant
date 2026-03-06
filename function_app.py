@@ -909,19 +909,37 @@ def garmin_physiometrics_sync_timer(timer: func.TimerRequest) -> None:
 @app.route(route="intervals/sync", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
 @endpoint
 def intervals_sync_http(req: func.HttpRequest) -> func.HttpResponse:
-    """HTTP-triggered Intervals.icu physiometrics sync."""
+    """HTTP-triggered Intervals.icu physiometrics sync.
+    
+    Athlete ID resolution (in priority order):
+    1. Request body: {"athlete_id": "..."}
+    2. Query parameter: ?athlete_id=...
+    3. Environment: INTERVALS_ATHLETE_ID
+    4. Environment: DEFAULT_ATHLETE_ID (default: "rob")
+    """
     try:
         body = req.get_json() if req.method == "POST" else {}
     except ValueError:
         body = {}
 
-    # Prioritize environment variable, then request body, then DEFAULT_ATHLETE_ID
+    # Request takes precedence over environment (manual sync should override defaults)
     athlete_id = (
-        os.getenv("INTERVALS_ATHLETE_ID")
-        or body.get("athlete_id")
+        body.get("athlete_id")
+        or req.params.get("athlete_id")
+        or os.getenv("INTERVALS_ATHLETE_ID")
         or os.getenv("DEFAULT_ATHLETE_ID", "rob")
     )
-    lookback_days = body.get("lookback_days")
+    lookback_days = body.get("lookback_days") or req.params.get("lookback_days")
+
+    # Log resolved athlete_id source for auditability
+    if body.get("athlete_id"):
+        logger.info("Intervals sync: athlete_id from request body")
+    elif req.params.get("athlete_id"):
+        logger.info("Intervals sync: athlete_id from query parameter")
+    elif os.getenv("INTERVALS_ATHLETE_ID"):
+        logger.info("Intervals sync: athlete_id from INTERVALS_ATHLETE_ID env")
+    else:
+        logger.info("Intervals sync: athlete_id from DEFAULT_ATHLETE_ID fallback")
 
     handler = dependencies.intervals_service
     response, status = handler.handle(athlete_id, lookback_days)

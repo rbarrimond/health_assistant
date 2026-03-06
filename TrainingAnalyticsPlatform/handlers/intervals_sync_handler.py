@@ -157,6 +157,17 @@ class IntervalsSyncHandler:
         """
         # Validate and parse raw data
         parsed = self.adapter._do_parse(measurement)
+        
+        # Log presence of expected Intervals fields for diagnostics
+        # (helps distinguish missing-column issues: are values null in source or dropped in storage?)
+        has_hrv = parsed.get("hrv") is not None
+        has_readiness = parsed.get("readiness") is not None
+        has_nutrition = any(
+            parsed.get(f) is not None 
+            for f in ["calories_kcal", "carbs_g", "protein_g", "fat_g"]
+        )
+        has_resting_hr = parsed.get("rhr") is not None
+        
         self.adapter.validate_semantic_contract(parsed)
 
         # Map to canonical physiometrics model
@@ -181,6 +192,10 @@ class IntervalsSyncHandler:
                 "athlete_id": athlete_id,
                 "effective_date": snapshot.effective_date,
                 "data_source": "intervals",
+                "has_hrv": has_hrv,
+                "has_readiness": has_readiness,
+                "has_nutrition": has_nutrition,
+                "has_resting_hr": has_resting_hr,
             },
         )
 

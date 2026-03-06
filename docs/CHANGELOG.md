@@ -8,6 +8,62 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-06
+
+### Storage & Endpoint Fixes [ingestion v15.1.0]
+
+#### Fixed: Resting HR Storage Mapping Bug
+
+**Issue**: Physiometrics snapshot flat key `resting_hr_bpm` (from Intervals adapter) was not being read by storage layer. Storage layer attempted to read nested `heart_rate.resting_hr_bpm` (legacy pattern), which was absent in Intervals flow, causing all resting HR values to default to 60.
+
+**Fix** (`physiometrics_storage.py:94`): Implemented three-tier fallback:
+1. Check flat key `resting_hr_bpm` (Intervals path — primary)
+2. Fall back to nested `heart_rate.resting_hr_bpm` (legacy compatibility)
+3. Default to 60 if both absent
+
+**Impact**: Intervals ingestion now correctly persists actual resting HR values instead of forcing 60.
+
+#### Fixed: Intervals Endpoint Athlete ID Routing
+
+**Issue**: `/api/intervals/sync` endpoint ignored body and query parameters for athlete_id, always using `INTERVALS_ATHLETE_ID` environment variable. This prevented manual requests targeting alternate athletes (e.g., `GET /api/intervals/sync?athlete_id=i508584`).
+
+**Fix** (`function_app.py:918`): Reordered athlete_id resolution precedence:
+- **Old**: `INTERVALS_ATHLETE_ID` env → body → `DEFAULT_ATHLETE_ID`
+- **New**: body → query params → `INTERVALS_ATHLETE_ID` env → `DEFAULT_ATHLETE_ID`
+
+**Added**: Diagnostic logging tracking resolved athlete_id source (body/query/env/default).
+
+**Impact**: Manual sync requests now correctly target specified athlete, enabling targeted testing and recovery workflows.
+
+#### Enhanced: Intervals Handler Diagnostics
+
+**Feature** (`intervals_sync_handler.py:165`): Added field-presence diagnostics before validation in `_store_single_measurement()`.
+
+Structured logging now includes boolean flags for each parsed metric:
+- `has_hrv` — hrv_ln_rmssd present in source
+- `has_readiness` — readiness_score present in source
+- `has_nutrition` — nutrition fields (carbs/protein/fat) present in source
+- `has_resting_hr` — resting_hr_bpm present in source
+
+**Purpose**: Distinguish upstream sparse payloads (source doesn't provide field) from storage layer drops (field present but not persisted).
+
+#### Added: Test Coverage
+
+**Endpoint tests** (`test_function_app_extras.py`): 5 new tests for athlete_id resolution precedence:
+- `test_intervals_sync_athlete_id_from_body`
+- `test_intervals_sync_athlete_id_from_query_param`
+- `test_intervals_sync_athlete_id_from_env`
+- `test_intervals_sync_athlete_id_fallback_to_default`
+- `test_intervals_sync_lookback_days_from_query_param`
+
+**Storage tests** (`test_table_storage_physiometrics.py`): 4 new persistence assertions:
+- `test_store_physiometrics_resting_hr_from_flat_key` — verify flat key consumed
+- `test_store_physiometrics_resting_hr_defaults_to_60_when_absent` — verify default only applied appropriately
+- `test_store_physiometrics_nutrition_macros_persisted` — verify carbs/protein/fat columns populated
+- Implicit coverage for hrv/readiness via field-presence diagnostics
+
+**SemVer Bump**: Ingestion v15.0.0 → v15.1.0 (non-breaking bug fix to storage mapping and endpoint routing).
+
 ## 2026-03-05
 
 ### **BREAKING:** PhysiometricsSnapshot v3.0.0 - Simplified Schema [canonical v3.0.0, ingest v15.0.0]

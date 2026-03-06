@@ -331,3 +331,59 @@ class TestWellnessFieldsPersistence:
         assert result["soreness"] == 3
         assert result["menstrual_phase"] == "follicular"
         assert result["raw_intervals_icu_json"] == '{"id":"2026-01-18","ctl":22}'
+
+    def test_store_physiometrics_resting_hr_from_flat_key(self) -> None:
+        """Verify resting HR from flat key (Intervals) is persisted correctly."""
+        mock_table_client = MagicMock()
+        storage = _make_storage(mock_table_client)
+
+        # Intervals path provides flat resting_hr_bpm from PhysiometricsSnapshot.to_storage_dict()
+        physiometrics_data = {
+            "resting_hr_bpm": 52,
+            "hrv_ln_rmssd": 4.2,
+            "sleep_duration_sec": 28800.0,
+            "readiness_score": 78.0,
+        }
+
+        storage.store_physiometrics("athlete123", physiometrics_data)
+
+        entity = mock_table_client.upsert_entity.call_args[0][0]
+        # Should use flat key, not default 60
+        assert entity["heart_rate_resting_bpm"] == pytest.approx(52)
+
+    def test_store_physiometrics_resting_hr_defaults_to_60_when_absent(self) -> None:
+        """Verify resting HR defaults to 60 only when no source provides value."""
+        mock_table_client = MagicMock()
+        storage = _make_storage(mock_table_client)
+
+        # No resting HR provided from any source
+        physiometrics_data = {
+            "hrv_ln_rmssd": 4.2,
+            "sleep_duration_sec": 28800.0,
+        }
+
+        storage.store_physiometrics("athlete123", physiometrics_data)
+
+        entity = mock_table_client.upsert_entity.call_args[0][0]
+        # Should fall back to default 60
+        assert entity["heart_rate_resting_bpm"] == 60
+
+    def test_store_physiometrics_nutrition_macros_persisted(self) -> None:
+        """Verify nutrition macro columns are persisted when present."""
+        mock_table_client = MagicMock()
+        storage = _make_storage(mock_table_client)
+
+        physiometrics_data = {
+            "carbs_g": 300.0,
+            "protein_g": 150.0,
+            "fat_g": 80.0,
+            "calories_kcal": 2500.0,
+        }
+
+        storage.store_physiometrics("athlete123", physiometrics_data)
+
+        entity = mock_table_client.upsert_entity.call_args[0][0]
+        assert entity["nutrition_carbs_g"] == pytest.approx(300.0)
+        assert entity["nutrition_protein_g"] == pytest.approx(150.0)
+        assert entity["nutrition_fat_g"] == pytest.approx(80.0)
+        assert entity["nutrition_calories_kcal"] == pytest.approx(2500.0)

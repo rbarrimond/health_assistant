@@ -548,3 +548,102 @@ class TestOneDriveHelpersAndEndpoints:
         mock_service.complete_authorization.assert_called_once_with(
             athlete_id="rob", code="auth-code"
         )
+
+
+class TestIntervalsEndpointHandlers:
+    """Tests for Intervals.icu sync endpoint athlete_id resolution."""
+
+    def test_intervals_sync_athlete_id_from_body(self, monkeypatch):
+        """Test that request body athlete_id takes precedence."""
+        monkeypatch.setenv("INTERVALS_ATHLETE_ID", "env_athlete")
+        monkeypatch.setenv("DEFAULT_ATHLETE_ID", "default_athlete")
+
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {"athlete_id": "body_athlete", "lookback_days": 30}
+        req.params = {}
+
+        mock_handler = MagicMock()
+        mock_handler.handle.return_value = ({"count": 10}, 200)
+
+        with _patch_dependency("intervals_service", mock_handler):
+            response = function_app.intervals_sync_http(req)
+
+        assert response.status_code == 200
+        mock_handler.handle.assert_called_once_with("body_athlete", 30)
+
+    def test_intervals_sync_athlete_id_from_query_param(self, monkeypatch):
+        """Test that query parameter athlete_id is used when body is absent."""
+        monkeypatch.setenv("INTERVALS_ATHLETE_ID", "env_athlete")
+        monkeypatch.setenv("DEFAULT_ATHLETE_ID", "default_athlete")
+
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {"lookback_days": 30}
+        req.params = {"athlete_id": "query_athlete"}
+
+        mock_handler = MagicMock()
+        mock_handler.handle.return_value = ({"count": 10}, 200)
+
+        with _patch_dependency("intervals_service", mock_handler):
+            response = function_app.intervals_sync_http(req)
+
+        assert response.status_code == 200
+        mock_handler.handle.assert_called_once_with("query_athlete", 30)
+
+    def test_intervals_sync_athlete_id_from_env(self, monkeypatch):
+        """Test that env INTERVALS_ATHLETE_ID is used when request is absent."""
+        monkeypatch.setenv("INTERVALS_ATHLETE_ID", "env_athlete")
+        monkeypatch.setenv("DEFAULT_ATHLETE_ID", "default_athlete")
+
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {"lookback_days": 30}
+        req.params = {}
+
+        mock_handler = MagicMock()
+        mock_handler.handle.return_value = ({"count": 10}, 200)
+
+        with _patch_dependency("intervals_service", mock_handler):
+            response = function_app.intervals_sync_http(req)
+
+        assert response.status_code == 200
+        mock_handler.handle.assert_called_once_with("env_athlete", 30)
+
+    def test_intervals_sync_athlete_id_fallback_to_default(self, monkeypatch):
+        """Test fallback to DEFAULT_ATHLETE_ID when no source provided."""
+        monkeypatch.delenv("INTERVALS_ATHLETE_ID", raising=False)
+        monkeypatch.setenv("DEFAULT_ATHLETE_ID", "default_athlete")
+
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {"lookback_days": 30}
+        req.params = {}
+
+        mock_handler = MagicMock()
+        mock_handler.handle.return_value = ({"count": 10}, 200)
+
+        with _patch_dependency("intervals_service", mock_handler):
+            response = function_app.intervals_sync_http(req)
+
+        assert response.status_code == 200
+        mock_handler.handle.assert_called_once_with("default_athlete", 30)
+
+    def test_intervals_sync_lookback_days_from_query_param(self, monkeypatch):
+        """Test that lookback_days can come from query parameter."""
+        monkeypatch.setenv("DEFAULT_ATHLETE_ID", "rob")
+
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {}
+        req.params = {"athlete_id": "rob", "lookback_days": "60"}
+
+        mock_handler = MagicMock()
+        mock_handler.handle.return_value = ({"count": 20}, 200)
+
+        with _patch_dependency("intervals_service", mock_handler):
+            response = function_app.intervals_sync_http(req)
+
+        assert response.status_code == 200
+        # lookback_days is a string from params, handler will parse it
+        mock_handler.handle.assert_called_once_with("rob", "60")

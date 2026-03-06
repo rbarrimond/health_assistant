@@ -91,7 +91,12 @@ class PhysiometricsStorage:
             "heart_rate_lthr_bpm": physiometrics_data.get("heart_rate", {}).get("lthr_bpm"),
             "heart_rate_hr_max_bpm": physiometrics_data.get("heart_rate", {}).get("hr_max_bpm"),
             "heart_rate_resting_bpm": (
-                physiometrics_data.get("heart_rate", {}).get("resting_hr_bpm") or 60
+                # Try flat key first (from PhysiometricsSnapshot.to_storage_dict)
+                physiometrics_data.get("resting_hr_bpm")
+                # Fall back to nested structure for backward compatibility
+                or physiometrics_data.get("heart_rate", {}).get("resting_hr_bpm")
+                # Final default only if no source provided value
+                or 60
             ),
             "power_ftp_watts": physiometrics_data.get("power", {}).get("ftp_watts"),
             "weight_kg": physiometrics_data.get("weight_kg"),
