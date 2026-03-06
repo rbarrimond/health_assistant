@@ -71,6 +71,21 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-06
 
+### Ingestion Provenance Version Fallback Fix [ingestion v15.1.2]
+
+#### Fixed: Hardcoded Provenance `ingestion_version` Default
+
+**Issue**: Ingestion provenance metadata used a hardcoded fallback value (`"1.0.0"`) when `source_info.ingestion_version` was absent.
+
+**Fix** (`ingestion_base_handler.py`): Use `INGEST_VERSION` constant as the default provenance version source.
+
+- Before: `source_info.get("ingestion_version", "1.0.0")`
+- After: `source_info.get("ingestion_version", INGEST_VERSION)`
+
+**Impact**: New ingestions now persist the correct ingestion code version in `provenance.ingestion_version` instead of an unrelated static value.
+
+**SemVer Bump**: Ingestion `v15.1.1` -> `v15.1.2` (patch behavioral fix for persisted provenance version value).
+
 ### Storage & Endpoint Fixes + ID Separation [ingestion v15.1.1]
 
 #### Fixed: Resting HR Storage Mapping Bug

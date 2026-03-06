@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 from TrainingAnalyticsPlatform.handlers.fit_payload_handler import FitPayloadIngestionHandler
 from TrainingAnalyticsPlatform.handlers.ingestion_base_handler import FitIngestionBaseHandler
+from TrainingAnalyticsPlatform.ingestion.constants import INGEST_VERSION
 from TrainingAnalyticsPlatform.models import CanonicalRecordSet
 from TrainingAnalyticsPlatform.platform.exceptions import (
     FitParsingError,
@@ -150,6 +151,7 @@ def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     assert stored_metadata["identity"]["sport"] == "Cycling"
     assert "provenance" in stored_metadata  # Added/merged by handler
     assert stored_metadata["provenance"]["source_device_name"] == "Robert's Apple Watch Ultra 3"
+    assert stored_metadata["provenance"]["ingestion_version"] == INGEST_VERSION
     # Keyword args
     assert call_args[1]["workout_id"] == expected_workout_id
     assert "ingestion_id" in call_args[1]  # Should have ingestion_id

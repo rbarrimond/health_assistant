@@ -16,6 +16,7 @@ from TrainingAnalyticsPlatform.ingestion.code_mappings import (
 )
 from TrainingAnalyticsPlatform.ingestion.device_classifier import FitDevice
 from TrainingAnalyticsPlatform.ingestion.fit_models import create_fit_model
+from TrainingAnalyticsPlatform.ingestion.constants import INGEST_VERSION
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import CANONICAL_SCHEMA_VERSION
 
 logger = logging.getLogger(__name__)
@@ -133,7 +134,7 @@ class FitIngestionBaseHandler(ABC):
             existing_provenance = {}
         structured_metadata["provenance"] = {
             **existing_provenance,
-            "ingestion_version": source_info.get("ingestion_version", "1.0.0"),
+            "ingestion_version": source_info.get("ingestion_version", INGEST_VERSION),
             "ingestion_id": ingestion_id,
             "ingestion_timestamp_utc": datetime.now(timezone.utc).isoformat(),
             "environment": source_info.get("environment", "production"),

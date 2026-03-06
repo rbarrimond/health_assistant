@@ -1,11 +1,11 @@
 # Ingestion Schema
 
-Version: 15.1.1
+Version: 15.1.2
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
 
-**Version 15.1.1 changes** (2026-03-06): Split Intervals sync identities (`intervals_athlete_id` for API fetch, `athlete_id` for storage partition), enabling cross-athlete workflows. Fixed resting HR storage mapping bug (flat key fallback). See [CHANGELOG.md](../../CHANGELOG.md) for details.
+**Version 15.1.2 changes** (2026-03-06): Provenance `ingestion_version` now defaults to `INGEST_VERSION` instead of hardcoded `"1.0.0"`, ensuring persisted ingestion provenance reflects the current ingestion code version. See [CHANGELOG.md](../../CHANGELOG.md) for details.
 
 For historical changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
@@ -62,8 +62,8 @@ All ingestion-related schema/code version constants must be documented here.
 
 | Version | Current value | Code source | Purpose |
 | --- | --- | --- | --- |
-| `INGEST_VERSION` | `v14.3.10` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
-| `CANONICAL_SCHEMA_VERSION` | `2.0.1` | `TrainingAnalyticsPlatform/storage/table_storage.py` | Canonical parquet schema version persisted to `Workouts.canonical_schema_version`. |
+| `INGEST_VERSION` | `v15.1.2` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
+| `CANONICAL_SCHEMA_VERSION` | `2.0.1` | `TrainingAnalyticsPlatform/storage/storage_infrastructure.py` | Canonical parquet schema version persisted to `Workouts.canonical_schema_version`. |
 | `METADATA_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `metadata.json` as `metadata_schema_version`. |
 | `LAPS_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `laps.json` as `schema_version`. |
 | `FIT_ANALYSIS_VERSION` | `v1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `fit_analysis.json` as `analysis_version`. |
@@ -549,7 +549,7 @@ It is intentionally separate from Workouts to keep workout entities small and st
 | source_quickxor_hash | string | No | OneDrive quickXor hash for content. |
 | source_modified_at_utc | string | No | OneDrive last modified timestamp (ISO 8601 UTC). |
 | file_sha256 | string | No | SHA-256 hash of file content. |
-| ingest_version | string | Yes | Ingestion code version (current: `v14.3.5`). |
+| ingest_version | string | Yes | Ingestion code version (current: `v15.1.2`). |
 | ingested_at_utc | string | No | ISO 8601 UTC timestamp when status becomes `ingested`. |
 | error_message | string | No | Last error message (truncated). |
 
