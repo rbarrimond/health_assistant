@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Health Assistant - FIT File Processing",
-    "description": "Complete test collection with 37 requests covering all 36 endpoints. Includes 8 real FIT file payloads, config/asset endpoints, agent memory system, planning/analysis, physiometrics CRUD, TrainingState projection endpoints, OneDrive/Garmin/Intervals.icu sync, and OAuth flows. [Updated 2026-03-05: PhysiometricsSnapshot v3.0.0 (30-field schema with exclusive source ownership), TrainingState on-demand projection (no table storage), INGEST_VERSION v15.0.0 - direct ingestion architecture; canonical schema v3.0.0; separate Garmin activity sync and physiometrics (wellness) sync endpoints operational; all core tests passing.]",
+    "description": "Complete test collection with 37 requests covering all 36 endpoints. Includes 8 real FIT file payloads, config/asset endpoints, agent memory system, planning/analysis (WorkoutProjection lightweight batch queries), physiometrics CRUD, TrainingState projection endpoints, OneDrive/Garmin/Intervals.icu sync, and OAuth flows. [Updated 2026-03-06: WorkoutProjection v3.2.0 (lightweight 30-field model for efficient batch queries; /api/workouts and /api/planning/context return projections instead of full WorkoutSummary; payload ~40-50% reduction); PhysiometricsSnapshot v3.0.0 (30-field schema); TrainingState on-demand projection; canonical schema v3.0.0; all core tests passing.]",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -658,7 +658,7 @@
             "method": "GET",
             "header": [],
             "url": "{{base_url}}/api/planning/context?athlete_id={{athlete_id}}&days=45&code={{function_key}}",
-            "description": "Aggregated planning context for training decisions."
+            "description": "Aggregated planning context for training decisions. Returns recent_workouts as lightweight WorkoutProjection[] (v3.2.0+) — 30 fields optimized for batch queries. For full workout details (zones, efficiency, curves), query GET /api/workouts/{workout_id}."
           },
           "response": []
         },
@@ -668,7 +668,7 @@
             "method": "GET",
             "header": [],
             "url": "{{base_url}}/api/workouts?athlete_id={{athlete_id}}&limit=25&sport=Cycling&code={{function_key}}",
-            "description": "List workouts with optional filters."
+            "description": "List workouts with optional filters. Returns WorkoutProjection[] (v3.2.0+) — lightweight 30-field model optimized for batch queries (~40-50% payload reduction). For full metrics (HR zones, power zones, efficiency), query GET /api/workouts/{workout_id}."
           },
           "response": []
         },

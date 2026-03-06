@@ -57,9 +57,10 @@ Semantic Layer API (14 Core + 15 Supporting Endpoints)
     │   ├── /api/agent/context (primary context loader)
     │   ├── /api/agent/preferences (training goals)
     │   └── /api/agent/observations (training insights)
-    ├── Planning & Analysis
-    │   ├── /api/planning/context (primary planning endpoint)
-    │   ├── /api/workouts (query with filters)
+    ├── Planning & Analysis (WorkoutProjection v3.2.0+)
+    │   ├── /api/planning/context (lightweight projections; 30 fields ~40-50% payload reduction)
+    │   ├── /api/workouts (lightweight projections with optional filters)
+    │   ├── /api/workouts/{workout_id} (full detail: zones, efficiency, metrics)
     │   ├── /api/rollups/weekly (aggregated summaries)
     │   └── /api/analysis/* (zones, efficiency)
     └── Configuration & Health

@@ -34,9 +34,9 @@ The specs are **independent** with minimal overlap (only `/api/health` appears i
 ### Semantic/Read (openapi.yaml)
 
 - `GET /api/agent/context` - Agent memory context
-- `GET /api/planning/context` - Planning decisions
-- `GET /api/workouts` - List workouts
-- `GET /api/workouts/{workout_id}` - Workout detail
+- `GET /api/planning/context` - Planning decisions (returns WorkoutProjection[] — v3.2.0+)
+- `GET /api/workouts` - List workouts (returns WorkoutProjection[] — v3.2.0+; lightweight 30-field model)
+- `GET /api/workouts/{workout_id}` - Workout detail (returns WorkoutDetail with full metrics, zones, efficiency)
 - `GET /api/workouts/{workout_id}/laps/{lap_index}` - Lap detail
 - `GET /api/rollups/weekly` - Weekly summaries
 - `GET /api/analysis/zones` - Zone distribution
