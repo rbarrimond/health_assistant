@@ -7,7 +7,7 @@ It shapes data for reasoning, constrains scope, and encodes how humans think abo
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Set, Tuple, TypedDict
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, TypedDict
 import pandas as pd
 
 from azure.core.exceptions import HttpResponseError
@@ -15,6 +15,9 @@ from azure.core.exceptions import HttpResponseError
 from TrainingAnalyticsPlatform.models.core import CanonicalAnalyticsEngine, WorkoutProjection
 from TrainingAnalyticsPlatform.models.wellness import TrainingStateSnapshot
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import WorkoutEntity
+
+if TYPE_CHECKING:
+    from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
 
 logger = logging.getLogger(__name__)
 UTC_OFFSET = "+00:00"
@@ -896,6 +899,7 @@ class SemanticLayer:
             return None
 
     def _load_stored_laps(self, workout_entity: WorkoutEntity) -> Optional[List[Dict]]:
+        ingestion_id: str = ""
         try:
             ingestion_id = workout_entity.ingestion_id or workout_entity.workout_id
             payload = self.storage.workouts.load_laps_json(ingestion_id)
@@ -1215,7 +1219,7 @@ class SemanticLayer:
                 "Error retrieving weekly rollups",
                 extra={
                     "athlete_id": athlete_id,
-                    "weeks": weeks,
+                    "days": days,
                     "error_type": "HttpResponseError",
                     "error": str(e),
                 },
@@ -1345,7 +1349,10 @@ class SemanticLayer:
             for source, row in source_rows.items()
             if row.get("effective_date")
         }
-        latest_effective_date = max(source_effective_dates.values()) if source_effective_dates else None
+        latest_effective_date = max(
+            (d for d in source_effective_dates.values() if d is not None),
+            default=None
+        )
 
         # Extract values for easy consumption
         result = {
