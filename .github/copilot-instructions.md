@@ -242,3 +242,135 @@ Implementation alignment requirements:
 Observability > Noise  
 Correlation > Convenience  
 Causality > Cosmetic messaging  
+
+---
+
+## XI. Cross-Project Coordination: Azure Infrastructure Dependency
+
+This application depends on infrastructure provisioned by the **azure-infra** repository.
+
+### Infrastructure Stack
+
+```
+Azure Infrastructure (azure-infra - Terraform)
+  ↓ provisions ↓
+  - Function App hosting environment
+  - 5 Azure Table Storage tables
+  - Resource Group, Key Vault, Application Insights
+  - App Service Plan (B1)
+  - System-assigned Managed Identity (for Key Vault access)
+  ↓
+Health Assistant (this repo - Python)
+  ↓ deploys onto ↓
+  - Uses all infrastructure provisioned by azure-infra
+  - Retrieves secrets from Key Vault via Managed Identity
+  - Emits all telemetry to Application Insights
+  - Deployment orchestrated by GitHub Actions (OIDC federated credentials from Terraform)
+```
+
+### When Adding Features Requiring Infrastructure Changes
+
+If your feature addition needs new infrastructure:
+
+1. **New secrets or configuration**: Coordinate with `azure-infra` to add to Key Vault
+2. **New external OAuth integrations**: `azure-infra` must store OAuth credentials in Key Vault first
+3. **Scaling changes**: `azure-infra` manages Function App plan SKU and instance count
+4. **Storage schema changes**: This repo owns schema (no Terraform changes needed), but follow **Invariants and Versioning** (Section III)
+
+### Practical Workflow for Feature with Infrastructure Dependency
+
+**Example: Add Strava OAuth integration**
+
+```
+1. Design phase (this repo)
+   - Create feature branch: git checkout -b add/strava-integration
+   - Identify secrets needed: STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET
+   - Identify table storage needs: Any new schema?
+
+2. Coordinate with azure-infra
+   - Create PR in azure-infra to add secrets to Key Vault
+   - Reference that PR in your commit message
+   - Wait for azure-infra Terraform changes to merge + apply to prod
+
+3. Implement handler (this repo)
+   - Add TrainingAnalyticsPlatform/handlers/strava_handler.py
+   - Add @app.route('/strava/webhook') endpoint in function_app.py
+   - Add tests in tests/test_strava_handler.py
+   - Update docs/BACKENDS.md
+   - Bump version in pyproject.toml (MINOR for new integration)
+   - Add CHANGELOG entry
+
+4. Local validation
+   - pytest tests/ -v  # Must pass
+   - func host start --with-azurite  # Local testing
+
+5. Deployment
+   - Push to main
+   - GitHub Actions runs tests → deploys to Function App
+   - New handler reads STRAVA_CLIENT_ID from Key Vault via Managed Identity
+```
+
+**Important**: Do not assume infrastructure is in place. If your feature requires secrets or infrastructure, coordinate with azure-infra first. Do not push code that depends on unavailable infrastructure.
+
+---
+
+## XII. Developer Workflows
+
+### Local Development Setup
+
+```bash
+# One-time setup
+cd health_assistant
+python --version  # Verify Python 3.13
+python -m venv venv
+source venv/bin/activate
+pip install -e ".[dev]"  # Install production + development dependencies
+```
+
+### Daily Workflow
+
+```bash
+# Terminal 1: Start local Azure Functions + Azurite
+func host start --with-azurite
+# Function App listening on http://localhost:7071
+# Azurite Table Storage on http://localhost:10002
+
+# Terminal 2: Run tests (continuous or on-demand)
+pytest tests/ -v
+# OR with coverage
+pytest --cov=TrainingAnalyticsPlatform --cov-report=html
+
+# Terminal 3: Call endpoints for manual testing
+curl http://localhost:7071/api/health
+
+# Edit code → tests re-run or manually trigger pytest → repeat
+```
+
+### Before Pushing to Production
+
+```bash
+# Full coverage analysis (to ensure no regressions)
+pytest --cov=TrainingAnalyticsPlatform --cov-report=html
+# Open htmlcov/index.html and verify coverage hasn't decreased
+
+# Run linter/type checker if configured
+# (check pyproject.toml for pylint, mypy, ruff configuration)
+
+# Verify documentation is coherent with code changes
+# (see Section I: Documentation Is Sovereign)
+
+# git push origin main → GitHub Actions
+# ✅ GitHub Actions runs full test suite → deploys to production Function App
+```
+
+### Debugging Production Issues
+
+```bash
+# View live logs from production Application Insights
+az monitor app-insights events show \
+  --resource-group "rg-health-assistant-prod" \
+  --app "ai-health-assistant-prod-59o7"
+
+# Or query via Azure Portal:
+# https://portal.azure.com → Application Insights → Search → custom log queries
+```
