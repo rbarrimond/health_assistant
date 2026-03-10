@@ -42,10 +42,10 @@ def sample_workouts():
             "sport": "Cycling",
             "start_time_utc": base_date.isoformat(),
             "duration_sec": 3600,
-            "hr_z2_min": 50,
+            "hr_z2_sec": 3000,  # 50 minutes in seconds
             "hr_z4_sec": 300,
             "hr_z5_sec": 180,
-            "intensity_min": 8,
+            "intensity_sec": 480,  # 8 minutes in seconds
             "decoupling_pct": 2.5,
             "ef_overall": 1.2,
         },
@@ -55,10 +55,10 @@ def sample_workouts():
             "sport": "Running",
             "start_time_utc": (base_date - timedelta(days=2)).isoformat(),
             "duration_sec": 2700,
-            "hr_z2_min": 45,
+            "hr_z2_sec": 2700,  # 45 minutes in seconds
             "hr_z4_sec": 0,
             "hr_z5_sec": 0,
-            "intensity_min": 0,
+            "intensity_sec": 0,
         },
         {
             "workout_id": "workout-003",
@@ -66,7 +66,7 @@ def sample_workouts():
             "sport": "Cycling",
             "start_time_utc": (base_date - timedelta(days=5)).isoformat(),
             "duration_sec": 300,  # Very short - 5 minutes
-            "hr_z2_min": 5,
+            "hr_z2_sec": 300,  # 5 minutes in seconds
         },
     ]
 
@@ -135,6 +135,13 @@ def sample_workout_projections():
             is_indoor=False,
             race_flag=False,
             commute_flag=False,
+            pwr_avg_watts=None,
+            pwr_max_watts=None,
+            pwr_normalized_watts=None,
+            cad_avg_rpm=None,
+            cad_max_rpm=None,
+            ingestion_version="2.0.1",
+            ingestion_timestamp_utc=base_date.isoformat(),
         ),
         WorkoutProjection(
             workout_id="workout-003",
@@ -161,6 +168,13 @@ def sample_workout_projections():
             is_indoor=False,
             race_flag=False,
             commute_flag=False,
+            pwr_avg_watts=None,
+            pwr_max_watts=None,
+            pwr_normalized_watts=None,
+            cad_avg_rpm=None,
+            cad_max_rpm=None,
+            ingestion_version="2.0.1",
+            ingestion_timestamp_utc=base_date.isoformat(),
         ),
     ]
 
@@ -199,16 +213,16 @@ class TestPlanningContext:
             ):
                 context = semantic_layer.get_planning_context("rob", days=30)
 
-        # workout-001 has 8 minutes of Z4+Z5
+        # workout-001 has 480 seconds (8 minutes) of intensity > 300 sec threshold
         assert context["summary"]["last_hard_day"] == sample_workouts[0]["start_time_utc"]
 
     def test_planning_context_detects_last_long_day(
         self, semantic_layer, sample_workouts, mock_storage
     ):
         """Test detection of last long aerobic workout."""
-        # Modify workout-002 to have > 60 minutes of Z2
+        # Modify workout-002 to have > 60 minutes of Z2 (in seconds)
         workouts = sample_workouts.copy()
-        workouts[1]["hr_z2_min"] = 75
+        workouts[1]["hr_z2_sec"] = 4500  # 75 minutes in seconds
 
         with patch.object(
             semantic_layer, '_get_workouts_in_range', return_value=workouts
@@ -232,13 +246,15 @@ class TestPlanningContext:
             ):
                 context = semantic_layer.get_planning_context("rob", days=30)
 
-        # Sum all HR Z2 minutes
-        expected_z2 = sum(w.get("hr_z2_min", 0) or 0 for w in sample_workouts)
+        # Sum all HR Z2 seconds and convert to minutes
+        # workout-001: 3000sec = 50min, workout-002: 2700sec = 45min, workout-003: 300sec = 5min
+        expected_z2 = int((3000 + 2700 + 300) / 60)  # 100 minutes
         assert context["summary"]["cumulative_z2_minutes"] == expected_z2
 
-        # Sum all intensity minutes
-        expected_intensity = sum(w.get("intensity_min", 0) or 0 for w in sample_workouts)
-        assert context["summary"]["cumulative_intensity_minutes"] == expected_intensity
+        # Sum all intensity seconds and convert to minutes
+        # workout-001: 480sec = 8min, workout-002: 0sec, workout-003: 0sec
+        expected_intensity = 8.0
+        assert context["summary"]["cumulative_intensity_minutes"] == pytest.approx(expected_intensity)
 
     def test_planning_context_detects_flags(
         self, semantic_layer, sample_workouts, mock_storage
@@ -266,6 +282,57 @@ class TestPlanningContext:
         flags = context["notable_flags"]
         assert any("missing heart rate" in flag for flag in flags)
         assert any("very short" in flag for flag in flags)
+
+    def test_planning_context_uses_seconds_fields(
+        self, semantic_layer, mock_storage
+    ):
+        """Test that planning context correctly reads zone times from _sec fields."""
+        # Create workouts with _sec fields (as storage actually provides)
+        workouts_with_sec_fields = [
+            {
+                "workout_id": "workout-001",
+                "athlete_id": "rob",
+                "sport": "Cycling",
+                "start_time_utc": "2026-03-01T10:00:00+00:00",
+                "duration_sec": 3600,
+                "hr_z2_sec": 3900,  # 65 minutes in seconds
+                "hr_z4_sec": 360,   # 6 minutes in seconds
+                "hr_z5_sec": 60,    # 1 minute in seconds
+                "intensity_sec": 420,  # 7 minutes in seconds
+            },
+            {
+                "workout_id": "workout-002",
+                "athlete_id": "rob",
+                "sport": "Cycling",
+                "start_time_utc": "2026-03-02T10:00:00+00:00",
+                "duration_sec": 2700,
+                "hr_z2_sec": 2400,  # 40 minutes in seconds (HR-based Z2)
+                "pwr_z2_sec": 2400,  # 40 minutes in seconds (power-based Z2)
+                "intensity_sec": 300,  # 5 minutes in seconds
+            },
+        ]
+
+        with patch.object(
+            semantic_layer, '_get_workouts_in_range', return_value=workouts_with_sec_fields
+        ):
+            with patch.object(
+                semantic_layer, '_get_weekly_rollups', return_value=[]
+            ):
+                context = semantic_layer.get_planning_context("rob", days=30)
+
+        # Verify last_long_day detected (workout-001 has 65min Z2 > 60min threshold)
+        assert context["summary"]["last_long_day"] == "2026-03-01T10:00:00+00:00"
+
+        # Verify last_hard_day detected (workout-001 has 7min intensity > 5min threshold)
+        assert context["summary"]["last_hard_day"] == "2026-03-01T10:00:00+00:00"
+
+        # Verify cumulative Z2 correctly sums hr_z2_sec and converts to minutes
+        # workout-001: 3900sec = 65min, workout-002: 2400sec = 40min -> total 105min
+        assert context["summary"]["cumulative_z2_minutes"] == 105
+
+        # Verify cumulative intensity correctly sums and converts to minutes
+        # workout-001: 420sec = 7min, workout-002: 300sec = 5min -> total 12min
+        assert context["summary"]["cumulative_intensity_minutes"] == pytest.approx(12.0)
 
 
 class TestWorkoutQueries:
@@ -582,7 +649,7 @@ class TestHelperMethods:
             {
                 "workout_id": "long-1",
                 "start_time_utc": "2026-01-15T10:00:00+00:00",
-                "hr_z2_min": 90,
+                "hr_z2_sec": 5400,  # 90 minutes in seconds
             }
         ]
 
@@ -591,17 +658,18 @@ class TestHelperMethods:
 
     def test_sum_zone_time(self, semantic_layer, sample_workouts):
         """Test zone time summation."""
-        total_z2 = semantic_layer._sum_zone_time(sample_workouts, "hr_z2_min")
+        total_z2 = semantic_layer._sum_zone_time(sample_workouts, "hr_z2_sec")
 
-        expected = sum(w.get("hr_z2_min", 0) or 0 for w in sample_workouts)
+        # Sum all hr_z2_sec values and convert to minutes
+        expected = int(sum(w.get("hr_z2_sec", 0) or 0 for w in sample_workouts) / 60)
         assert total_z2 == expected
 
     def test_sum_high_intensity(self, semantic_layer, sample_workouts):
         """Test high intensity summation."""
         total_intensity = semantic_layer._sum_high_intensity(sample_workouts)
 
-        # workout-001: Z5=5 + Z6=3 = 8 minutes total
-        assert total_intensity == 8
+        # workout-001: 480sec = 8 minutes total
+        assert total_intensity == pytest.approx(8.0)
 
     def test_detect_notable_flags_missing_hr(self, semantic_layer):
         """Test flag detection for missing HR data."""

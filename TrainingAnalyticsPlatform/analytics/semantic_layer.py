@@ -166,7 +166,7 @@ class SemanticLayer:
         # Analyze patterns using full workouts
         last_hard_day = self._find_last_hard_day(full_workouts)
         last_long_day = self._find_last_long_day(full_workouts)
-        z2_minutes = self._sum_zone_time(full_workouts, "hr_z2_min")
+        z2_minutes = self._sum_zone_time(full_workouts, "hr_z2_sec")
         intensity_minutes = self._sum_high_intensity(full_workouts)
         flags = self._detect_notable_flags(full_workouts)
 
@@ -1437,17 +1437,18 @@ class SemanticLayer:
         """
         Find date of last high-intensity workout.
 
-        High intensity = intensity_min > 5 or Z4+ seconds > 300
+        High intensity = intensity_sec > 300 (5 minutes) or HR Z4+Z5 > 300 sec
         """
         for workout in workouts:
-            intensity = workout.get("intensity_min", 0) or 0
-            if intensity > 5:
+            # Check power-based intensity (Z4-Z7 combined)
+            intensity_sec = workout.get("intensity_sec", 0) or 0
+            if intensity_sec > 300:  # > 5 minutes
                 return workout.get("start_time_utc")
 
             # Fallback: check HR zones
             hr_z4_sec = workout.get("hr_z4_sec", 0) or 0
             hr_z5_sec = workout.get("hr_z5_sec", 0) or 0
-            if (hr_z4_sec + hr_z5_sec) / 60 > 5:
+            if (hr_z4_sec + hr_z5_sec) > 300:  # > 5 minutes
                 return workout.get("start_time_utc")
 
         return None
@@ -1456,15 +1457,15 @@ class SemanticLayer:
         """
         Find date of last long aerobic workout.
 
-        Long = Z2 minutes > 60
+        Long = Z2 seconds > 3600 (60 minutes)
         """
         for workout in workouts:
-            # Check HR Z2 or power Z2
-            hr_z2 = workout.get("hr_z2_min", 0) or 0
-            pwr_z2 = workout.get("pwr_z2_min", 0) or 0
-            z2 = max(hr_z2, pwr_z2)
+            # Check HR Z2 or power Z2 (stored in seconds)
+            hr_z2_sec = workout.get("hr_z2_sec", 0) or 0
+            pwr_z2_sec = workout.get("pwr_z2_sec", 0) or 0
+            z2_sec = max(hr_z2_sec, pwr_z2_sec)
 
-            if z2 > 60:
+            if z2_sec > 3600:  # > 60 minutes
                 return workout.get("start_time_utc")
 
         return None
@@ -1472,21 +1473,33 @@ class SemanticLayer:
     def _sum_zone_time(
         self, workouts: List[Dict], zone_field: str
     ) -> int:
-        """Sum minutes in specific zone across workouts."""
+        """Sum zone time across workouts, converting to minutes.
+        
+        Args:
+            workouts: List of workout dicts
+            zone_field: Field name (e.g., 'hr_z2_sec', 'hr_z2_min')
+            
+        Returns:
+            Total time in minutes
+        """
         total = 0
         for workout in workouts:
-            minutes = workout.get(zone_field, 0) or 0
-            total += minutes
-        return total
+            value = workout.get(zone_field, 0) or 0
+            # Convert seconds to minutes if field name ends with _sec
+            if zone_field.endswith("_sec"):
+                total += value / 60
+            else:
+                total += value
+        return int(total)
 
     def _sum_high_intensity(self, workouts: List[Dict]) -> float:
         """Sum high intensity minutes (Z4+) across workouts."""
         total = 0.0
         for workout in workouts:
-            # Use intensity_min if available (power zones Z4-Z7)
-            intensity = workout.get("intensity_min", 0) or 0
-            if intensity > 0:
-                total += intensity
+            # Use intensity_sec if available (power zones Z4-Z7 combined)
+            intensity_sec = workout.get("intensity_sec", 0) or 0
+            if intensity_sec > 0:
+                total += intensity_sec / 60  # Convert to minutes
             else:
                 # Fallback: calculate from HR zones (Z4 + Z5)
                 hr_z4_sec = workout.get("hr_z4_sec", 0) or 0

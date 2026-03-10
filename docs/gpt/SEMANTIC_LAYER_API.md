@@ -111,6 +111,12 @@ GET /api/planning/context?athlete_id=rob&days=45
 }
 ```
 
+**Zone Time Units:**
+
+- Zone times are stored in **seconds** (canonical storage unit: `hr_z2_sec`, `pwr_z2_sec`, `intensity_sec`)
+- Summary aggregates are converted to **minutes** for display (`cumulative_z2_minutes`, `cumulative_intensity_minutes`)
+- Detection thresholds: last_hard_day (>5 min intensity), last_long_day (>60 min Z2)
+
 **Use cases:**
 
 - Daily training decision making
