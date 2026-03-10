@@ -17,7 +17,7 @@ This package provides a modular organization of workout analytics models:
 """
 
 # Main API (WorkoutMetricsModel and CanonicalAnalyticsEngine)
-from .core import CanonicalAnalyticsEngine, WorkoutMetricsModel
+from .core import CanonicalAnalyticsEngine, WorkoutDetailResponse, WorkoutMetricsModel
 
 # Core substrate models
 from .substrate import CanonicalLap, CanonicalRecord, CanonicalRecordSet
@@ -44,6 +44,7 @@ __all__ = [
     # Main API
     "WorkoutMetricsModel",
     "CanonicalAnalyticsEngine",
+    "WorkoutDetailResponse",
     # Substrate
     "CanonicalRecord",
     "CanonicalRecordSet",

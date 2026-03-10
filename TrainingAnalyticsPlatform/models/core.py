@@ -97,6 +97,31 @@ class WorkoutMetricsModel(BaseModel):
     artifacts: Optional[StructuredArtifactsModel] = None
 
     @classmethod
+    def from_flat_metrics(
+        cls,
+        metrics: Dict[str, Any],
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> "WorkoutMetricsModel":
+        """Build a typed metrics model from flattened storage/API fields.
+
+        The semantic layer currently derives a flat dictionary for workout detail responses.
+        This helper normalizes legacy flat keys into canonical metric names and maps
+        the payload into the compositional `WorkoutMetricsModel` structure.
+        """
+        metadata_payload = metadata or {}
+        normalized_metrics = dict(metrics)
+
+        # Normalize legacy artifact key names used by workout detail payloads.
+        if "intervals_json" in normalized_metrics and "intervals" not in normalized_metrics:
+            normalized_metrics["intervals"] = normalized_metrics.get("intervals_json")
+        if "climbs_json" in normalized_metrics and "climbs" not in normalized_metrics:
+            normalized_metrics["climbs"] = normalized_metrics.get("climbs_json")
+        if "power_curve_json" in normalized_metrics and "power_curve" not in normalized_metrics:
+            normalized_metrics["power_curve"] = normalized_metrics.get("power_curve_json")
+
+        return cls._from_metrics(normalized_metrics, metadata_payload)
+
+    @classmethod
     def from_canonical(
         cls,
         df: pd.DataFrame,
@@ -446,6 +471,31 @@ class WorkoutProjection(BaseModel):
     # Provenance
     ingestion_version: Optional[str] = Field(None, description="Ingestion pipeline version")
     ingestion_timestamp_utc: Optional[str] = Field(None, description=ISO_8601_UTC_DESC)
+
+
+class WorkoutDetailResponse(BaseModel):
+    """Typed response contract for deep-dive single-workout queries."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workout_id: str = Field(..., description="Unique workout identifier")
+    athlete_id: str = Field(..., description="Athlete identifier")
+    source_system: Optional[str] = Field(default=None, description="Source provider for workout ingestion")
+    metrics: WorkoutMetricsModel
+    laps_count: Optional[int] = Field(default=None, ge=0, description="Number of lap summaries included")
+    laps: Optional[List[Dict[str, Any]]] = Field(default=None, description="Lap summary payloads when laps=true")
+    lap_errors: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Lap loading/parsing errors when lap data cannot be fully resolved",
+    )
+    developer_fields_summary: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional developer field summary extracted from metadata payload",
+    )
+    developer_fields_error: Optional[str] = Field(
+        default=None,
+        description="Developer field processing error when include_developer_fields=true",
+    )
 
 
 class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-methods

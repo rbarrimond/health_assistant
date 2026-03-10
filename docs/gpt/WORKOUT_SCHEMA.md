@@ -1,6 +1,6 @@
 # Workout Schema - Semantic API (Logical)
 
-Version: 11.1.2
+Version: 12.0.0
 
 This document defines the **logical workout schema** exposed by the semantic API.
 It avoids storage details (tables, blobs, partitions) and focuses on fields used
@@ -51,7 +51,19 @@ Returned by `GET /api/workouts` and embedded in planning contexts.
 ## Workout Detail (Single)
 
 Returned by `GET /api/workouts/{workout_id}`.
-Extends the summary with derived metrics and optional lap summaries.
+Returns a deep-dive envelope with stable identity fields (`workout_id`, `athlete_id`, `source_system`),
+nested `metrics` (`WorkoutMetricsModel`), and optional lap/developer fields.
+
+`WorkoutMetricsModel` groups fields into semantic families:
+
+- `session` (sport, timestamps, duration, naming, indoor flag)
+- `samples` (HR/power/cadence aggregates and missing-data stats)
+- `distance` (distance, elevation, speed, calories)
+- `zones_hr` / `zones_power` (zone boundaries + time in zone)
+- `training_load`, `power_duration`, `envelope`, `variability`, `durability`, `artifacts`
+
+The field tables below remain the logical metric catalog for deep-dive analysis and are represented under
+the appropriate `metrics.*` family in the API response.
 
 ### Distance & elevation (derived)
 

@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Health Assistant - FIT File Processing",
-    "description": "Complete test collection with 37 requests covering all 36 endpoints. Includes 8 real FIT file payloads, config/asset endpoints, agent memory system, planning/analysis (WorkoutProjection lightweight batch queries), physiometrics CRUD, TrainingState projection endpoints, OneDrive/Garmin/Intervals.icu sync, and OAuth flows. [Updated 2026-03-06: WorkoutProjection v3.2.0 (lightweight 30-field model for efficient batch queries; /api/workouts and /api/planning/context return projections instead of full WorkoutSummary; payload ~40-50% reduction); PhysiometricsSnapshot v3.0.0 (30-field schema); TrainingState on-demand projection; canonical schema v3.0.0; all core tests passing.]",
+    "description": "Complete test collection with 37 requests covering all 36 endpoints. Includes 8 real FIT file payloads, config/asset endpoints, agent memory system, planning/analysis (WorkoutProjection lightweight batch queries), physiometrics CRUD, TrainingState projection endpoints, OneDrive/Garmin/Intervals.icu sync, and OAuth flows. [Updated 2026-03-10: Semantic API v4.0.0 deep-dive contract (/api/workouts/{workout_id} now returns top-level identity + nested metrics WorkoutMetricsModel; optional laps/lap_errors/developer fields); WorkoutProjection v3.2.0 (lightweight 30-field model for efficient batch queries; /api/workouts and /api/planning/context return projections instead of full WorkoutSummary; payload ~40-50% reduction); PhysiometricsSnapshot v3.0.0 (30-field schema); TrainingState on-demand projection; canonical schema v3.0.0; all core tests passing.]",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -658,7 +658,7 @@
             "method": "GET",
             "header": [],
             "url": "{{base_url}}/api/planning/context?athlete_id={{athlete_id}}&days=45&code={{function_key}}",
-            "description": "Aggregated planning context for training decisions. Returns recent_workouts as lightweight WorkoutProjection[] (v3.2.0+) — 30 fields optimized for batch queries. For full workout details (zones, efficiency, curves), query GET /api/workouts/{workout_id}."
+            "description": "Aggregated planning context for training decisions. Returns recent_workouts as lightweight WorkoutProjection[] (v3.2.0+) — 30 fields optimized for batch queries. For deep-dive workout analysis, query GET /api/workouts/{workout_id} (v4.0.0 response includes nested metrics object)."
           },
           "response": []
         },
@@ -668,7 +668,7 @@
             "method": "GET",
             "header": [],
             "url": "{{base_url}}/api/workouts?athlete_id={{athlete_id}}&limit=25&sport=Cycling&code={{function_key}}",
-            "description": "List workouts with optional filters. Returns WorkoutProjection[] (v3.2.0+) — lightweight 30-field model optimized for batch queries (~40-50% payload reduction). For full metrics (HR zones, power zones, efficiency), query GET /api/workouts/{workout_id}."
+            "description": "List workouts with optional filters. Returns WorkoutProjection[] (v3.2.0+) — lightweight 30-field model optimized for batch queries (~40-50% payload reduction). For deep-dive metrics, query GET /api/workouts/{workout_id} and read values from nested metrics families (v4.0.0)."
           },
           "response": []
         },
@@ -683,8 +683,8 @@
                 "type": "text"
               }
             ],
-            "url": "{{base_url}}/api/workouts/{{workout_id}}?athlete_id={{athlete_id}}&records=true&laps=true&code={{function_key}}",
-            "description": "Retrieve a specific workout, optionally including records/laps (requires source file access)."
+            "url": "{{base_url}}/api/workouts/{{workout_id}}?athlete_id={{athlete_id}}&laps=true&developer_fields=true&code={{function_key}}",
+            "description": "Retrieve a deep-dive workout response (v4.0.0): top-level identity fields plus nested metrics (WorkoutMetricsModel). Optional fields include laps/laps_count/lap_errors and developer_fields_summary/developer_fields_error."
           },
           "response": []
         },

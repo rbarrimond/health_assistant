@@ -1,12 +1,17 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Semantic/GPT)
-  version: "3.2.0"
+  version: "4.0.0"
   description: |
     Deterministic workout and physiometric API consumed by ChatGPT Actions.
     Returns workout metrics including zones and enhanced analytics computed at read-time from canonical substrate using athlete's current physiometric configuration. All derived metrics are computed deterministically by CanonicalAnalyticsEngine.
 
-    **Version 3.2.0 (Breaking Change)**: 
+    **Version 4.0.0 (Breaking Change)**:
+    - `/api/workouts/{workout_id}` now returns `WorkoutDetail` with nested `metrics: WorkoutMetricsModel` (typed deep-dive response)
+    - The previous flat `WorkoutSummary`-shaped deep-dive payload has been replaced
+    - `laps`, `lap_errors`, and developer-field payloads remain top-level optional response fields
+
+    **Version 3.2.0 (Breaking Change)**:
     - New `WorkoutProjection` model for efficient planning context and list queries (lightweight identity + summary + data flags, no computation)
     - `/api/workouts` and `/api/planning/context.recent_workouts` now return `WorkoutProjection` instead of full `WorkoutSummary`
     - For full metrics (HR zones, power zones, efficiency, duration curves), query `/api/workouts/{workout_id}` (returns `WorkoutDetail`)
@@ -1687,8 +1692,97 @@ components:
           type: string
       additionalProperties: true
     WorkoutDetail:
-      allOf:
-        - $ref: '#/components/schemas/WorkoutSummary'
+      type: object
+      description: |
+        Single-workout deep-dive response.
+        Returns stable workout identity fields plus nested typed metrics payload (`WorkoutMetricsModel`).
+      required:
+        - workout_id
+        - athlete_id
+        - metrics
+      properties:
+        workout_id:
+          type: string
+          description: Unique workout identifier
+        athlete_id:
+          type: string
+          description: Athlete identifier
+        source_system:
+          type: [string, "null"]
+          description: Source provider for workout ingestion
+        metrics:
+          $ref: '#/components/schemas/WorkoutMetricsModel'
+        laps_count:
+          type: [integer, "null"]
+          minimum: 0
+          description: Number of laps included when `laps=true`
+        laps:
+          type: [array, "null"]
+          description: Lap summaries when `laps=true`
+          items:
+            type: object
+            additionalProperties: true
+        lap_errors:
+          type: [object, "null"]
+          description: Lap loading/parsing errors when lap payload cannot be fully resolved
+          additionalProperties:
+            type: string
+        developer_fields_summary:
+          type: [object, "null"]
+          description: Optional summary of FIT developer fields when `developer_fields=true`
+          additionalProperties: true
+        developer_fields_error:
+          type: [string, "null"]
+          description: Error message if developer field extraction failed
+
+    WorkoutMetricsModel:
+      type: object
+      description: |
+        Typed workout metrics grouped by semantic families.
+        Mirrors the domain model used for single-workout deep-dive analysis.
+      required:
+        - session
+        - samples
+        - distance
+      properties:
+        physiometrics_snapshot_timestamp:
+          type: [string, "null"]
+          format: date-time
+        session:
+          type: object
+          additionalProperties: true
+        samples:
+          type: object
+          additionalProperties: true
+        distance:
+          type: object
+          additionalProperties: true
+        zones_hr:
+          type: [object, "null"]
+          additionalProperties: true
+        zones_power:
+          type: [object, "null"]
+          additionalProperties: true
+        hr_resting_bpm:
+          type: [number, "null"]
+        training_load:
+          type: [object, "null"]
+          additionalProperties: true
+        power_duration:
+          type: [object, "null"]
+          additionalProperties: true
+        envelope:
+          type: [object, "null"]
+          additionalProperties: true
+        variability:
+          type: [object, "null"]
+          additionalProperties: true
+        durability:
+          type: [object, "null"]
+          additionalProperties: true
+        artifacts:
+          type: [object, "null"]
+          additionalProperties: true
     WorkoutLapDetail:
       type: object
       properties:

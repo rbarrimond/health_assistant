@@ -7,6 +7,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
 import pytest
 
 from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
@@ -390,6 +391,62 @@ class TestWorkoutQueries:
         assert workout is not None
         assert "developer_fields_summary" in workout
         assert workout["developer_fields_summary"]["field_count"] == 1
+
+    def test_get_workout_detail_falls_back_to_basic_sample_metrics_on_non_1hz(
+        self,
+        semantic_layer,
+        mock_storage,
+    ):
+        """Populate sample counts from canonical records when strict analytics rejects cadence gaps."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+
+        mock_entity = {
+            "PartitionKey": "rob|2026-03",
+            "RowKey": "20260308T2324180000|4ccc53f9aa6d",
+            "workout_id": "4ccc53f9aa6df38e1348b645a77092d962edc0db",
+            "athlete_id": "rob",
+            "ingestion_id": "onedrive:2DE1CE6A0066F643!s95ee216dd6ed479f878b12f9cd1d8f72",
+            "canonical_records_blob": "onedrive:2DE1CE6A0066F643!s95ee216dd6ed479f878b12f9cd1d8f72/canonical.parquet",
+            "sport": "cycling",
+            "sub_sport": "generic",
+            "duration_sec": 1708,
+        }
+        mock_table_client.query_entities.return_value = [mock_entity]
+        mock_storage.workouts.load_metadata_json.return_value = {
+            "session": {},
+            "enrichment": {},
+            "activity_metadata": {},
+        }
+
+        # Non-1Hz-like input (contains a larger timestamp gap), plus missing power data.
+        mock_storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+            {
+                "timestamp_utc": pd.to_datetime(
+                    [
+                        "2026-03-08T23:24:18Z",
+                        "2026-03-08T23:24:19Z",
+                        "2026-03-08T23:25:25Z",
+                    ],
+                    utc=True,
+                ),
+                "heart_rate_bpm": [125.0, 126.0, None],
+                "cadence_rpm": [85.0, None, 87.0],
+                "power_watts": [None, None, None],
+            }
+        )
+
+        with patch(
+            "TrainingAnalyticsPlatform.analytics.semantic_layer.CanonicalAnalyticsEngine.from_dataframe",
+            side_effect=ValueError("strict_1hz_failed"),
+        ):
+            workout = semantic_layer.get_workout_detail("rob", mock_entity["workout_id"])
+
+        assert workout is not None
+        samples = workout["metrics"]["samples"]
+        assert samples["hr_samples_count"] == 2
+        assert samples["cad_samples_count"] == 2
+        assert samples["pwr_samples_count"] == 0
 
 
 class TestAnalysisQueries:

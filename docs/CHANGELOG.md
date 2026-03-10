@@ -10,6 +10,47 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-05
 
+### **BREAKING:** Semantic API v4.0.0 - Typed Deep-Dive Workout Metrics Response
+
+**New Feature**: `GET /api/workouts/{workout_id}` now returns a typed deep-dive response with nested `metrics: WorkoutMetricsModel`.
+
+**Motivation**: The deep-dive endpoint previously returned a large flat payload shape that diverged from the domain model architecture. `WorkoutMetricsModel` already existed as the authoritative compositional analytics model but was not used as the API contract. This change aligns endpoint response semantics with the OO model surface.
+
+**Changes**:
+
+#### Models [core.py] (v4.0.0)
+
+- **New**: `WorkoutDetailResponse` in `TrainingAnalyticsPlatform/models/core.py`
+  - Top-level identity: `workout_id`, `athlete_id`, `source_system`
+  - Nested metrics: `metrics` (`WorkoutMetricsModel`)
+  - Optional deep-dive additions: `laps`, `laps_count`, `lap_errors`, `developer_fields_summary`, `developer_fields_error`
+- **New**: `WorkoutMetricsModel.from_flat_metrics()` helper to map flat semantic-layer metrics into compositional typed model families.
+
+#### Semantic Layer [semantic_layer.py] (v4.0.0)
+
+- **Updated**: `get_workout_detail()` now emits `WorkoutDetailResponse` (serialized dict) instead of a flat `WorkoutSummary`-shaped payload.
+- **Updated**: Metadata payload handling now guards for non-dict values before model mapping.
+- **Updated**: Lap fallback errors are surfaced in `lap_errors`.
+
+#### OpenAPI [openapi.yaml] (v4.0.0)
+
+- **Version bump**: v3.2.0 -> v4.0.0 (breaking change)
+- **Updated schema**: `WorkoutDetail` now defined as typed envelope with nested `WorkoutMetricsModel`
+- **New schema**: `WorkoutMetricsModel` component for deep-dive response payload
+
+**Breaking Changes**:
+
+| Endpoint | v3.2.0 (Old) | v4.0.0 (New) | Migration |
+| --- | --- | --- | --- |
+| `GET /api/workouts/{workout_id}` | Flat payload with direct metric keys (`hr_avg_bpm`, `tss`, `decoupling_pct`, ...) | Typed envelope with nested `metrics` families (`metrics.samples.hr_avg_bpm`, `metrics.training_load.tss`, `metrics.durability.decoupling_pct`, ...) | Update clients to read metric fields from `metrics.*` paths. Keep top-level identity/lap/developer fields unchanged semantics-wise. |
+
+**Backward Compatibility**:
+
+- `GET /api/workouts` and `GET /api/planning/context` remain on `WorkoutProjection` (no response-shape changes)
+- Deep-dive consumers must migrate field access from flat keys to nested `metrics.*`
+
+**Ingestion SemVer**: No ingestion schema or persisted semantics changes in this update (API-contract-only major bump).
+
 ### **BREAKING:** Semantic API v3.2.0 - Workout Projections for Efficient Planning Context
 
 **New Feature**: Introduced lightweight `WorkoutProjection` model for efficient batch queries.

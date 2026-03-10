@@ -12,7 +12,12 @@ import pandas as pd
 
 from azure.core.exceptions import HttpResponseError
 
-from TrainingAnalyticsPlatform.models.core import CanonicalAnalyticsEngine, WorkoutProjection
+from TrainingAnalyticsPlatform.models.core import (
+    CanonicalAnalyticsEngine,
+    WorkoutDetailResponse,
+    WorkoutMetricsModel,
+    WorkoutProjection,
+)
 from TrainingAnalyticsPlatform.models.wellness import TrainingStateSnapshot
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import WorkoutEntity
 
@@ -279,6 +284,28 @@ class SemanticLayer:
 
             workout_entity = WorkoutEntity.from_table_entity(entity)
             workout = self._entity_to_workout_dict(entity)
+            metrics = WorkoutMetricsModel.from_flat_metrics(
+                workout,
+                metadata={
+                    "sport": workout.get("sport"),
+                    "sub_sport": workout.get("sub_sport"),
+                    "workout_name": workout.get("workout_name"),
+                    "device_name": workout_entity.device_model,
+                    "is_indoor": workout.get("is_indoor"),
+                    "start_time_utc": workout.get("start_time_utc"),
+                    "local_tz_offset": workout.get("local_tz_offset"),
+                    "duration_sec": workout.get("duration_sec"),
+                    "moving_time_sec": workout.get("moving_time_sec"),
+                    "has_gps": workout_entity.has_gps,
+                    "hr_resting_bpm": workout.get("hr_resting_bpm"),
+                },
+            )
+            response = WorkoutDetailResponse(
+                workout_id=workout_entity.workout_id,
+                athlete_id=workout_entity.athlete_id,
+                source_system=entity.get("source_system"),
+                metrics=metrics,
+            )
 
             if include_laps:
                 laps = self._load_stored_laps(workout_entity)
@@ -293,22 +320,20 @@ class SemanticLayer:
                     errors.update(fit_errors)
 
                 if laps is not None:
-                    workout["laps"] = laps
-                    workout["laps_count"] = len(laps)
+                    response.laps = laps
+                    response.laps_count = len(laps)
                 if errors:
-                    workout.update(errors)
+                    response.lap_errors = errors
 
             if include_developer_fields:
                 try:
                     ingestion_id = entity.get("ingestion_id") or workout_id
                     metadata_payload = self.storage.workouts.load_metadata_json(ingestion_id)
-                    workout["developer_fields_summary"] = self._summarize_developer_fields(
-                        metadata_payload
-                    )
+                    response.developer_fields_summary = self._summarize_developer_fields(metadata_payload)
                 except Exception as exc:  # pylint: disable=broad-exception-caught
-                    workout["developer_fields_error"] = str(exc)
+                    response.developer_fields_error = str(exc)
 
-            return workout
+            return response.model_dump(exclude_none=True)
 
         except HttpResponseError as e:
             logger.error(
@@ -524,8 +549,6 @@ class SemanticLayer:
             )
             return []
 
-    # TODO: Refactor to reduce cognitive complexity (currently 21, threshold 15)
-    # noqa: S3776
     def _get_workout_projections_in_range(
         self,
         athlete_id: str,
@@ -548,33 +571,14 @@ class SemanticLayer:
         """
         try:
             table_client = self.storage.infrastructure.get_table_client("Workouts")  # pylint: disable=protected-access
-
-            # Build query for athlete and date range
             months = self._get_month_partitions(athlete_id, start_date, end_date)
-
-            projections = []
-            for partition_key in months:
-                query = f"PartitionKey eq '{partition_key}'"
-                entities = table_client.query_entities(query)
-
-                for entity in entities:
-                    workout_start = entity.get("start_time_utc")
-                    if workout_start:
-                        # Parse workout date and filter
-                        workout_date = datetime.fromisoformat(
-                            workout_start.replace("Z", UTC_OFFSET)
-                        ).astimezone(timezone.utc)
-
-                        if start_date <= workout_date <= end_date:
-                            projection = self.build_workout_projection(entity)
-                            if projection:
-                                projections.append(projection)
-
-            # Sort by date descending (newest first)
-            projections.sort(
-                key=lambda p: p.start_time_utc or "", reverse=True
+            projections = self._collect_workout_projections(
+                table_client,
+                months,
+                start_date,
+                end_date,
             )
-
+            projections.sort(key=lambda p: p.start_time_utc or "", reverse=True)
             return projections
 
         except HttpResponseError as e:
@@ -590,6 +594,41 @@ class SemanticLayer:
                 exc_info=True,
             )
             return []
+
+    def _collect_workout_projections(
+        self,
+        table_client: Any,
+        months: List[str],
+        start_date: datetime,
+        end_date: datetime,
+    ) -> List[WorkoutProjection]:
+        """Collect projections for entities that fall in the requested date window."""
+        projections: List[WorkoutProjection] = []
+        for partition_key in months:
+            query = f"PartitionKey eq '{partition_key}'"
+            entities = table_client.query_entities(query)
+            for entity in entities:
+                if not self._entity_within_date_range(entity, start_date, end_date):
+                    continue
+                projection = self.build_workout_projection(entity)
+                if projection is not None:
+                    projections.append(projection)
+        return projections
+
+    def _entity_within_date_range(
+        self,
+        entity: Dict[str, Any],
+        start_date: datetime,
+        end_date: datetime,
+    ) -> bool:
+        """Return True when entity start time exists and falls within [start_date, end_date]."""
+        workout_start = entity.get("start_time_utc")
+        if not workout_start:
+            return False
+        workout_date = datetime.fromisoformat(
+            workout_start.replace("Z", UTC_OFFSET)
+        ).astimezone(timezone.utc)
+        return start_date <= workout_date <= end_date
 
     def _get_month_partitions(
         self, athlete_id: str, start_date: datetime, end_date: datetime
@@ -648,6 +687,8 @@ class SemanticLayer:
                 },
             )
             metadata_blob = {}
+        if not isinstance(metadata_blob, dict):
+            metadata_blob = {}
         
         # Extract semantic zones from metadata blob (these contain session/enrichment data)
         session = metadata_blob.get("session", {})
@@ -691,6 +732,9 @@ class SemanticLayer:
             workout.update(self._select_fields(metrics, {
                 "hr_avg_bpm",
                 "hr_max_bpm",
+                "hr_min_bpm",
+                "hr_samples_count",
+                "hr_missing_pct",
                 "hr_z1_sec",
                 "hr_z2_sec",
                 "hr_z3_sec",
@@ -707,6 +751,11 @@ class SemanticLayer:
                 "pwr_max_watts",
                 "pwr_normalized_watts",
                 "pwr_variability_index",
+                "pwr_samples_count",
+                "pwr_missing_pct",
+                "cad_avg_rpm",
+                "cad_max_rpm",
+                "cad_samples_count",
                 "pwr_z1_sec",
                 "pwr_z2_sec",
                 "pwr_z3_sec",
@@ -725,6 +774,17 @@ class SemanticLayer:
                 "ef_second_half",
                 "ef_overall",
             }))
+
+        # Surface sample-level metrics even when detailed analytic families are unavailable.
+        workout.update(self._select_fields(metrics, {
+            "hr_samples_count",
+            "hr_missing_pct",
+            "pwr_samples_count",
+            "pwr_missing_pct",
+            "cad_samples_count",
+            "cad_avg_rpm",
+            "cad_max_rpm",
+        }))
 
         return workout
 
@@ -781,11 +841,48 @@ class SemanticLayer:
                     "record_count": len(df),
                 },
             )
-            return {}
+            return self._compute_basic_metrics_from_canonical(df)
         return canonical.to_metrics_dict()
 
-    # TODO: Refactor to reduce cognitive complexity (currently 20, threshold 15)
-    # noqa: S3776
+    def _compute_basic_metrics_from_canonical(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Compute minimal sample statistics when full canonical analytics are unavailable."""
+        metrics: Dict[str, Any] = {}
+        row_count = len(df)
+        if row_count == 0:
+            return metrics
+
+        if "heart_rate_bpm" in df.columns:
+            hr = pd.to_numeric(df["heart_rate_bpm"], errors="coerce")
+            hr_valid = hr.notna()
+            hr_count = int(hr_valid.sum())
+            metrics["hr_samples_count"] = hr_count
+            metrics["hr_missing_pct"] = float((1 - (hr_count / row_count)) * 100)
+            if hr_count > 0:
+                metrics["hr_avg_bpm"] = float(hr[hr_valid].mean())
+                metrics["hr_max_bpm"] = float(hr[hr_valid].max())
+                metrics["hr_min_bpm"] = float(hr[hr_valid].min())
+
+        if "power_watts" in df.columns:
+            pwr = pd.to_numeric(df["power_watts"], errors="coerce")
+            pwr_valid = pwr.notna()
+            pwr_count = int(pwr_valid.sum())
+            metrics["pwr_samples_count"] = pwr_count
+            metrics["pwr_missing_pct"] = float((1 - (pwr_count / row_count)) * 100)
+            if pwr_count > 0:
+                metrics["pwr_avg_watts"] = float(pwr[pwr_valid].mean())
+                metrics["pwr_max_watts"] = float(pwr[pwr_valid].max())
+
+        if "cadence_rpm" in df.columns:
+            cad = pd.to_numeric(df["cadence_rpm"], errors="coerce")
+            cad_valid = cad.notna()
+            cad_count = int(cad_valid.sum())
+            metrics["cad_samples_count"] = cad_count
+            if cad_count > 0:
+                metrics["cad_avg_rpm"] = float(cad[cad_valid].mean())
+                metrics["cad_max_rpm"] = float(cad[cad_valid].max())
+
+        return metrics
+
     def build_workout_projection(
         self,
         entity: Dict,
@@ -813,80 +910,12 @@ class SemanticLayer:
         """
         try:
             workout_entity = WorkoutEntity.from_table_entity(entity)
-            
-            # Load metadata.json blob
             lookup_id = ingestion_id or entity.get("ingestion_id") or workout_entity.workout_id
-            try:
-                metadata_blob = self.storage.workouts.load_metadata_json(lookup_id)
-            except Exception as exc:  # pylint: disable=broad-exception-caught
-                logger.debug(
-                    "Could not load metadata blob for projection",
-                    extra={
-                        "lookup_id": lookup_id,
-                        "workout_id": workout_entity.workout_id,
-                        "error_type": type(exc).__name__,
-                    },
-                )
-                metadata_blob = {}
-            
-            # Extract semantic zones from metadata
-            identity = metadata_blob.get("identity", {})
-            session = metadata_blob.get("session", {})
-            enrichment = metadata_blob.get("enrichment", {})
-            capabilities = metadata_blob.get("capabilities", {})
-            activity_metadata = metadata_blob.get("activity_metadata", {})
-            provenance = metadata_blob.get("provenance", {})
-            
-            # Build projection with direct field extraction (no computation)
-            projection = WorkoutProjection(
-                # Identity
-                workout_id=workout_entity.workout_id,
-                athlete_id=workout_entity.athlete_id,
-                sport=workout_entity.sport or identity.get("sport") or "unknown",
-                sub_sport=workout_entity.sub_sport or identity.get("sub_sport") or enrichment.get("sub_sport"),
-                workout_name=enrichment.get("workout_name") or identity.get("workout_name"),
-                device_name=identity.get("device_name") or workout_entity.device_model,
-                device_manufacturer=workout_entity.device_manufacturer or identity.get("device_manufacturer"),
-                
-                # Timing
-                start_time_utc=workout_entity.start_time_utc or identity.get("start_time_utc") or session.get("start_time_utc"),
-                local_tz_offset=activity_metadata.get("local_tz_offset"),
-                timezone=activity_metadata.get("timezone") or activity_metadata.get("local_tz_offset"),
-                duration_sec=workout_entity.duration_sec or session.get("duration_sec") or 0,
-                moving_time_sec=session.get("moving_time_sec"),
-                
-                # Distance & Elevation
-                distance_m=workout_entity.distance_m or session.get("distance_m"),
-                elevation_gain_m=session.get("elevation_gain_m"),
-                elevation_loss_m=session.get("elevation_loss_m"),
-                calories_kcal=session.get("calories_kcal"),
-                
-                # Data Availability Flags
-                has_power=bool(workout_entity.has_power or capabilities.get("has_power", False)),
-                has_hr=bool(workout_entity.has_hr or capabilities.get("has_hr", False)),
-                has_gps=bool(workout_entity.has_gps or capabilities.get("has_gps", False)),
-                
-                # Sport-Specific Peaks (capability-dependent)
-                hr_avg_bpm=session.get("hr_avg_bpm") if workout_entity.has_hr else None,
-                hr_max_bpm=session.get("hr_max_bpm") if workout_entity.has_hr else None,
-                pwr_avg_watts=session.get("pwr_avg_watts") if workout_entity.has_power else None,
-                pwr_max_watts=session.get("pwr_max_watts") if workout_entity.has_power else None,
-                pwr_normalized_watts=session.get("pwr_normalized_watts") if workout_entity.has_power else None,
-                cad_avg_rpm=session.get("cad_avg_rpm"),
-                cad_max_rpm=session.get("cad_max_rpm"),
-                
-                # Status Flags
-                is_indoor=bool(enrichment.get("is_indoor", False)),
-                race_flag=bool(enrichment.get("race_flag", False)),
-                commute_flag=bool(enrichment.get("commute_flag", False)),
-                
-                # Provenance
-                ingestion_version=provenance.get("ingestion_version"),
-                ingestion_timestamp_utc=provenance.get("ingestion_timestamp_utc"),
-            )
-            
-            return projection
-            
+            metadata_blob = self._load_projection_metadata_blob(lookup_id, workout_entity.workout_id)
+            metadata = self._extract_projection_metadata_sections(metadata_blob)
+            projection_kwargs = self._build_workout_projection_kwargs(workout_entity, metadata)
+            return WorkoutProjection(**projection_kwargs)
+
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error(
                 "Error building workout projection",
@@ -897,6 +926,113 @@ class SemanticLayer:
                 exc_info=True,
             )
             return None
+
+    def _load_projection_metadata_blob(self, lookup_id: str, workout_id: str) -> Dict[str, Any]:
+        """Load metadata blob used by projection paths and normalize non-dict payloads."""
+        try:
+            metadata_blob = self.storage.workouts.load_metadata_json(lookup_id)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.debug(
+                "Could not load metadata blob for projection",
+                extra={
+                    "lookup_id": lookup_id,
+                    "workout_id": workout_id,
+                    "error_type": type(exc).__name__,
+                },
+            )
+            metadata_blob = {}
+        return metadata_blob if isinstance(metadata_blob, dict) else {}
+
+    def _extract_projection_metadata_sections(
+        self,
+        metadata_blob: Dict[str, Any],
+    ) -> Dict[str, Dict[str, Any]]:
+        """Extract projection metadata sections used to build WorkoutProjection."""
+        return {
+            "identity": metadata_blob.get("identity", {}),
+            "session": metadata_blob.get("session", {}),
+            "enrichment": metadata_blob.get("enrichment", {}),
+            "capabilities": metadata_blob.get("capabilities", {}),
+            "activity_metadata": metadata_blob.get("activity_metadata", {}),
+            "provenance": metadata_blob.get("provenance", {}),
+        }
+
+    def _build_workout_projection_kwargs(
+        self,
+        workout_entity: WorkoutEntity,
+        metadata: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Assemble validated kwargs for WorkoutProjection construction."""
+        start_time_utc = self._resolve_projection_start_time(workout_entity, metadata)
+        if not start_time_utc:
+            raise ValueError("Missing required start_time_utc for workout projection")
+
+        has_power = bool(workout_entity.has_power or metadata["capabilities"].get("has_power", False))
+        has_hr = bool(workout_entity.has_hr or metadata["capabilities"].get("has_hr", False))
+        has_gps = bool(workout_entity.has_gps or metadata["capabilities"].get("has_gps", False))
+        capability_metrics = self._projection_capability_metrics(
+            metadata["session"],
+            has_hr,
+            has_power,
+        )
+
+        projection_kwargs = {
+            "workout_id": workout_entity.workout_id,
+            "athlete_id": workout_entity.athlete_id,
+            "sport": workout_entity.sport or metadata["identity"].get("sport") or "unknown",
+            "sub_sport": workout_entity.sub_sport or metadata["identity"].get("sub_sport") or metadata["enrichment"].get("sub_sport"),
+            "workout_name": metadata["enrichment"].get("workout_name") or metadata["identity"].get("workout_name"),
+            "device_name": metadata["identity"].get("device_name") or workout_entity.device_model,
+            "device_manufacturer": workout_entity.device_manufacturer or metadata["identity"].get("device_manufacturer"),
+            "start_time_utc": start_time_utc,
+            "local_tz_offset": metadata["activity_metadata"].get("local_tz_offset"),
+            "timezone": metadata["activity_metadata"].get("timezone") or metadata["activity_metadata"].get("local_tz_offset"),
+            "duration_sec": workout_entity.duration_sec or metadata["session"].get("duration_sec") or 0,
+            "moving_time_sec": metadata["session"].get("moving_time_sec"),
+            "distance_m": workout_entity.distance_m or metadata["session"].get("distance_m"),
+            "elevation_gain_m": metadata["session"].get("elevation_gain_m"),
+            "elevation_loss_m": metadata["session"].get("elevation_loss_m"),
+            "calories_kcal": metadata["session"].get("calories_kcal"),
+            "has_power": has_power,
+            "has_hr": has_hr,
+            "has_gps": has_gps,
+            "is_indoor": bool(metadata["enrichment"].get("is_indoor", False)),
+            "race_flag": bool(metadata["enrichment"].get("race_flag", False)),
+            "commute_flag": bool(metadata["enrichment"].get("commute_flag", False)),
+            "ingestion_version": metadata["provenance"].get("ingestion_version"),
+            "ingestion_timestamp_utc": metadata["provenance"].get("ingestion_timestamp_utc"),
+        }
+        projection_kwargs.update(capability_metrics)
+        return projection_kwargs
+
+    def _projection_capability_metrics(
+        self,
+        session_metrics: Dict[str, Any],
+        has_hr: bool,
+        has_power: bool,
+    ) -> Dict[str, Any]:
+        """Return capability-dependent projection metrics (HR/power) plus cadence values."""
+        return {
+            "hr_avg_bpm": session_metrics.get("hr_avg_bpm") if has_hr else None,
+            "hr_max_bpm": session_metrics.get("hr_max_bpm") if has_hr else None,
+            "pwr_avg_watts": session_metrics.get("pwr_avg_watts") if has_power else None,
+            "pwr_max_watts": session_metrics.get("pwr_max_watts") if has_power else None,
+            "pwr_normalized_watts": session_metrics.get("pwr_normalized_watts") if has_power else None,
+            "cad_avg_rpm": session_metrics.get("cad_avg_rpm"),
+            "cad_max_rpm": session_metrics.get("cad_max_rpm"),
+        }
+
+    def _resolve_projection_start_time(
+        self,
+        workout_entity: WorkoutEntity,
+        metadata: Dict[str, Dict[str, Any]],
+    ) -> Optional[str]:
+        """Resolve start time for projection from entity first, then metadata fallbacks."""
+        return (
+            workout_entity.start_time_utc
+            or metadata["identity"].get("start_time_utc")
+            or metadata["session"].get("start_time_utc")
+        )
 
     def _load_stored_laps(self, workout_entity: WorkoutEntity) -> Optional[List[Dict]]:
         ingestion_id: str = ""

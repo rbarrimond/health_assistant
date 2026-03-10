@@ -1,6 +1,6 @@
 # API Alignment Check Report
 
-**Date**: February 5, 2026  
+**Date**: March 10, 2026  
 **Status**: ✅ ALIGNED with minor observations
 
 ## Summary
@@ -10,6 +10,8 @@ The API is well-aligned across all three sources:
 - **function_app.py**: 29+ routes defined
 - **openapi.yaml**: 30 documented paths
 - **Postman collection**: 31 test requests
+
+**Contract update note**: `/api/workouts/{workout_id}` now uses Semantic API v4.0.0 deep-dive response shape (top-level identity + nested `metrics` object).
 
 ## Detailed Comparison
 

@@ -1,6 +1,6 @@
 # GPT Actions Guide — Workout Intelligence Agent
 
-Version: 3.7.0
+Version: 4.0.0
 
 This guide defines how a custom GPT should use the Health Assistant Semantic Access Layer.
 It is the operational companion to:
@@ -79,7 +79,8 @@ ChatGPT responds: "Your current FTP is 295 W and LTHR is 178 bpm (per the latest
 4. **Workout detail**
 
 - `GET /api/workouts/{workout_id}?laps=true`
-- Use for deep dives into a specific session. Add `laps=true` when you need lap summaries.
+- Use for deep dives into a specific session. Response now returns top-level identity fields plus nested `metrics` (`WorkoutMetricsModel`).
+- Add `laps=true` when you need lap summaries.
 - For per-lap records, call `GET /api/workouts/{workout_id}/laps/{lap_index}`.
 
 5. **Weekly rollups**

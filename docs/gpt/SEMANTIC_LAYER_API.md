@@ -1,6 +1,6 @@
 # Semantic Access Layer API (GPT)
 
-Version: 6.0.1
+Version: 7.0.0
 
 The Semantic Access Layer is the **read + agent-memory write API** for ChatGPT Actions. It exposes meaningful, human-centric questions about training data rather than raw table access.
 
@@ -507,18 +507,34 @@ Retrieve full workout data with optional lap summaries.
 {
   "workout_id": "abc123",
   "athlete_id": "rob",
-  "sport": "Cycling",
-  "start_time_utc": "2026-01-15T10:00:00+00:00",
-  "duration_sec": 3600,
-  "hr_avg_bpm": 145,
-  "pwr_avg_watts": 220,
-  "hr_z2_sec": 3000,
-  "pwr_z2_sec": 2700,
-  "intensity_sec": 480,
-  "decoupling_pct": 2.5,
-  "ef_overall": 1.52,
-  "intensity_factor": 0.85,
-  "tss": 65,
+  "source_system": "onedrive",
+  "metrics": {
+    "session": {
+      "sport": "Cycling",
+      "start_time_utc": "2026-01-15T10:00:00+00:00",
+      "duration_sec": 3600
+    },
+    "samples": {
+      "hr_avg_bpm": 145,
+      "pwr_avg_watts": 220,
+      "cad_avg_rpm": 86
+    },
+    "zones_hr": {
+      "hr_z2_sec": 3000
+    },
+    "zones_power": {
+      "pwr_z2_sec": 2700,
+      "intensity_sec": 480
+    },
+    "training_load": {
+      "intensity_factor": 0.85,
+      "tss": 65
+    },
+    "durability": {
+      "decoupling_pct": 2.5,
+      "ef_overall": 1.52
+    }
+  },
   "laps_count": 3,
   "laps": []
 }
