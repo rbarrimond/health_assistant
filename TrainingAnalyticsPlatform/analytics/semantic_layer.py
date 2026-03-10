@@ -267,71 +267,22 @@ class SemanticLayer:
             Full workout data, or None if not found
         """
         try:
-            table_client = self.storage.infrastructure.get_table_client("Workouts")  # pylint: disable=protected-access
-
-            # Query by workout_id across partitions
-            query = f"workout_id eq '{workout_id}'"
-            entities = list(table_client.query_entities(query, top=1))
-
-            if not entities:
+            entity = self._query_workout_entity(workout_id)
+            if entity is None:
                 return None
-
-            entity = entities[0]
 
             # Verify athlete_id matches
             if entity.get("athlete_id") != athlete_id:
                 return None
 
             workout_entity = WorkoutEntity.from_table_entity(entity)
-            workout = self._entity_to_workout_dict(entity)
-            metrics = WorkoutMetricsModel.from_flat_metrics(
-                workout,
-                metadata={
-                    "sport": workout.get("sport"),
-                    "sub_sport": workout.get("sub_sport"),
-                    "workout_name": workout.get("workout_name"),
-                    "device_name": workout_entity.device_model,
-                    "is_indoor": workout.get("is_indoor"),
-                    "start_time_utc": workout.get("start_time_utc"),
-                    "local_tz_offset": workout.get("local_tz_offset"),
-                    "duration_sec": workout.get("duration_sec"),
-                    "moving_time_sec": workout.get("moving_time_sec"),
-                    "has_gps": workout_entity.has_gps,
-                    "hr_resting_bpm": workout.get("hr_resting_bpm"),
-                },
-            )
-            response = WorkoutDetailResponse(
-                workout_id=workout_entity.workout_id,
-                athlete_id=workout_entity.athlete_id,
-                source_system=entity.get("source_system"),
-                metrics=metrics,
-            )
+            response = self._build_workout_detail_response(entity, workout_entity)
 
             if include_laps:
-                laps = self._load_stored_laps(workout_entity)
-                errors: Dict[str, str] = {}
-                if laps is None:
-                    _, fit_laps, fit_errors = self._load_fit_timeseries(
-                        entity,
-                        include_records=False,
-                        include_laps=True,
-                    )
-                    laps = fit_laps
-                    errors.update(fit_errors)
-
-                if laps is not None:
-                    response.laps = laps
-                    response.laps_count = len(laps)
-                if errors:
-                    response.lap_errors = errors
+                self._populate_workout_detail_laps(response, workout_entity, entity)
 
             if include_developer_fields:
-                try:
-                    ingestion_id = entity.get("ingestion_id") or workout_id
-                    metadata_payload = self.storage.workouts.load_metadata_json(ingestion_id)
-                    response.developer_fields_summary = self._summarize_developer_fields(metadata_payload)
-                except Exception as exc:  # pylint: disable=broad-exception-caught
-                    response.developer_fields_error = str(exc)
+                self._populate_workout_detail_developer_fields(response, entity, workout_id)
 
             return response.model_dump(exclude_none=True)
 
@@ -346,6 +297,81 @@ class SemanticLayer:
                 exc_info=True,
             )
             return None
+
+    def _query_workout_entity(self, workout_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch a single workout entity by workout_id from Workouts table."""
+        table_client = self.storage.infrastructure.get_table_client("Workouts")  # pylint: disable=protected-access
+        query = f"workout_id eq '{workout_id}'"
+        entities = list(table_client.query_entities(query, top=1))
+        return entities[0] if entities else None
+
+    def _build_workout_detail_response(
+        self,
+        entity: Dict[str, Any],
+        workout_entity: WorkoutEntity,
+    ) -> WorkoutDetailResponse:
+        """Build typed workout detail response from table entity and derived metrics."""
+        workout = self._entity_to_workout_dict(entity)
+        metrics = WorkoutMetricsModel.from_flat_metrics(
+            workout,
+            metadata={
+                "sport": workout.get("sport"),
+                "sub_sport": workout.get("sub_sport"),
+                "workout_name": workout.get("workout_name"),
+                "device_name": workout_entity.device_model,
+                "is_indoor": workout.get("is_indoor"),
+                "start_time_utc": workout.get("start_time_utc"),
+                "local_tz_offset": workout.get("local_tz_offset"),
+                "duration_sec": workout.get("duration_sec"),
+                "moving_time_sec": workout.get("moving_time_sec"),
+                "has_gps": workout_entity.has_gps,
+                "hr_resting_bpm": workout.get("hr_resting_bpm"),
+            },
+        )
+        return WorkoutDetailResponse(
+            workout_id=workout_entity.workout_id,
+            athlete_id=workout_entity.athlete_id,
+            source_system=entity.get("source_system"),
+            metrics=metrics,
+        )
+
+    def _populate_workout_detail_laps(
+        self,
+        response: WorkoutDetailResponse,
+        workout_entity: WorkoutEntity,
+        entity: Dict[str, Any],
+    ) -> None:
+        """Attach lap payload and lap errors to response when available."""
+        laps = self._load_stored_laps(workout_entity)
+        errors: Dict[str, str] = {}
+        if laps is None:
+            _, fit_laps, fit_errors = self._load_fit_timeseries(
+                entity,
+                include_records=False,
+                include_laps=True,
+            )
+            laps = fit_laps
+            errors.update(fit_errors)
+
+        if laps is not None:
+            response.laps = laps
+            response.laps_count = len(laps)
+        if errors:
+            response.lap_errors = errors
+
+    def _populate_workout_detail_developer_fields(
+        self,
+        response: WorkoutDetailResponse,
+        entity: Dict[str, Any],
+        workout_id: str,
+    ) -> None:
+        """Attach developer field summary, preserving current error behavior."""
+        try:
+            ingestion_id = entity.get("ingestion_id") or workout_id
+            metadata_payload = self.storage.workouts.load_metadata_json(ingestion_id)
+            response.developer_fields_summary = self._summarize_developer_fields(metadata_payload)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            response.developer_fields_error = str(exc)
 
     # -------------------------------------------------------------------------
     # Rollup Queries
@@ -670,10 +696,36 @@ class SemanticLayer:
             Cleaned workout dict
         """
         workout_entity = WorkoutEntity.from_table_entity(entity)
-        
-        # Load metadata.json blob (authoritative source for session/enrichment zones)
-        # Fallback to ingestion_id if workout_id not available
+        metadata_blob = self._load_metadata_blob_for_workout(entity, workout_entity)
+        session, enrichment, activity_metadata = self._extract_workout_metadata_sections(
+            metadata_blob
+        )
+
+        # Combine zones for inferential methods.
+        metrics = {**session, **enrichment, **activity_metadata}
+        metrics = self._apply_canonical_metrics(workout_entity, metrics)
+        workout = self._build_workout_base_dict(
+            workout_entity,
+            session,
+            enrichment,
+            activity_metadata,
+            metrics,
+        )
+        self._add_workout_capability_metrics(workout, metrics)
+
+        return workout
+
+    def _load_metadata_blob_for_workout(
+        self,
+        entity: Dict[str, Any],
+        workout_entity: WorkoutEntity,
+    ) -> Dict[str, Any]:
+        """Load metadata.json blob for workout-centric transformations."""
         lookup_id = entity.get("ingestion_id") or workout_entity.workout_id
+        return self._load_metadata_blob(lookup_id, workout_entity.workout_id)
+
+    def _load_metadata_blob(self, lookup_id: str, workout_id: str) -> Dict[str, Any]:
+        """Load metadata blob and normalize non-dict payloads to an empty dict."""
         try:
             metadata_blob = self.storage.workouts.load_metadata_json(lookup_id)
         except Exception as exc:  # pylint: disable=broad-exception-caught
@@ -681,41 +733,44 @@ class SemanticLayer:
                 "Could not load metadata blob",
                 extra={
                     "lookup_id": lookup_id,
-                    "workout_id": workout_entity.workout_id,
+                    "workout_id": workout_id,
                     "error_type": type(exc).__name__,
                     "error": str(exc),
                 },
             )
-            metadata_blob = {}
-        if not isinstance(metadata_blob, dict):
-            metadata_blob = {}
-        
-        # Extract semantic zones from metadata blob (these contain session/enrichment data)
-        session = metadata_blob.get("session", {})
-        enrichment = metadata_blob.get("enrichment", {})
-        activity_metadata = metadata_blob.get("activity_metadata", {})
-        
-        # Combine zones into a metrics dict for inferential methods
-        # (This maintains backward compatibility with methods that read from metrics dict)
-        metrics = {**session, **enrichment, **activity_metadata}
-        metrics = self._apply_canonical_metrics(workout_entity, metrics)
+            return {}
+        return metadata_blob if isinstance(metadata_blob, dict) else {}
 
-        # Prefer entity core fields over metadata zones (schema 2.0.0+ stores these as queryable properties)
+    @staticmethod
+    def _extract_workout_metadata_sections(
+        metadata_blob: Dict[str, Any],
+    ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+        """Return session, enrichment, and activity metadata sections from metadata blob."""
+        return (
+            metadata_blob.get("session", {}),
+            metadata_blob.get("enrichment", {}),
+            metadata_blob.get("activity_metadata", {}),
+        )
+
+    def _build_workout_base_dict(
+        self,
+        workout_entity: WorkoutEntity,
+        session: Dict[str, Any],
+        enrichment: Dict[str, Any],
+        activity_metadata: Dict[str, Any],
+        metrics: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Build workout identity and summary fields with schema-defined precedence."""
         sport = workout_entity.sport or self._infer_sport(metrics)
-        sub_sport = workout_entity.sub_sport or enrichment.get("sub_sport") or sport
-        is_indoor = enrichment.get("is_indoor") or self._infer_is_indoor(metrics)
-        workout_name = enrichment.get("workout_name") or self._infer_workout_name(metrics, sport)
-        calories = session.get("calories_kcal") or self._infer_calories(metrics, sport)
-
-        # Core summary fields (prefer entity properties, fallback to metadata zones)
         local_tz_offset = activity_metadata.get("local_tz_offset")
-        workout = {
+        return {
             "workout_id": workout_entity.workout_id,
             "athlete_id": workout_entity.athlete_id,
             "sport": sport,
-            "sub_sport": sub_sport,
-            "workout_name": workout_name,
-            "is_indoor": is_indoor,
+            "sub_sport": workout_entity.sub_sport or enrichment.get("sub_sport") or sport,
+            "workout_name": enrichment.get("workout_name")
+            or self._infer_workout_name(metrics, sport),
+            "is_indoor": enrichment.get("is_indoor") or self._infer_is_indoor(metrics),
             "start_time_utc": workout_entity.start_time_utc,
             "local_tz_offset": local_tz_offset,
             "timezone": local_tz_offset,
@@ -724,69 +779,86 @@ class SemanticLayer:
             "distance_m": workout_entity.distance_m or session.get("distance_m"),
             "elevation_gain_m": session.get("elevation_gain_m"),
             "elevation_loss_m": session.get("elevation_loss_m"),
-            "calories_kcal": calories,
+            "calories_kcal": session.get("calories_kcal")
+            or self._infer_calories(metrics, sport),
         }
 
-        # Heart rate summary
+    def _add_workout_capability_metrics(
+        self,
+        workout: Dict[str, Any],
+        metrics: Dict[str, Any],
+    ) -> None:
+        """Attach capability-specific and sample-level metrics onto workout response."""
         if metrics.get("hr_avg_bpm"):
-            workout.update(self._select_fields(metrics, {
-                "hr_avg_bpm",
-                "hr_max_bpm",
-                "hr_min_bpm",
-                "hr_samples_count",
-                "hr_missing_pct",
-                "hr_z1_sec",
-                "hr_z2_sec",
-                "hr_z3_sec",
-                "hr_z4_sec",
-                "hr_z5_sec",
-                "hr_zone_basis",
-                "hr_zone_reference_bpm",
-            }))
+            workout.update(
+                self._select_fields(
+                    metrics,
+                    {
+                        "hr_avg_bpm",
+                        "hr_max_bpm",
+                        "hr_min_bpm",
+                        "hr_samples_count",
+                        "hr_missing_pct",
+                        "hr_z1_sec",
+                        "hr_z2_sec",
+                        "hr_z3_sec",
+                        "hr_z4_sec",
+                        "hr_z5_sec",
+                        "hr_zone_basis",
+                        "hr_zone_reference_bpm",
+                    },
+                )
+            )
 
-        # Power summary
         if metrics.get("pwr_avg_watts"):
-            workout.update(self._select_fields(metrics, {
-                "pwr_avg_watts",
-                "pwr_max_watts",
-                "pwr_normalized_watts",
-                "pwr_variability_index",
-                "pwr_samples_count",
-                "pwr_missing_pct",
-                "cad_avg_rpm",
-                "cad_max_rpm",
-                "cad_samples_count",
-                "pwr_z1_sec",
-                "pwr_z2_sec",
-                "pwr_z3_sec",
-                "pwr_z4_sec",
-                "pwr_z5_sec",
-                "pwr_z6_sec",
-                "pwr_z7_sec",
-                "low_aerobic_sec",
-                "intensity_sec",
-                "ftp_watts",
-                "intensity_factor",
-                "tss",
-                "decoupling_pct",
-                "hr_drift_bpm",
-                "ef_first_half",
-                "ef_second_half",
-                "ef_overall",
-            }))
+            workout.update(
+                self._select_fields(
+                    metrics,
+                    {
+                        "pwr_avg_watts",
+                        "pwr_max_watts",
+                        "pwr_normalized_watts",
+                        "pwr_variability_index",
+                        "pwr_samples_count",
+                        "pwr_missing_pct",
+                        "cad_avg_rpm",
+                        "cad_max_rpm",
+                        "cad_samples_count",
+                        "pwr_z1_sec",
+                        "pwr_z2_sec",
+                        "pwr_z3_sec",
+                        "pwr_z4_sec",
+                        "pwr_z5_sec",
+                        "pwr_z6_sec",
+                        "pwr_z7_sec",
+                        "low_aerobic_sec",
+                        "intensity_sec",
+                        "ftp_watts",
+                        "intensity_factor",
+                        "tss",
+                        "decoupling_pct",
+                        "hr_drift_bpm",
+                        "ef_first_half",
+                        "ef_second_half",
+                        "ef_overall",
+                    },
+                )
+            )
 
-        # Surface sample-level metrics even when detailed analytic families are unavailable.
-        workout.update(self._select_fields(metrics, {
-            "hr_samples_count",
-            "hr_missing_pct",
-            "pwr_samples_count",
-            "pwr_missing_pct",
-            "cad_samples_count",
-            "cad_avg_rpm",
-            "cad_max_rpm",
-        }))
-
-        return workout
+        workout.update(
+            self._select_fields(
+                metrics,
+                {
+                    "hr_samples_count",
+                    "hr_missing_pct",
+                    "pwr_samples_count",
+                    "pwr_missing_pct",
+                    "cad_samples_count",
+                    "cad_avg_rpm",
+                    "cad_max_rpm",
+                },
+            )
+        )
 
     def _apply_canonical_metrics(
         self,
@@ -929,19 +1001,17 @@ class SemanticLayer:
 
     def _load_projection_metadata_blob(self, lookup_id: str, workout_id: str) -> Dict[str, Any]:
         """Load metadata blob used by projection paths and normalize non-dict payloads."""
-        try:
-            metadata_blob = self.storage.workouts.load_metadata_json(lookup_id)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger.debug(
-                "Could not load metadata blob for projection",
-                extra={
-                    "lookup_id": lookup_id,
-                    "workout_id": workout_id,
-                    "error_type": type(exc).__name__,
-                },
-            )
-            metadata_blob = {}
-        return metadata_blob if isinstance(metadata_blob, dict) else {}
+        metadata_blob = self._load_metadata_blob(lookup_id, workout_id)
+        if metadata_blob:
+            return metadata_blob
+        logger.debug(
+            "Could not load metadata blob for projection",
+            extra={
+                "lookup_id": lookup_id,
+                "workout_id": workout_id,
+            },
+        )
+        return {}
 
     def _extract_projection_metadata_sections(
         self,
@@ -1900,55 +1970,88 @@ class SemanticLayer:
         Returns:
             TrainingStateSnapshot with computed training state metrics
         """
-        # Get table clients
         workouts_table = self.storage.infrastructure.get_table_client("Workouts")
         phys_table = self.storage.infrastructure.get_table_client("Physiometrics")
 
-        # Compute rolling TSS from Workouts
         tss_7d, tss_28d = self._compute_rolling_tss(
             athlete_id, date, workouts_table
         )
+        training_load = self._compute_training_load_components(tss_7d, tss_28d)
+        latest_physio = self._load_latest_physiometrics_snapshot(phys_table, athlete_id)
+        hrv_ln = latest_physio.get("hrv_ln_rmssd")
+        garmin_readiness = latest_physio.get("readiness_score")
+        composite_readiness = self._compute_composite_readiness(
+            hrv_ln,
+            training_load["fatigue_index"],
+            garmin_readiness,
+        )
+        snapshot = self._build_training_state_snapshot(
+            athlete_id,
+            date,
+            training_load,
+            composite_readiness,
+            garmin_readiness,
+        )
 
-        # Compute CTS and ATS (Training Stress Balance model)
-        cts_7d = tss_7d / 7.0 if tss_7d else 0.0  # Acute (7-day average)
-        cts_28d = tss_28d / 28.0 if tss_28d else 0.0  # Chronic (28-day average)
+        logger.debug(
+            "Computed training state for %s on %s: CTS_7d=%.1f, CTS_28d=%.1f, fatigue_idx=%.2f",
+            athlete_id,
+            date.isoformat(),
+            training_load["cts_7d"] or 0,
+            training_load["cts_28d"] or 0,
+            training_load["fatigue_index"] or 0,
+        )
 
-        ats = cts_7d  # ATS = CTS over 7 days
-        cts = cts_28d  # CTS = long-term load
+        return snapshot
 
-        # Fatigue index = ATS / CTS; higher = more fatigued
+    @staticmethod
+    def _compute_training_load_components(
+        tss_7d: float,
+        tss_28d: float,
+    ) -> Dict[str, Optional[float]]:
+        """Compute CTS/ATS/fatigue summary from rolling TSS windows."""
+        cts_7d = tss_7d / 7.0 if tss_7d else 0.0
+        cts_28d = tss_28d / 28.0 if tss_28d else 0.0
         fatigue_index = None
-        if cts and cts > 0:
-            fatigue_index = ats / cts
+        if cts_28d > 0:
+            fatigue_index = cts_7d / cts_28d
+        return {
+            "cts_7d": cts_7d,
+            "cts_28d": cts_28d,
+            "ats": cts_7d,
+            "fatigue_index": fatigue_index,
+        }
 
-        # Fetch latest Physiometrics for HRV and readiness
+    @staticmethod
+    def _load_latest_physiometrics_snapshot(
+        phys_table: Any,
+        athlete_id: str,
+    ) -> Dict[str, Any]:
+        """Load latest physiometrics row for athlete, returning empty dict on query errors."""
         physio_filter = f"PartitionKey eq '{athlete_id}'"
         try:
             physio_entities = list(phys_table.query_entities(physio_filter))
-            physio_entities.sort(
-                key=lambda e: e.get("effective_date", ""), reverse=True
-            )
-            latest_physio = physio_entities[0] if physio_entities else {}
         except HttpResponseError:
-            latest_physio = {}
+            return {}
+        physio_entities.sort(key=lambda e: e.get("effective_date", ""), reverse=True)
+        return physio_entities[0] if physio_entities else {}
 
-        # Extract HRV and readiness from latest physiometrics
-        hrv_ln = latest_physio.get("hrv_ln_rmssd")
-        garmin_readiness = latest_physio.get("readiness_score")
-        
-        # Compute composite readiness (if not provided by Garmin)
-        composite_readiness = self._compute_composite_readiness(
-            hrv_ln, fatigue_index, garmin_readiness
-        )
-
-        # Build TrainingStateSnapshot
-        snapshot = TrainingStateSnapshot(
+    @staticmethod
+    def _build_training_state_snapshot(
+        athlete_id: str,
+        date: Any,
+        training_load: Dict[str, Optional[float]],
+        composite_readiness: Optional[float],
+        garmin_readiness: Optional[float],
+    ) -> TrainingStateSnapshot:
+        """Build training state snapshot payload from computed inputs."""
+        return TrainingStateSnapshot(
             athlete_id=athlete_id,
             effective_date=date.isoformat(),
-            cts_rolling_7d=cts_7d,
-            cts_rolling_28d=cts_28d,
-            ats_rolling=ats,
-            fatigue_index=fatigue_index,
+            cts_rolling_7d=training_load["cts_7d"],
+            cts_rolling_28d=training_load["cts_28d"],
+            ats_rolling=training_load["ats"],
+            fatigue_index=training_load["fatigue_index"],
             readiness_score=composite_readiness or garmin_readiness,
             garmin_readiness_score=garmin_readiness,
             mood=None,
@@ -1957,17 +2060,6 @@ class SemanticLayer:
             data_sources="workouts,physiometrics",
             canonical_version="3.0.0",
         )
-
-        logger.debug(
-            "Computed training state for %s on %s: CTS_7d=%.1f, CTS_28d=%.1f, fatigue_idx=%.2f",
-            athlete_id,
-            date.isoformat(),
-            cts_7d,
-            cts_28d,
-            fatigue_index or 0,
-        )
-
-        return snapshot
 
     def _compute_rolling_tss(
         self,
