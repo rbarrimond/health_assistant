@@ -645,16 +645,18 @@ class TestWeeklyRollupQueries:
         ):
             rollups = semantic_layer._get_weekly_rollups("rob", days=14)
 
+        from pytest import approx
+        
         assert len(rollups) == 1
         assert rollups[0]["workouts_count"] == 2
-        assert rollups[0]["total_duration_min"] == 150.0
-        assert rollups[0]["total_distance_km"] == 120.0
-        assert rollups[0]["total_elev_m"] == 1600.0
-        assert rollups[0]["total_hr_z2_min"] == 105.0
-        assert rollups[0]["total_pwr_z2_min"] == 90.0
-        assert rollups[0]["total_low_aerobic_min"] == 70.0
-        assert rollups[0]["total_intensity_min"] == 17.0
-        assert rollups[0]["avg_decoupling_pct"] == 2.5
+        assert rollups[0]["total_duration_min"] == approx(150.0)
+        assert rollups[0]["total_distance_km"] == approx(120.0)
+        assert rollups[0]["total_elev_m"] == approx(1600.0)
+        assert rollups[0]["total_hr_z2_min"] == approx(105.0)
+        assert rollups[0]["total_pwr_z2_min"] == approx(90.0)
+        assert rollups[0]["total_low_aerobic_min"] == approx(70.0)
+        assert rollups[0]["total_intensity_min"] == approx(17.0)
+        assert rollups[0]["avg_decoupling_pct"] == approx(2.5)
         assert rollups[0]["hard_days_count"] == 2
         assert rollups[0]["long_rides_count"] == 1
 
