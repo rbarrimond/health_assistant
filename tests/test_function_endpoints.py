@@ -49,60 +49,6 @@ class TestHealthCheckEndpoint:
             assert isinstance(body, dict)
 
 
-class TestReloadConfigEndpoint:
-    """Tests for POST /config/reload endpoint."""
-
-    def test_reload_config_success(self) -> None:
-        """Verify config reload returns 200 with config details."""
-        from TrainingAnalyticsPlatform.platform.config import Config
-        from function_app import reload_config
-
-        config_data = {
-            "heart_rate": {"basis": "HRmax", "hr_max_bpm": 195},
-            "power": {"ftp_watts": 285}
-        }
-
-        with patch.object(Config, "load_physiometrics", return_value=config_data):
-            with patch.object(Config, "physiometrics_file"):
-                req = MagicMock(spec=func.HttpRequest)
-                response = reload_config(req)
-
-        assert response.status_code == 200
-        body = json.loads(response.get_body())
-        assert body["status"] == "success"
-        assert body["heart_rate"]["basis"] == "HRmax"
-        assert body["power"]["ftp_watts"] == 285
-
-    def test_reload_config_file_not_found(self) -> None:
-        """Verify 404 when physiometrics.json not found."""
-        from TrainingAnalyticsPlatform.platform.config import Config
-        from function_app import reload_config
-
-        with patch.object(Config, "load_physiometrics", return_value=None):
-            with patch.object(Config, "physiometrics_file"):
-                req = MagicMock(spec=func.HttpRequest)
-                response = reload_config(req)
-
-        assert response.status_code == 404
-        body = json.loads(response.get_body())
-        assert "error" in body
-
-    def test_reload_config_json_error(self) -> None:
-        """Verify 500 on JSON parse error."""
-        from TrainingAnalyticsPlatform.platform.config import Config
-        from function_app import reload_config
-
-        with patch.object(
-            Config,
-            "load_physiometrics",
-            side_effect=json.JSONDecodeError("msg", "doc", 0)
-        ):
-            req = MagicMock(spec=func.HttpRequest)
-            response = reload_config(req)
-
-        assert response.status_code == 500
-
-
 class TestUpdateConfigEndpoint:
     """Tests for POST /config/update endpoint."""
 

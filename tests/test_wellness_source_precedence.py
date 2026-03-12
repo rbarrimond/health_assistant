@@ -41,7 +41,6 @@ def test_consolidation_applies_metric_source_precedence():
             "data_source": "intervals",
             "hrv_ln_rmssd": 3.95,
             "sleep_duration_sec": 28000,
-            "subjective_fatigue": 6,
             "activity_steps": 11500,
         },
         {
@@ -51,7 +50,6 @@ def test_consolidation_applies_metric_source_precedence():
             "data_source": "garmin",
             "power_ftp_watts": 320,
             "cycling_vo2max_ml_kg_min": 62.5,
-            "running_vo2max_ml_kg_min": 58.1,
             "training_load": 310.0,
             "training_stress_score": 310.0,
             "training_stress_balance": 0.88,
@@ -65,14 +63,14 @@ def test_consolidation_applies_metric_source_precedence():
     assert consolidated.body_fat_pct == pytest.approx(14.8)
     assert consolidated.hrv_ln_rmssd == pytest.approx(3.95)
     assert consolidated.sleep_duration_sec == 28000
-    assert consolidated.fatigue == 6
     assert consolidated.steps == 11500
     assert consolidated.ftp_watts == 320
     assert consolidated.cycling_vo2max_ml_kg_min == pytest.approx(62.5)
-    assert consolidated.running_vo2max_ml_kg_min == pytest.approx(58.1)
     assert consolidated.training_load == pytest.approx(310.0)
     assert consolidated.training_stress_score == pytest.approx(310.0)
     assert consolidated.training_stress_balance == pytest.approx(0.88)
+    assert not hasattr(consolidated, "fatigue")
+    assert not hasattr(consolidated, "running_vo2max_ml_kg_min")
 
 
 def test_consolidation_handles_data_sources_csv_and_alias_fields():

@@ -10,7 +10,10 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.analytics.semantic_layer import (
+    WEEKLY_ROLLUP_ALLOWED_FIELDS,
+    SemanticLayer,
+)
 from TrainingAnalyticsPlatform.models.core import WorkoutProjection
 
 
@@ -595,6 +598,152 @@ class TestAnalysisQueries:
         summary = trends["summary"]
         assert summary["total_samples"] == 1
         assert summary["avg_decoupling"] == pytest.approx(2.5)
+
+
+class TestWeeklyRollupQueries:
+    """Tests for weekly rollup normalization and filtering."""
+
+    def test_weekly_rollups_fallback_to_workout_aggregation_when_table_empty(
+        self, semantic_layer, mock_storage
+    ):
+        """Compute weekly rollups from workouts when WeeklyRollups has no rows."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+        mock_table_client.query_entities.return_value = []
+
+        fallback_workouts = [
+            {
+                "workout_id": "w1",
+                "start_time_utc": "2026-02-10T10:00:00+00:00",
+                "duration_sec": 3600,
+                "distance_m": 50000,
+                "elevation_gain_m": 700,
+                "hr_z2_sec": 2400,
+                "pwr_z2_sec": 2100,
+                "low_aerobic_sec": 1800,
+                "intensity_sec": 600,
+                "decoupling_pct": 3.0,
+            },
+            {
+                "workout_id": "w2",
+                "start_time_utc": "2026-02-12T08:00:00+00:00",
+                "duration_sec": 5400,
+                "distance_m": 70000,
+                "elevation_gain_m": 900,
+                "hr_z2_sec": 3900,
+                "pwr_z2_sec": 3300,
+                "low_aerobic_sec": 2400,
+                "intensity_sec": 420,
+                "decoupling_pct": 2.0,
+            },
+        ]
+
+        with patch.object(
+            semantic_layer,
+            "_get_workouts_in_range",
+            return_value=fallback_workouts,
+        ):
+            rollups = semantic_layer._get_weekly_rollups("rob", days=14)
+
+        assert len(rollups) == 1
+        assert rollups[0]["workouts_count"] == 2
+        assert rollups[0]["total_duration_min"] == 150.0
+        assert rollups[0]["total_distance_km"] == 120.0
+        assert rollups[0]["total_elev_m"] == 1600.0
+        assert rollups[0]["total_hr_z2_min"] == 105.0
+        assert rollups[0]["total_pwr_z2_min"] == 90.0
+        assert rollups[0]["total_low_aerobic_min"] == 70.0
+        assert rollups[0]["total_intensity_min"] == 17.0
+        assert rollups[0]["avg_decoupling_pct"] == 2.5
+        assert rollups[0]["hard_days_count"] == 2
+        assert rollups[0]["long_rides_count"] == 1
+
+    def test_weekly_rollups_drop_legacy_fields(
+        self, semantic_layer, mock_storage
+    ):
+        """Return only documented weekly rollup fields from table entities."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+
+        mock_table_client.query_entities.return_value = [
+            {
+                "PartitionKey": "rob#2026",
+                "RowKey": "2026-06",
+                "week_start_utc": "2026-02-09T00:00:00+00:00",
+                "week_end_utc": "2026-02-15T23:59:59+00:00",
+                "workouts_count": 5,
+                "total_duration_min": 420.0,
+                "total_distance_km": 160.2,
+                "total_elev_m": 1230.0,
+                "total_hr_z2_min": 300.0,
+                "total_pwr_z2_min": 280.0,
+                "total_low_aerobic_min": 265.0,
+                "total_intensity_min": 55.0,
+                "avg_decoupling_pct": 2.8,
+                "hard_days_count": 2,
+                "long_rides_count": 1,
+                "last_updated_at_utc": "2026-02-15T23:59:59+00:00",
+                "legacy_soreness": 3,
+                "legacy_running_vo2max_ml_kg_min": 54.2,
+            }
+        ]
+
+        with patch("TrainingAnalyticsPlatform.analytics.semantic_layer.datetime") as mock_datetime:
+            mock_datetime.now.return_value = datetime(
+                2026, 2, 20, tzinfo=timezone.utc
+            )
+            rollups = semantic_layer._get_weekly_rollups("rob", days=14)
+
+        assert len(rollups) == 1
+        assert set(rollups[0].keys()) <= set(WEEKLY_ROLLUP_ALLOWED_FIELDS)
+        assert "legacy_soreness" not in rollups[0]
+        assert "legacy_running_vo2max_ml_kg_min" not in rollups[0]
+
+    def test_weekly_rollups_skip_malformed_entities(
+        self, semantic_layer, mock_storage, caplog
+    ):
+        """Skip entities missing required fields and emit warning log."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+
+        mock_table_client.query_entities.return_value = [
+            {
+                "PartitionKey": "rob#2026",
+                "RowKey": "2026-06",
+                "week_start_utc": "2026-02-09T00:00:00+00:00",
+                "week_end_utc": "2026-02-15T23:59:59+00:00",
+                "workouts_count": 5,
+                "total_duration_min": 420.0,
+                "total_hr_z2_min": 300.0,
+                "total_pwr_z2_min": 280.0,
+                "total_low_aerobic_min": 265.0,
+                "total_intensity_min": 55.0,
+                "last_updated_at_utc": "2026-02-15T23:59:59+00:00",
+            },
+            {
+                "PartitionKey": "rob#2026",
+                "RowKey": "2026-05",
+                "week_start_utc": "2026-02-02T00:00:00+00:00",
+                "week_end_utc": "2026-02-08T23:59:59+00:00",
+                "total_duration_min": 410.0,
+                "total_hr_z2_min": 295.0,
+                "total_pwr_z2_min": 270.0,
+                "total_low_aerobic_min": 255.0,
+                "total_intensity_min": 50.0,
+                "last_updated_at_utc": "2026-02-08T23:59:59+00:00",
+            },
+        ]
+
+        with patch("TrainingAnalyticsPlatform.analytics.semantic_layer.datetime") as mock_datetime:
+            mock_datetime.now.return_value = datetime(
+                2026, 2, 20, tzinfo=timezone.utc
+            )
+            with caplog.at_level("WARNING"):
+                rollups = semantic_layer._get_weekly_rollups("rob", days=14)
+
+        assert len(rollups) == 1
+        assert rollups[0]["workouts_count"] == 5
+        assert "Skipping malformed weekly rollup entity" in caplog.text
 
 
 class TestHelperMethods:

@@ -44,9 +44,9 @@ def test_maps_summary_and_training_status_fields():
     assert snapshot.effective_date == "2026-03-03"
     assert snapshot.ftp_watts == 300
     assert snapshot.cycling_vo2max_ml_kg_min == pytest.approx(59.2)
-    assert snapshot.running_vo2max_ml_kg_min == pytest.approx(56.8)
     assert snapshot.hr_max_bpm == 196
-    assert snapshot.resting_hr_bpm == 51
+    # Intervals is the exclusive source for resting HR in v3.0.0.
+    assert snapshot.resting_hr_bpm is None
     assert snapshot.readiness_score == 82
 
     assert snapshot.training_load == 87
@@ -56,7 +56,6 @@ def test_maps_summary_and_training_status_fields():
     assert snapshot.training_stress_balance == pytest.approx(-14.2)
     assert snapshot.atp_probability == pytest.approx(71.0)
     assert snapshot.recovery_time_minutes == 820
-    assert snapshot.lactate_threshold_hr_bpm == 171
     assert snapshot.hr_lthr_bpm == 171
 
 
@@ -65,7 +64,6 @@ def test_lthr_falls_back_to_estimate_when_training_status_missing_lthr():
 
     snapshot = adapter.adapt(_raw_payload(include_lthr=False), athlete_id="rob")
 
-    assert snapshot.lactate_threshold_hr_bpm is None
     assert snapshot.hr_lthr_bpm == int(196 * 0.85)
 
 

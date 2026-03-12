@@ -55,7 +55,8 @@ def test_sync_handler_stores_combined_metrics():
     assert kwargs["athlete_id"] == "rob"
     assert kwargs["data_source"] == "garmin"
     assert kwargs["physiometrics_data"]["training_load"] == 76
-    assert kwargs["physiometrics_data"]["running_vo2max_ml_kg_min"] == pytest.approx(55.1)
+    assert kwargs["physiometrics_data"]["cycling_vo2max_ml_kg_min"] == pytest.approx(58.3)
+    assert "running_vo2max_ml_kg_min" not in kwargs["physiometrics_data"]
 
 
 def test_sync_handler_validates_lookback_days_type():

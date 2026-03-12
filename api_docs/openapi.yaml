@@ -1,10 +1,14 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Semantic/GPT)
-  version: "4.0.0"
+  version: "5.0.0"
   description: |
     Deterministic workout and physiometric API consumed by ChatGPT Actions.
     Returns workout metrics including zones and enhanced analytics computed at read-time from canonical substrate using athlete's current physiometric configuration. All derived metrics are computed deterministically by CanonicalAnalyticsEngine.
+
+    **Version 5.0.0 (Breaking Change)**:
+    - `/api/rollups/weekly` now returns a strict `WeeklyRollups` schema payload
+    - Legacy/unmodeled fields present in storage rows are no longer passed through in API responses
 
     **Version 4.0.0 (Breaking Change)**:
     - `/api/workouts/{workout_id}` now returns `WorkoutDetail` with nested `metrics: WorkoutMetricsModel` (typed deep-dive response)
@@ -1836,6 +1840,12 @@ components:
                 type: number
     WeeklyRollups:
       type: object
+      additionalProperties: false
+      required:
+        - athlete_id
+        - weeks
+        - count
+        - rollups
       properties:
         athlete_id:
           type: string
@@ -1847,6 +1857,17 @@ components:
           type: array
           items:
             type: object
+            additionalProperties: false
+            required:
+              - week_start_utc
+              - week_end_utc
+              - workouts_count
+              - total_duration_min
+              - total_hr_z2_min
+              - total_pwr_z2_min
+              - total_low_aerobic_min
+              - total_intensity_min
+              - last_updated_at_utc
             properties:
               week_start_utc:
                 type: string

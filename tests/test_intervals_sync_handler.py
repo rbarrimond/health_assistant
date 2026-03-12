@@ -285,7 +285,7 @@ class TestIntervalsPhysiometricsAdapter:
         return IntervalsPhysiometricsAdapter()
 
     def test_adapter_maps_extended_wellness_fields(self, adapter):
-        """Verify adapter extracts and maps all extended wellness fields from Intervals API."""
+        """Verify adapter maps v3.0.0 fields and ignores removed extended fields."""
         raw_data = {
             "id": "2025-03-01",
             "updated": "2025-03-01T12:34:56.000+00:00",
@@ -331,23 +331,14 @@ class TestIntervalsPhysiometricsAdapter:
         # Map to canonical model
         snapshot = adapter.map_to_canonical(parsed=parsed, athlete_id="test_athlete")
 
-        # Verify original fields still work
+        # Verify v3.0.0 fields
         assert snapshot.effective_date == "2025-03-01"
         assert snapshot.hrv_ln_rmssd == pytest.approx(42.5)
-        assert snapshot.hrv_sdnn_ms == pytest.approx(38.2)
         assert snapshot.resting_hr_bpm == pytest.approx(52.0)
         assert snapshot.sleep_duration_sec == pytest.approx(28800.0)
         assert snapshot.readiness_score == pytest.approx(78.0)
-        assert snapshot.weight_kg == pytest.approx(88.4)
-        assert snapshot.body_fat_pct == pytest.approx(20.9)
-
-        # Verify subjective wellness fields
-        assert snapshot.soreness == pytest.approx(3.0)
-        assert snapshot.fatigue == pytest.approx(4.0)
-        assert snapshot.stress == pytest.approx(2.0)
-        assert snapshot.mood == pytest.approx(8.0)
-        assert snapshot.motivation == pytest.approx(7.0)
-        assert snapshot.injury == pytest.approx(0.0)
+        assert snapshot.weight_kg is None
+        assert snapshot.body_fat_pct is None
 
         # Verify nutrition fields
         assert snapshot.calories_kcal == pytest.approx(2500.0)
@@ -358,26 +349,13 @@ class TestIntervalsPhysiometricsAdapter:
         # Verify activity fields
         assert snapshot.steps == 12500
 
-        # Verify body composition fields
-        assert snapshot.abdomen_cm == pytest.approx(85.5)
-        assert snapshot.spo2_pct == pytest.approx(97)
-        assert snapshot.systolic_bp == pytest.approx(128)
-        assert snapshot.diastolic_bp == pytest.approx(76)
-        assert snapshot.vo2max_ml_kg_min == pytest.approx(46.2)
-        assert snapshot.menstrual_phase == "follicular"
-        assert snapshot.menstrual_phase_predicted == "ovulatory"
-
-        # Verify sport_info
-        assert snapshot.sport_info is not None
-        assert len(snapshot.sport_info) == 2
-        assert snapshot.sport_info[0]["type"] == "Ride"
-        assert snapshot.sport_info[1]["type"] == "Run"
-        assert snapshot.source_updated_at_utc == "2025-03-01T12:34:56.000+00:00"
-        assert snapshot.raw_intervals_icu_json is not None
-        assert snapshot.ext_json is not None
+        # Removed fields are intentionally not part of PhysiometricsSnapshot v3.0.0.
+        assert not hasattr(snapshot, "hrv_sdnn_ms")
+        assert not hasattr(snapshot, "soreness")
+        assert not hasattr(snapshot, "sport_info")
 
     def test_adapter_handles_missing_extended_fields(self, adapter):
-        """Verify adapter handles missing extended fields gracefully (sets to None)."""
+        """Verify adapter handles missing optional v3.0.0 fields gracefully."""
         raw_data = {
             "id": "2025-03-01",
             # Only minimal required fields
@@ -393,23 +371,16 @@ class TestIntervalsPhysiometricsAdapter:
         # Map to canonical model
         snapshot = adapter.map_to_canonical(parsed=parsed, athlete_id="test_athlete")
 
-        # Verify extended fields are None when missing
-        assert snapshot.soreness is None
-        assert snapshot.fatigue is None
-        assert snapshot.stress is None
-        assert snapshot.mood is None
-        assert snapshot.motivation is None
-        assert snapshot.injury is None
         assert snapshot.calories_kcal is None
         assert snapshot.carbs_g is None
         assert snapshot.protein_g is None
         assert snapshot.fat_g is None
         assert snapshot.steps is None
-        assert snapshot.abdomen_cm is None
-        assert snapshot.sport_info is None
+        assert not hasattr(snapshot, "soreness")
+        assert not hasattr(snapshot, "sport_info")
 
     def test_adapter_handles_partial_extended_fields(self, adapter):
-        """Verify adapter handles mix of present and missing extended fields."""
+        """Verify adapter maps retained fields and ignores removed extended fields."""
         raw_data = {
             "id": "2025-03-01",
             "hrvRMSSD": 42.5,
@@ -428,19 +399,17 @@ class TestIntervalsPhysiometricsAdapter:
         # Map to canonical model
         snapshot = adapter.map_to_canonical(parsed=parsed, athlete_id="test_athlete")
 
-        # Verify present fields are captured
-        assert snapshot.soreness == pytest.approx(3.0)
+        # Verify present retained fields are captured
         assert snapshot.steps == 10000
         assert snapshot.protein_g == pytest.approx(120.0)
 
-        # Verify missing fields are None
-        assert snapshot.fatigue is None
+        # Verify missing retained fields are None
         assert snapshot.calories_kcal is None
-        assert snapshot.abdomen_cm is None
-        assert snapshot.sport_info is None
+        assert not hasattr(snapshot, "soreness")
+        assert not hasattr(snapshot, "sport_info")
 
     def test_adapter_sport_info_empty_list(self, adapter):
-        """Verify adapter handles empty sportInfo array."""
+        """Verify removed sportInfo field is ignored by v3.0.0 adapter."""
         raw_data = {
             "id": "2025-03-01",
             "hrvRMSSD": 42.5,
@@ -455,5 +424,5 @@ class TestIntervalsPhysiometricsAdapter:
         # Map to canonical model
         snapshot = adapter.map_to_canonical(parsed=parsed, athlete_id="test_athlete")
 
-        assert snapshot.sport_info == []
+        assert not hasattr(snapshot, "sport_info")
 

@@ -8,6 +8,39 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-11
+
+### **BREAKING:** Semantic API v5.0.0 - Weekly Rollups Strict Schema Enforcement
+
+**Changed**: `GET /api/rollups/weekly` now returns strict-schema rollup items and no longer passes through legacy or unmodeled fields from `WeeklyRollups` table entities.
+
+**Motivation**: Stored weekly rollup entities may contain historical fields from older data shapes. Returning raw entities leaked undocumented keys to API consumers and created contract drift versus `WORKOUT_SCHEMA.md` and OpenAPI.
+
+**Changes**:
+
+#### Semantic Layer [semantic_layer.py] (v5.0.0)
+
+- **Updated**: `_get_weekly_rollups()` now normalizes table entities to documented `WeeklyRollups` fields only.
+- **Updated**: Malformed rows missing required weekly rollup fields are skipped with structured warning logs.
+
+#### OpenAPI [openapi.yaml] (v5.0.0)
+
+- **Version bump**: v4.0.0 -> v5.0.0 (breaking change)
+- **Updated schema**: `WeeklyRollups` and nested rollup item now explicitly disallow additional properties.
+- **Updated schema**: Required rollup fields are explicitly declared in schema.
+
+#### Semantic Docs [SEMANTIC_LAYER_API.md] (v5.0.0)
+
+- **Updated**: Weekly rollups response section now states strict-schema behavior (legacy/unmodeled keys excluded).
+
+**Breaking Changes**:
+
+| Endpoint | v4.x (Old) | v5.0.0 (New) | Migration |
+| --- | --- | --- | --- |
+| `GET /api/rollups/weekly` | Could include extra legacy/unmodeled keys from storage entities | Returns only documented `WeeklyRollups` fields | Remove dependency on undocumented keys; use only schema-defined fields |
+
+**Ingestion SemVer**: No ingestion schema or persisted storage semantics changes in this update (query-time response shaping only).
+
 ## 2026-03-05
 
 ### **BREAKING:** Semantic API v4.0.0 - Typed Deep-Dive Workout Metrics Response

@@ -148,6 +148,8 @@ Retrieve preferences and active observations for conversation start.
 
 **Response:**
 
+Weekly rollup items are strict-schema payloads: responses include only documented `WeeklyRollups` fields and do not pass through legacy or unmodeled storage keys.
+
 ```json
 {
   "athlete_id": "rob",

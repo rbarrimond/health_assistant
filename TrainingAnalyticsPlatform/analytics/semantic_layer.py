@@ -27,6 +27,31 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 UTC_OFFSET = "+00:00"
 
+WEEKLY_ROLLUP_REQUIRED_FIELDS = (
+    "week_start_utc",
+    "week_end_utc",
+    "workouts_count",
+    "total_duration_min",
+    "total_hr_z2_min",
+    "total_pwr_z2_min",
+    "total_low_aerobic_min",
+    "total_intensity_min",
+    "last_updated_at_utc",
+)
+
+WEEKLY_ROLLUP_OPTIONAL_FIELDS = (
+    "total_distance_km",
+    "total_elev_m",
+    "avg_decoupling_pct",
+    "hard_days_count",
+    "long_rides_count",
+)
+
+WEEKLY_ROLLUP_ALLOWED_FIELDS = (
+    *WEEKLY_ROLLUP_REQUIRED_FIELDS,
+    *WEEKLY_ROLLUP_OPTIONAL_FIELDS,
+)
+
 # Keep source precedence local to avoid circular import with handlers package.
 PHYSIOMETRICS_SOURCE_PRECEDENCE = {
     "weight_kg": ["withings"],
@@ -1417,8 +1442,30 @@ class SemanticLayer:
 
             # Sort by week descending
             rollups.sort(key=lambda r: r.get("RowKey", ""), reverse=True)
+            normalized_rollups = []
+            for entity in rollups:
+                normalized = self._normalize_weekly_rollup_entity(
+                    athlete_id=athlete_id,
+                    entity=entity,
+                )
+                if normalized is not None:
+                    normalized_rollups.append(normalized)
 
-            return rollups
+            if not normalized_rollups:
+                logger.info(
+                    "No precomputed weekly rollups found; computing from workouts",
+                    extra={
+                        "athlete_id": athlete_id,
+                        "days": days,
+                    },
+                )
+                return self._compute_weekly_rollups_from_workouts(
+                    athlete_id=athlete_id,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+
+            return normalized_rollups
 
         except HttpResponseError as e:
             logger.error(
@@ -1432,6 +1479,151 @@ class SemanticLayer:
                 exc_info=True,
             )
             return []
+
+    def _normalize_weekly_rollup_entity(
+        self, athlete_id: str, entity: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Normalize raw WeeklyRollups table entity to strict API schema."""
+        missing_fields = [
+            field for field in WEEKLY_ROLLUP_REQUIRED_FIELDS
+            if entity.get(field) is None
+        ]
+        if missing_fields:
+            logger.warning(
+                "Skipping malformed weekly rollup entity",
+                extra={
+                    "athlete_id": athlete_id,
+                    "partition_key": entity.get("PartitionKey"),
+                    "row_key": entity.get("RowKey"),
+                    "missing_fields": missing_fields,
+                },
+            )
+            return None
+
+        normalized = {}
+        for field in WEEKLY_ROLLUP_ALLOWED_FIELDS:
+            value = entity.get(field)
+            if value is not None:
+                normalized[field] = value
+
+        return normalized
+
+    def _compute_weekly_rollups_from_workouts(
+        self,
+        athlete_id: str,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> List[Dict[str, Any]]:
+        """Compute weekly rollups on read from workouts when table rollups are unavailable."""
+        workouts = self._get_workouts_in_range(athlete_id, start_date, end_date)
+        if not workouts:
+            return []
+
+        weekly_buckets = self._bucket_workouts_by_week(workouts)
+        rollups = [
+            self._build_weekly_rollup(week_start, week_workouts)
+            for week_start, week_workouts in weekly_buckets.items()
+        ]
+        rollups.sort(key=lambda item: item["week_start_utc"], reverse=True)
+        return rollups
+
+    def _bucket_workouts_by_week(
+        self, workouts: List[Dict[str, Any]]
+    ) -> Dict[datetime, List[Dict[str, Any]]]:
+        """Organize workouts into weekly buckets."""
+        weekly_buckets: Dict[datetime, List[Dict[str, Any]]] = {}
+        for workout in workouts:
+            week_start = self._extract_week_start(workout)
+            if week_start:
+                weekly_buckets.setdefault(week_start, []).append(workout)
+        return weekly_buckets
+
+    def _extract_week_start(self, workout: Dict[str, Any]) -> Optional[datetime]:
+        """Extract and normalize week start date from a workout."""
+        start_time_utc = workout.get("start_time_utc")
+        if not start_time_utc:
+            return None
+        try:
+            workout_date = datetime.fromisoformat(
+                str(start_time_utc).replace("Z", UTC_OFFSET)
+            ).astimezone(timezone.utc)
+            week_start = (
+                workout_date
+                - timedelta(
+                    days=workout_date.weekday(),
+                    hours=workout_date.hour,
+                    minutes=workout_date.minute,
+                    seconds=workout_date.second,
+                    microseconds=workout_date.microsecond,
+                )
+            )
+            return week_start
+        except ValueError:
+            return None
+
+    def _build_weekly_rollup(
+        self, week_start: datetime, week_workouts: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Build a single weekly rollup from workouts."""
+        week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+        now_utc = datetime.now(timezone.utc).isoformat()
+
+        rollup: Dict[str, Any] = {
+            "week_start_utc": week_start.isoformat(),
+            "week_end_utc": week_end.isoformat(),
+            "workouts_count": len(week_workouts),
+            "total_duration_min": self._sum_zone_time(week_workouts, "duration_sec"),
+            "total_hr_z2_min": self._sum_zone_time(week_workouts, "hr_z2_sec"),
+            "total_pwr_z2_min": self._sum_zone_time(week_workouts, "pwr_z2_sec"),
+            "total_low_aerobic_min": self._sum_zone_time(week_workouts, "low_aerobic_sec"),
+            "total_intensity_min": self._sum_zone_time(week_workouts, "intensity_sec"),
+            "last_updated_at_utc": now_utc,
+        }
+
+        # Add optional aggregated metrics
+        self._add_optional_rollup_metrics(rollup, week_workouts)
+        
+        # Add derived counts
+        rollup["hard_days_count"] = sum(
+            1 for w in week_workouts if float(w.get("intensity_sec") or 0) > 300
+        )
+        rollup["long_rides_count"] = sum(
+            1
+            for w in week_workouts
+            if max(
+                float(w.get("hr_z2_sec") or 0),
+                float(w.get("pwr_z2_sec") or 0),
+            ) > 3600
+        )
+
+        return rollup
+
+    def _add_optional_rollup_metrics(
+        self, rollup: Dict[str, Any], week_workouts: List[Dict[str, Any]]
+    ) -> None:
+        """Add optional aggregated metrics to rollup if data is available."""
+        distance_values_m = [
+            float(w["distance_m"]) for w in week_workouts
+            if w.get("distance_m") is not None
+        ]
+        elevation_values_m = [
+            float(w["elevation_gain_m"]) for w in week_workouts
+            if w.get("elevation_gain_m") is not None
+        ]
+        decoupling_values = [
+            float(w["decoupling_pct"]) for w in week_workouts
+            if w.get("decoupling_pct") is not None
+        ]
+
+        if distance_values_m:
+            rollup["total_distance_km"] = round(sum(distance_values_m) / 1000, 2)
+        if elevation_values_m:
+            rollup["total_elev_m"] = round(sum(elevation_values_m), 2)
+        if decoupling_values:
+            rollup["avg_decoupling_pct"] = round(
+                sum(decoupling_values) / len(decoupling_values),
+                2,
+            )
 
     def _find_last_hard_day(self, workouts: List[Dict]) -> Optional[str]:
         """
@@ -1472,7 +1664,7 @@ class SemanticLayer:
 
     def _sum_zone_time(
         self, workouts: List[Dict], zone_field: str
-    ) -> int:
+    ) -> float:
         """Sum zone time across workouts, converting to minutes.
         
         Args:
@@ -1480,7 +1672,7 @@ class SemanticLayer:
             zone_field: Field name (e.g., 'hr_z2_sec', 'hr_z2_min')
             
         Returns:
-            Total time in minutes
+            Total time in minutes, rounded to 2 decimal places
         """
         total = 0
         for workout in workouts:
@@ -1490,7 +1682,7 @@ class SemanticLayer:
                 total += value / 60
             else:
                 total += value
-        return int(total)
+        return round(total, 2)
 
     def _sum_high_intensity(self, workouts: List[Dict]) -> float:
         """Sum high intensity minutes (Z4+) across workouts."""
