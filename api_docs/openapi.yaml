@@ -3,25 +3,12 @@ info:
   title: Health Assistant API (Semantic/GPT)
   version: "5.0.0"
   description: |
-    Deterministic workout and physiometric API consumed by ChatGPT Actions.
-    Returns workout metrics including zones and enhanced analytics computed at read-time from canonical substrate using athlete's current physiometric configuration. All derived metrics are computed deterministically by CanonicalAnalyticsEngine.
+    Deterministic athlete intelligence API consumed by ChatGPT Actions.
+    Provides typed semantic contracts for agent memory, workout intelligence, planning context, physiometrics, and training-state signals.
 
-    **Version 5.0.0 (Breaking Change)**:
-    - `/api/rollups/weekly` now returns a strict `WeeklyRollups` schema payload
-    - Legacy/unmodeled fields present in storage rows are no longer passed through in API responses
+    Analytics and derived metrics are computed idempotently at read-time from canonical workout and physiometric data using the active athlete configuration.
 
-    **Version 4.0.0 (Breaking Change)**:
-    - `/api/workouts/{workout_id}` now returns `WorkoutDetail` with nested `metrics: WorkoutMetricsModel` (typed deep-dive response)
-    - The previous flat `WorkoutSummary`-shaped deep-dive payload has been replaced
-    - `laps`, `lap_errors`, and developer-field payloads remain top-level optional response fields
-
-    **Version 3.2.0 (Breaking Change)**:
-    - New `WorkoutProjection` model for efficient planning context and list queries (lightweight identity + summary + data flags, no computation)
-    - `/api/workouts` and `/api/planning/context.recent_workouts` now return `WorkoutProjection` instead of full `WorkoutSummary`
-    - For full metrics (HR zones, power zones, efficiency, duration curves), query `/api/workouts/{workout_id}` (returns `WorkoutDetail`)
-    - Projections reduce payload size ~40-50% and enable batch operations without metric computation overhead
-
-    Version 3.1.0 adds training state projection endpoints (on-demand computation from workouts + physiometrics).
+    This specification documents the current API contract. For release history and breaking-change chronology, see `docs/CHANGELOG.md`.
     
     This spec contains GPT-facing endpoints, including preference and observation updates.
     At conversation start, call /api/agent/context and /api/planning/context to load live preferences, observations, workload, and readiness signals.

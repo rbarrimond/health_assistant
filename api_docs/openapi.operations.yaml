@@ -3,15 +3,10 @@ info:
   title: Health Assistant API (Operations)
   version: "3.0.0"
   description: |
-    Operational and admin endpoints for Health Assistant.
-    Includes ingestion, config, integrations, and plugin assets.
-    
-    Workout metrics including zones and enhanced analytics are computed at read-time from canonical substrate using athlete's current physiometric configuration. All derived metrics are computed deterministically by CanonicalAnalyticsEngine.
-    
-    Version 3.0.0 updates:
-    - Added training state projection endpoints (on-demand computation from workouts + physiometrics)
-    - Updated PhysiometricSnapshot to v3.0.0 schema (30 fields, exclusive ownership)
-    - Previous: [v2.0.3] Fixed FIT left_right_balance field decoding (bits 0-6 = percentage, bit 7 = flag)
+    Operational and administrative API for ingestion, configuration, integrations, and plugin assets.
+    Complements the semantic GPT-facing specification with platform control-plane and runtime support endpoints.
+
+    This specification documents the current operations contract. For release history and change chronology, see `docs/CHANGELOG.md`.
 servers:
   - url: https://health.azure.barrimond.net
     description: Azure Functions host
