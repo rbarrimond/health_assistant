@@ -10,6 +10,31 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-13
 
+### **BREAKING:** Physiometrics Storage Identity Correction [application v1.0.0]
+
+**Fixed**: `Physiometrics` storage no longer uses `effective_date` alone as row identity. Same-day source snapshots were overwriting each other, which corrupted multi-source daily state.
+
+**Changes**:
+
+- **Storage key correction**: `Physiometrics.RowKey` now uses `YYYY-MM-DD|source` instead of `YYYY-MM-DD`.
+- **Source isolation**: Withings, Garmin, Intervals, and config-originated writes (`manual`, `chatgpt`) now persist as distinct same-day rows.
+- **Config read correction**: `get_physiometrics()` and config history now read the latest config-originated row instead of whichever source wrote most recently.
+- **History timestamp fix**: config history responses now use `updated_at_utc` from the stored entity rather than incorrectly treating `RowKey` as an update timestamp.
+
+**Operational consequence**:
+
+- Existing same-day physiometrics rows written under the old schema are considered corrupted because overwritten source snapshots cannot be recovered from table state alone.
+- Reconstitute affected data by rerunning source syncs / replay flows for the desired date window after deploying this change.
+
+**Breaking Changes**:
+
+| Surface | Old | New | Migration |
+| --- | --- | --- | --- |
+| `Physiometrics.RowKey` | `YYYY-MM-DD` | `YYYY-MM-DD\|source` | Clear/reconstitute physiometrics data by replaying source syncs |
+| Config history timestamp | Derived from `RowKey` | Reads stored `updated_at_utc` | No client action beyond consuming the corrected field |
+
+**Application SemVer**: `pyproject.toml` v`0.1.0` → v`1.0.0`.
+
 ### WeeklyRollups Storage Key Compatibility Fix + Semantic API v5.1.0
 
 **Fixed**: Weekly rollup persistence now uses an Azure Table-compatible partition key delimiter and preserves backward read compatibility for legacy rows.

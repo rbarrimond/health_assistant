@@ -200,7 +200,10 @@ class TestConfigHandler:
         # Arrange
         mock_history_data = [
             {
-                "RowKey": "2026-02-01T12:00:00+00:00",
+                "RowKey": "2026-02-01|manual",
+                "updated_at_utc": "2026-02-01T12:00:00+00:00",
+                "effective_date": "2026-02-01",
+                "data_source": "manual",
                 "heart_rate_basis": "percentage",
                 "heart_rate_lthr_bpm": 165,
                 "heart_rate_hr_max_bpm": 190,
@@ -208,7 +211,10 @@ class TestConfigHandler:
                 "power_ftp_watts": 280
             },
             {
-                "RowKey": "2026-01-15T10:00:00+00:00",
+                "RowKey": "2026-01-15|chatgpt",
+                "updated_at_utc": "2026-01-15T10:00:00+00:00",
+                "effective_date": "2026-01-15",
+                "data_source": "chatgpt",
                 "heart_rate_basis": "percentage",
                 "heart_rate_lthr_bpm": 164,
                 "heart_rate_hr_max_bpm": 190,
@@ -230,6 +236,8 @@ class TestConfigHandler:
         assert result["count"] == 2
         assert len(result["history"]) == 2
         assert result["history"][0]["updated_at_utc"] == "2026-02-01T12:00:00+00:00"
+        assert result["history"][0]["effective_date"] == "2026-02-01"
+        assert result["history"][0]["data_source"] == "manual"
         assert result["history"][0]["heart_rate"]["lthr_bpm"] == 165
         assert result["history"][1]["power"]["ftp_watts"] == 275
         mock_get_history.assert_called_once_with(limit=10)

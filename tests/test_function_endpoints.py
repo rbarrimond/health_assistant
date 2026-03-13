@@ -109,6 +109,7 @@ class TestUpdateConfigEndpoint:
     def test_update_config_storage_error(self) -> None:
         """Verify 500 when storage save fails."""
         from TrainingAnalyticsPlatform.platform.config import Config
+        from TrainingAnalyticsPlatform.platform.exceptions import StorageError
         from function_app import update_config
 
         payload = {"heart_rate": {}, "power": {}}
@@ -116,7 +117,7 @@ class TestUpdateConfigEndpoint:
         with patch.object(
             Config,
             "save_physiometrics",
-            side_effect=ValueError("Storage error")
+            side_effect=StorageError("Storage error")
         ):
             req = MagicMock(spec=func.HttpRequest)
             req.get_json.return_value = payload

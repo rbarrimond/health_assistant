@@ -130,7 +130,7 @@ class PhysiometricsStorageProtocol(Protocol):
         physiometrics_data: Dict,
         effective_date: Optional[str] = None,
         data_source: str = "manual",
-    ) -> None:
+    ) -> str:
         """Store a physiometrics snapshot."""
         ...
 
@@ -171,7 +171,7 @@ class PhysiometricsStorageProtocol(Protocol):
         value: float,
         effective_date: Optional[str] = None,
         data_source: str = "chatgpt",
-    ) -> None:
+    ) -> str:
         """Update a single physiometric value."""
         ...
 

@@ -67,6 +67,7 @@ class TestPhysiometricsTimeSeries:
             entity = mock_table.upsert_entity.call_args[0][0]
 
             assert entity["PartitionKey"] == "rob"
+            assert entity["RowKey"] == "2026-01-19|withings"
             assert entity["effective_date"] == "2026-01-19"
             assert entity["data_source"] == "withings"
             # Use pytest.approx for float comparisons
@@ -84,7 +85,10 @@ class TestPhysiometricsTimeSeries:
             mock_table.query_entities.return_value = [
                 {
                     "PartitionKey": "rob",
-                    "RowKey": "2026-01-18T10:00:00+00:00",
+                    "RowKey": "2026-01-18|chatgpt",
+                    "effective_date": "2026-01-18",
+                    "updated_at_utc": "2026-01-18T10:00:00+00:00",
+                    "data_source": "chatgpt",
                     "full_config_json": json.dumps({
                         "heart_rate": {"lthr_bpm": 175, "hr_max_bpm": 195},
                         "power": {"ftp_watts": 285},
@@ -106,6 +110,7 @@ class TestPhysiometricsTimeSeries:
             entity = mock_table.upsert_entity.call_args[0][0]
             assert entity["cycling_vo2max_ml_kg_min"] == pytest.approx(52.3)
             assert entity["data_source"] == "chatgpt"
+            assert entity["RowKey"] == "2026-01-19|chatgpt"
 
     def test_get_physiometrics_history(self, storage):
         """Test retrieving time-series physiometrics data."""
@@ -153,11 +158,15 @@ class TestPhysiometricsTimeSeries:
             mock_table.query_entities.return_value = [
                 {
                     "effective_date": "2026-01-15",
+                    "data_source": "manual",
+                    "updated_at_utc": "2026-01-15T08:00:00+00:00",
                     "power_ftp_watts": 280,
                     "full_config_json": json.dumps({"power": {"ftp_watts": 280}}),
                 },
                 {
                     "effective_date": "2026-01-18",
+                    "data_source": "manual",
+                    "updated_at_utc": "2026-01-18T08:00:00+00:00",
                     "power_ftp_watts": 285,
                     "full_config_json": json.dumps({"power": {"ftp_watts": 285}}),
                 },
@@ -168,7 +177,7 @@ class TestPhysiometricsTimeSeries:
                 athlete_id="rob", target_date="2026-01-17"
             )
 
-            assert config["power"]["ftp_watts"] == 285
+            assert config["power"]["ftp_watts"] == 280
 
     def test_withings_token_storage(self, storage):
         """Test storing and retrieving Withings OAuth tokens."""

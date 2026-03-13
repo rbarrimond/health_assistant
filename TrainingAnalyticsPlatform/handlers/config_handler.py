@@ -14,6 +14,44 @@ logger = logging.getLogger(__name__)
 class ConfigHandler:
     """Handles physiometrics configuration operations."""
 
+    @staticmethod
+    def _history_item(entry: Dict[str, Any]) -> Dict[str, Any]:
+        """Build response payload for one config history entry."""
+        item = {
+            "updated_at_utc": entry.get("updated_at_utc"),
+            "effective_date": entry.get("effective_date"),
+            "data_source": entry.get("data_source"),
+            "heart_rate": {
+                "basis": entry.get("heart_rate_basis"),
+                "lthr_bpm": entry.get("heart_rate_lthr_bpm"),
+                "hr_max_bpm": entry.get("heart_rate_hr_max_bpm"),
+                "resting_hr_bpm": entry.get("heart_rate_resting_bpm"),
+            },
+            "power": {
+                "ftp_watts": entry.get("power_ftp_watts"),
+            }
+        }
+
+        ext_json = entry.get("ext_json")
+        if not isinstance(ext_json, str):
+            return item
+
+        try:
+            parsed_ext = json.loads(ext_json)
+        except json.JSONDecodeError:
+            return item
+
+        if not isinstance(parsed_ext, dict):
+            return item
+
+        athlete_info = parsed_ext.get("athlete_info")
+        gear = parsed_ext.get("gear")
+        if isinstance(athlete_info, dict):
+            item["athlete_info"] = athlete_info
+        if isinstance(gear, dict):
+            item["gear"] = gear
+        return item
+
     def update_config(self, config_data: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
         """Update configuration and persist to storage.
 
@@ -105,37 +143,7 @@ class ConfigHandler:
             limit = min(int(limit), 50)  # Cap at 50
 
             history = Config.get_physiometrics_history(limit=limit)
-
-            result = []
-            for entry in history:
-                item = {
-                    "updated_at_utc": entry.get("RowKey"),
-                    "heart_rate": {
-                        "basis": entry.get("heart_rate_basis"),
-                        "lthr_bpm": entry.get("heart_rate_lthr_bpm"),
-                        "hr_max_bpm": entry.get("heart_rate_hr_max_bpm"),
-                        "resting_hr_bpm": entry.get("heart_rate_resting_bpm"),
-                    },
-                    "power": {
-                        "ftp_watts": entry.get("power_ftp_watts"),
-                    }
-                }
-
-                ext_json = entry.get("ext_json")
-                if isinstance(ext_json, str):
-                    try:
-                        parsed_ext = json.loads(ext_json)
-                        if isinstance(parsed_ext, dict):
-                            athlete_info = parsed_ext.get("athlete_info")
-                            gear = parsed_ext.get("gear")
-                            if isinstance(athlete_info, dict):
-                                item["athlete_info"] = athlete_info
-                            if isinstance(gear, dict):
-                                item["gear"] = gear
-                    except json.JSONDecodeError:
-                        pass
-
-                result.append(item)
+            result = [self._history_item(entry) for entry in history]
 
             return {
                 "status": "success",

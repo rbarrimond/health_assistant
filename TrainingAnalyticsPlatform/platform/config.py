@@ -164,7 +164,7 @@ class Config:
                 if table_data:
                     cls._physiometrics_cache = table_data
                     return table_data
-            except (ValueError, OSError, KeyError) as e:
+            except (StorageError, ValueError, OSError, KeyError) as e:
                 logger = logging.getLogger(__name__)
                 logger.debug(
                     "Failed to load physiometrics from table storage: %s", e
@@ -252,7 +252,7 @@ class Config:
             )
         except StorageError:
             raise
-        except (ValueError, OSError, KeyError) as exc:
+        except (ValueError, OSError, KeyError):
             logger = logging.getLogger(__name__)
             logger.warning("Failed to retrieve history", exc_info=True)
             return []

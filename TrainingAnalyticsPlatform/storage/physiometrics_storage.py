@@ -3,7 +3,7 @@
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 
@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 class PhysiometricsStorage:
     """Handle physiometrics and body metrics operations."""
+
+    _CONFIG_DATA_SOURCES = frozenset({"manual", "chatgpt"})
 
     # Field mapping constants (for _reconstruct_from_storage_entity)
     _BODY_COMPOSITION_FIELDS = [
@@ -91,6 +93,79 @@ class PhysiometricsStorage:
         """Initialize with storage infrastructure."""
         self.infra = infrastructure
 
+    @staticmethod
+    def _normalize_data_source(data_source: str) -> str:
+        """Normalize physiometrics source identifiers for storage identity."""
+        normalized = (data_source or "manual").strip().lower()
+        return normalized or "manual"
+
+    @classmethod
+    def _build_row_key(cls, effective_date: str, data_source: str) -> str:
+        """Build storage identity that preserves per-source daily snapshots."""
+        return f"{effective_date}|{cls._normalize_data_source(data_source)}"
+
+    @staticmethod
+    def _parse_updated_at(value: Optional[str]) -> datetime:
+        """Parse ISO timestamps for deterministic row ordering."""
+        if not value:
+            return datetime.min.replace(tzinfo=timezone.utc)
+        normalized = value.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return datetime.min.replace(tzinfo=timezone.utc)
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed
+
+    @classmethod
+    def _sort_key(cls, entity: Mapping[str, Any]) -> Tuple[str, datetime, str]:
+        """Return a stable ordering key for physiometrics entities."""
+        return (
+            entity.get("effective_date", ""),
+            cls._parse_updated_at(entity.get("updated_at_utc")),
+            entity.get("RowKey", ""),
+        )
+
+    @classmethod
+    def _sorted_entities(
+        cls,
+        entities: Sequence[Mapping[str, Any]],
+        *,
+        reverse: bool = False,
+    ) -> List[Mapping[str, Any]]:
+        """Sort physiometrics entities by effective date and update timestamp."""
+        return sorted(entities, key=cls._sort_key, reverse=reverse)
+
+    @classmethod
+    def _is_config_entity(cls, entity: Mapping[str, Any]) -> bool:
+        """Return whether an entity represents a user-authored configuration row."""
+        data_source = cls._normalize_data_source(str(entity.get("data_source") or "manual"))
+        return data_source in cls._CONFIG_DATA_SOURCES
+
+    @classmethod
+    def _latest_entity(
+        cls,
+        entities: Sequence[Mapping[str, Any]],
+        *,
+        config_only: bool = False,
+    ) -> Optional[Mapping[str, Any]]:
+        """Return the newest entity, optionally restricted to config sources."""
+        candidates = [entity for entity in entities if cls._is_config_entity(entity)] if config_only else entities
+        if not candidates:
+            return None
+        return cls._sorted_entities(candidates)[-1]
+
+    def _hydrate_entity(self, latest: Mapping[str, Any]) -> Dict[str, Any]:
+        """Convert a storage entity into canonical physiometrics payload."""
+        if latest.get("ext_json"):
+            return self._reconstruct_from_storage_entity(latest)
+
+        if latest.get("full_config_json"):
+            return json.loads(latest["full_config_json"])
+
+        return self._reconstruct_from_storage_entity(latest)
+
     def store_physiometrics(
         self,
         athlete_id: str,
@@ -100,6 +175,7 @@ class PhysiometricsStorage:
     ) -> str:
         """Store a physiometrics snapshot."""
         timestamp = datetime.now(timezone.utc).isoformat()
+        normalized_source = self._normalize_data_source(data_source)
 
         if effective_date is None:
             effective_date = datetime.now(timezone.utc).date().isoformat()
@@ -108,10 +184,10 @@ class PhysiometricsStorage:
 
         entity = {
             "PartitionKey": athlete_id,
-            "RowKey": effective_date,
+            "RowKey": self._build_row_key(effective_date, normalized_source),
             "updated_at_utc": timestamp,
             "effective_date": effective_date,
-            "data_source": data_source,
+            "data_source": normalized_source,
             "heart_rate_basis": (
                 physiometrics_data.get("heart_rate", {}).get("basis", "HRmax")
             ),
@@ -185,10 +261,10 @@ class PhysiometricsStorage:
                 extra={
                     "athlete_id": athlete_id,
                     "effective_date": effective_date,
-                    "data_source": data_source,
+                    "data_source": normalized_source,
                 },
             )
-            return effective_date
+            return timestamp
         except HttpResponseError as e:
             logger.error(
                 "Error storing physiometrics",
@@ -202,7 +278,7 @@ class PhysiometricsStorage:
             )
             raise StorageError("Failed to store physiometrics") from e
 
-    def _reconstruct_from_storage_entity(self, entity: Dict) -> Dict:
+    def _reconstruct_from_storage_entity(self, entity: Mapping[str, Any]) -> Dict[str, Any]:
         """Reconstruct canonical physiometrics from storage entity.
         
         Prevents silent field loss when legacy full_config_json is unavailable.
@@ -227,7 +303,7 @@ class PhysiometricsStorage:
             result["data_source"] = entity.get("data_source")
         return result
 
-    def _get_heart_rate(self, entity: Dict) -> Dict:
+    def _get_heart_rate(self, entity: Mapping[str, Any]) -> Dict[str, Any]:
         """Extract heart_rate nested structure."""
         return {
             "basis": entity.get("heart_rate_basis", "HRmax"),
@@ -236,24 +312,29 @@ class PhysiometricsStorage:
             "resting_hr_bpm": entity.get("heart_rate_resting_bpm") or 60,
         }
 
-    def _get_power(self, entity: Dict) -> Dict:
+    def _get_power(self, entity: Mapping[str, Any]) -> Dict[str, Any]:
         """Extract power nested structure."""
         return {"ftp_watts": entity.get("power_ftp_watts")}
 
-    def _merge_fields(self, result: Dict, entity: Dict, fields: list) -> None:
+    def _merge_fields(self, result: Dict[str, Any], entity: Mapping[str, Any], fields: list) -> None:
         """Merge fields with direct name mapping."""
         for field in fields:
             if entity.get(field) is not None:
                 result[field] = entity.get(field)
 
-    def _merge_mapped(self, result: Dict, entity: Dict, mapping: Dict) -> None:
+    def _merge_mapped(
+        self,
+        result: Dict[str, Any],
+        entity: Mapping[str, Any],
+        mapping: Dict[str, str],
+    ) -> None:
         """Merge fields with storage→canonical name mapping."""
         for storage_key, canonical_key in mapping.items():
             if entity.get(storage_key) is not None:
                 result[canonical_key] = entity.get(storage_key)
 
     def get_physiometrics(self, athlete_id: str) -> Optional[Dict]:
-        """Retrieve the latest physiometrics config for an athlete."""
+        """Retrieve the latest user-authored physiometrics config for an athlete."""
         try:
             table_client = self.infra.get_table_client("Physiometrics")
             query = f"PartitionKey eq '{athlete_id}'"
@@ -262,16 +343,13 @@ class PhysiometricsStorage:
             if not entities:
                 return None
 
-            # RowKey is effective_date (YYYY-MM-DD); sort to get latest
-            latest = sorted(entities, key=lambda e: e.get("RowKey", ""))[-1]
-            if latest.get("ext_json"):
-                return self._reconstruct_from_storage_entity(latest)
+            latest = self._latest_entity(entities, config_only=True)
+            if latest is None:
+                latest = self._latest_entity(entities)
+            if latest is None:
+                return None
 
-            if latest.get("full_config_json"):
-                return json.loads(latest["full_config_json"])
-
-            # Fallback: reconstruct from individual fields (prevents silent data loss)
-            return self._reconstruct_from_storage_entity(latest)
+            return self._hydrate_entity(latest)
         except ResourceNotFoundError:
             return None
         except HttpResponseError as e:
@@ -291,26 +369,26 @@ class PhysiometricsStorage:
         athlete_id: str,
         target_date: str,
     ) -> Optional[Dict]:
-        """Query physiometrics effective on a specific date."""
+        """Query physiometrics config effective on a specific date."""
         try:
             table_client = self.infra.get_table_client("Physiometrics")
             query = f"PartitionKey eq '{athlete_id}' and effective_date le '{target_date}'"
-            entities = list(table_client.query_entities(query))
+            entities = [
+                entity
+                for entity in table_client.query_entities(query)
+                if (entity.get("effective_date") or "") <= target_date
+            ]
 
             if not entities:
                 return self.get_physiometrics(athlete_id)
 
-            entities.sort(key=lambda x: x.get("effective_date", ""), reverse=True)
-            latest = entities[0]
+            latest = self._latest_entity(entities, config_only=True)
+            if latest is None:
+                latest = self._latest_entity(entities)
+            if latest is None:
+                return None
 
-            if latest.get("ext_json"):
-                return self._reconstruct_from_storage_entity(latest)
-
-            if latest.get("full_config_json"):
-                return json.loads(latest["full_config_json"])
-
-            # Fallback: reconstruct from individual fields
-            return self._reconstruct_from_storage_entity(latest)
+            return self._hydrate_entity(latest)
 
         except HttpResponseError as e:
             logger.error(
@@ -330,12 +408,16 @@ class PhysiometricsStorage:
         athlete_id: str,
         limit: int = 10,
     ) -> list:
-        """List historical physiometrics (limited)."""
+        """List historical user-authored physiometrics configs (limited)."""
         try:
             table_client = self.infra.get_table_client("Physiometrics")
             query = f"PartitionKey eq '{athlete_id}'"
-            entities = list(table_client.query_entities(query))
-            entities.sort(key=lambda x: x.get("RowKey", ""), reverse=True)
+            entities = [
+                entity
+                for entity in table_client.query_entities(query)
+                if self._is_config_entity(entity)
+            ]
+            entities = self._sorted_entities(entities, reverse=True)
             return entities[:limit]
         except HttpResponseError as e:
             logger.error(
@@ -365,8 +447,12 @@ class PhysiometricsStorage:
                 f"and effective_date ge '{start_date}' "
                 f"and effective_date le '{end_date}'"
             )
-            entities = list(table_client.query_entities(query))
-            entities.sort(key=lambda x: x.get("effective_date", ""))
+            entities = [
+                entity
+                for entity in table_client.query_entities(query)
+                if start_date <= (entity.get("effective_date") or "") <= end_date
+            ]
+            entities = self._sorted_entities(entities)
             if metrics:
                 result = []
                 for entity in entities:

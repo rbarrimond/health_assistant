@@ -1,11 +1,11 @@
 # Ingestion Schema
 
-Version: 15.1.2
+Version: 15.2.0
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
 
-**Version 15.1.2 changes** (2026-03-06): Provenance `ingestion_version` now defaults to `INGEST_VERSION` instead of hardcoded `"1.0.0"`, ensuring persisted ingestion provenance reflects the current ingestion code version. See [CHANGELOG.md](../../CHANGELOG.md) for details.
+**Version 15.2.0 changes** (2026-03-13): documented the corrected physiometrics storage identity contract for source-qualified daily snapshots (`RowKey = YYYY-MM-DD|source`) and the requirement to reconstitute overwritten legacy physiometrics rows after deployment. See [CHANGELOG.md](../../CHANGELOG.md) for details.
 
 For historical changes, see [CHANGELOG.md](../../CHANGELOG.md).
 

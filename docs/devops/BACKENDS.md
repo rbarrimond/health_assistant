@@ -328,7 +328,7 @@ Measurements are stored in the `Physiometrics` table with the following schema:
 ```python
 {
   "PartitionKey": "rob",                    # athlete_id
-  "RowKey": "2026-01-25",                   # effective_date (YYYY-MM-DD)
+  "RowKey": "2026-01-25|withings",          # effective_date + data_source
   "weight_kg": 75.5,
   "fat_mass_kg": 12.3,
   "muscle_mass_kg": 58.2,
@@ -343,8 +343,8 @@ Measurements are stored in the `Physiometrics` table with the following schema:
 
 **Key Features:**
 
-- **Idempotency**: Same-day measurements overwrite previous values
-- **Multi-source support**: `data_source` field distinguishes between backends
+- **Per-source idempotency**: Same-day writes overwrite only that source's prior daily snapshot
+- **Multi-source support**: `data_source` plus source-qualified row keys preserve same-day rows from different backends
 - **Time series queries**: Easily retrieve trends over date ranges
 
 ### Withings Implementation Files

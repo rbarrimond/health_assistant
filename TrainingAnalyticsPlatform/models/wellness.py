@@ -19,7 +19,7 @@ class PhysiometricsSnapshot(BaseModel):
     """Daily physiometrics snapshot aggregating body state from all sources.
 
     PartitionKey: athlete_id
-    RowKey: YYYY-MM-DD (effective_date, local athlete timezone)
+    RowKey: YYYY-MM-DD|source (effective_date + source-qualified daily identity)
 
     This snapshot represents the canonical view of an athlete's daily body state,
     integrating measurements from:
@@ -33,6 +33,7 @@ class PhysiometricsSnapshot(BaseModel):
     - Garmin: exclusive for training state and performance metrics
 
     Nullable fields support sparse data (not all sources report all metrics daily).
+    Multiple sources may persist distinct snapshots for the same effective_date.
     """
 
     athlete_id: str = Field(description="Athlete identifier (partition key)")

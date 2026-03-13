@@ -25,7 +25,7 @@ class TestStorePhysiometrics:
     """Tests for store_physiometrics method."""
 
     def test_store_physiometrics_success(self) -> None:
-        """Verify physiometrics are stored with effective_date as RowKey for idempotency."""
+        """Verify physiometrics are stored with a source-qualified RowKey."""
         mock_table_client = MagicMock()
         storage = _make_storage(mock_table_client)
 
@@ -39,17 +39,33 @@ class TestStorePhysiometrics:
             "power": {"ftp_watts": 285}
         }
 
-        effective_date = storage.store_physiometrics("rob", physiometrics_data)
+        updated_at = storage.store_physiometrics("rob", physiometrics_data)
 
-        assert isinstance(effective_date, str)
-        assert "-" in effective_date  # YYYY-MM-DD format
+        assert isinstance(updated_at, str)
+        assert "T" in updated_at
         mock_table_client.upsert_entity.assert_called_once()
 
         entity = mock_table_client.upsert_entity.call_args[0][0]
         assert entity["PartitionKey"] == "rob"
-        assert entity["RowKey"] == effective_date  # RowKey is effective_date for idempotency
+        assert entity["RowKey"].endswith("|manual")
+        assert entity["effective_date"] in entity["RowKey"]
         assert entity["heart_rate_basis"] == "HRmax"
         assert entity["power_ftp_watts"] == 285
+
+    def test_store_physiometrics_uses_source_qualified_row_key(self) -> None:
+        """Verify same-day source snapshots keep distinct row identities."""
+        mock_table_client = MagicMock()
+        storage = _make_storage(mock_table_client)
+
+        storage.store_physiometrics(
+            "rob",
+            {"heart_rate": {"basis": "HRmax"}, "power": {}},
+            effective_date="2026-03-13",
+            data_source="withings",
+        )
+
+        entity = mock_table_client.upsert_entity.call_args[0][0]
+        assert entity["RowKey"] == "2026-03-13|withings"
 
     def test_store_physiometrics_stores_raw_and_ext_json(self) -> None:
         """Verify raw source blob and canonical ext blob are stored."""
@@ -67,7 +83,7 @@ class TestStorePhysiometrics:
 
         entity = mock_table_client.upsert_entity.call_args[0][0]
         assert entity["raw_intervals_icu_json"] == '{"id":"2026-01-18"}'
-        assert entity["ext_json"] == '{"hrv_sdnn_ms":40.1}'
+        assert json.loads(entity["ext_json"]) == {"hrv_sdnn_ms": 40.1}
         assert "full_config_json" not in entity
 
     def test_store_physiometrics_handles_null_values(self) -> None:
@@ -104,21 +120,32 @@ class TestGetPhysiometrics:
     """Tests for get_physiometrics method."""
 
     def test_get_physiometrics_latest(self) -> None:
-        """Verify latest physiometrics are retrieved."""
+        """Verify config reads prefer the latest config-sourced row."""
         mock_table_client = MagicMock()
 
         config_json = json.dumps({
             "heart_rate": {"basis": "HRmax", "hr_max_bpm": 195},
             "power": {"ftp_watts": 285}
         })
-        mock_entity = {
-            "PartitionKey": "rob",
-            "RowKey": "2026-01-18T10:30:00+00:00",
-            "full_config_json": config_json,
-            "heart_rate_basis": "HRmax",
-        }
-
-        mock_table_client.query_entities.return_value = [mock_entity]
+        mock_table_client.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-03-02|withings",
+                "effective_date": "2026-03-02",
+                "updated_at_utc": "2026-03-02T09:00:00+00:00",
+                "data_source": "withings",
+                "weight_kg": 73.4,
+            },
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-03-01|manual",
+                "effective_date": "2026-03-01",
+                "updated_at_utc": "2026-03-01T10:30:00+00:00",
+                "full_config_json": config_json,
+                "heart_rate_basis": "HRmax",
+                "data_source": "manual",
+            },
+        ]
         storage = _make_storage(mock_table_client)
 
         result = storage.get_physiometrics("rob")
@@ -133,7 +160,10 @@ class TestGetPhysiometrics:
 
         mock_entity = {
             "PartitionKey": "rob",
-            "RowKey": "2026-01-18T10:30:00+00:00",
+            "RowKey": "2026-01-18|manual",
+            "effective_date": "2026-01-18",
+            "updated_at_utc": "2026-01-18T10:30:00+00:00",
+            "data_source": "manual",
             "full_config_json": None,
             "heart_rate_basis": "LTHR",
             "heart_rate_lthr_bpm": 170,
@@ -176,13 +206,31 @@ class TestListPhysiometricsHistory:
     """Tests for list_physiometrics_history method."""
 
     def test_list_physiometrics_history_success(self) -> None:
-        """Verify history is sorted newest first."""
+        """Verify config history is filtered and sorted newest first."""
         mock_table_client = MagicMock()
 
         mock_entities = [
-            {"RowKey": "2026-01-18T09:30:00+00:00", "heart_rate_basis": "HRmax"},
-            {"RowKey": "2026-01-18T10:30:00+00:00", "heart_rate_basis": "LTHR"},
-            {"RowKey": "2026-01-18T08:30:00+00:00", "heart_rate_basis": "HRR"},
+            {
+                "RowKey": "2026-01-18|manual",
+                "effective_date": "2026-01-18",
+                "updated_at_utc": "2026-01-18T09:30:00+00:00",
+                "heart_rate_basis": "HRmax",
+                "data_source": "manual",
+            },
+            {
+                "RowKey": "2026-01-18|chatgpt",
+                "effective_date": "2026-01-18",
+                "updated_at_utc": "2026-01-18T10:30:00+00:00",
+                "heart_rate_basis": "LTHR",
+                "data_source": "chatgpt",
+            },
+            {
+                "RowKey": "2026-01-18|withings",
+                "effective_date": "2026-01-18",
+                "updated_at_utc": "2026-01-18T11:00:00+00:00",
+                "heart_rate_basis": "HRR",
+                "data_source": "withings",
+            },
         ]
 
         mock_table_client.query_entities.return_value = mock_entities
@@ -190,17 +238,23 @@ class TestListPhysiometricsHistory:
 
         result = storage.list_physiometrics_history("rob", limit=10)
 
-        # Should be sorted by RowKey descending
-        assert result[0]["RowKey"] == "2026-01-18T10:30:00+00:00"
-        assert result[1]["RowKey"] == "2026-01-18T09:30:00+00:00"
-        assert result[2]["RowKey"] == "2026-01-18T08:30:00+00:00"
+        assert [entry["RowKey"] for entry in result] == [
+            "2026-01-18|chatgpt",
+            "2026-01-18|manual",
+        ]
 
     def test_list_physiometrics_history_limit(self) -> None:
         """Verify limit is respected."""
         mock_table_client = MagicMock()
 
         mock_entities = [
-            {"RowKey": f"2026-01-18T{i:02d}:30:00+00:00"} for i in range(10)
+            {
+                "RowKey": f"2026-01-{18 + (i // 2):02d}|{'manual' if i % 2 == 0 else 'chatgpt'}",
+                "effective_date": f"2026-01-{18 + (i // 2):02d}",
+                "updated_at_utc": f"2026-01-{18 + (i // 2):02d}T{i:02d}:30:00+00:00",
+                "data_source": "manual" if i % 2 == 0 else "chatgpt",
+            }
+            for i in range(10)
         ]
 
         mock_table_client.query_entities.return_value = mock_entities

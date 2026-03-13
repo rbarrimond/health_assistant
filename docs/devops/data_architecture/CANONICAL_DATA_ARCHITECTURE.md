@@ -351,7 +351,7 @@ Each field is owned by **exactly one source** — no fallback chains. This ensur
 - Sets: `weight_kg`, `fat_mass_kg`, `muscle_mass_kg`, `bone_mass_kg`, `body_fat_pct`
 - All other fields: `None` (respects exclusive ownership)
 
-**Idempotency**: Upsert by `(athlete_id, effective_date)` ensures safe retries
+**Idempotency**: Upsert by `(athlete_id, effective_date, source)` ensures safe retries without cross-source overwrites
 
 #### 2. Garmin Training State
 
@@ -373,7 +373,7 @@ Each field is owned by **exactly one source** — no fallback chains. This ensur
 - **Explicitly ignores**: `resting_hr_bpm`, `steps` (Intervals exclusive)
 - All other fields: `None`
 
-**Idempotency**: Upsert by `(athlete_id, effective_date)` ensures safe retries
+**Idempotency**: Upsert by `(athlete_id, effective_date, source)` ensures safe retries without cross-source overwrites
 
 #### 3. Intervals.icu Wellness
 
@@ -396,7 +396,7 @@ Each field is owned by **exactly one source** — no fallback chains. This ensur
 - **Explicitly ignores**: `weight_kg`, `body_fat_pct` (Withings exclusive)
 - All other fields: `None`
 
-**Idempotency**: Upsert by `(athlete_id, effective_date)` ensures safe retries
+**Idempotency**: Upsert by `(athlete_id, effective_date, source)` ensures safe retries without cross-source overwrites
 
 ### Consolidation: Multi-Source Merge (Nightly)
 
@@ -418,6 +418,15 @@ Each field is owned by **exactly one source** — no fallback chains. This ensur
 ```
 
 **Idempotency**: Safe to re-run any day; consolidation is deterministic over immutable source snapshots
+
+### Physiometrics Storage Identity
+
+- `PartitionKey = athlete_id`
+- `RowKey = YYYY-MM-DD|source`
+- `effective_date` remains the athlete-local date used for time-window queries
+- `data_source` records the canonical source identifier (`withings`, `garmin`, `intervals`, `manual`, `chatgpt`)
+
+This storage identity is intentionally source-qualified. Daily rows from different sources must coexist; using `effective_date` alone is a storage bug because it destroys provenance and breaks metric-precedence consolidation.
 
 **SourcePrecedenceResolver.METRIC_SOURCES**:
 
