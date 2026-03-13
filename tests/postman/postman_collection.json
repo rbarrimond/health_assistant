@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Health Assistant - FIT File Processing",
-    "description": "Complete test collection with 37 requests covering all 36 endpoints. Includes 8 real FIT file payloads, config/asset endpoints, agent memory system, planning/analysis (WorkoutProjection lightweight batch queries), physiometrics CRUD, TrainingState projection endpoints, OneDrive/Garmin/Intervals.icu sync, and OAuth flows. [Updated 2026-03-10: Semantic API v4.0.0 deep-dive contract (/api/workouts/{workout_id} now returns top-level identity + nested metrics WorkoutMetricsModel; optional laps/lap_errors/developer fields); WorkoutProjection v3.2.0 (lightweight 30-field model for efficient batch queries; /api/workouts and /api/planning/context return projections instead of full WorkoutSummary; payload ~40-50% reduction); PhysiometricsSnapshot v3.0.0 (30-field schema); TrainingState on-demand projection; canonical schema v3.0.0; all core tests passing.]",
+    "description": "Complete test collection with API coverage across ingestion, config/assets, agent memory, planning/analysis (WorkoutProjection lightweight batch queries), physiometrics CRUD, TrainingState projection endpoints, OneDrive/Garmin/Intervals.icu sync, and OAuth flows. [Updated 2026-03-12: Semantic API v5.0.0 weekly rollup strict schema enforcement; Operations API v3.1.0 includes POST /api/operations/rollups/weekly/compute with weeks support for forced multi-week rollup persistence.]",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -720,6 +720,63 @@
             "header": [],
             "url": "{{base_url}}/api/rollups/weekly?athlete_id={{athlete_id}}&weeks=16&code={{function_key}}",
             "description": "Weekly rollup summary."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/operations/rollups/weekly/compute",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"athlete_id\": \"{{athlete_id}}\",\n  \"weeks\": 4\n}"
+            },
+            "url": "{{base_url}}/api/operations/rollups/weekly/compute?code={{function_key}}",
+            "description": "Force rollup computation/persistence for prior completed local weeks. Supports athlete_id, athlete_ids, all_athletes, and weeks (>=1)."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/operations/rollups/weekly/compute (athlete_ids)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"athlete_ids\": [\"rob\", \"sam\"],\n  \"weeks\": 2\n}"
+            },
+            "url": "{{base_url}}/api/operations/rollups/weekly/compute?code={{function_key}}",
+            "description": "Force rollup computation for a selected athlete list across prior completed local weeks."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/operations/rollups/weekly/compute (all_athletes)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"all_athletes\": true,\n  \"weeks\": 1\n}"
+            },
+            "url": "{{base_url}}/api/operations/rollups/weekly/compute?code={{function_key}}",
+            "description": "Force rollup computation for all detected athletes with workouts."
           },
           "response": []
         },
