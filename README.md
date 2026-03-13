@@ -136,6 +136,8 @@ Read Interfaces
 - `HR_ZONE_REFERENCE_BPM`: Reference HR for zone calculation (default: `0` = auto-detect from workout)
 - `HR_RESTING_BPM`: Resting heart rate for HRR method (default: `60` bpm)
 
+  Source snapshots may store heart-rate basis as null when upstream providers do not supply an explicit basis; runtime zone basis still falls back to `HR_ZONE_BASIS` and then `HRmax`.
+
 **OneDrive Personal Integration** (see [BACKENDS.md](./docs/devops/BACKENDS.md) for setup):
 
 - `ONEDRIVE_CLIENT_ID`: Azure app registration client ID (consumer/personal accounts)

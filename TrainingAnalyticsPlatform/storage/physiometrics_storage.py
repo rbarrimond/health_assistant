@@ -188,9 +188,7 @@ class PhysiometricsStorage:
             "updated_at_utc": timestamp,
             "effective_date": effective_date,
             "data_source": normalized_source,
-            "heart_rate_basis": (
-                physiometrics_data.get("heart_rate", {}).get("basis", "HRmax")
-            ),
+            "heart_rate_basis": physiometrics_data.get("heart_rate", {}).get("basis"),
             "heart_rate_lthr_bpm": physiometrics_data.get("heart_rate", {}).get("lthr_bpm"),
             "heart_rate_hr_max_bpm": physiometrics_data.get("heart_rate", {}).get("hr_max_bpm"),
             "heart_rate_resting_bpm": (
@@ -306,7 +304,7 @@ class PhysiometricsStorage:
     def _get_heart_rate(self, entity: Mapping[str, Any]) -> Dict[str, Any]:
         """Extract heart_rate nested structure."""
         return {
-            "basis": entity.get("heart_rate_basis", "HRmax"),
+            "basis": entity.get("heart_rate_basis"),
             "lthr_bpm": entity.get("heart_rate_lthr_bpm"),
             "hr_max_bpm": entity.get("heart_rate_hr_max_bpm"),
             "resting_hr_bpm": entity.get("heart_rate_resting_bpm") or 60,

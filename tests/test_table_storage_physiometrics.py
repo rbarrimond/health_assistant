@@ -104,6 +104,21 @@ class TestStorePhysiometrics:
 
         mock_table_client.upsert_entity.assert_called_once()
 
+    def test_store_physiometrics_leaves_basis_null_when_missing(self) -> None:
+        """Verify source rows preserve null basis when source does not provide one."""
+        mock_table_client = MagicMock()
+        storage = _make_storage(mock_table_client)
+
+        physiometrics_data = {
+            "resting_hr_bpm": 52,
+            "power": {"ftp_watts": 285},
+        }
+
+        storage.store_physiometrics("rob", physiometrics_data, data_source="intervals")
+
+        entity = mock_table_client.upsert_entity.call_args[0][0]
+        assert entity["heart_rate_basis"] is None
+
     def test_store_physiometrics_error(self) -> None:
         """Verify error is raised on storage failure."""
         mock_table_client = MagicMock()
@@ -181,6 +196,32 @@ class TestGetPhysiometrics:
         assert result["heart_rate"]["basis"] == "LTHR"
         assert result["heart_rate"]["lthr_bpm"] == 170
         assert result["power"]["ftp_watts"] == 300
+
+    def test_get_physiometrics_fallback_to_fields_without_basis(self) -> None:
+        """Verify reconstructed basis remains null when not stored."""
+        mock_table_client = MagicMock()
+
+        mock_entity = {
+            "PartitionKey": "rob",
+            "RowKey": "2026-01-18|intervals",
+            "effective_date": "2026-01-18",
+            "updated_at_utc": "2026-01-18T10:30:00+00:00",
+            "data_source": "intervals",
+            "full_config_json": None,
+            "heart_rate_lthr_bpm": None,
+            "heart_rate_hr_max_bpm": None,
+            "heart_rate_resting_bpm": 52,
+            "power_ftp_watts": None,
+        }
+
+        mock_table_client.query_entities.return_value = [mock_entity]
+        storage = _make_storage(mock_table_client)
+
+        result = storage.get_physiometrics("rob")
+
+        assert result is not None
+        assert result["heart_rate"]["basis"] is None
+        assert result["heart_rate"]["resting_hr_bpm"] == 52
 
     def test_get_physiometrics_not_found(self) -> None:
         """Verify None returned when no physiometrics found."""

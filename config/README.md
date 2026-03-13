@@ -110,6 +110,11 @@ The Health Assistant Config system loads configuration values in this order (hig
    - FTP: `250 watts`
    - Used only when no other configuration source is available
 
+**Note on source provenance:**
+
+- Source snapshots (e.g., Intervals/Garmin ingestion rows) may store `heart_rate.basis` as `null` when the upstream source does not provide an explicit basis.
+- Runtime configuration still resolves basis with fallback order: stored basis → `HR_ZONE_BASIS` env var → hard default `HRmax`.
+
 **Configuration Loading**:
 
 - Config is loaded once at Function App startup (singleton pattern)
