@@ -854,6 +854,8 @@ Physiometrics are stored as source snapshots and merged by metric precedence for
 - Intervals.icu dominates wellness/recovery metrics.
 - Garmin dominates training metrics, FTP, and VO2Max metrics.
 - Withings dominates weight and body composition metrics.
+- `resting_hr_bpm` is Intervals-only (no Garmin/manual/chatgpt fallback).
+- `ftp_watts`, `hr_lthr_bpm`, and `hr_max_bpm` use explicit fallback: `garmin -> chatgpt -> manual`.
 
 ### Current Physiometrics (Read)
 

@@ -206,3 +206,79 @@ class TestCurrentPhysiometricsConsolidation:
         assert result["power"]["ftp_watts"] == 320
         assert result["heart_rate"]["lthr_bpm"] == 172
         assert result["heart_rate"]["hr_max_bpm"] == 190
+
+    def test_falls_back_to_latest_config_for_training_context_fields(self, layer):
+        """Use latest config row for basis/LTHR/HRmax/FTP when source rows do not provide them."""
+        mock_table = MagicMock()
+        mock_table.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-03-13",
+                "effective_date": "2026-03-13",
+                "data_source": "garmin",
+                "updated_at_utc": "2026-03-13T08:20:00+00:00",
+            },
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-03-12",
+                "effective_date": "2026-03-12",
+                "data_source": "intervals",
+                "updated_at_utc": "2026-03-12T08:15:00+00:00",
+                "heart_rate_resting_bpm": 59,
+                "sleep_duration_sec": 42000,
+                "activity_steps": 4904,
+            },
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-03-10|manual",
+                "effective_date": "2026-03-10",
+                "data_source": "manual",
+                "updated_at_utc": "2026-03-10T09:00:00+00:00",
+                "heart_rate_basis": "LTHR",
+                "heart_rate_lthr_bpm": 178,
+                "heart_rate_hr_max_bpm": 195,
+                "heart_rate_resting_bpm": 50,
+                "power_ftp_watts": 295,
+            },
+        ]
+        layer.storage.infrastructure.get_table_client = MagicMock(return_value=mock_table)
+
+        result = layer.get_current_physiometrics("rob")
+
+        assert result["heart_rate"]["basis"] == "LTHR"
+        assert result["heart_rate"]["lthr_bpm"] == 178
+        assert result["heart_rate"]["hr_max_bpm"] == 195
+        assert result["heart_rate"]["resting_hr_bpm"] == 59
+        assert result["power"]["ftp_watts"] == 295
+        assert sorted(result["data_sources"]) == ["garmin", "intervals", "manual"]
+        assert result["source_effective_dates"]["manual"] == "2026-03-10"
+
+    def test_returns_config_only_when_no_source_rows_exist(self, layer):
+        """Return current training config even when no tracked source rows exist."""
+        mock_table = MagicMock()
+        mock_table.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-03-13|chatgpt",
+                "effective_date": "2026-03-13",
+                "data_source": "chatgpt",
+                "updated_at_utc": "2026-03-13T10:00:00+00:00",
+                "heart_rate_basis": "HRR",
+                "heart_rate_lthr_bpm": 170,
+                "heart_rate_hr_max_bpm": 190,
+                "heart_rate_resting_bpm": 48,
+                "power_ftp_watts": 300,
+            },
+        ]
+        layer.storage.infrastructure.get_table_client = MagicMock(return_value=mock_table)
+
+        result = layer.get_current_physiometrics("rob")
+
+        assert result["athlete_id"] == "rob"
+        assert result["heart_rate"]["basis"] == "HRR"
+        assert result["heart_rate"]["lthr_bpm"] == 170
+        assert result["heart_rate"]["hr_max_bpm"] == 190
+        assert result["heart_rate"]["resting_hr_bpm"] is None
+        assert result["power"]["ftp_watts"] == 300
+        assert result["data_sources"] == ["chatgpt"]
+        assert result["source_effective_dates"] == {"chatgpt": "2026-03-13"}

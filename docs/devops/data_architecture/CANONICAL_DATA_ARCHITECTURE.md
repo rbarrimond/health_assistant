@@ -256,7 +256,7 @@ RowKey: DD
 
 This partitioning strategy enables efficient range queries for monthly rollups while maintaining daily granularity at the row level.
 
-**Schema**: Canonical 25-field model with exclusive source ownership
+**Schema**: Canonical 25-field model with metric-by-metric source precedence
 
 ```python
 # Metadata (4 fields)
@@ -287,7 +287,7 @@ carbs_g: Optional[float]                # Carbohydrate intake
 protein_g: Optional[float]              # Protein intake
 fat_g: Optional[float]                  # Fat intake
 
-# Performance baselines (Garmin exclusive) - 4 fields
+# Performance baselines (Garmin primary; manual/chatgpt fallback for gaps) - 4 fields
 ftp_watts: Optional[float]                     # Functional threshold power
 cycling_vo2max_ml_kg_min: Optional[float]      # Cycling VO2Max estimate
 hr_lthr_bpm: Optional[float]                   # Lactate threshold heart rate
@@ -308,9 +308,9 @@ atp_probability: Optional[float]                # ATP/energy availability (0-100
 
 **Total**: 25 metric fields + 4 metadata fields = 29 fields
 
-### Source Precedence: Exclusive Ownership
+### Source Precedence: Metric Ownership with Explicit Fallbacks
 
-Each field is owned by **exactly one source** — no fallback chains. This ensures deterministic consolidation and clear data lineage.
+Most fields use single-source ownership. A small set of training baseline metrics uses explicit fallback to preserve user-provided training configuration when Garmin values are unavailable.
 
 | Field Group | Exclusive Owner | Rationale |
 | ----------- | --------------- | --------- |
@@ -318,15 +318,16 @@ Each field is owned by **exactly one source** — no fallback chains. This ensur
 | **Recovery metrics** (3) | Intervals | Primary HRV/sleep tracking source; Garmin resting HR less reliable |
 | **Activity** (1) | Intervals | Garmin step count less accurate |
 | **Nutrition** (4) | Intervals | Explicit nutrition logging |
-| **Performance baselines** (4) | Garmin | Power meter data; calculated thresholds |
+| **Performance baselines** (4) | Garmin (primary), then chatgpt/manual for FTP/LTHR/HRmax only | Preserve config-originated baseline values when Garmin baseline fields are missing |
 | **Training state** (3) | Garmin | Proprietary training load algorithms |
 | **Extended training** (5) | Garmin | Proprietary recovery/readiness models |
 
 **Key Rules**:
 
-- **Intervals resting HR takes precedence** over Garmin (Garmin values ignored)
+- **Intervals resting HR is Intervals-only** (no Garmin/manual/chatgpt fallback)
 - **Intervals steps take precedence** over Garmin (Garmin values ignored)
 - **Withings body composition exclusive** (Intervals weight/body fat ignored)
+- **FTP/LTHR/HRmax use limited fallback**: `garmin -> chatgpt -> manual`
 
 ### Ingestion Pathways: Direct Fetch Pattern
 
@@ -440,7 +441,7 @@ This storage identity is intentionally source-qualified. Daily rows from differe
     
     "hrv_ln_rmssd": ["intervals"],
     "sleep_duration_sec": ["intervals"],
-    "resting_hr_bpm": ["intervals"],  # Garmin ignored
+    "resting_hr_bpm": ["intervals"],  # Intervals only
     
     "steps": ["intervals"],  # Garmin ignored
     
@@ -449,10 +450,10 @@ This storage identity is intentionally source-qualified. Daily rows from differe
     "protein_g": ["intervals"],
     "fat_g": ["intervals"],
     
-    "ftp_watts": ["garmin"],
+    "ftp_watts": ["garmin", "chatgpt", "manual"],
     "cycling_vo2max_ml_kg_min": ["garmin"],
-    "hr_lthr_bpm": ["garmin"],
-    "hr_max_bpm": ["garmin"],
+    "hr_lthr_bpm": ["garmin", "chatgpt", "manual"],
+    "hr_max_bpm": ["garmin", "chatgpt", "manual"],
     
     "training_load": ["garmin"],
     "recovery_time_minutes": ["garmin"],

@@ -68,7 +68,7 @@ PHYSIOMETRICS_SOURCE_PRECEDENCE = {
     "metabolic_age_years": ["withings"],
     "hrv_ln_rmssd": ["intervals", "garmin"],
     "hrv_sdnn_ms": ["intervals", "garmin"],
-    "resting_hr_bpm": ["intervals", "garmin"],
+    "resting_hr_bpm": ["intervals"],
     "sleep_duration_sec": ["intervals", "garmin"],
     "soreness": ["intervals"],
     "fatigue": ["intervals"],
@@ -88,11 +88,11 @@ PHYSIOMETRICS_SOURCE_PRECEDENCE = {
     "vo2max_ml_kg_min": ["intervals", "garmin"],
     "menstrual_phase": ["intervals"],
     "menstrual_phase_predicted": ["intervals"],
-    "ftp_watts": ["garmin", "intervals"],
+    "ftp_watts": ["garmin", "chatgpt", "manual"],
     "cycling_vo2max_ml_kg_min": ["garmin", "intervals"],
     "running_vo2max_ml_kg_min": ["garmin", "intervals"],
-    "hr_lthr_bpm": ["garmin", "intervals"],
-    "hr_max_bpm": ["garmin", "intervals"],
+    "hr_lthr_bpm": ["garmin", "chatgpt", "manual"],
+    "hr_max_bpm": ["garmin", "chatgpt", "manual"],
     "load": ["garmin"],
     "readiness_score": ["garmin", "intervals"],
     "training_load": ["garmin"],
@@ -1679,7 +1679,7 @@ class SemanticLayer:
                 for delimiter in ("|", "#"):
                     partition_key = f"{athlete_id}{delimiter}{year}"
                     query = f"PartitionKey eq '{partition_key}'"
-                    entities = list(table_client.query_entities(query))
+                    entities = [dict(e) for e in table_client.query_entities(query)]
                     if entities:
                         entities_for_year = entities
                         break
@@ -2215,7 +2215,7 @@ class SemanticLayer:
         """Get latest physiometrics row per source for the athlete."""
         table_client = self.storage.infrastructure.get_table_client("Physiometrics")
         rows = list(table_client.query_entities(f"PartitionKey eq '{athlete_id}'"))
-        tracked_sources = {"intervals", "garmin", "withings"}
+        tracked_sources = {"intervals", "garmin", "withings", "manual", "chatgpt"}
         latest_per_source: Dict[str, Dict[str, Any]] = {}
 
         for row in rows:
