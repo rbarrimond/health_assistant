@@ -27,6 +27,7 @@ from config.constants import (
 )
 from TrainingAnalyticsPlatform.storage.backup_exporter import BackupExporter
 from TrainingAnalyticsPlatform.platform.dependencies import dependencies
+from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.platform.logging_setup import setup_logging
 from TrainingAnalyticsPlatform.platform.http_utils import json_response, public_base_url
 from TrainingAnalyticsPlatform.handlers import (
@@ -1077,3 +1078,75 @@ def backup_export_timer(timer: func.TimerRequest) -> None:
 
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error("Backup export timer failed: %s", exc, exc_info=True)
+
+
+@app.timer_trigger(arg_name="timer", schedule="0 0 5 * * 1")  # 5 AM UTC every Monday
+def weekly_rollup_timer(timer: func.TimerRequest) -> None:
+    """Timer-triggered weekly rollup persistence for the previous completed local week."""
+    if timer.past_due:
+        logger.warning("Weekly rollup timer is past due")
+
+    athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
+
+    try:
+        athletes = dependencies.semantic_layer.list_athletes_with_workouts()
+        if not athletes:
+            athletes = [athlete_id]
+
+        result = dependencies.semantic_layer.compute_and_persist_previous_week_rollups(
+            athlete_ids=athletes,
+        )
+
+        logger.info(
+            "Weekly rollup timer succeeded",
+            extra={
+                "requested_athletes": result.get("requested_athletes", 0),
+                "succeeded_count": len(result.get("succeeded", [])),
+                "skipped_count": len(result.get("skipped", [])),
+                "failed_count": len(result.get("failed", [])),
+            },
+        )
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error("Weekly rollup timer failed: %s", exc, exc_info=True)
+
+
+@app.route(route="operations/rollups/weekly/compute", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+@endpoint
+def force_weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
+    """Operational endpoint to force previous-week rollup computation and persistence."""
+    try:
+        body = req.get_json() if req.method == "POST" else {}
+    except ValueError:
+        body = {}
+
+    all_athletes = bool(body.get("all_athletes", False))
+    requested_athlete_ids = body.get("athlete_ids")
+    athlete_id = body.get("athlete_id") or req.params.get("athlete_id")
+    raw_weeks = body.get("weeks", req.params.get("weeks", 1))
+
+    try:
+        weeks = int(raw_weeks)
+    except (TypeError, ValueError):
+        return json_response({"error": "weeks must be an integer >= 1"}, 400)
+
+    if weeks < 1:
+        return json_response({"error": "weeks must be >= 1"}, 400)
+
+    athletes = []
+    if isinstance(requested_athlete_ids, list):
+        athletes = [str(item) for item in requested_athlete_ids if str(item).strip()]
+    elif athlete_id:
+        athletes = [str(athlete_id)]
+    elif all_athletes:
+        athletes = dependencies.semantic_layer.list_athletes_with_workouts()
+
+    if not athletes:
+        athletes = [os.getenv("DEFAULT_ATHLETE_ID", "rob")]
+
+    result = dependencies.semantic_layer.compute_and_persist_previous_week_rollups(
+        athlete_ids=athletes,
+        weeks=weeks,
+    )
+
+    status = 200 if not result.get("failed") else 207
+    return json_response(result, status)

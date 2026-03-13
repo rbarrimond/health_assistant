@@ -8,6 +8,32 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-12
+
+### Weekly Rollup Persistence Timer + Local-Week Semantics
+
+**Changed**: Added a Monday timer that computes and persists weekly rollups for the previous completed week.
+
+**Changes**:
+
+#### Semantic Layer [semantic_layer.py] (weekly rollup persistence)
+
+- **New**: `compute_and_persist_previous_week_rollup()` for deterministic previous-week rollup generation and storage.
+- **New**: Athlete-home-timezone local week windowing helper methods for weekly inclusion logic.
+- **Behavior**: Weekly rollup grouping now supports athlete local-week semantics for persisted rows.
+
+#### Function App [function_app.py]
+
+- **New timer**: `weekly_rollup_timer` scheduled every Monday at 05:00 UTC.
+- **Behavior**: Computes previous completed week and upserts weekly rollup row for default athlete when athlete timezone is configured.
+
+#### Storage Semantics [WeeklyRollups]
+
+- **New persisted fields**: `athlete_home_timezone`, `week_start_local`, `week_end_local`.
+- **Compatibility**: Existing UTC fields remain present (`week_start_utc`, `week_end_utc`).
+
+**Ingestion SemVer**: Persisted storage semantics changed for `WeeklyRollups` row shape (new weekly timezone/window context fields).
+
 ## 2026-03-11
 
 ### **BREAKING:** Semantic API v5.0.0 - Weekly Rollups Strict Schema Enforcement

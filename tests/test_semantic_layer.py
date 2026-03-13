@@ -5,6 +5,7 @@
 
 import json
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -746,6 +747,113 @@ class TestWeeklyRollupQueries:
         assert len(rollups) == 1
         assert rollups[0]["workouts_count"] == 5
         assert "Skipping malformed weekly rollup entity" in caplog.text
+
+
+class TestWeeklyRollupTimerComputation:
+    """Tests for timezone-aware previous-week rollup computation and persistence."""
+
+    def test_previous_local_week_window_uses_completed_week(self, semantic_layer):
+        """Compute previous completed local week window from current UTC time."""
+        now_utc = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)  # Tuesday
+        athlete_tz = ZoneInfo("America/New_York")
+
+        window = semantic_layer._previous_local_week_window(now_utc, athlete_tz)
+
+        assert window["week_start_local"].isoformat() == "2026-03-02T00:00:00-05:00"
+        assert window["week_end_local"].isoformat() == "2026-03-08T23:59:59-04:00"
+
+    def test_compute_and_persist_previous_week_rollup(self, semantic_layer, mock_storage):
+        """Persist rollup for previous local week with timezone context fields."""
+        workouts = [
+            {
+                "workout_id": "w-local-1",
+                "start_time_utc": "2026-03-03T12:00:00+00:00",
+                "duration_sec": 3600,
+                "distance_m": 42000,
+                "elevation_gain_m": 500,
+                "hr_z2_sec": 2400,
+                "pwr_z2_sec": 2100,
+                "low_aerobic_sec": 1800,
+                "intensity_sec": 420,
+                "decoupling_pct": 2.0,
+            },
+            {
+                "workout_id": "w-local-2",
+                "start_time_utc": "2026-03-08T23:00:00+00:00",
+                "duration_sec": 5400,
+                "distance_m": 68000,
+                "elevation_gain_m": 800,
+                "hr_z2_sec": 3600,
+                "pwr_z2_sec": 3300,
+                "low_aerobic_sec": 2400,
+                "intensity_sec": 600,
+                "decoupling_pct": 3.0,
+            },
+        ]
+
+        with patch.object(semantic_layer, "_get_workouts_in_range", return_value=workouts):
+            rollup = semantic_layer.compute_and_persist_previous_week_rollup(
+                athlete_id="rob",
+                athlete_home_timezone="America/New_York",
+                now_utc=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
+            )
+
+        assert rollup is not None
+        assert rollup["athlete_home_timezone"] == "America/New_York"
+        assert rollup["week_start_local"] == "2026-03-02T00:00:00-05:00"
+        assert rollup["week_end_local"] == "2026-03-08T23:59:59-04:00"
+        assert rollup["workouts_count"] == 2
+
+        mock_storage.aggregation.update_weekly_rollup.assert_called_once()
+        _, kwargs = mock_storage.aggregation.update_weekly_rollup.call_args
+        assert kwargs["athlete_id"] == "rob"
+        assert kwargs["year"] == "2026"
+        assert kwargs["week"] == "10"
+        assert kwargs["rollup_data"]["athlete_home_timezone"] == "America/New_York"
+
+    def test_compute_and_persist_previous_week_rollups_batch(self, semantic_layer):
+        """Batch wrapper should classify succeeded/skipped/failed athletes."""
+        with patch.object(
+            semantic_layer,
+            "compute_and_persist_previous_week_rollup",
+            side_effect=[{"workouts_count": 1}, None, RuntimeError("boom")],
+        ):
+            result = semantic_layer.compute_and_persist_previous_week_rollups(
+                athlete_ids=["a1", "a2", "a3"],
+                now_utc=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
+            )
+
+        assert result["requested_athletes"] == 3
+        assert result["requested_weeks"] == 1
+        assert result["succeeded"] == ["a1"]
+        assert result["skipped"] == ["a2"]
+        assert result["failed"] == ["a3"]
+
+    def test_compute_and_persist_previous_week_rollups_multi_week(
+        self,
+        semantic_layer,
+    ):
+        """Batch wrapper should compute multiple completed weeks when requested."""
+        with patch.object(
+            semantic_layer,
+            "compute_and_persist_previous_week_rollup",
+            return_value={"workouts_count": 1},
+        ) as mock_compute:
+            result = semantic_layer.compute_and_persist_previous_week_rollups(
+                athlete_ids=["rob"],
+                weeks=3,
+                now_utc=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
+            )
+
+        assert result["requested_athletes"] == 1
+        assert result["requested_weeks"] == 3
+        assert result["succeeded"] == ["rob"]
+        assert result["skipped"] == []
+        assert result["failed"] == []
+        assert mock_compute.call_count == 3
+        assert mock_compute.call_args_list[0].kwargs["weeks_ago"] == 1
+        assert mock_compute.call_args_list[1].kwargs["weeks_ago"] == 2
+        assert mock_compute.call_args_list[2].kwargs["weeks_ago"] == 3
 
 
 class TestHelperMethods:

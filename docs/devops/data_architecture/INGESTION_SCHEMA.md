@@ -439,6 +439,12 @@ from the semantic API.
 
     - `PartitionKey`: `athlete_id#YYYY`
     - `RowKey`: `YYYY-WW`
+    - Scheduler: Monday timer computes prior completed week
+    - Week inclusion semantics: workout `start_time_utc` converted to athlete home timezone; include workouts with local start within Monday 00:00:00 through Sunday 23:59:59 local
+    - Persisted timezone/window context fields:
+      - `athlete_home_timezone` (IANA timezone used for grouping)
+      - `week_start_local` / `week_end_local` (authoritative local boundaries)
+      - `week_start_utc` / `week_end_utc` (derived UTC interoperability boundaries)
 
 1. `IngestionState` — idempotency + provenance
 

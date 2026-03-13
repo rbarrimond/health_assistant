@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Operations)
-  version: "3.0.0"
+  version: "3.1.0"
   description: |
     Operational and administrative API for ingestion, configuration, integrations, and plugin assets.
     Complements the semantic GPT-facing specification with platform control-plane and runtime support endpoints.
@@ -137,6 +137,49 @@ paths:
                       $ref: '#/components/schemas/TrainingStateSnapshot'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/operations/rollups/weekly/compute:
+    post:
+      summary: Force previous-week weekly rollup computation
+      operationId: forceWeeklyRollups
+      description: Computes and persists the previous completed local week rollup for one or more athletes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForceWeeklyRollupsRequest'
+            examples:
+              singleAthlete:
+                summary: Force rollup for one athlete
+                value:
+                  athlete_id: rob
+              multipleAthletes:
+                summary: Force rollup for selected athletes
+                value:
+                  athlete_ids:
+                    - rob
+                    - sam
+              allAthletes:
+                summary: Force rollup for all athletes with workouts
+                value:
+                  all_athletes: true
+      security:
+        - FunctionKey: []
+      responses:
+        '200':
+          description: Rollups computed successfully (may include skipped athletes)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForceWeeklyRollupsResponse'
+        '207':
+          description: Partial success (one or more athletes failed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForceWeeklyRollupsResponse'
         '500':
           $ref: '#/components/responses/InternalError'
   /api/logo.svg:
@@ -821,6 +864,52 @@ components:
         error:
           type: string
           example: athlete_id required
+    ForceWeeklyRollupsRequest:
+      type: object
+      properties:
+        athlete_id:
+          type: string
+          description: Force rollup for a single athlete.
+        athlete_ids:
+          type: array
+          description: Force rollups for a list of athletes.
+          items:
+            type: string
+        weeks:
+          type: integer
+          default: 1
+          minimum: 1
+          maximum: 52
+          description: Number of completed prior local weeks to compute per athlete.
+        all_athletes:
+          type: boolean
+          default: false
+          description: When true, compute rollups for all athletes detected from workouts.
+    ForceWeeklyRollupsResponse:
+      type: object
+      properties:
+        requested_athletes:
+          type: integer
+        requested_weeks:
+          type: integer
+        succeeded:
+          type: array
+          items:
+            type: string
+        skipped:
+          type: array
+          items:
+            type: string
+        failed:
+          type: array
+          items:
+            type: string
+      required:
+        - requested_athletes
+        - requested_weeks
+        - succeeded
+        - skipped
+        - failed
     AgentContext:
       type: object
       properties:

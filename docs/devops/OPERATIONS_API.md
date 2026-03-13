@@ -1,6 +1,6 @@
 # Operations API
 
-Version: 1.2.0
+Version: 3.1.0
 
 This document describes admin, ingestion, and infrastructure endpoints for the Health Assistant system.
 

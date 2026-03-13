@@ -59,6 +59,7 @@ Administrative and operational endpoints:
 - `/api/process_fit` - POST FIT file ingestion
 - `/api/onedrive/*` - OneDrive OAuth and sync
 - `/api/withings/*` - Withings integration
+- `/api/operations/rollups/weekly/compute` - Force rollup persistence with `weeks` option for prior completed weeks
 - `/api/workouts/{workout_id}/recalculated` - Recalculated zones
 - `/api/.well-known/ai-plugin.json` - Plugin manifest
 - `/api/openapi.yaml` - Spec endpoint
@@ -84,4 +85,4 @@ Use `openapi.operations.yaml` for:
 
 ## Version
 
-Both specs share the same version number and are kept in sync with the deployed API.
+The two OpenAPI specs are versioned independently and are kept in sync with the deployed API contracts for their respective surfaces.

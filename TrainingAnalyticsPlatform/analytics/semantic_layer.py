@@ -7,6 +7,7 @@ It shapes data for reasoning, constrains scope, and encodes how humans think abo
 
 import logging
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, TypedDict
 import pandas as pd
 
@@ -19,6 +20,7 @@ from TrainingAnalyticsPlatform.models.core import (
     WorkoutProjection,
 )
 from TrainingAnalyticsPlatform.models.wellness import TrainingStateSnapshot
+from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import WorkoutEntity
 
 if TYPE_CHECKING:
@@ -418,6 +420,170 @@ class SemanticLayer:
             List of weekly rollup summaries
         """
         return self._get_weekly_rollups(athlete_id, weeks * 7)
+
+    def compute_and_persist_previous_week_rollup(
+        self,
+        athlete_id: str,
+        athlete_home_timezone: Optional[str] = None,
+        now_utc: Optional[datetime] = None,
+        weeks_ago: int = 1,
+    ) -> Optional[Dict[str, Any]]:
+        """Compute and persist previous completed week rollup using athlete local week semantics."""
+        if weeks_ago < 1:
+            raise ValueError("weeks_ago must be >= 1")
+
+        timezone_name = self._resolve_athlete_home_timezone(
+            athlete_id=athlete_id,
+            fallback_timezone=athlete_home_timezone,
+        )
+        if not timezone_name:
+            logger.warning(
+                "Skipping weekly rollup persistence: athlete timezone not configured",
+                extra={
+                    "athlete_id": athlete_id,
+                },
+            )
+            return None
+
+        try:
+            athlete_tz = ZoneInfo(timezone_name)
+        except ZoneInfoNotFoundError:
+            logger.warning(
+                "Skipping weekly rollup persistence: invalid athlete timezone",
+                extra={
+                    "athlete_id": athlete_id,
+                    "athlete_home_timezone": timezone_name,
+                },
+            )
+            return None
+
+        now = now_utc or datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        else:
+            now = now.astimezone(timezone.utc)
+
+        week_window = self._previous_local_week_window(
+            now_utc=now,
+            athlete_tz=athlete_tz,
+            weeks_ago=weeks_ago,
+        )
+        workouts = self._workouts_for_local_week(
+            athlete_id=athlete_id,
+            week_start_local=week_window["week_start_local"],
+            week_end_local=week_window["week_end_local"],
+            athlete_tz=athlete_tz,
+        )
+        rollup = self._build_weekly_rollup_for_local_window(
+            week_start_local=week_window["week_start_local"],
+            week_end_local=week_window["week_end_local"],
+            athlete_home_timezone=timezone_name,
+            week_workouts=workouts,
+        )
+
+        iso_year, iso_week, _ = week_window["week_start_local"].isocalendar()
+        self.storage.aggregation.update_weekly_rollup(
+            athlete_id=athlete_id,
+            year=str(iso_year),
+            week=f"{iso_week:02d}",
+            rollup_data=rollup,
+        )
+        return rollup
+
+    def compute_and_persist_previous_week_rollups(
+        self,
+        athlete_ids: Optional[List[str]] = None,
+        now_utc: Optional[datetime] = None,
+        weeks: int = 1,
+    ) -> Dict[str, Any]:
+        """Compute and persist previous week rollups for one or many athletes."""
+        if weeks < 1:
+            raise ValueError("weeks must be >= 1")
+
+        target_athletes = athlete_ids or self.list_athletes_with_workouts()
+        succeeded = []
+        skipped = []
+        failed = []
+
+        for athlete_id in sorted(set(target_athletes)):
+            try:
+                persisted_any_week = False
+                for weeks_ago in range(1, weeks + 1):
+                    rollup = self.compute_and_persist_previous_week_rollup(
+                        athlete_id=athlete_id,
+                        now_utc=now_utc,
+                        weeks_ago=weeks_ago,
+                    )
+                    if rollup is not None:
+                        persisted_any_week = True
+
+                if persisted_any_week:
+                    succeeded.append(athlete_id)
+                else:
+                    skipped.append(athlete_id)
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                logger.error(
+                    "Failed weekly rollup persistence for athlete",
+                    extra={
+                        "athlete_id": athlete_id,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                    exc_info=True,
+                )
+                failed.append(athlete_id)
+
+        return {
+            "requested_athletes": len(target_athletes),
+            "requested_weeks": weeks,
+            "succeeded": succeeded,
+            "skipped": skipped,
+            "failed": failed,
+        }
+
+    def list_athletes_with_workouts(self) -> List[str]:
+        """List athlete identifiers observed in Workouts table."""
+        try:
+            table_client = self.storage.infrastructure.get_table_client("Workouts")  # pylint: disable=protected-access
+            athletes: Set[str] = set()
+            for entity in table_client.query_entities(""):
+                athlete_id = entity.get("athlete_id")
+                if athlete_id:
+                    athletes.add(str(athlete_id))
+                elif isinstance(entity.get("PartitionKey"), str):
+                    partition_key = str(entity.get("PartitionKey"))
+                    if "|" in partition_key:
+                        athletes.add(partition_key.split("|", 1)[0])
+            return sorted(athletes)
+        except HttpResponseError as exc:
+            logger.error(
+                "Error listing athletes from workouts",
+                extra={
+                    "error_type": "HttpResponseError",
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
+            return []
+
+    def _resolve_athlete_home_timezone(
+        self,
+        athlete_id: str,
+        fallback_timezone: Optional[str] = None,
+    ) -> Optional[str]:
+        """Resolve athlete home timezone with athlete-specific precedence first."""
+        timezone_name = fallback_timezone
+        if not timezone_name:
+            latest_physiometrics = self.storage.physiometrics.get_physiometrics(athlete_id)
+            if isinstance(latest_physiometrics, dict):
+                value = latest_physiometrics.get("athlete_timezone")
+                if isinstance(value, str) and value.strip():
+                    timezone_name = value.strip()
+
+        if not timezone_name:
+            timezone_name = Config.get_athlete_timezone()
+
+        return timezone_name
 
     # -------------------------------------------------------------------------
     # Analysis Queries
@@ -1537,6 +1703,87 @@ class SemanticLayer:
             if week_start:
                 weekly_buckets.setdefault(week_start, []).append(workout)
         return weekly_buckets
+
+    @staticmethod
+    def _previous_local_week_window(
+        now_utc: datetime,
+        athlete_tz: ZoneInfo,
+        weeks_ago: int = 1,
+    ) -> Dict[str, datetime]:
+        """Return previous completed local week boundaries and UTC query window."""
+        if weeks_ago < 1:
+            raise ValueError("weeks_ago must be >= 1")
+
+        now_local = now_utc.astimezone(athlete_tz)
+        current_week_start_local = (
+            now_local
+            - timedelta(
+                days=now_local.weekday(),
+                hours=now_local.hour,
+                minutes=now_local.minute,
+                seconds=now_local.second,
+                microseconds=now_local.microsecond,
+            )
+        )
+        week_start_local = current_week_start_local - timedelta(days=7 * weeks_ago)
+        week_end_local = week_start_local + timedelta(days=7) - timedelta(seconds=1)
+
+        return {
+            "week_start_local": week_start_local,
+            "week_end_local": week_end_local,
+            "query_start_utc": week_start_local.astimezone(timezone.utc),
+            "query_end_utc": week_end_local.astimezone(timezone.utc),
+        }
+
+    def _workouts_for_local_week(
+        self,
+        athlete_id: str,
+        week_start_local: datetime,
+        week_end_local: datetime,
+        athlete_tz: ZoneInfo,
+    ) -> List[Dict[str, Any]]:
+        """Get workouts belonging to athlete local week based on local start time inclusion."""
+        workouts = self._get_workouts_in_range(
+            athlete_id=athlete_id,
+            start_date=week_start_local.astimezone(timezone.utc),
+            end_date=week_end_local.astimezone(timezone.utc),
+        )
+        included = []
+        for workout in workouts:
+            start_time_utc = workout.get("start_time_utc")
+            if not start_time_utc:
+                continue
+            try:
+                workout_start_utc = datetime.fromisoformat(
+                    str(start_time_utc).replace("Z", UTC_OFFSET)
+                ).astimezone(timezone.utc)
+            except ValueError:
+                continue
+            workout_start_local = workout_start_utc.astimezone(athlete_tz)
+            if week_start_local <= workout_start_local <= week_end_local:
+                included.append(workout)
+        return included
+
+    def _build_weekly_rollup_for_local_window(
+        self,
+        week_start_local: datetime,
+        week_end_local: datetime,
+        athlete_home_timezone: str,
+        week_workouts: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Build weekly rollup with local-week authoritative semantics and persisted timezone context."""
+        week_start_utc = week_start_local.astimezone(timezone.utc)
+        week_end_utc = week_end_local.astimezone(timezone.utc)
+        rollup = self._build_weekly_rollup(
+            week_start=week_start_utc,
+            week_workouts=week_workouts,
+        )
+        rollup["week_start_utc"] = week_start_utc.isoformat()
+        rollup["week_end_utc"] = week_end_utc.isoformat()
+        rollup["week_start_local"] = week_start_local.isoformat()
+        rollup["week_end_local"] = week_end_local.isoformat()
+        rollup["athlete_home_timezone"] = athlete_home_timezone
+        return rollup
 
     def _extract_week_start(self, workout: Dict[str, Any]) -> Optional[datetime]:
         """Extract and normalize week start date from a workout."""

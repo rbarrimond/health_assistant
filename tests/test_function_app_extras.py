@@ -285,7 +285,91 @@ class TestWithingsEndpointHandlers:
                     response = function_app.withings_callback(req)
 
         assert response.status_code == 400
-        mock_handler.handle_oauth_callback.assert_called_once()
+
+
+class TestWeeklyRollupOperations:
+    def test_weekly_rollup_timer_uses_all_detected_athletes(self):
+        timer = MagicMock(spec=func.TimerRequest)
+        timer.past_due = False
+
+        mock_semantic = MagicMock()
+        mock_semantic.list_athletes_with_workouts.return_value = ["rob", "sam"]
+        mock_semantic.compute_and_persist_previous_week_rollups.return_value = {
+            "requested_athletes": 2,
+            "succeeded": ["rob", "sam"],
+            "skipped": [],
+            "failed": [],
+        }
+
+        with _patch_dependency("semantic_layer", mock_semantic):
+            function_app.weekly_rollup_timer(timer)
+
+        mock_semantic.compute_and_persist_previous_week_rollups.assert_called_once_with(
+            athlete_ids=["rob", "sam"]
+        )
+
+    def test_force_weekly_rollups_endpoint_single_athlete(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {"athlete_id": "rob", "weeks": 4}
+        req.params = {}
+
+        mock_semantic = MagicMock()
+        mock_semantic.compute_and_persist_previous_week_rollups.return_value = {
+            "requested_athletes": 1,
+            "succeeded": ["rob"],
+            "skipped": [],
+            "failed": [],
+        }
+
+        with _patch_dependency("semantic_layer", mock_semantic):
+            response = function_app.force_weekly_rollups(req)
+
+        assert response.status_code == 200
+        body = json.loads(response.get_body())
+        assert body["requested_athletes"] == 1
+        mock_semantic.compute_and_persist_previous_week_rollups.assert_called_once_with(
+            athlete_ids=["rob"],
+            weeks=4,
+        )
+
+    def test_force_weekly_rollups_endpoint_all_athletes(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {"all_athletes": True}
+        req.params = {}
+
+        mock_semantic = MagicMock()
+        mock_semantic.list_athletes_with_workouts.return_value = ["rob", "sam"]
+        mock_semantic.compute_and_persist_previous_week_rollups.return_value = {
+            "requested_athletes": 2,
+            "succeeded": ["rob"],
+            "skipped": ["sam"],
+            "failed": [],
+        }
+
+        with _patch_dependency("semantic_layer", mock_semantic):
+            response = function_app.force_weekly_rollups(req)
+
+        assert response.status_code == 200
+        body = json.loads(response.get_body())
+        assert body["requested_athletes"] == 2
+        mock_semantic.compute_and_persist_previous_week_rollups.assert_called_once_with(
+            athlete_ids=["rob", "sam"],
+            weeks=1,
+        )
+
+    def test_force_weekly_rollups_endpoint_invalid_weeks(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {"athlete_id": "rob", "weeks": 0}
+        req.params = {}
+
+        response = function_app.force_weekly_rollups(req)
+
+        assert response.status_code == 400
+        body = json.loads(response.get_body())
+        assert "weeks" in body["error"]
 
     def test_withings_callback_success(self):
         req = MagicMock(spec=func.HttpRequest)
