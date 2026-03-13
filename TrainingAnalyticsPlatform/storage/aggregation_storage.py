@@ -1,8 +1,9 @@
 """Training aggregation operations."""
 
 import logging
+import math
 from datetime import datetime, timezone
-from typing import Dict
+from typing import Any, Dict
 
 from azure.core.exceptions import HttpResponseError
 
@@ -28,11 +29,11 @@ class AggregationStorage:
         """Store or update aggregated weekly metrics."""
 
         entity = {
-            "PartitionKey": f"{athlete_id}#{year}",
+            "PartitionKey": f"{athlete_id}|{year}",
             "RowKey": f"{year}-{week}",
             "last_updated_at_utc": datetime.now(timezone.utc).isoformat(),
         }
-        entity.update(rollup_data)
+        entity.update(self._sanitize_rollup_data(rollup_data))
 
         try:
             table_client = self.infra.get_table_client("WeeklyRollups")
@@ -41,3 +42,34 @@ class AggregationStorage:
         except HttpResponseError as e:
             logger.error("Error updating weekly rollup: %s", e)
             # Don't raise - rollups are secondary
+
+    def _sanitize_rollup_data(self, rollup_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Return Azure Table-safe rollup payload values."""
+        sanitized: Dict[str, Any] = {}
+        for key, value in rollup_data.items():
+            if value is None:
+                continue
+
+            if isinstance(value, (dict, list, tuple, set)):
+                logger.warning(
+                    "Skipping unsupported weekly rollup property type",
+                    extra={
+                        "property": key,
+                        "value_type": type(value).__name__,
+                    },
+                )
+                continue
+
+            if isinstance(value, float) and not math.isfinite(value):
+                logger.warning(
+                    "Skipping non-finite weekly rollup numeric value",
+                    extra={
+                        "property": key,
+                        "value": value,
+                    },
+                )
+                continue
+
+            sanitized[key] = value
+
+        return sanitized

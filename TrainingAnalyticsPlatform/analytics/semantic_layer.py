@@ -47,6 +47,9 @@ WEEKLY_ROLLUP_OPTIONAL_FIELDS = (
     "avg_decoupling_pct",
     "hard_days_count",
     "long_rides_count",
+    "athlete_home_timezone",
+    "week_start_local",
+    "week_end_local",
 )
 
 WEEKLY_ROLLUP_ALLOWED_FIELDS = (
@@ -1652,11 +1655,16 @@ class SemanticLayer:
                 current = current + timedelta(days=7)
 
             for year in sorted(years):
-                partition_key = f"{athlete_id}#{year}"
-                query = f"PartitionKey eq '{partition_key}'"
-                entities = table_client.query_entities(query)
+                entities_for_year: List[Dict[str, Any]] = []
+                for delimiter in ("|", "#"):
+                    partition_key = f"{athlete_id}{delimiter}{year}"
+                    query = f"PartitionKey eq '{partition_key}'"
+                    entities = list(table_client.query_entities(query))
+                    if entities:
+                        entities_for_year = entities
+                        break
 
-                for entity in entities:
+                for entity in entities_for_year:
                     rollups.append(dict(entity))
 
             # Sort by week descending

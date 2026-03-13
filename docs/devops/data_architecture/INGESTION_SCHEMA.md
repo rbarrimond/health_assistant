@@ -437,7 +437,7 @@ from the semantic API.
 
 1. `WeeklyRollups` — aggregated weekly metrics
 
-    - `PartitionKey`: `athlete_id#YYYY`
+    - `PartitionKey`: `athlete_id|YYYY`
     - `RowKey`: `YYYY-WW`
     - Scheduler: Monday timer computes prior completed week
     - Week inclusion semantics: workout `start_time_utc` converted to athlete home timezone; include workouts with local start within Monday 00:00:00 through Sunday 23:59:59 local

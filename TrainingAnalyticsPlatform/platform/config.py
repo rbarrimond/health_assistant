@@ -208,7 +208,7 @@ class Config:
             if effective_date is not None:
                 date.fromisoformat(effective_date)
 
-            timestamp = storage.store_physiometrics(
+            timestamp = storage.physiometrics.store_physiometrics(
                 athlete_id,
                 physiometrics_data,
                 effective_date=effective_date,
@@ -237,7 +237,10 @@ class Config:
 
         athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
         try:
-            return storage.list_physiometrics_history(athlete_id, limit=limit)
+            return storage.physiometrics.list_physiometrics_history(
+                athlete_id,
+                limit=limit,
+            )
         except (ValueError, OSError, KeyError) as e:
             logger = logging.getLogger(__name__)
             logger.warning("Failed to retrieve history: %s", e)

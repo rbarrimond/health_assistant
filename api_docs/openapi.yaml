@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Semantic/GPT)
-  version: "5.0.0"
+  version: "5.1.0"
   description: |
     Deterministic athlete intelligence API consumed by ChatGPT Actions.
     Provides typed semantic contracts for agent memory, workout intelligence, planning context, physiometrics, and training-state signals.
@@ -1884,6 +1884,14 @@ components:
                 type: integer
               long_rides_count:
                 type: integer
+              athlete_home_timezone:
+                type: string
+              week_start_local:
+                type: string
+                format: date-time
+              week_end_local:
+                type: string
+                format: date-time
               last_updated_at_utc:
                 type: string
                 format: date-time

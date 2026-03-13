@@ -702,6 +702,102 @@ class TestWeeklyRollupQueries:
         assert "legacy_soreness" not in rollups[0]
         assert "legacy_running_vo2max_ml_kg_min" not in rollups[0]
 
+    def test_weekly_rollups_query_prefers_pipe_partition_and_keeps_local_fields(
+        self,
+        semantic_layer,
+        mock_storage,
+    ):
+        """Query pipe-delimited weekly partitions and preserve local timezone fields."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+
+        entity = {
+            "PartitionKey": "rob|2026",
+            "RowKey": "2026-06",
+            "week_start_utc": "2026-02-09T00:00:00+00:00",
+            "week_end_utc": "2026-02-15T23:59:59+00:00",
+            "week_start_local": "2026-02-09T00:00:00-05:00",
+            "week_end_local": "2026-02-15T23:59:59-05:00",
+            "athlete_home_timezone": "America/New_York",
+            "workouts_count": 5,
+            "total_duration_min": 420.0,
+            "total_hr_z2_min": 300.0,
+            "total_pwr_z2_min": 280.0,
+            "total_low_aerobic_min": 265.0,
+            "total_intensity_min": 55.0,
+            "last_updated_at_utc": "2026-02-15T23:59:59+00:00",
+        }
+
+        queries = []
+
+        def _query(filter_str):
+            queries.append(filter_str)
+            if "PartitionKey eq 'rob|2026'" in filter_str:
+                return [entity]
+            return []
+
+        mock_table_client.query_entities.side_effect = _query
+
+        with patch("TrainingAnalyticsPlatform.analytics.semantic_layer.datetime") as mock_datetime:
+            mock_datetime.now.return_value = datetime(
+                2026, 2, 20, tzinfo=timezone.utc
+            )
+            rollups = semantic_layer._get_weekly_rollups("rob", days=14)
+
+        assert len(rollups) == 1
+        assert rollups[0]["athlete_home_timezone"] == "America/New_York"
+        assert rollups[0]["week_start_local"] == "2026-02-09T00:00:00-05:00"
+        assert rollups[0]["week_end_local"] == "2026-02-15T23:59:59-05:00"
+        assert "PartitionKey eq 'rob|2026'" in queries
+        assert "PartitionKey eq 'rob#2026'" not in queries
+
+    def test_weekly_rollups_query_falls_back_to_legacy_hash_partition(
+        self,
+        semantic_layer,
+        mock_storage,
+    ):
+        """Fallback query should preserve compatibility with legacy hash partitions."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+
+        entity = {
+            "PartitionKey": "rob#2026",
+            "RowKey": "2026-06",
+            "week_start_utc": "2026-02-09T00:00:00+00:00",
+            "week_end_utc": "2026-02-15T23:59:59+00:00",
+            "workouts_count": 5,
+            "total_duration_min": 420.0,
+            "total_hr_z2_min": 300.0,
+            "total_pwr_z2_min": 280.0,
+            "total_low_aerobic_min": 265.0,
+            "total_intensity_min": 55.0,
+            "last_updated_at_utc": "2026-02-15T23:59:59+00:00",
+        }
+
+        queries = []
+
+        def _query(filter_str):
+            queries.append(filter_str)
+            if "PartitionKey eq 'rob|2026'" in filter_str:
+                return []
+            if "PartitionKey eq 'rob#2026'" in filter_str:
+                return [entity]
+            return []
+
+        mock_table_client.query_entities.side_effect = _query
+
+        with patch("TrainingAnalyticsPlatform.analytics.semantic_layer.datetime") as mock_datetime:
+            mock_datetime.now.return_value = datetime(
+                2026, 2, 20, tzinfo=timezone.utc
+            )
+            rollups = semantic_layer._get_weekly_rollups("rob", days=14)
+
+        assert len(rollups) == 1
+        assert queries == [
+            "PartitionKey eq 'rob|2026'",
+            "PartitionKey eq 'rob#2026'",
+        ]
+
     def test_weekly_rollups_skip_malformed_entities(
         self, semantic_layer, mock_storage, caplog
     ):

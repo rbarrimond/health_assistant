@@ -304,7 +304,7 @@ class TestConfigSavePhysiometrics:
     def test_save_physiometrics_clears_cache(self) -> None:
         """Verify cache is cleared after save."""
         mock_storage = MagicMock()
-        mock_storage.store_physiometrics.return_value = "2026-01-18T10:30:00+00:00"
+        mock_storage.physiometrics.store_physiometrics.return_value = "2026-01-18T10:30:00+00:00"
 
         with patch.object(Config, "_get_table_storage", return_value=mock_storage):
             Config._physiometrics_cache = {"cached": "data"}
@@ -318,7 +318,7 @@ class TestConfigSavePhysiometrics:
         """Verify timestamp is returned on success."""
         mock_storage = MagicMock()
         expected_timestamp = "2026-01-18T10:30:00+00:00"
-        mock_storage.store_physiometrics.return_value = expected_timestamp
+        mock_storage.physiometrics.store_physiometrics.return_value = expected_timestamp
 
         with patch.object(Config, "_get_table_storage", return_value=mock_storage):
             with patch.dict(os.environ, {"DEFAULT_ATHLETE_ID": "rob"}):
@@ -330,7 +330,7 @@ class TestConfigSavePhysiometrics:
     def test_save_physiometrics_passes_effective_date(self) -> None:
         """Verify effective_date is passed through to storage."""
         mock_storage = MagicMock()
-        mock_storage.store_physiometrics.return_value = "2026-03-02"
+        mock_storage.physiometrics.store_physiometrics.return_value = "2026-03-02"
 
         with patch.object(Config, "_get_table_storage", return_value=mock_storage):
             with patch.dict(os.environ, {"DEFAULT_ATHLETE_ID": "rob"}):
@@ -340,7 +340,7 @@ class TestConfigSavePhysiometrics:
                     effective_date="2026-03-02",
                 )
 
-        mock_storage.store_physiometrics.assert_called_once_with(
+        mock_storage.physiometrics.store_physiometrics.assert_called_once_with(
             "rob",
             physiometrics,
             effective_date="2026-03-02",
@@ -357,7 +357,7 @@ class TestConfigSavePhysiometrics:
                     effective_date="03-02-2026",
                 )
 
-        mock_storage.store_physiometrics.assert_not_called()
+        mock_storage.physiometrics.store_physiometrics.assert_not_called()
 
 
 class TestConfigHistory:
@@ -377,14 +377,14 @@ class TestConfigHistory:
             {"RowKey": "2026-01-18T10:30:00+00:00", "heart_rate_basis": "HRmax"},
             {"RowKey": "2026-01-18T09:30:00+00:00", "heart_rate_basis": "LTHR"},
         ]
-        mock_storage.list_physiometrics_history.return_value = mock_entries
+        mock_storage.physiometrics.list_physiometrics_history.return_value = mock_entries
 
         with patch.object(Config, "_get_table_storage", return_value=mock_storage):
             with patch.dict(os.environ, {"DEFAULT_ATHLETE_ID": "rob"}):
                 history = Config.get_physiometrics_history(limit=10)
 
         assert len(history) == 2
-        mock_storage.list_physiometrics_history.assert_called_once()
+        mock_storage.physiometrics.list_physiometrics_history.assert_called_once()
 
 
 class TestConfigAthleteTimezone:

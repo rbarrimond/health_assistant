@@ -8,6 +8,21 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-13
+
+### WeeklyRollups Storage Key Compatibility Fix + Semantic API v5.1.0
+
+**Fixed**: Weekly rollup persistence now uses an Azure Table-compatible partition key delimiter and preserves backward read compatibility for legacy rows.
+
+**Changes**:
+
+- **Storage write fix**: `WeeklyRollups` upserts now write `PartitionKey` as `athlete_id|YYYY`.
+- **Read compatibility**: weekly rollup reads query both `athlete_id|YYYY` (preferred) and legacy `athlete_id#YYYY` partitions.
+- **Payload hardening**: unsupported nested values and non-finite numeric values are filtered from weekly rollup entity writes.
+- **Schema alignment**: weekly rollup strict schema now includes `athlete_home_timezone`, `week_start_local`, and `week_end_local`.
+
+**Semantic API SemVer**: `openapi.yaml` v`5.0.0` → v`5.1.0` (backward-compatible optional field additions).
+
 ## 2026-03-12
 
 ### Weekly Rollup Persistence Timer + Local-Week Semantics
