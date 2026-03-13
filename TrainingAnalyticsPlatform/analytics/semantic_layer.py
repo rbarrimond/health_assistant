@@ -574,16 +574,69 @@ class SemanticLayer:
         """Resolve athlete home timezone with athlete-specific precedence first."""
         timezone_name = fallback_timezone
         if not timezone_name:
+            timezone_name = self._resolve_timezone_from_agent_preferences(athlete_id)
+
+        if not timezone_name:
             latest_physiometrics = self.storage.physiometrics.get_physiometrics(athlete_id)
             if isinstance(latest_physiometrics, dict):
+                athlete_info = latest_physiometrics.get("athlete_info")
+                if isinstance(athlete_info, dict):
+                    info_tz = athlete_info.get("home_timezone")
+                    if isinstance(info_tz, str) and info_tz.strip():
+                        timezone_name = info_tz.strip()
+
                 value = latest_physiometrics.get("athlete_timezone")
-                if isinstance(value, str) and value.strip():
+                if not timezone_name and isinstance(value, str) and value.strip():
                     timezone_name = value.strip()
 
         if not timezone_name:
             timezone_name = Config.get_athlete_timezone()
 
         return timezone_name
+
+    def _resolve_timezone_from_agent_preferences(self, athlete_id: str) -> Optional[str]:
+        """Resolve athlete timezone from long-lived AgentPreferences records."""
+        try:
+            table_client = self.storage.infrastructure.get_table_client("AgentPreferences")  # pylint: disable=protected-access
+            entities = table_client.query_entities(f"PartitionKey eq '{athlete_id}'")
+            matches = []
+            valid_categories = {"athlete_home_timezone", "home_timezone"}
+
+            for entity in entities:
+                if entity.get("RowKey") == "preferences":
+                    continue
+
+                category = entity.get("category")
+                status = entity.get("status", "active")
+                summary = entity.get("summary")
+                if category not in valid_categories or status != "active":
+                    continue
+                if not isinstance(summary, str) or not summary.strip():
+                    continue
+
+                matches.append(
+                    (
+                        entity.get("updated_at") or entity.get("created_at") or "",
+                        summary.strip(),
+                    )
+                )
+
+            if not matches:
+                return None
+
+            matches.sort(key=lambda item: item[0], reverse=True)
+            return matches[0][1]
+
+        except HttpResponseError as exc:
+            logger.warning(
+                "Failed to resolve timezone from AgentPreferences",
+                extra={
+                    "athlete_id": athlete_id,
+                    "error_type": "HttpResponseError",
+                    "error": str(exc),
+                },
+            )
+            return None
 
     # -------------------------------------------------------------------------
     # Analysis Queries

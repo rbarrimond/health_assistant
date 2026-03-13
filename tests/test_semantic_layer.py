@@ -752,6 +752,65 @@ class TestWeeklyRollupQueries:
 class TestWeeklyRollupTimerComputation:
     """Tests for timezone-aware previous-week rollup computation and persistence."""
 
+    def test_resolve_timezone_from_agent_preferences(self, semantic_layer):
+        """Should resolve active athlete_home_timezone from AgentPreferences."""
+        mock_table_client = MagicMock()
+        semantic_layer.storage.infrastructure.get_table_client.return_value = mock_table_client
+        mock_table_client.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "pref-1",
+                "category": "athlete_home_timezone",
+                "summary": "America/Denver",
+                "status": "active",
+                "updated_at": "2026-03-10T10:00:00+00:00",
+            }
+        ]
+
+        timezone_name = semantic_layer._resolve_timezone_from_agent_preferences("rob")
+
+        assert timezone_name == "America/Denver"
+
+    def test_resolve_athlete_home_timezone_prefers_agent_preferences(self, semantic_layer):
+        """AgentPreferences should have precedence over physiometrics timezone values."""
+        mock_table_client = MagicMock()
+        semantic_layer.storage.infrastructure.get_table_client.return_value = mock_table_client
+        mock_table_client.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "pref-1",
+                "category": "athlete_home_timezone",
+                "summary": "America/Denver",
+                "status": "active",
+                "updated_at": "2026-03-10T10:00:00+00:00",
+            }
+        ]
+        semantic_layer.storage.physiometrics.get_physiometrics.return_value = {
+            "athlete_info": {
+                "home_timezone": "America/Los_Angeles",
+            },
+            "athlete_timezone": "America/New_York",
+        }
+
+        timezone_name = semantic_layer._resolve_athlete_home_timezone("rob")
+
+        assert timezone_name == "America/Denver"
+
+    def test_resolve_athlete_home_timezone_prefers_athlete_info(self, semantic_layer):
+        """Resolver should prefer athlete_info.home_timezone over legacy athlete_timezone."""
+        semantic_layer.storage.infrastructure.get_table_client.return_value = MagicMock()
+        semantic_layer.storage.infrastructure.get_table_client.return_value.query_entities.return_value = []
+        semantic_layer.storage.physiometrics.get_physiometrics.return_value = {
+            "athlete_info": {
+                "home_timezone": "America/Los_Angeles",
+            },
+            "athlete_timezone": "America/New_York",
+        }
+
+        timezone_name = semantic_layer._resolve_athlete_home_timezone("rob")
+
+        assert timezone_name == "America/Los_Angeles"
+
     def test_previous_local_week_window_uses_completed_week(self, semantic_layer):
         """Compute previous completed local week window from current UTC time."""
         now_utc = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)  # Tuesday

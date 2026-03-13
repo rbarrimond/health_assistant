@@ -34,6 +34,24 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 **Ingestion SemVer**: Persisted storage semantics changed for `WeeklyRollups` row shape (new weekly timezone/window context fields).
 
+### Config Update Envelope Expansion (`/api/config/update`)
+
+**Changed**: Expanded `POST /api/config/update` to support effective-date writes and extensible metadata while keeping backward compatibility.
+
+**Changes**:
+
+- **New request field**: `as_of` (`YYYY-MM-DD`) for effective-date persistence in Physiometrics.
+- **New request section**: `athlete_info` (including `home_timezone` as canonical operational timezone).
+- **New request section**: `gear` (extensible athlete equipment metadata).
+- **Behavior**: Weekly rollup timezone resolution now prefers active `AgentPreferences` (`category=athlete_home_timezone`), then `athlete_info.home_timezone`, then legacy `athlete_timezone`, then env/config fallback.
+- **Compatibility**: Existing `heart_rate` + `power` payloads remain valid.
+
+**Storage Semantics**:
+
+- Extended config sections are preserved via extensibility payload storage (`ext_json`) to avoid lossy round-trips.
+
+**Ingestion SemVer**: No ingestion parser/record schema changes; this is an operational config contract and timezone resolution precedence update.
+
 ## 2026-03-11
 
 ### **BREAKING:** Semantic API v5.0.0 - Weekly Rollups Strict Schema Enforcement

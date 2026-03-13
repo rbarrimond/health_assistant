@@ -2,6 +2,7 @@
 
 import json
 import logging
+from datetime import date
 from typing import Dict, Tuple, Any
 
 from TrainingAnalyticsPlatform.platform.config import Config
@@ -25,14 +26,35 @@ class ConfigHandler:
             return {"error": "Payload must be a JSON object"}, 400
 
         try:
-            timestamp = Config.save_physiometrics(config_data)
+            effective_date = config_data.get("as_of")
+            if effective_date is not None:
+                try:
+                    date.fromisoformat(str(effective_date))
+                except ValueError:
+                    return {
+                        "error": "Invalid as_of date; expected YYYY-MM-DD"
+                    }, 400
+
+            payload = dict(config_data)
+            payload.pop("as_of", None)
+
+            if effective_date is None:
+                timestamp = Config.save_physiometrics(payload)
+            else:
+                timestamp = Config.save_physiometrics(
+                    payload,
+                    effective_date=str(effective_date),
+                )
 
             hr_cfg = Config.hr_config()
             pwr_cfg = Config.power_config()
 
+            athlete_info = payload.get("athlete_info")
+            gear = payload.get("gear")
+
             logger.info("Configuration updated at %s", timestamp)
 
-            return {
+            response = {
                 "status": "success",
                 "message": "Configuration saved to Azure Table Storage",
                 "updated_at_utc": timestamp,
@@ -45,7 +67,16 @@ class ConfigHandler:
                 "power": {
                     "ftp_watts": pwr_cfg.ftp_watts,
                 }
-            }, 200
+            }
+
+            if effective_date is not None:
+                response["as_of"] = str(effective_date)
+            if isinstance(athlete_info, dict):
+                response["athlete_info"] = athlete_info
+            if isinstance(gear, dict):
+                response["gear"] = gear
+
+            return response, 200
 
         except ValueError as exc:
             logger.error("Validation error updating config: %s", exc)
@@ -76,7 +107,7 @@ class ConfigHandler:
 
             result = []
             for entry in history:
-                result.append({
+                item = {
                     "updated_at_utc": entry.get("RowKey"),
                     "heart_rate": {
                         "basis": entry.get("heart_rate_basis"),
@@ -87,7 +118,23 @@ class ConfigHandler:
                     "power": {
                         "ftp_watts": entry.get("power_ftp_watts"),
                     }
-                })
+                }
+
+                ext_json = entry.get("ext_json")
+                if isinstance(ext_json, str):
+                    try:
+                        parsed_ext = json.loads(ext_json)
+                        if isinstance(parsed_ext, dict):
+                            athlete_info = parsed_ext.get("athlete_info")
+                            gear = parsed_ext.get("gear")
+                            if isinstance(athlete_info, dict):
+                                item["athlete_info"] = athlete_info
+                            if isinstance(gear, dict):
+                                item["gear"] = gear
+                    except json.JSONDecodeError:
+                        pass
+
+                result.append(item)
 
             return {
                 "status": "success",

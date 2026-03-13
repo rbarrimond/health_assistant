@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from datetime import date
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -178,11 +179,16 @@ class Config:
         return cls._physiometrics_cache
 
     @classmethod
-    def save_physiometrics(cls, physiometrics_data: Dict[str, Any]) -> str:
+    def save_physiometrics(
+        cls,
+        physiometrics_data: Dict[str, Any],
+        effective_date: Optional[str] = None,
+    ) -> str:
         """Save physiometrics configuration to Azure Table Storage.
 
         Args:
             physiometrics_data: Complete physiometrics configuration dict
+            effective_date: Optional effective date in YYYY-MM-DD format
 
         Returns:
             Timestamp of the update (ISO format)
@@ -199,7 +205,14 @@ class Config:
 
         athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
         try:
-            timestamp = storage.store_physiometrics(athlete_id, physiometrics_data)
+            if effective_date is not None:
+                date.fromisoformat(effective_date)
+
+            timestamp = storage.store_physiometrics(
+                athlete_id,
+                physiometrics_data,
+                effective_date=effective_date,
+            )
             # Clear cache so next load gets fresh data
             cls._physiometrics_cache = None
             return timestamp
@@ -459,8 +472,9 @@ class Config:
 
         Precedence:
         1) Env var ATHLETE_TIMEZONE (deployment override)
-        2) physiometrics.json athlete_timezone field
-        3) None (no timezone configured)
+        2) physiometrics athlete_info.home_timezone
+        3) physiometrics athlete_timezone field (legacy)
+        4) None (no timezone configured)
 
         Returns:
             IANA timezone name (e.g., 'America/New_York') or None.
@@ -476,6 +490,16 @@ class Config:
         # Check physiometrics config
         pm = cls.load_physiometrics() or {}
         if isinstance(pm, dict):
+            athlete_info = pm.get("athlete_info")
+            if isinstance(athlete_info, dict):
+                info_tz = athlete_info.get("home_timezone")
+                parsed_info_tz = cls._validate_timezone_string(
+                    info_tz,
+                    "physiometrics athlete_info.home_timezone",
+                )
+                if parsed_info_tz:
+                    return parsed_info_tz
+
             config_tz = pm.get("athlete_timezone")
             return cls._validate_timezone_string(config_tz, "physiometrics config")
 

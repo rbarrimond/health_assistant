@@ -327,6 +327,38 @@ class TestConfigSavePhysiometrics:
 
             assert result == expected_timestamp
 
+    def test_save_physiometrics_passes_effective_date(self) -> None:
+        """Verify effective_date is passed through to storage."""
+        mock_storage = MagicMock()
+        mock_storage.store_physiometrics.return_value = "2026-03-02"
+
+        with patch.object(Config, "_get_table_storage", return_value=mock_storage):
+            with patch.dict(os.environ, {"DEFAULT_ATHLETE_ID": "rob"}):
+                physiometrics = {"heart_rate": {}, "power": {}}
+                _ = Config.save_physiometrics(
+                    physiometrics,
+                    effective_date="2026-03-02",
+                )
+
+        mock_storage.store_physiometrics.assert_called_once_with(
+            "rob",
+            physiometrics,
+            effective_date="2026-03-02",
+        )
+
+    def test_save_physiometrics_invalid_effective_date_raises(self) -> None:
+        """Verify invalid effective_date format raises ValueError."""
+        mock_storage = MagicMock()
+
+        with patch.object(Config, "_get_table_storage", return_value=mock_storage):
+            with pytest.raises(ValueError, match="Failed to save configuration"):
+                Config.save_physiometrics(
+                    {"heart_rate": {}, "power": {}},
+                    effective_date="03-02-2026",
+                )
+
+        mock_storage.store_physiometrics.assert_not_called()
+
 
 class TestConfigHistory:
     """Tests for config history retrieval."""
@@ -357,6 +389,27 @@ class TestConfigHistory:
 
 class TestConfigAthleteTimezone:
     """Tests for get_athlete_timezone() method."""
+
+    def test_athlete_timezone_from_athlete_info_home_timezone(self) -> None:
+        """Verify get_athlete_timezone prefers athlete_info.home_timezone."""
+        original_value = Config.ATHLETE_TIMEZONE
+        try:
+            Config.ATHLETE_TIMEZONE = None
+            Config._physiometrics_cache = None
+            with patch.object(
+                Config,
+                "load_physiometrics",
+                return_value={
+                    "athlete_info": {
+                        "home_timezone": "America/Denver",
+                    },
+                    "athlete_timezone": "America/Chicago",
+                },
+            ):
+                tz = Config.get_athlete_timezone()
+                assert tz == "America/Denver"
+        finally:
+            Config.ATHLETE_TIMEZONE = original_value
 
     def test_athlete_timezone_from_env_var(self) -> None:
         """Verify get_athlete_timezone loads from ATHLETE_TIMEZONE env var."""

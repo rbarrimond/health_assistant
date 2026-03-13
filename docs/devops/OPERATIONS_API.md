@@ -144,7 +144,8 @@ POST /api/config/update
 Content-Type: application/json
 ```
 
-Update physiometrics configuration (FTP, LTHR, HR/power zone basis).
+Update physiometrics configuration (FTP, LTHR, HR/power zone basis) with optional
+effective-date semantics and extensible athlete metadata.
 
 **Request Body:**
 
@@ -162,6 +163,36 @@ Update physiometrics configuration (FTP, LTHR, HR/power zone basis).
 }
 ```
 
+**Request Body (with effective date + athlete metadata):**
+
+```json
+{
+  "as_of": "2026-03-02",
+  "heart_rate": {
+    "basis": "LTHR",
+    "lthr_bpm": 175,
+    "hr_max_bpm": 195,
+    "resting_hr_bpm": 52
+  },
+  "power": {
+    "ftp_watts": 285
+  },
+  "athlete_info": {
+    "home_timezone": "America/New_York",
+    "nickname": "rob"
+  },
+  "gear": {
+    "favorite_bike": "Tarmac"
+  }
+}
+```
+
+Notes:
+
+- `as_of` is optional and maps to Physiometrics effective date (`YYYY-MM-DD`).
+- `athlete_info.home_timezone` is the preferred operational timezone source for weekly rollups.
+- Existing payloads containing only `heart_rate` and `power` remain valid.
+
 **Response (200 OK):**
 
 ```json
@@ -169,8 +200,16 @@ Update physiometrics configuration (FTP, LTHR, HR/power zone basis).
   "status": "success",
   "message": "Configuration saved to Azure Table Storage",
   "updated_at_utc": "2026-01-20T10:30:00+00:00",
+  "as_of": "2026-03-02",
   "heart_rate": {...},
-  "power": {...}
+  "power": {...},
+  "athlete_info": {
+    "home_timezone": "America/New_York",
+    "nickname": "rob"
+  },
+  "gear": {
+    "favorite_bike": "Tarmac"
+  }
 }
 ```
 

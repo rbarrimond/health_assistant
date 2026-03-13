@@ -103,6 +103,82 @@ class TestConfigHandler:
         assert "error" in result
         assert "Failed to update" in result["error"]
 
+    def test_update_config_with_as_of_and_extended_sections(
+        self,
+        handler,
+        sample_config_data,
+        mocker,
+    ):
+        """Test update supports as_of and echoes athlete_info/gear payload sections."""
+        request_payload = {
+            **sample_config_data,
+            "as_of": "2026-03-02",
+            "athlete_info": {
+                "home_timezone": "America/New_York",
+                "nickname": "rob",
+            },
+            "gear": {
+                "favorite_bike": "Tarmac",
+            },
+        }
+
+        mock_save = mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.save_physiometrics'
+        )
+        mock_save.return_value = "2026-03-02"
+
+        mock_hr_config = Mock()
+        mock_hr_config.basis = "percentage"
+        mock_hr_config.lthr_bpm = 166
+        mock_hr_config.hr_max_bpm = 190
+        mock_hr_config.resting_hr_bpm = 50
+
+        mock_pwr_config = Mock()
+        mock_pwr_config.ftp_watts = 285
+
+        mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.hr_config',
+            return_value=mock_hr_config,
+        )
+        mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.power_config',
+            return_value=mock_pwr_config,
+        )
+
+        result, status = handler.update_config(request_payload)
+
+        assert status == 200
+        assert result["as_of"] == "2026-03-02"
+        assert result["athlete_info"]["home_timezone"] == "America/New_York"
+        assert result["gear"]["favorite_bike"] == "Tarmac"
+        mock_save.assert_called_once_with(
+            {
+                "heart_rate": request_payload["heart_rate"],
+                "power": request_payload["power"],
+                "athlete_info": request_payload["athlete_info"],
+                "gear": request_payload["gear"],
+            },
+            effective_date="2026-03-02",
+        )
+
+    def test_update_config_invalid_as_of_returns_400(self, handler, sample_config_data, mocker):
+        """Test update rejects invalid as_of format."""
+        mock_save = mocker.patch(
+            'TrainingAnalyticsPlatform.handlers.config_handler.Config.save_physiometrics'
+        )
+
+        result, status = handler.update_config(
+            {
+                **sample_config_data,
+                "as_of": "03-02-2026",
+            }
+        )
+
+        assert status == 400
+        assert "error" in result
+        assert "as_of" in result["error"]
+        mock_save.assert_not_called()
+
     def test_update_config_io_error(self, handler, sample_config_data, mocker):
         """Test update handles I/O errors."""
         # Arrange

@@ -1556,15 +1556,27 @@ components:
     ConfigUpdateRequest:
       type: object
       properties:
+        as_of:
+          type: string
+          format: date
+          description: Effective date for this configuration update (YYYY-MM-DD)
         heart_rate:
           type: object
           additionalProperties: true
         power:
           type: object
           additionalProperties: true
-      required:
-        - heart_rate
-        - power
+        athlete_info:
+          type: object
+          properties:
+            home_timezone:
+              type: string
+              description: IANA timezone name (for example America/New_York)
+          additionalProperties: true
+        gear:
+          type: object
+          description: Athlete gear metadata (for example favorite bike, bike aliases)
+          additionalProperties: true
     ConfigUpdateResponse:
       allOf:
         - $ref: '#/components/schemas/ConfigSnapshot'
@@ -1572,6 +1584,15 @@ components:
           properties:
             updated_at_utc:
               type: string
+            as_of:
+              type: string
+              format: date
+            athlete_info:
+              type: object
+              additionalProperties: true
+            gear:
+              type: object
+              additionalProperties: true
     ConfigHistoryResponse:
       type: object
       properties:
@@ -1590,6 +1611,12 @@ components:
                 type: object
                 additionalProperties: true
               power:
+                type: object
+                additionalProperties: true
+              athlete_info:
+                type: object
+                additionalProperties: true
+              gear:
                 type: object
                 additionalProperties: true
     ProcessFitRequest:

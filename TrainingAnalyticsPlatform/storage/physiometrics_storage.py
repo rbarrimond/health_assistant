@@ -62,6 +62,31 @@ class PhysiometricsStorage:
         "ext_json": "ext_json",
     }
 
+    @staticmethod
+    def _build_ext_json_payload(physiometrics_data: Dict[str, Any]) -> Optional[str]:
+        """Build serialized extension payload for non-core physiometrics fields."""
+        ext_payload: Dict[str, Any] = {}
+        existing_ext = physiometrics_data.get("ext_json")
+
+        if isinstance(existing_ext, str):
+            try:
+                parsed_ext = json.loads(existing_ext)
+                if isinstance(parsed_ext, dict):
+                    ext_payload.update(parsed_ext)
+            except json.JSONDecodeError:
+                ext_payload["raw_ext_json"] = existing_ext
+        elif isinstance(existing_ext, dict):
+            ext_payload.update(existing_ext)
+
+        for key in ("athlete_info", "gear", "athlete_timezone"):
+            value = physiometrics_data.get(key)
+            if value is not None:
+                ext_payload[key] = value
+
+        if not ext_payload:
+            return None
+        return json.dumps(ext_payload)
+
     def __init__(self, infrastructure: StorageInfrastructure):
         """Initialize with storage infrastructure."""
         self.infra = infrastructure
@@ -78,6 +103,8 @@ class PhysiometricsStorage:
 
         if effective_date is None:
             effective_date = datetime.now(timezone.utc).date().isoformat()
+
+        ext_json_payload = self._build_ext_json_payload(physiometrics_data)
 
         entity = {
             "PartitionKey": athlete_id,
@@ -147,7 +174,7 @@ class PhysiometricsStorage:
             # Raw source preservation (zero-loss ingestion)
             "source_updated_at_utc": physiometrics_data.get("source_updated_at_utc"),
             "raw_intervals_icu_json": physiometrics_data.get("raw_intervals_icu_json"),
-            "ext_json": physiometrics_data.get("ext_json"),
+            "ext_json": ext_json_payload,
         }
 
         try:
