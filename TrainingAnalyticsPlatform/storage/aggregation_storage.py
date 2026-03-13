@@ -7,6 +7,7 @@ from typing import Any, Dict
 
 from azure.core.exceptions import HttpResponseError
 
+from TrainingAnalyticsPlatform.platform.exceptions import StorageError
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import StorageInfrastructure
 
 logger = logging.getLogger(__name__)
@@ -39,9 +40,17 @@ class AggregationStorage:
             table_client = self.infra.get_table_client("WeeklyRollups")
             table_client.upsert_entity(entity)
             logger.info("Updated weekly rollup %s-W%s for %s", year, week, athlete_id)
-        except HttpResponseError as e:
-            logger.error("Error updating weekly rollup: %s", e)
-            # Don't raise - rollups are secondary
+        except HttpResponseError as exc:
+            logger.error(
+                "Failed to update weekly rollup",
+                extra={
+                    "athlete_id": athlete_id,
+                    "year": year,
+                    "week": week,
+                },
+                exc_info=True,
+            )
+            raise StorageError("Failed to update weekly rollup") from exc
 
     def _sanitize_rollup_data(self, rollup_data: Dict[str, Any]) -> Dict[str, Any]:
         """Return Azure Table-safe rollup payload values."""

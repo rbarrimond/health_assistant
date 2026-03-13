@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from TrainingAnalyticsPlatform.platform.exceptions import ConfigError, StorageError
+
 
 def _as_int(v: Optional[str]) -> Optional[int]:
     if v is None:
@@ -194,11 +196,12 @@ class Config:
             Timestamp of the update (ISO format)
 
         Raises:
-            ValueError: If table storage is not available or save fails
+            ConfigError: If table storage is not available
+            StorageError: If persistence fails
         """
         storage = cls._get_table_storage()
         if not storage:
-            raise ValueError(
+            raise ConfigError(
                 "Table storage not available. "
                 "Cannot save configuration to Azure Tables."
             )
@@ -216,10 +219,16 @@ class Config:
             # Clear cache so next load gets fresh data
             cls._physiometrics_cache = None
             return timestamp
-        except (ValueError, OSError, KeyError) as e:
+        except ValueError as exc:
             logger = logging.getLogger(__name__)
-            logger.error("Failed to save physiometrics to table storage: %s", e)
-            raise ValueError(f"Failed to save configuration: {str(e)}") from e
+            logger.error("Invalid physiometrics configuration payload", exc_info=True)
+            raise ConfigError("Failed to save configuration") from exc
+        except StorageError:
+            raise
+        except (OSError, KeyError) as exc:
+            logger = logging.getLogger(__name__)
+            logger.error("Failed to save physiometrics to table storage", exc_info=True)
+            raise StorageError("Failed to save configuration") from exc
 
     @classmethod
     def get_physiometrics_history(cls, limit: int = 10) -> list:
@@ -241,9 +250,11 @@ class Config:
                 athlete_id,
                 limit=limit,
             )
-        except (ValueError, OSError, KeyError) as e:
+        except StorageError:
+            raise
+        except (ValueError, OSError, KeyError) as exc:
             logger = logging.getLogger(__name__)
-            logger.warning("Failed to retrieve history: %s", e)
+            logger.warning("Failed to retrieve history", exc_info=True)
             return []
     # Heart rate configuration
     # -------------------------

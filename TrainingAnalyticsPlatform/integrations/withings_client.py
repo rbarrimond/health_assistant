@@ -8,6 +8,12 @@ from urllib.parse import urlencode
 
 import requests
 
+from TrainingAnalyticsPlatform.platform.exceptions import (
+    AuthError,
+    ExternalServiceError,
+    ValidationError,
+)
+
 logger = logging.getLogger(__name__)
 
 # Withings API endpoints
@@ -88,11 +94,13 @@ class WithingsClient:
                 - athlete_id: Extracted from state
 
         Raises:
-            ValueError: If token exchange fails
+            ValidationError: If callback state is invalid
+            AuthError: If Withings rejects the token exchange
+            ExternalServiceError: If the Withings request fails unexpectedly
         """
         # Extract athlete_id from state
         if ":" not in state:
-            raise ValueError("Invalid state parameter format")
+            raise ValidationError("Invalid state parameter format")
 
         _, athlete_id = state.rsplit(":", 1)
 
@@ -112,7 +120,7 @@ class WithingsClient:
             result = response.json()
 
             if result.get("status") != 0:
-                raise ValueError(f"Withings API error: {result.get('error')}")
+                raise AuthError(f"Withings API error: {result.get('error')}")
 
             body = result.get("body", {})
             logger.info(
@@ -129,9 +137,12 @@ class WithingsClient:
                 "athlete_id": athlete_id,
             }
 
-        except requests.RequestException as e:
-            logger.error("Failed to exchange auth code: %s", e)
-            raise ValueError(f"Token exchange failed: {e}") from e
+        except requests.RequestException as exc:
+            logger.error("Failed to exchange auth code", exc_info=True)
+            raise ExternalServiceError("Token exchange failed") from exc
+        except ValueError as exc:
+            logger.error("Withings token exchange returned invalid payload", exc_info=True)
+            raise ExternalServiceError("Token exchange returned invalid response payload") from exc
 
     def subscribe_to_notifications(self, access_token: str, callback_url: str) -> bool:
         """
@@ -145,7 +156,7 @@ class WithingsClient:
             True if subscription successful
 
         Raises:
-            ValueError: If subscription fails
+            ExternalServiceError: If subscription fails
         """
         data = {
             "action": "subscribe",
@@ -170,14 +181,19 @@ class WithingsClient:
                 if result.get("status") == 343:
                     logger.info("Webhook already subscribed")
                 else:
-                    raise ValueError(f"Withings API error: {result.get('error')}")
+                    raise ExternalServiceError(
+                        f"Withings API error: {result.get('error')}"
+                    )
 
             logger.info("Successfully subscribed to Withings notifications")
             return True
 
-        except requests.RequestException as e:
-            logger.error("Failed to subscribe to notifications: %s", e)
-            raise ValueError(f"Subscription failed: {e}") from e
+        except requests.RequestException as exc:
+            logger.error("Failed to subscribe to notifications", exc_info=True)
+            raise ExternalServiceError("Subscription failed") from exc
+        except ValueError as exc:
+            logger.error("Withings subscription returned invalid payload", exc_info=True)
+            raise ExternalServiceError("Subscription returned invalid response payload") from exc
 
     def fetch_measurements(self, access_token: str,
                           start_date: int,
@@ -202,7 +218,7 @@ class WithingsClient:
                 - metabolic_age_years: Metabolic age
 
         Raises:
-            ValueError: If API request fails
+            ExternalServiceError: If API request fails
         """
         params = {
             "action": "getmeas",
@@ -223,7 +239,9 @@ class WithingsClient:
             result = response.json()
 
             if result.get("status") != 0:
-                raise ValueError(f"Withings API error: {result.get('error')}")
+                raise ExternalServiceError(
+                    f"Withings API error: {result.get('error')}"
+                )
 
             body = result.get("body", {})
             measure_groups = body.get("measuregrps", [])
@@ -239,9 +257,12 @@ class WithingsClient:
 
             return measurements
 
-        except requests.RequestException as e:
-            logger.error("Failed to fetch measurements: %s", e)
-            raise ValueError(f"Measurement fetch failed: {e}") from e
+        except requests.RequestException as exc:
+            logger.error("Failed to fetch measurements", exc_info=True)
+            raise ExternalServiceError("Measurement fetch failed") from exc
+        except ValueError as exc:
+            logger.error("Withings measurements returned invalid payload", exc_info=True)
+            raise ExternalServiceError("Measurement fetch returned invalid response payload") from exc
 
     def parse_measurement_group(self, group: Dict) -> Optional[Dict]:
         """
@@ -315,7 +336,8 @@ class WithingsClient:
                 - expires_in: Token lifetime in seconds
 
         Raises:
-            ValueError: If refresh fails
+            AuthError: If refresh is rejected by Withings
+            ExternalServiceError: If the refresh request fails unexpectedly
         """
         data = {
             "action": "requesttoken",
@@ -331,7 +353,7 @@ class WithingsClient:
             result = response.json()
 
             if result.get("status") != 0:
-                raise ValueError(f"Withings API error: {result.get('error')}")
+                raise AuthError(f"Withings API error: {result.get('error')}")
 
             body = result.get("body", {})
             logger.info("Successfully refreshed Withings access token")
@@ -342,6 +364,9 @@ class WithingsClient:
                 "expires_in": body.get("expires_in"),
             }
 
-        except requests.RequestException as e:
-            logger.error("Failed to refresh access token: %s", e)
-            raise ValueError(f"Token refresh failed: {e}") from e
+        except requests.RequestException as exc:
+            logger.error("Failed to refresh access token", exc_info=True)
+            raise ExternalServiceError("Token refresh failed") from exc
+        except ValueError as exc:
+            logger.error("Withings token refresh returned invalid payload", exc_info=True)
+            raise ExternalServiceError("Token refresh returned invalid response payload") from exc

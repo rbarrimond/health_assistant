@@ -7,6 +7,7 @@ from unittest.mock import Mock
 import pytest
 
 from TrainingAnalyticsPlatform.handlers import WithingsHandler
+from TrainingAnalyticsPlatform.platform.exceptions import ExternalServiceError, ValidationError
 
 
 class TestWithingsHandler:
@@ -72,7 +73,7 @@ class TestWithingsHandler:
     def test_get_authorization_url_exception(self, handler, mock_withings_client):
         """Test OAuth URL generation handles exceptions."""
         # Arrange
-        mock_withings_client.get_authorization_url.side_effect = Exception("API error")
+        mock_withings_client.get_authorization_url.side_effect = ExternalServiceError("API error")
 
         # Act
         result, status = handler.get_authorization_url("athlete1")
@@ -147,7 +148,7 @@ class TestWithingsHandler:
     def test_handle_oauth_callback_exchange_failure(self, handler, mock_withings_client):
         """Test OAuth callback handles token exchange failures."""
         # Arrange
-        mock_withings_client.exchange_auth_code.side_effect = Exception("Invalid code")
+        mock_withings_client.exchange_auth_code.side_effect = ValidationError("Invalid code")
 
         # Act
         html, status, content_type = handler.handle_oauth_callback(
@@ -157,10 +158,10 @@ class TestWithingsHandler:
         )
 
         # Assert
-        assert status == 500
+        assert status == 400
         assert content_type == "text/html"
         assert "Error" in html
-        assert "Failed to connect" in html
+        assert "Invalid code" in html
 
     def test_handle_oauth_callback_constructs_webhook_url(self, handler, mock_withings_client, mock_storage):
         """Test OAuth callback constructs webhook URL from base."""

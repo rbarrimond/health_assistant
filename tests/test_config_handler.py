@@ -8,6 +8,7 @@ from unittest.mock import Mock
 import pytest
 
 from TrainingAnalyticsPlatform.handlers import ConfigHandler
+from TrainingAnalyticsPlatform.platform.exceptions import ConfigError, StorageError
 
 
 class TestConfigHandler:
@@ -93,7 +94,7 @@ class TestConfigHandler:
         mock_save = mocker.patch(
             'TrainingAnalyticsPlatform.handlers.config_handler.Config.save_physiometrics'
         )
-        mock_save.side_effect = ValueError("Invalid HR value")
+        mock_save.side_effect = ConfigError("Invalid HR value")
 
         # Act
         result, status = handler.update_config(sample_config_data)
@@ -185,7 +186,7 @@ class TestConfigHandler:
         mock_save = mocker.patch(
             'TrainingAnalyticsPlatform.handlers.config_handler.Config.save_physiometrics'
         )
-        mock_save.side_effect = IOError("Disk full")
+        mock_save.side_effect = StorageError("Disk full")
 
         # Act
         result, status = handler.update_config(sample_config_data)

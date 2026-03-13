@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from TrainingAnalyticsPlatform.platform.config import Config, HeartRateConfig, PowerConfig
+from TrainingAnalyticsPlatform.platform.exceptions import ConfigError, StorageError
 
 
 class TestHeartRateConfigDataclass:
@@ -298,7 +299,7 @@ class TestConfigSavePhysiometrics:
                 "power": {"ftp_watts": 250}
             }
 
-            with pytest.raises(ValueError, match="Table storage not available"):
+            with pytest.raises(ConfigError, match="Table storage not available"):
                 Config.save_physiometrics(physiometrics)
 
     def test_save_physiometrics_clears_cache(self) -> None:
@@ -347,17 +348,26 @@ class TestConfigSavePhysiometrics:
         )
 
     def test_save_physiometrics_invalid_effective_date_raises(self) -> None:
-        """Verify invalid effective_date format raises ValueError."""
+        """Verify invalid effective_date format raises ConfigError."""
         mock_storage = MagicMock()
 
         with patch.object(Config, "_get_table_storage", return_value=mock_storage):
-            with pytest.raises(ValueError, match="Failed to save configuration"):
+            with pytest.raises(ConfigError, match="Failed to save configuration"):
                 Config.save_physiometrics(
                     {"heart_rate": {}, "power": {}},
                     effective_date="03-02-2026",
                 )
 
         mock_storage.physiometrics.store_physiometrics.assert_not_called()
+
+    def test_save_physiometrics_storage_failure_raises_storage_error(self) -> None:
+        """Operational persistence failures should surface as StorageError."""
+        mock_storage = MagicMock()
+        mock_storage.physiometrics.store_physiometrics.side_effect = OSError("disk unavailable")
+
+        with patch.object(Config, "_get_table_storage", return_value=mock_storage):
+            with pytest.raises(StorageError, match="Failed to save configuration"):
+                Config.save_physiometrics({"heart_rate": {}, "power": {}})
 
 
 class TestConfigHistory:

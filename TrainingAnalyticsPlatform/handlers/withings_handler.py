@@ -5,6 +5,7 @@ import os
 from typing import Any, Dict, Tuple
 
 from TrainingAnalyticsPlatform.integrations.withings_client import WithingsClient
+from TrainingAnalyticsPlatform.platform.exceptions import HealthAssistantError, ValidationError
 from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
 
 
@@ -43,6 +44,12 @@ class WithingsHandler:
                 "instructions": "Open this URL in your browser to authorize Withings access",
                 "athlete_id": athlete_id
             }, 200
+        except ValidationError as exc:
+            logger.error("Invalid Withings authorization request: %s", exc, exc_info=True)
+            return {"error": str(exc)}, 400
+        except HealthAssistantError as exc:
+            logger.error("Error generating Withings auth URL: %s", exc, exc_info=True)
+            return {"error": "Failed to generate authorization URL"}, 500
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Error generating Withings auth URL: %s", exc, exc_info=True)
             return {"error": "Failed to generate authorization URL"}, 500
@@ -107,6 +114,22 @@ class WithingsHandler:
 
             return success_html, 200, HTML_CONTENT_TYPE
 
+        except ValidationError as exc:
+            logger.error("Invalid Withings callback payload: %s", exc, exc_info=True)
+            error_html = (
+                "<html><body><h1>Error</h1>"
+                f"<p>{exc}</p>"
+                "</body></html>"
+            )
+            return error_html, 400, HTML_CONTENT_TYPE
+        except HealthAssistantError as exc:
+            logger.error("Error in Withings callback: %s", exc, exc_info=True)
+            error_html = (
+                "<html><body><h1>Error</h1>"
+                f"<p>Failed to connect Withings account: {exc}</p>"
+                "</body></html>"
+            )
+            return error_html, 500, HTML_CONTENT_TYPE
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Error in Withings callback: %s", exc, exc_info=True)
             error_html = (

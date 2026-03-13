@@ -66,7 +66,17 @@ def _ensure_access_token(storage: StorageCoordinator, client: WithingsClient,
     logger.info("Access token expired, refreshing...")
     try:
         refreshed = client.refresh_access_token(token_data["refresh_token"])
+    except HealthAssistantError:
+        raise
     except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error(
+            "Unexpected failure refreshing Withings access token",
+            extra={
+                "athlete_id": athlete_id,
+                "userid": userid,
+            },
+            exc_info=True,
+        )
         raise ExternalServiceError("Failed to refresh Withings access token") from exc
 
     try:
@@ -77,7 +87,17 @@ def _ensure_access_token(storage: StorageCoordinator, client: WithingsClient,
             new_refresh_token=refreshed["refresh_token"],
             expires_in=refreshed["expires_in"]
         )
+    except StorageError:
+        raise
     except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error(
+            "Unexpected failure persisting refreshed Withings tokens",
+            extra={
+                "athlete_id": athlete_id,
+                "userid": userid,
+            },
+            exc_info=True,
+        )
         raise StorageError("Failed to persist refreshed Withings tokens") from exc
 
     logger.info("Access token refreshed successfully")

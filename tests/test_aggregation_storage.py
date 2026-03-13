@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 from azure.core.exceptions import HttpResponseError
 
+from TrainingAnalyticsPlatform.platform.exceptions import StorageError
 from TrainingAnalyticsPlatform.storage.aggregation_storage import AggregationStorage
 
 
@@ -70,15 +71,18 @@ def test_update_weekly_rollup_filters_unsupported_and_non_finite_values(aggregat
 
 
 def test_update_weekly_rollup_handles_http_response_error(aggregation_storage):
-    """Storage errors should be handled without raising."""
+    """Storage errors should be translated into StorageError with preserved cause."""
     storage, infrastructure = aggregation_storage
     table_client = MagicMock()
     table_client.upsert_entity.side_effect = HttpResponseError("boom")
     infrastructure.get_table_client.return_value = table_client
 
-    storage.update_weekly_rollup(
-        athlete_id="rob",
-        year="2026",
-        week="10",
-        rollup_data={"workouts_count": 2},
-    )
+    with pytest.raises(StorageError, match="Failed to update weekly rollup") as exc_info:
+        storage.update_weekly_rollup(
+            athlete_id="rob",
+            year="2026",
+            week="10",
+            rollup_data={"workouts_count": 2},
+        )
+
+    assert isinstance(exc_info.value.__cause__, HttpResponseError)

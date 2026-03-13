@@ -24,6 +24,21 @@ WORKOUTS_CONTAINER = "workouts"
 
 logger = logging.getLogger(__name__)
 
+MANAGED_TABLE_NAMES = (
+    "Workouts",
+    "WeeklyRollups",
+    "IngestionState",
+    "Physiometrics",
+    "WithingsTokens",
+    "OneDriveTokens",
+    "GarminTokens",
+    "WebhookDeduplication",
+    "AgentPreferences",
+    "AgentObservations",
+    "SourceIngestionState",
+    "TrainingState",
+)
+
 
 class WorkoutEntity(BaseModel):
     """Structured Workouts table entity (queryable subset).
@@ -419,19 +434,7 @@ class StorageInfrastructure:
 
     def _ensure_tables_exist(self):
         """Create tables if they don't exist."""
-        table_names = [
-            "Workouts",
-            "WeeklyRollups",
-            "IngestionState",
-            "Physiometrics",
-            "WithingsTokens",
-            "OneDriveTokens",
-            "GarminTokens",
-            "WebhookDeduplication",
-            "AgentPreferences",
-            "AgentObservations",
-        ]
-        for table_name in table_names:
+        for table_name in MANAGED_TABLE_NAMES:
             try:
                 self.service_client.create_table_if_not_exists(table_name)
                 logger.info("Table %s ready", table_name)
@@ -455,6 +458,16 @@ class StorageInfrastructure:
 
     def get_table_client(self, table_name: str) -> TableClient:
         """Get table client for specified table."""
+        if table_name in MANAGED_TABLE_NAMES:
+            try:
+                self.service_client.create_table_if_not_exists(table_name)
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                logger.error(
+                    "Failed to ensure table exists before access",
+                    extra={"table_name": table_name},
+                    exc_info=True,
+                )
+                raise
         return self.service_client.get_table_client(table_name)
 
     def get_blob_client(self):

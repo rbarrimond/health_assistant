@@ -6,6 +6,7 @@ from datetime import date
 from typing import Dict, Tuple, Any
 
 from TrainingAnalyticsPlatform.platform.config import Config
+from TrainingAnalyticsPlatform.platform.exceptions import ConfigError, StorageError
 
 logger = logging.getLogger(__name__)
 
@@ -78,13 +79,13 @@ class ConfigHandler:
 
             return response, 200
 
-        except ValueError as exc:
-            logger.error("Validation error updating config: %s", exc)
+        except ConfigError as exc:
+            logger.error("Configuration update failed: %s", exc, exc_info=True)
             return {
                 "error": "Failed to update configuration",
                 "details": str(exc)
             }, 500
-        except (OSError, IOError, KeyError) as exc:
+        except StorageError as exc:
             logger.error("Error updating config: %s", exc, exc_info=True)
             return {
                 "error": "Unexpected error updating configuration",
@@ -142,7 +143,7 @@ class ConfigHandler:
                 "history": result
             }, 200
 
-        except (ValueError, OSError, KeyError) as exc:
+        except (ConfigError, StorageError, ValueError, OSError, KeyError) as exc:
             logger.error("Error retrieving config history: %s", exc, exc_info=True)
             return {
                 "error": "Failed to retrieve configuration history",

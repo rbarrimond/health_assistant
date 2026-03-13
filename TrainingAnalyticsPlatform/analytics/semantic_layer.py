@@ -401,6 +401,15 @@ class SemanticLayer:
             metadata_payload = self.storage.workouts.load_metadata_json(ingestion_id)
             response.developer_fields_summary = self._summarize_developer_fields(metadata_payload)
         except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.warning(
+                "Failed to load developer fields for workout detail",
+                extra={
+                    "workout_id": workout_id,
+                    "ingestion_id": entity.get("ingestion_id") or workout_id,
+                    "error_type": type(exc).__name__,
+                },
+                exc_info=True,
+            )
             response.developer_fields_error = str(exc)
 
     # -------------------------------------------------------------------------

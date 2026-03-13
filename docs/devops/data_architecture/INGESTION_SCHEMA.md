@@ -452,8 +452,16 @@ from the semantic API.
     - `RowKey`: `ingestion_id`
 
 1. `Physiometrics` — body + fitness metrics (FTP, weight, LTHR)
+1. `TrainingState` — derived readiness / freshness snapshots for wellness projections
+1. `SourceIngestionState` — external wellness-source fetch state and blob processing provenance
 1. `AgentPreferences` — user training preferences
 1. `AgentObservations` — client GPT's training observations
+
+Application ownership note:
+
+- These Azure Tables are application-owned schema artifacts created by the Python storage layer.
+- Terraform provisions the storage account and access, but does not manage individual table lifecycle.
+- Operational recovery after deleting tables should rely on application bootstrap or sync-driven recreation, not Terraform taint.
 
 ### Azure Blob Storage
 
