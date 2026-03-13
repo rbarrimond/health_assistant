@@ -37,7 +37,7 @@ from fitdecode import (DefaultDataProcessor, FitDataMessage, FitReader,
 from fitdecode.cmd.fitjson import RecordJSONEncoder
 from pydantic import BaseModel, ConfigDict, PrivateAttr, computed_field
 
-from TrainingAnalyticsPlatform.models import CanonicalRecordSet
+from TrainingAnalyticsPlatform.models import CanonicalRecordSet, WorkoutMetricsModel
 from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 
 from .apple_workout_types import (APPLE_WORKOUT_TYPES, INDOOR_CYCLE,
@@ -61,6 +61,66 @@ UTC_OFFSET_SUFFIX = "+00:00"
 
 
 class BaseFitModel(BaseModel, ABC):
+    def _get_numeric_with_unit_confirmation(
+        self,
+        message: Optional[FitDataMessage],
+        field_name: str,
+        *,
+        expected_units: tuple[str, ...],
+        conversion_by_unit: Optional[Dict[str, float]] = None,
+    ) -> Optional[float]:
+        """Read numeric FIT field after confirming units via fitdecode FieldData metadata.
+
+        Falls back to raw numeric value when unit metadata is unavailable, but emits
+        a warning when units are unexpected.
+        """
+        if message is None:
+            return None
+
+        value = message.get_value(field_name, fallback=None)
+        if not isinstance(value, (int, float)):
+            return None
+
+        normalized_value = float(value)
+        field_units: Optional[str] = None
+
+        try:
+            field_data = message.get_field(field_name)
+            units = getattr(field_data, "units", None)
+            if isinstance(units, str) and units.strip():
+                field_units = units.strip().lower()
+        except (AttributeError, KeyError, TypeError):
+            field_units = None
+        except Exception:  # pylint: disable=broad-exception-caught
+            logger.warning(
+                "Failed to inspect FIT units metadata for numeric field",
+                extra={"field_name": field_name},
+                exc_info=True,
+            )
+            field_units = None
+
+        expected_units_normalized = {unit.lower() for unit in expected_units}
+        conversion_map = {k.lower(): v for k, v in (conversion_by_unit or {}).items()}
+
+        if field_units is None:
+            return normalized_value
+
+        if field_units in expected_units_normalized:
+            return normalized_value
+
+        if field_units in conversion_map:
+            return normalized_value * conversion_map[field_units]
+
+        logger.warning(
+            "Unexpected FIT units for numeric field",
+            extra={
+                "field_name": field_name,
+                "field_units": field_units,
+                "expected_units": sorted(expected_units_normalized),
+            },
+        )
+        return normalized_value
+
     """Abstract FIT parser that exposes canonical workout semantics.
 
     Contract:
@@ -971,11 +1031,12 @@ class BaseFitModel(BaseModel, ABC):
     @property
     def distance_m(self) -> Optional[float]:
         """Get total distance in meters."""
-        if self._session_msg is None:
-            return None
-        
-        distance = self._session_msg.get_value("total_distance", fallback=None)
-        return float(distance) if isinstance(distance, (int, float)) else None
+        return self._get_numeric_with_unit_confirmation(
+            self._session_msg,
+            "total_distance",
+            expected_units=("m",),
+            conversion_by_unit={"km": 1000.0},
+        )
     
     @computed_field  # type: ignore[misc]
     @property
@@ -1001,21 +1062,23 @@ class BaseFitModel(BaseModel, ABC):
     @property
     def avg_speed_mps(self) -> Optional[float]:
         """Get average speed in m/s."""
-        if self._session_msg is None:
-            return None
-        
-        speed = self._session_msg.get_value("avg_speed", fallback=None)
-        return float(speed) if isinstance(speed, (int, float)) else None
+        return self._get_numeric_with_unit_confirmation(
+            self._session_msg,
+            "avg_speed",
+            expected_units=("m/s",),
+            conversion_by_unit={"km/h": 1 / 3.6},
+        )
     
     @computed_field  # type: ignore[misc]
     @property
     def max_speed_mps(self) -> Optional[float]:
         """Get max speed in m/s."""
-        if self._session_msg is None:
-            return None
-        
-        speed = self._session_msg.get_value("max_speed", fallback=None)
-        return float(speed) if isinstance(speed, (int, float)) else None
+        return self._get_numeric_with_unit_confirmation(
+            self._session_msg,
+            "max_speed",
+            expected_units=("m/s",),
+            conversion_by_unit={"km/h": 1 / 3.6},
+        )
     
     @computed_field  # type: ignore[misc]
     @property
@@ -1421,6 +1484,14 @@ class BaseFitModel(BaseModel, ABC):
         # Extract device info (manufacturer, model) from FIT file_id message
         device_manufacturer, device_model = self._get_device_info()
         
+        # Build canonical records once for capability detection (expensive operation)
+        # NOTE: This is built early to avoid triple computation in capability flags
+        record_set = self.build_canonical_records()
+
+        distance_m = self.distance_m
+        if distance_m is None:
+            distance_m = self._derive_distance_from_records(record_set)
+
         # Build zone 1: Identity (immutable, queryable)
         # Note: device_name uses recovered/denormalized value (corruption recovery for OneDrive)
         # while provenance.source_device_name retains raw filename value for audit trail
@@ -1429,15 +1500,11 @@ class BaseFitModel(BaseModel, ABC):
             "sport": self.sport,
             "sub_sport": self.sub_sport,
             "duration_sec": self.duration_sec,
-            "distance_m": self.distance_m,
+            "distance_m": distance_m,
             "device_name": self.device_name,
             "device_manufacturer": device_manufacturer,
             "device_model": device_model,
         }
-        
-        # Build canonical records once for capability detection (expensive operation)
-        # NOTE: This is built early to avoid triple computation in capability flags
-        record_set = self.build_canonical_records()
         
         # Build zone 2: Capabilities (computed from records)
         capabilities = {
@@ -1500,6 +1567,32 @@ class BaseFitModel(BaseModel, ABC):
             "llm_analysis": {k: v for k, v in llm_analysis.items() if v is not None},
             "provenance": {k: v for k, v in provenance.items() if v is not None},
         }
+
+    def _derive_distance_from_records(
+        self,
+        record_set: "CanonicalRecordSet",
+    ) -> Optional[float]:
+        """Derive total distance from canonical records when session total_distance is unavailable."""
+        records_df = record_set.to_dataframe
+        if records_df.empty:
+            return None
+
+        try:
+            metrics = WorkoutMetricsModel.from_canonical(
+                df=records_df,
+                metadata={},
+                resample=False,
+            )
+            return metrics.distance.distance_m
+        except (ValueError, TypeError) as exc:
+            logger.warning(
+                "Unable to derive distance from canonical records",
+                extra={
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
+            return None
     
     def _has_capability_in_records(
         self, 

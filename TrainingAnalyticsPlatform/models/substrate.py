@@ -32,6 +32,56 @@ class CanonicalRecord(BaseModel):
     respiration_rate_brpm, lr_balance_pct, rr_interval_sec
     """
 
+    @staticmethod
+    def _numeric_with_unit_confirmation(
+        msg: FitDataMessage,
+        field_name: str,
+        *,
+        expected_units: Tuple[str, ...],
+        conversion_by_unit: Optional[Dict[str, float]] = None,
+    ) -> Optional[float]:
+        """Read a numeric FIT field and normalize based on fitdecode-reported units."""
+        value = msg.get_value(field_name, fallback=None)
+        if not isinstance(value, (int, float)):
+            return None
+
+        normalized_value = float(value)
+        field_units: Optional[str] = None
+
+        try:
+            field_data = msg.get_field(field_name)
+            units = getattr(field_data, "units", None)
+            if isinstance(units, str) and units.strip():
+                field_units = units.strip().lower()
+        except (AttributeError, KeyError, TypeError):
+            field_units = None
+        except Exception:  # pylint: disable=broad-exception-caught
+            logger.warning(
+                "Failed to inspect FIT units metadata for canonical record field",
+                extra={"field_name": field_name},
+                exc_info=True,
+            )
+            field_units = None
+
+        expected_units_normalized = {unit.lower() for unit in expected_units}
+        conversion_map = {k.lower(): v for k, v in (conversion_by_unit or {}).items()}
+
+        if field_units is None or field_units in expected_units_normalized:
+            return normalized_value
+
+        if field_units in conversion_map:
+            return normalized_value * conversion_map[field_units]
+
+        logger.warning(
+            "Unexpected FIT units for canonical record field",
+            extra={
+                "field_name": field_name,
+                "field_units": field_units,
+                "expected_units": sorted(expected_units_normalized),
+            },
+        )
+        return normalized_value
+
     timestamp_utc: str = Field(description=ISO_8601_UTC_DESC)
     elapsed_sec: Optional[float] = Field(None, ge=0)
     power_watts: Optional[float] = Field(None, ge=0)
@@ -94,8 +144,18 @@ class CanonicalRecord(BaseModel):
         power = msg.get_value("power", fallback=None)
         heart_rate = msg.get_value("heart_rate", fallback=None)
         cadence = msg.get_value("cadence", fallback=None)
-        speed = msg.get_value("speed", fallback=None)
-        distance = msg.get_value("distance", fallback=None)
+        speed = cls._numeric_with_unit_confirmation(
+            msg,
+            "speed",
+            expected_units=("m/s",),
+            conversion_by_unit={"km/h": 1 / 3.6},
+        )
+        distance = cls._numeric_with_unit_confirmation(
+            msg,
+            "distance",
+            expected_units=("m",),
+            conversion_by_unit={"km": 1000.0},
+        )
         elevation = msg.get_value("altitude", fallback=None)
         temperature = msg.get_value("temperature", fallback=None)
 

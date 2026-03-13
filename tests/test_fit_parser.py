@@ -13,7 +13,9 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
+from unittest.mock import patch
 import pytest
+import pandas as pd
 
 from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_file_hash
 from TrainingAnalyticsPlatform.ingestion.apple_workout_types import INDOOR_CYCLE, INDOOR_RUN, FUNCTIONAL_STRENGTH
@@ -33,6 +35,24 @@ class _MessageStub:
     def get_value(self, field_name: str, fallback: object = None) -> object:
         """Simulate FitMessage get_value method for testing."""
         return self._values.get(field_name, fallback)
+
+
+class _FieldStub:
+    def __init__(self, units: str) -> None:
+        self.units = units
+
+
+class _MessageWithUnitsStub(_MessageStub):
+    def __init__(self, values: dict[str, object], units: dict[str, str]) -> None:
+        super().__init__(values)
+        self._units = units
+
+    def get_field(self, field_name_or_num: object, idx: int = 0) -> object:
+        del idx
+        key = str(field_name_or_num)
+        if key in self._units:
+            return _FieldStub(self._units[key])
+        raise KeyError(key)
 
 
 @pytest.fixture(autouse=True)
@@ -277,6 +297,113 @@ class TestSessionTimeMathSemantics:
 
         assert model.start_time_utc == "2026-02-24T14:00:00+00:00"
         assert model.local_tz_offset == "UTC-04:00"
+
+
+class TestCanonicalMetadataDistanceFallback:
+    """Distance derivation fallback behavior for canonical metadata identity zone."""
+
+    class _RecordSetStub:
+        def __init__(self, df: pd.DataFrame) -> None:
+            self._df = df
+            self._messages: list[Any] = []
+
+        @property
+        def to_dataframe(self) -> pd.DataFrame:
+            return self._df
+
+    def test_build_canonical_metadata_uses_record_distance_when_session_missing(self) -> None:
+        """If session total_distance is missing, identity.distance_m should be derived from records."""
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "sport": "cycling",
+                    "timestamp": datetime(2026, 2, 23, 7, 45, 0, tzinfo=timezone.utc),
+                    "total_elapsed_time": 3600,
+                    "total_timer_time": 3500,
+                }
+            ),
+        )
+        model._file_id_msg = None
+
+        records_df = pd.DataFrame(
+            {
+                "timestamp_utc": [
+                    "2026-02-23T06:45:00+00:00",
+                    "2026-02-23T06:45:01+00:00",
+                    "2026-02-23T06:45:02+00:00",
+                ],
+                "elapsed_sec": [0, 1, 2],
+                "distance_m": [0.0, 1000.0, 2000.0],
+            }
+        )
+        with patch.object(PayloadFitModel, "build_canonical_records", return_value=self._RecordSetStub(records_df)):
+            metadata = model.build_canonical_metadata()
+
+        assert metadata["identity"]["distance_m"] == pytest.approx(2000.0)
+
+    def test_build_canonical_metadata_prefers_session_distance_when_present(self) -> None:
+        """Session total_distance remains authoritative when available."""
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "sport": "cycling",
+                    "timestamp": datetime(2026, 2, 23, 7, 45, 0, tzinfo=timezone.utc),
+                    "total_elapsed_time": 3600,
+                    "total_timer_time": 3500,
+                    "total_distance": 42000,
+                }
+            ),
+        )
+        model._file_id_msg = None
+
+        records_df = pd.DataFrame(
+            {
+                "timestamp_utc": [
+                    "2026-02-23T06:45:00+00:00",
+                    "2026-02-23T06:45:01+00:00",
+                    "2026-02-23T06:45:02+00:00",
+                ],
+                "elapsed_sec": [0, 1, 2],
+                "distance_m": [0.0, 1000.0, 2000.0],
+            }
+        )
+        with patch.object(PayloadFitModel, "build_canonical_records", return_value=self._RecordSetStub(records_df)):
+            metadata = model.build_canonical_metadata()
+
+        assert metadata["identity"]["distance_m"] == pytest.approx(42000.0)
+
+
+class TestFitUnitsNormalization:
+    """Ensure BaseFitModel normalizes numeric fields using fitdecode units metadata."""
+
+    def test_distance_m_converts_km_to_meters(self) -> None:
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
+        model._session_msg = cast(
+            Any,
+            _MessageWithUnitsStub(
+                values={"total_distance": 0.68253},
+                units={"total_distance": "km"},
+            ),
+        )
+
+        assert model.distance_m == pytest.approx(682.53)
+
+    def test_avg_speed_mps_converts_kmh_to_mps(self) -> None:
+        model = PayloadFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
+        model._session_msg = cast(
+            Any,
+            _MessageWithUnitsStub(
+                values={"avg_speed": 12.8124, "max_speed": 15.8652},
+                units={"avg_speed": "km/h", "max_speed": "km/h"},
+            ),
+        )
+
+        assert model.avg_speed_mps == pytest.approx(3.559, abs=1e-3)
+        assert model.max_speed_mps == pytest.approx(4.407, abs=1e-3)
 
 
 class TestHealthFitWorkoutTypeParsing:
