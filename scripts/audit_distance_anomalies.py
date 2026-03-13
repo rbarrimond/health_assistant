@@ -118,28 +118,40 @@ def fetch_workouts(
 
     for partition_key in partition_keys:
         entities = table.query_entities(f"PartitionKey eq '{partition_key}'")
-        for entity in entities:
-            raw_start = entity.get("start_time_utc")
-            if not isinstance(raw_start, str):
-                continue
-            start_time_utc = _parse_iso_utc(raw_start)
-            if not (start_utc <= start_time_utc <= end_utc):
-                continue
-            distance_raw = entity.get("distance_m")
-            duration_raw = entity.get("duration_sec")
-            rows.append(
-                WorkoutRow(
-                    workout_id=str(entity.get("workout_id") or ""),
-                    start_time_utc=start_time_utc,
-                    sport=(str(entity.get("sport")) if entity.get("sport") is not None else None),
-                    distance_m=(float(distance_raw) if distance_raw is not None else None),
-                    duration_sec=(float(duration_raw) if duration_raw is not None else None),
-                    partition_key=str(entity.get("PartitionKey") or ""),
-                    row_key=str(entity.get("RowKey") or ""),
-                )
+        rows.extend(
+            row
+            for row in (
+                _workout_row_from_entity(entity, start_utc, end_utc)
+                for entity in entities
             )
+            if row is not None
+        )
 
     return rows
+
+
+def _workout_row_from_entity(
+    entity: Dict[str, object],
+    start_utc: datetime,
+    end_utc: datetime,
+) -> Optional[WorkoutRow]:
+    raw_start = entity.get("start_time_utc")
+    if not isinstance(raw_start, str):
+        return None
+
+    start_time_utc = _parse_iso_utc(raw_start)
+    if not (start_utc <= start_time_utc <= end_utc):
+        return None
+
+    return WorkoutRow(
+        workout_id=str(entity.get("workout_id") or ""),
+        start_time_utc=start_time_utc,
+        sport=(str(entity.get("sport")) if entity.get("sport") is not None else None),
+        distance_m=_optional_float(entity.get("distance_m")),
+        duration_sec=_optional_float(entity.get("duration_sec")),
+        partition_key=str(entity.get("PartitionKey") or ""),
+        row_key=str(entity.get("RowKey") or ""),
+    )
 
 
 def fetch_weekly_rollups(
@@ -152,46 +164,51 @@ def fetch_weekly_rollups(
 
     years = sorted({int(k.split("-")[0]) for k in target_week_keys})
     for year in years:
-        for delimiter in ("|", "#"):
-            partition_key = f"{athlete_id}{delimiter}{year}"
-            entities = table.query_entities(f"PartitionKey eq '{partition_key}'")
-            for entity in entities:
-                row_key = str(entity.get("RowKey") or "")
-                if row_key not in target_week_keys:
-                    continue
-                by_week[row_key].append(
-                    RollupRow(
-                        partition_key=partition_key,
-                        row_key=row_key,
-                        total_distance_km=(
-                            float(entity.get("total_distance_km"))
-                            if entity.get("total_distance_km") is not None
-                            else None
-                        ),
-                        workouts_count=(
-                            int(entity.get("workouts_count"))
-                            if entity.get("workouts_count") is not None
-                            else None
-                        ),
-                        last_updated_at_utc=(
-                            str(entity.get("last_updated_at_utc"))
-                            if entity.get("last_updated_at_utc") is not None
-                            else None
-                        ),
-                        week_start_local=(
-                            str(entity.get("week_start_local"))
-                            if entity.get("week_start_local") is not None
-                            else None
-                        ),
-                        week_end_local=(
-                            str(entity.get("week_end_local"))
-                            if entity.get("week_end_local") is not None
-                            else None
-                        ),
-                    )
-                )
+        for row in _query_rollups_for_year(table, athlete_id, year, target_week_keys):
+            by_week[row.row_key].append(row)
 
     return by_week
+
+
+def _query_rollups_for_year(
+    table,
+    athlete_id: str,
+    year: int,
+    target_week_keys: Set[str],
+) -> List[RollupRow]:
+    rows: List[RollupRow] = []
+    for delimiter in ("|", "#"):
+        partition_key = f"{athlete_id}{delimiter}{year}"
+        entities = table.query_entities(f"PartitionKey eq '{partition_key}'")
+        rows.extend(
+            row
+            for row in (
+                _rollup_row_from_entity(entity, partition_key, target_week_keys)
+                for entity in entities
+            )
+            if row is not None
+        )
+    return rows
+
+
+def _rollup_row_from_entity(
+    entity: Dict[str, object],
+    partition_key: str,
+    target_week_keys: Set[str],
+) -> Optional[RollupRow]:
+    row_key = str(entity.get("RowKey") or "")
+    if row_key not in target_week_keys:
+        return None
+
+    return RollupRow(
+        partition_key=partition_key,
+        row_key=row_key,
+        total_distance_km=_optional_float(entity.get("total_distance_km")),
+        workouts_count=_optional_int(entity.get("workouts_count")),
+        last_updated_at_utc=_optional_str(entity.get("last_updated_at_utc")),
+        week_start_local=_optional_str(entity.get("week_start_local")),
+        week_end_local=_optional_str(entity.get("week_end_local")),
+    )
 
 
 def compute_expected_weekly_totals(
@@ -220,19 +237,28 @@ def compute_expected_weekly_totals(
 def analyze_workout_anomalies(workouts: List[WorkoutRow]) -> Dict[str, List[WorkoutRow]]:
     buckets: Dict[str, List[WorkoutRow]] = defaultdict(list)
     for workout in workouts:
-        if workout.distance_m is None:
-            buckets["missing_distance"].append(workout)
-            continue
-        if workout.distance_m < 0:
-            buckets["negative_distance"].append(workout)
-        if workout.distance_m > 300_000:
-            buckets["distance_over_300km"].append(workout)
-        if workout.duration_sec and workout.duration_sec > 0:
-            speed_kmh = (workout.distance_m / 1000) / (workout.duration_sec / 3600)
-            if speed_kmh > 90:
-                buckets["speed_over_90kmh"].append(workout)
-            if speed_kmh < 2 and workout.distance_m > 5000:
-                buckets["speed_under_2kmh_with_distance"].append(workout)
+        for bucket in _classify_workout_anomalies(workout):
+            buckets[bucket].append(workout)
+    return buckets
+
+
+def _classify_workout_anomalies(workout: WorkoutRow) -> List[str]:
+    if workout.distance_m is None:
+        return ["missing_distance"]
+
+    buckets: List[str] = []
+    if workout.distance_m < 0:
+        buckets.append("negative_distance")
+    if workout.distance_m > 300_000:
+        buckets.append("distance_over_300km")
+
+    speed_kmh = _speed_kmh(workout)
+    if speed_kmh is None:
+        return buckets
+    if speed_kmh > 90:
+        buckets.append("speed_over_90kmh")
+    if speed_kmh < 2 and workout.distance_m > 5000:
+        buckets.append("speed_under_2kmh_with_distance")
     return buckets
 
 
@@ -254,44 +280,95 @@ def print_report(
     print(f"athlete_timezone: {athlete_tz.key}")
     print(f"weeks_audited (completed): {weeks}")
     print(f"workouts_loaded: {len(workouts)}")
-    non_null_distances = [w.distance_m for w in workouts if w.distance_m is not None]
-    if non_null_distances:
-        min_m = min(non_null_distances)
-        max_m = max(non_null_distances)
-        med_m = median(non_null_distances)
-        print(
-            "distance_m distribution: "
-            f"non_null={len(non_null_distances)} "
-            f"min={round(min_m, 2)}m median={round(float(med_m), 2)}m max={round(max_m, 2)}m"
-        )
-    else:
-        print("distance_m distribution: non_null=0")
+    _print_distance_distribution(workouts)
+    _print_cycling_unit_hypothesis(workouts)
+    print()
+    _print_week_comparison(target_week_keys, expected_km, expected_counts, rollups_by_week)
+    _print_anomaly_buckets(anomalies)
+    _print_largest_distances(workouts)
+    _print_duplicate_week_rows(rollups_by_week)
 
+
+def _optional_float(value: object) -> Optional[float]:
+    if value is None:
+        return None
+    return float(value)
+
+
+def _optional_int(value: object) -> Optional[int]:
+    if value is None:
+        return None
+    return int(value)
+
+
+def _optional_str(value: object) -> Optional[str]:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _speed_kmh(workout: WorkoutRow) -> Optional[float]:
+    if workout.distance_m is None or workout.duration_sec in (None, 0):
+        return None
+    return (workout.distance_m / 1000) / (workout.duration_sec / 3600)
+
+
+def _print_distance_distribution(workouts: List[WorkoutRow]) -> None:
+    non_null_distances = [w.distance_m for w in workouts if w.distance_m is not None]
+    if not non_null_distances:
+        print("distance_m distribution: non_null=0")
+        return
+
+    min_m = min(non_null_distances)
+    max_m = max(non_null_distances)
+    med_m = median(non_null_distances)
+    print(
+        "distance_m distribution: "
+        f"non_null={len(non_null_distances)} "
+        f"min={round(min_m, 2)}m median={round(float(med_m), 2)}m max={round(max_m, 2)}m"
+    )
+
+
+def _print_cycling_unit_hypothesis(workouts: List[WorkoutRow]) -> None:
     cycling_with_duration = [
         row for row in workouts
         if row.sport == "cycling"
         and row.distance_m is not None
         and row.duration_sec not in (None, 0)
     ]
-    if cycling_with_duration:
-        speeds_if_m = []
-        speeds_if_km = []
-        for row in cycling_with_duration:
-            duration_h = float(row.duration_sec or 0) / 3600
-            if duration_h <= 0:
-                continue
-            distance = float(row.distance_m or 0)
-            speeds_if_m.append((distance / 1000) / duration_h)
-            speeds_if_km.append(distance / duration_h)
+    if not cycling_with_duration:
+        return
 
-        if speeds_if_m and speeds_if_km:
-            print(
-                "unit hypothesis (cycling speeds): "
-                f"meters_assumption median={round(float(median(speeds_if_m)), 2)} km/h, "
-                f"kilometers_assumption median={round(float(median(speeds_if_km)), 2)} km/h"
-            )
-    print()
+    speeds_if_m, speeds_if_km = _cycling_speed_hypotheses(cycling_with_duration)
+    if not speeds_if_m or not speeds_if_km:
+        return
 
+    print(
+        "unit hypothesis (cycling speeds): "
+        f"meters_assumption median={round(float(median(speeds_if_m)), 2)} km/h, "
+        f"kilometers_assumption median={round(float(median(speeds_if_km)), 2)} km/h"
+    )
+
+
+def _cycling_speed_hypotheses(workouts: List[WorkoutRow]) -> Tuple[List[float], List[float]]:
+    speeds_if_m: List[float] = []
+    speeds_if_km: List[float] = []
+    for row in workouts:
+        duration_h = float(row.duration_sec or 0) / 3600
+        if duration_h <= 0:
+            continue
+        distance = float(row.distance_m or 0)
+        speeds_if_m.append((distance / 1000) / duration_h)
+        speeds_if_km.append(distance / duration_h)
+    return speeds_if_m, speeds_if_km
+
+
+def _print_week_comparison(
+    target_week_keys: List[str],
+    expected_km: Dict[str, float],
+    expected_counts: Dict[str, int],
+    rollups_by_week: Dict[str, List[RollupRow]],
+) -> None:
     print("Week comparison (expected from Workouts vs persisted WeeklyRollups)")
     print("-" * 100)
     print(
@@ -299,52 +376,68 @@ def print_report(
     )
 
     for week in target_week_keys:
-        expected = expected_km.get(week)
-        exp_count = expected_counts.get(week, 0)
-        persisted_rows = rollups_by_week.get(week, [])
+        _print_week_comparison_row(
+            week,
+            expected_km.get(week),
+            expected_counts.get(week, 0),
+            rollups_by_week.get(week, []),
+        )
 
-        if not persisted_rows:
-            print(
-                f"{week} | {expected if expected is not None else '-'} | - | - | "
-                f"{exp_count} | - | -"
-            )
-            continue
 
-        for row in sorted(
-            persisted_rows,
-            key=lambda item: item.last_updated_at_utc or "",
-            reverse=True,
-        ):
-            persisted = row.total_distance_km
-            delta = (
-                round((persisted or 0) - (expected or 0), 2)
-                if expected is not None and persisted is not None
-                else None
-            )
-            print(
-                f"{week} | {expected if expected is not None else '-'} | "
-                f"{persisted if persisted is not None else '-'} | "
-                f"{delta if delta is not None else '-'} | "
-                f"{exp_count} | {row.workouts_count if row.workouts_count is not None else '-'} | "
-                f"{row.partition_key}"
-            )
+def _print_week_comparison_row(
+    week: str,
+    expected: Optional[float],
+    expected_count: int,
+    persisted_rows: List[RollupRow],
+) -> None:
+    if not persisted_rows:
+        print(
+            f"{week} | {expected if expected is not None else '-'} | - | - | "
+            f"{expected_count} | - | -"
+        )
+        return
 
+    for row in sorted(
+        persisted_rows,
+        key=lambda item: item.last_updated_at_utc or "",
+        reverse=True,
+    ):
+        delta = _delta_km(expected, row.total_distance_km)
+        print(
+            f"{week} | {expected if expected is not None else '-'} | "
+            f"{row.total_distance_km if row.total_distance_km is not None else '-'} | "
+            f"{delta if delta is not None else '-'} | "
+            f"{expected_count} | {row.workouts_count if row.workouts_count is not None else '-'} | "
+            f"{row.partition_key}"
+        )
+
+
+def _delta_km(expected: Optional[float], persisted: Optional[float]) -> Optional[float]:
+    if expected is None or persisted is None:
+        return None
+    return round(persisted - expected, 2)
+
+
+def _print_anomaly_buckets(anomalies: Dict[str, List[WorkoutRow]]) -> None:
     print()
     print("Workout-level anomaly buckets")
     print("-" * 100)
     if not anomalies:
         print("No heuristic anomalies detected in raw workout distances.")
-    else:
-        for bucket, rows in sorted(anomalies.items()):
-            print(f"{bucket}: {len(rows)}")
-            for row in rows[:5]:
-                print(
-                    f"  - {row.workout_id or row.row_key} | start={row.start_time_utc.isoformat()} "
-                    f"| distance_m={row.distance_m} | duration_sec={row.duration_sec} | sport={row.sport}"
-                )
-            if len(rows) > 5:
-                print(f"  ... and {len(rows) - 5} more")
+        return
 
+    for bucket, rows in sorted(anomalies.items()):
+        print(f"{bucket}: {len(rows)}")
+        for row in rows[:5]:
+            print(
+                f"  - {row.workout_id or row.row_key} | start={row.start_time_utc.isoformat()} "
+                f"| distance_m={row.distance_m} | duration_sec={row.duration_sec} | sport={row.sport}"
+            )
+        if len(rows) > 5:
+            print(f"  ... and {len(rows) - 5} more")
+
+
+def _print_largest_distances(workouts: List[WorkoutRow]) -> None:
     print()
     print("Largest non-null workout distances")
     print("-" * 100)
@@ -355,13 +448,16 @@ def print_report(
     )
     if not largest:
         print("No workouts with distance_m present.")
-    else:
-        for row in largest[:10]:
-            print(
-                f"{row.workout_id or row.row_key} | {round(row.distance_m or 0, 2)}m "
-                f"| start={row.start_time_utc.isoformat()} | sport={row.sport}"
-            )
+        return
 
+    for row in largest[:10]:
+        print(
+            f"{row.workout_id or row.row_key} | {round(row.distance_m or 0, 2)}m "
+            f"| start={row.start_time_utc.isoformat()} | sport={row.sport}"
+        )
+
+
+def _print_duplicate_week_rows(rollups_by_week: Dict[str, List[RollupRow]]) -> None:
     duplicate_week_rows = {
         week: rows for week, rows in rollups_by_week.items() if len(rows) > 1
     }
@@ -370,10 +466,11 @@ def print_report(
     print("-" * 100)
     if not duplicate_week_rows:
         print("No duplicate week rows found.")
-    else:
-        for week, rows in sorted(duplicate_week_rows.items()):
-            partitions = ", ".join(sorted({r.partition_key for r in rows}))
-            print(f"{week}: {len(rows)} rows -> {partitions}")
+        return
+
+    for week, rows in sorted(duplicate_week_rows.items()):
+        partitions = ", ".join(sorted({r.partition_key for r in rows}))
+        print(f"{week}: {len(rows)} rows -> {partitions}")
 
 
 

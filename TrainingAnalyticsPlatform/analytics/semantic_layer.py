@@ -590,21 +590,32 @@ class SemanticLayer:
 
         if not timezone_name:
             latest_physiometrics = self.storage.physiometrics.get_physiometrics(athlete_id)
-            if isinstance(latest_physiometrics, dict):
-                athlete_info = latest_physiometrics.get("athlete_info")
-                if isinstance(athlete_info, dict):
-                    info_tz = athlete_info.get("home_timezone")
-                    if isinstance(info_tz, str) and info_tz.strip():
-                        timezone_name = info_tz.strip()
-
-                value = latest_physiometrics.get("athlete_timezone")
-                if not timezone_name and isinstance(value, str) and value.strip():
-                    timezone_name = value.strip()
+            timezone_name = self._timezone_from_physiometrics(latest_physiometrics)
 
         if not timezone_name:
             timezone_name = Config.get_athlete_timezone()
 
         return timezone_name
+
+    @staticmethod
+    def _clean_timezone_name(value: Any) -> Optional[str]:
+        """Normalize candidate timezone values."""
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return None
+
+    def _timezone_from_physiometrics(self, latest_physiometrics: Any) -> Optional[str]:
+        """Extract athlete timezone from physiometrics payload when present."""
+        if not isinstance(latest_physiometrics, dict):
+            return None
+
+        athlete_info = latest_physiometrics.get("athlete_info")
+        if isinstance(athlete_info, dict):
+            timezone_name = self._clean_timezone_name(athlete_info.get("home_timezone"))
+            if timezone_name:
+                return timezone_name
+
+        return self._clean_timezone_name(latest_physiometrics.get("athlete_timezone"))
 
     def _resolve_timezone_from_agent_preferences(self, athlete_id: str) -> Optional[str]:
         """Resolve athlete timezone from long-lived AgentPreferences records."""

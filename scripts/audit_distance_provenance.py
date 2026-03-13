@@ -94,51 +94,77 @@ def collect_rows(storage: StorageCoordinator, athlete_id: str, weeks: int) -> Li
     rows: List[DistanceProvenanceRow] = []
     for partition_key in _iter_month_keys(athlete_id, start_utc, end_utc):
         entities = workouts_table.query_entities(f"PartitionKey eq '{partition_key}'")
-        for entity in entities:
-            start_text = entity.get("start_time_utc")
-            workout_id = str(entity.get("workout_id") or "")
-            if not isinstance(start_text, str) or not workout_id:
-                continue
-
-            start_time_utc = _parse_iso_utc(start_text)
-            if not (start_utc <= start_time_utc <= end_utc):
-                continue
-
-            try:
-                metadata = storage.workouts.load_metadata_json(workout_id)
-            except (HttpResponseError, ResourceNotFoundError, OSError, ValueError):
-                metadata = {}
-
-            identity = metadata.get("identity") if isinstance(metadata, dict) else {}
-            session = metadata.get("session") if isinstance(metadata, dict) else {}
-            if not isinstance(identity, dict):
-                identity = {}
-            if not isinstance(session, dict):
-                session = {}
-
-            canonical_blob = entity.get("canonical_records_blob")
-            canonical_max_distance_m, canonical_last_distance_m = _canonical_distance_stats(
-                storage,
-                str(canonical_blob) if canonical_blob else None,
+        rows.extend(
+            row
+            for row in (
+                _provenance_row_from_entity(storage, entity, start_utc, end_utc)
+                for entity in entities
             )
-
-            rows.append(
-                DistanceProvenanceRow(
-                    workout_id=workout_id,
-                    start_time_utc=start_time_utc,
-                    sport=(str(entity.get("sport")) if entity.get("sport") is not None else None),
-                    partition_key=str(entity.get("PartitionKey") or ""),
-                    row_key=str(entity.get("RowKey") or ""),
-                    table_distance_m=_safe_float(entity.get("distance_m")),
-                    metadata_identity_distance_m=_safe_float(identity.get("distance_m")),
-                    metadata_session_distance_m=_safe_float(session.get("distance_m")),
-                    canonical_max_distance_m=canonical_max_distance_m,
-                    canonical_last_distance_m=canonical_last_distance_m,
-                )
-            )
+            if row is not None
+        )
 
     rows.sort(key=lambda row: row.start_time_utc)
     return rows
+
+
+def _provenance_row_from_entity(
+    storage: StorageCoordinator,
+    entity: Dict[str, object],
+    start_utc: datetime,
+    end_utc: datetime,
+) -> Optional[DistanceProvenanceRow]:
+    start_text = entity.get("start_time_utc")
+    workout_id = str(entity.get("workout_id") or "")
+    if not isinstance(start_text, str) or not workout_id:
+        return None
+
+    start_time_utc = _parse_iso_utc(start_text)
+    if not (start_utc <= start_time_utc <= end_utc):
+        return None
+
+    metadata = _load_metadata(storage, workout_id)
+    identity, session = _metadata_sections(metadata)
+    canonical_max_distance_m, canonical_last_distance_m = _canonical_distance_stats(
+        storage,
+        _optional_str(entity.get("canonical_records_blob")),
+    )
+
+    return DistanceProvenanceRow(
+        workout_id=workout_id,
+        start_time_utc=start_time_utc,
+        sport=_optional_str(entity.get("sport")),
+        partition_key=str(entity.get("PartitionKey") or ""),
+        row_key=str(entity.get("RowKey") or ""),
+        table_distance_m=_safe_float(entity.get("distance_m")),
+        metadata_identity_distance_m=_safe_float(identity.get("distance_m")),
+        metadata_session_distance_m=_safe_float(session.get("distance_m")),
+        canonical_max_distance_m=canonical_max_distance_m,
+        canonical_last_distance_m=canonical_last_distance_m,
+    )
+
+
+def _load_metadata(storage: StorageCoordinator, workout_id: str) -> Dict[str, object]:
+    try:
+        metadata = storage.workouts.load_metadata_json(workout_id)
+    except (HttpResponseError, ResourceNotFoundError, OSError, ValueError):
+        return {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _metadata_sections(metadata: Dict[str, object]) -> tuple[Dict[str, object], Dict[str, object]]:
+    identity = metadata.get("identity")
+    session = metadata.get("session")
+    return _dict_or_empty(identity), _dict_or_empty(session)
+
+
+def _dict_or_empty(value: object) -> Dict[str, object]:
+    return value if isinstance(value, dict) else {}
+
+
+def _optional_str(value: object) -> Optional[str]:
+    if value is None:
+        return None
+    return str(value)
 
 
 def _format_value(value: Optional[float]) -> str:
@@ -162,25 +188,7 @@ def report(rows: List[DistanceProvenanceRow]) -> None:
     with_table = [r for r in rows if r.table_distance_m is not None]
     print(f"table_distance_present: {len(with_table)}")
 
-    mismatches = []
-    for row in rows:
-        ti = row.table_distance_m
-        mi = row.metadata_identity_distance_m
-        ms = row.metadata_session_distance_m
-        cm = row.canonical_max_distance_m
-        cl = row.canonical_last_distance_m
-
-        for label, candidate in (
-            ("metadata_identity", mi),
-            ("metadata_session", ms),
-            ("canonical_max", cm),
-            ("canonical_last", cl),
-        ):
-            if ti is None or candidate is None:
-                continue
-            ratio = _ratio(ti, candidate)
-            if ratio is not None and (ratio < 0.95 or ratio > 1.05):
-                mismatches.append((row, label, candidate, ratio))
+    mismatches = _find_mismatches(rows)
 
     print(f"mismatch_pairs(>5% delta): {len(mismatches)}")
 
@@ -190,18 +198,49 @@ def report(rows: List[DistanceProvenanceRow]) -> None:
     ]
     print(f"likely_1000x_unit_mismatch_pairs: {len(thousand_like)}")
     print()
+    _print_mismatch_samples(thousand_like)
+    _print_sample_rows(rows)
 
+
+def _find_mismatches(
+    rows: List[DistanceProvenanceRow],
+) -> List[tuple[DistanceProvenanceRow, str, float, float]]:
+    mismatches: List[tuple[DistanceProvenanceRow, str, float, float]] = []
+    for row in rows:
+        for label, candidate in _comparison_candidates(row):
+            ratio = _ratio(row.table_distance_m, candidate)
+            if ratio is None or 0.95 <= ratio <= 1.05:
+                continue
+            mismatches.append((row, label, candidate, ratio))
+    return mismatches
+
+
+def _comparison_candidates(row: DistanceProvenanceRow) -> List[tuple[str, Optional[float]]]:
+    return [
+        ("metadata_identity", row.metadata_identity_distance_m),
+        ("metadata_session", row.metadata_session_distance_m),
+        ("canonical_max", row.canonical_max_distance_m),
+        ("canonical_last", row.canonical_last_distance_m),
+    ]
+
+
+def _print_mismatch_samples(
+    mismatches: List[tuple[DistanceProvenanceRow, str, float, float]],
+) -> None:
     print("Top likely 1000x mismatches")
     print("-" * 120)
-    if not thousand_like:
+    if not mismatches:
         print("None detected.")
-    else:
-        for row, label, candidate, ratio in thousand_like[:20]:
-            print(
-                f"{row.start_time_utc.isoformat()} | {row.workout_id} | sport={row.sport} | "
-                f"table={_format_value(row.table_distance_m)} | {label}={_format_value(candidate)} | ratio={round(ratio, 6)}"
-            )
+        return
 
+    for row, label, candidate, ratio in mismatches[:20]:
+        print(
+            f"{row.start_time_utc.isoformat()} | {row.workout_id} | sport={row.sport} | "
+            f"table={_format_value(row.table_distance_m)} | {label}={_format_value(candidate)} | ratio={round(ratio, 6)}"
+        )
+
+
+def _print_sample_rows(rows: List[DistanceProvenanceRow]) -> None:
     print()
     print("Sample provenance rows")
     print("-" * 120)

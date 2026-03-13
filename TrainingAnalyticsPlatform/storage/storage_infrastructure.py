@@ -461,7 +461,7 @@ class StorageInfrastructure:
         if table_name in MANAGED_TABLE_NAMES:
             try:
                 self.service_client.create_table_if_not_exists(table_name)
-            except Exception as exc:  # pylint: disable=broad-exception-caught
+            except Exception:  # pylint: disable=broad-exception-caught
                 logger.error(
                     "Failed to ensure table exists before access",
                     extra={"table_name": table_name},
