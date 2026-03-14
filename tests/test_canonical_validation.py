@@ -505,3 +505,117 @@ def test_canonical_record_from_fit_message_handles_none_balance():
     # Should pass through as None
     assert record is not None
     assert record.lr_balance_pct is None
+
+
+# =========================================================================
+# HR–Power Lag Signed Semantics Tests
+# =========================================================================
+# Regression tests for https://github.com/rbarrimond/health_assistant issues
+# where DurabilityMetricsModel.hr_power_lag_sec incorrectly enforced ge=0,
+# rejecting valid negative lag values produced by the cross-correlation
+# algorithm (τ search range [-60, +60] per formula contract).
+
+
+def test_durability_metrics_model_accepts_negative_lag():
+    """DurabilityMetricsModel must accept negative hr_power_lag_sec values.
+
+    Formula contract defines τ ∈ [-60, +60]; negative values are semantically
+    valid (HR leads power). The previous ge=0 constraint was incorrect.
+    Bug: production error with input_value=-27 aborting athlete rollups.
+    """
+    from TrainingAnalyticsPlatform.models import DurabilityMetricsModel
+
+    # Should not raise — negative lag is contractually valid
+    model = DurabilityMetricsModel(hr_power_lag_sec=-27)  # type: ignore
+    assert model.hr_power_lag_sec == -27
+
+
+def test_durability_metrics_model_accepts_positive_lag():
+    """DurabilityMetricsModel accepts positive hr_power_lag_sec (normal physiological lag)."""
+    from TrainingAnalyticsPlatform.models import DurabilityMetricsModel
+
+    model = DurabilityMetricsModel(hr_power_lag_sec=15)  # type: ignore
+    assert model.hr_power_lag_sec == 15
+
+
+def test_durability_metrics_model_accepts_zero_lag():
+    """DurabilityMetricsModel accepts zero hr_power_lag_sec."""
+    from TrainingAnalyticsPlatform.models import DurabilityMetricsModel
+
+    model = DurabilityMetricsModel(hr_power_lag_sec=0)  # type: ignore
+    assert model.hr_power_lag_sec == 0
+
+
+def test_durability_metrics_model_accepts_none_lag():
+    """DurabilityMetricsModel accepts None hr_power_lag_sec (insufficient data)."""
+    from TrainingAnalyticsPlatform.models import DurabilityMetricsModel
+
+    model = DurabilityMetricsModel(hr_power_lag_sec=None)  # type: ignore
+    assert model.hr_power_lag_sec is None
+
+
+def test_durability_metrics_model_rejects_lag_below_minus_60():
+    """DurabilityMetricsModel rejects lag below -60 (outside formula contract search range)."""
+    from pydantic import ValidationError as PydanticValidationError
+
+    from TrainingAnalyticsPlatform.models import DurabilityMetricsModel
+
+    with pytest.raises(PydanticValidationError):
+        DurabilityMetricsModel(hr_power_lag_sec=-61)  # type: ignore
+
+
+def test_durability_metrics_model_rejects_lag_above_60():
+    """DurabilityMetricsModel rejects lag above +60 (outside formula contract search range)."""
+    from pydantic import ValidationError as PydanticValidationError
+
+    from TrainingAnalyticsPlatform.models import DurabilityMetricsModel
+
+    with pytest.raises(PydanticValidationError):
+        DurabilityMetricsModel(hr_power_lag_sec=61)  # type: ignore
+
+
+def test_canonical_engine_produces_lag_within_signed_range():
+    """CanonicalAnalyticsEngine.hr_power_lag_sec must fall within [-60, +60] or be None."""
+    # Construct 1Hz data where HR rises before power drops (should yield negative lag)
+    n = 120
+    elapsed = list(range(n))
+    # Power drops after 60s; HR anticipates and starts dropping from 50s
+    power = [200] * 60 + [150] * 60
+    hr = [140] * 50 + [130] * 70  # HR drops 10s before power
+
+    df = pd.DataFrame({
+        "elapsed_sec": elapsed,
+        "power_watts": [float(p) for p in power],
+        "heart_rate_bpm": [float(h) for h in hr],
+    })
+
+    engine = CanonicalAnalyticsEngine(df=df, metadata={})
+    lag = engine.hr_power_lag_sec
+
+    assert lag is None or -60 <= lag <= 60
+
+
+def test_canonical_engine_negative_lag_does_not_raise():
+    """CanonicalAnalyticsEngine should not raise when hr_power_lag_sec is negative.
+
+    This is a regression test for the production crash where negative lag
+    propagated to DurabilityMetricsModel and was rejected by ge=0.
+    """
+    n = 120
+    elapsed = list(range(n))
+    power = [200] * 60 + [150] * 60
+    hr = [140] * 50 + [130] * 70  # HR leads power drop
+
+    df = pd.DataFrame({
+        "elapsed_sec": elapsed,
+        "power_watts": [float(p) for p in power],
+        "heart_rate_bpm": [float(h) for h in hr],
+    })
+
+    # Must not raise — DurabilityMetricsModel now accepts signed lag
+    engine = CanonicalAnalyticsEngine(df=df, metadata={})
+    metrics = engine.to_metrics_dict()
+
+    assert "hr_power_lag_sec" in metrics
+    lag = metrics["hr_power_lag_sec"]
+    assert lag is None or isinstance(lag, int)

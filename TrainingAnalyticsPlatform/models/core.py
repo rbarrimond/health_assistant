@@ -1410,6 +1410,15 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
     @computed_field
     @property
     def hr_power_lag_sec(self) -> Optional[int]:
+        """Signed cross-correlation lag of HR response to power, τ ∈ [-60, +60] seconds.
+
+        Positive value: HR lags behind power changes (normal physiological response).
+        Negative value: HR leads power (e.g., elevated HR before a power drop).
+        None if insufficient data (< 10 aligned samples).
+
+        See CANONICAL_ANALYTICS_DETERMINISTIC_FORMULA_CONTRACT.md — "HR–Power Lag".
+        No abs() is applied; the signed value is contractually correct.
+        """
         arrays = self._durability_arrays()
         if arrays is None:
             return None
@@ -1788,6 +1797,12 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
         return float(slope)
 
     def _hr_power_lag_sec(self, power: pd.Series, hr: pd.Series) -> Optional[int]:
+        """Return signed lag τ in seconds that maximises correlation(power_t, shift(hr_t, τ)).
+
+        Searches τ in [-LAG_WINDOW_SEC, +LAG_WINDOW_SEC] (currently [-60, +60]).
+        Returns signed int; negative values are valid and must not be suppressed.
+        Returns None when fewer than 10 aligned samples are available.
+        """
         if power.empty or hr.empty:
             return None
         min_len = min(len(power), len(hr))

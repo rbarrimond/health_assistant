@@ -33,7 +33,10 @@ class DurabilityMetricsModel(BaseModel):
     - fatigue_rate_power: Rate of power decline
     - hr_drift_bpm: Heart rate drift over workout
     - ef_first_half, ef_second_half, ef_overall: Efficiency factor by period
-    - hr_power_lag_sec: HR response lag to power changes
+    - hr_power_lag_sec: Signed HR-to-power lag in seconds, τ ∈ [-60, +60].
+      Positive = HR lags behind power (normal physiological response).
+      Negative = HR leads power (e.g., HR elevated before power drops).
+      Search range and sign semantics defined in CANONICAL_ANALYTICS_DETERMINISTIC_FORMULA_CONTRACT.md.
     
     Optional - requires both power and heart rate data.
     """
@@ -42,7 +45,7 @@ class DurabilityMetricsModel(BaseModel):
     decoupling_pct: Optional[float] = None
     durability_slope: Optional[float] = None
     fatigue_rate_power: Optional[float] = None
-    hr_power_lag_sec: Optional[int] = Field(None, ge=0)
+    hr_power_lag_sec: Optional[int] = Field(None, ge=-60, le=60)
     ef_first_half: Optional[float] = Field(None, ge=0)
     ef_second_half: Optional[float] = Field(None, ge=0)
     ef_overall: Optional[float] = Field(None, ge=0)

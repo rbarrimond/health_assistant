@@ -10,6 +10,25 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-14
 
+### Fix: Signed HR–Power Lag Schema Constraint [application v1.0.2]
+
+**Fixed**: `DurabilityMetricsModel.hr_power_lag_sec` incorrectly enforced `ge=0`, causing Pydantic `ValidationError` for valid negative lag values produced by the cross-correlation algorithm.
+
+**Root cause**: Formula contract ([`CANONICAL_ANALYTICS_DETERMINISTIC_FORMULA_CONTRACT.md`]) specifies τ ∈ [-60, +60] as the signed search range. Negative lag values are semantically valid (HR leads power). The `ge=0` constraint was never in the contract — it was incorrectly applied during initial model construction.
+
+**Production impact**: Athletes whose most-recent workout produced a negative `hr_power_lag_sec` (e.g., `-27`) had their entire weekly rollup aborted. The `ValidationError` propagated as `StorageError`, landing the athlete in the `failed` list and returning HTTP 207.
+
+**Changes**:
+
+- **`TrainingAnalyticsPlatform/models/metrics/performance.py`**: replaced `Field(None, ge=0)` with `Field(None, ge=-60, le=60)` on `hr_power_lag_sec`, aligning the schema constraint to the formula contract search range. Updated field docstring with signed semantics.
+- **`TrainingAnalyticsPlatform/models/core.py`**: added docstrings to `hr_power_lag_sec` property and `_hr_power_lag_sec()` helper documenting signed output range and confirming no `abs()` suppression is applied.
+- **`docs/devops/data_architecture/CANONICAL_ANALYTICS_SURFACE.md`**: updated `hr_power_lag_sec` description to state signed semantics, search range, and null condition.
+- **`docs/gpt/WORKOUT_SCHEMA.md`**: updated field description to include signed range and directionality.
+- **`tests/test_canonical_validation.py`**: added 7 regression tests covering negative/zero/positive/None lag at the `DurabilityMetricsModel` level, engine output range, and no-raise contract.
+- **`tests/test_semantic_layer.py`**: added `TestHrPowerLagSignSemantics` class with 3 rollup-path regression tests.
+
+**Application SemVer**: `pyproject.toml` v`1.0.1` → v`1.0.2`.
+
 ### Ingestion Source-First Rollback [ingestion v15.1.4]
 
 **Changed**: ingestion no longer hard-rejects non-1 Hz canonical streams at persistence time; source workouts are persisted as-ingested.
