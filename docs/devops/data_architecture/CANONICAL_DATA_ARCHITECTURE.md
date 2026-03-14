@@ -75,6 +75,10 @@ Path:
 
 Derived strictly from FIT `Record` messages.
 
+Persistence contract:
+
+- Ingestion must reject any canonical record stream that does not already validate as 1 Hz before writing `canonical.parquet`.
+
 Canonical fields include:
 
 - timestamp_utc

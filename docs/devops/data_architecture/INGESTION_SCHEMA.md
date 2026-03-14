@@ -1,9 +1,11 @@
 # Ingestion Schema
 
-Version: 15.2.0
+Version: 15.2.1
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
+
+**Version 15.2.1 changes** (2026-03-14): documented the write-time canonical cadence gate. Ingestion must reject `canonical.parquet` persistence when canonical records are not already 1 Hz sampled.
 
 **Version 15.2.0 changes** (2026-03-13): documented the corrected physiometrics storage identity contract for source-qualified daily snapshots (`RowKey = YYYY-MM-DD|source`) and the requirement to reconstitute overwritten legacy physiometrics rows after deployment. See [CHANGELOG.md](../../CHANGELOG.md) for details.
 
@@ -40,6 +42,7 @@ Canonical schema documentation is centralized in this document.
 - Canonical record field definitions are modeled by `CanonicalRecord` in `TrainingAnalyticsPlatform/models/substrate.py`.
 - `BaseFitModel.build_canonical_records()` must emit records conforming to that schema.
 - Canonical records are serialized to `{ingestion_id}/canonical.parquet`.
+- Canonical records must satisfy the 1 Hz temporal contract before persistence; non-1 Hz record streams are rejected at ingestion rather than being written and deferred to read-time failure.
 
 ### Canonical schema version
 
@@ -62,7 +65,7 @@ All ingestion-related schema/code version constants must be documented here.
 
 | Version | Current value | Code source | Purpose |
 | --- | --- | --- | --- |
-| `INGEST_VERSION` | `v15.1.2` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
+| `INGEST_VERSION` | `v15.1.3` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
 | `CANONICAL_SCHEMA_VERSION` | `2.0.1` | `TrainingAnalyticsPlatform/storage/storage_infrastructure.py` | Canonical parquet schema version persisted to `Workouts.canonical_schema_version`. |
 | `METADATA_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `metadata.json` as `metadata_schema_version`. |
 | `LAPS_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `laps.json` as `schema_version`. |

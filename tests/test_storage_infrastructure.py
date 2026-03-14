@@ -1,7 +1,12 @@
 """Tests for StorageInfrastructure managed table behavior."""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pandas as pd
+import pytest
+
+from TrainingAnalyticsPlatform.platform.exceptions import StorageError
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import (
     MANAGED_TABLE_NAMES,
     StorageInfrastructure,
@@ -48,3 +53,49 @@ def test_get_table_client_skips_recreate_for_unmanaged_table() -> None:
     infrastructure.service_client.create_table_if_not_exists.assert_not_called()
     infrastructure.service_client.get_table_client.assert_called_once_with("AdHocTable")
     assert table_client is expected_client
+
+
+def test_upload_parquet_blob_persists_1hz_canonical_records() -> None:
+    """Canonical parquet writes should accept already-valid 1 Hz record streams."""
+    infrastructure = StorageInfrastructure.__new__(StorageInfrastructure)
+    infrastructure._blob_service_client = MagicMock()
+    blob_client = MagicMock()
+    infrastructure._blob_service_client.get_blob_client.return_value = blob_client
+
+    record_set = SimpleNamespace(
+        to_dataframe=pd.DataFrame(
+            {
+                "elapsed_sec": [0, 1, 2],
+                "power_watts": [100.0, 110.0, 120.0],
+            }
+        )
+    )
+
+    blob_name = infrastructure.upload_parquet_blob("workout-1", record_set)
+
+    assert blob_name == "workout-1/canonical.parquet"
+    infrastructure._blob_service_client.get_blob_client.assert_called_once_with(
+        container="workouts",
+        blob="workout-1/canonical.parquet",
+    )
+    blob_client.upload_blob.assert_called_once()
+
+
+def test_upload_parquet_blob_rejects_non_1hz_canonical_records() -> None:
+    """Canonical parquet writes should fail fast when the substrate is not 1 Hz."""
+    infrastructure = StorageInfrastructure.__new__(StorageInfrastructure)
+    infrastructure._blob_service_client = MagicMock()
+
+    record_set = SimpleNamespace(
+        to_dataframe=pd.DataFrame(
+            {
+                "elapsed_sec": [0, 2, 4],
+                "heart_rate_bpm": [120.0, 125.0, 130.0],
+            }
+        )
+    )
+
+    with pytest.raises(StorageError, match="must be 1 Hz before persistence"):
+        infrastructure.upload_parquet_blob("workout-2", record_set)
+
+    infrastructure._blob_service_client.get_blob_client.assert_not_called()

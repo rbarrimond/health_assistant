@@ -8,6 +8,20 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-14
+
+### Canonical Parquet Write-Time 1 Hz Validation [ingestion v15.1.3]
+
+**Fixed**: ingestion now rejects canonical parquet payloads that do not already satisfy the 1 Hz canonical sampling contract.
+
+**Changes**:
+
+- **Write-path validation**: `StorageInfrastructure.upload_parquet_blob()` now validates canonical DataFrames against the existing `CanonicalAnalyticsEngine` 1 Hz contract before persisting `canonical.parquet`.
+- **Failure timing**: non-1 Hz canonical telemetry now fails during ingestion instead of being written successfully and failing later during weekly-rollup rehydration.
+- **Regression coverage**: storage tests now verify that valid 1 Hz canonical streams persist and non-1 Hz streams are rejected before blob upload.
+
+**Ingestion SemVer**: `INGEST_VERSION` v`15.1.2` → v`15.1.3`.
+
 ## 2026-03-13
 
 ### **BREAKING:** Physiometrics Storage Identity Correction [application v1.0.0]
