@@ -77,7 +77,7 @@ Derived strictly from FIT `Record` messages.
 
 Persistence contract:
 
-- Ingestion must reject any canonical record stream that does not already validate as 1 Hz before writing `canonical.parquet`.
+- Ingestion persists source-derived canonical record streams to `canonical.parquet` without using 1 Hz cadence as an acceptance gate.
 - Semantic read paths (API metrics hydration, weekly rollup assembly) perform strict validation first and may retry with `resample=True` to tolerate sparse gaps; fallback emits distortion telemetry and thresholded warnings.
 
 Canonical fields include:

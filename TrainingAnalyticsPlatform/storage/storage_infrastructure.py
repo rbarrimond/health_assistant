@@ -16,11 +16,9 @@ from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
 
 from TrainingAnalyticsPlatform.ingestion.constants import INGEST_VERSION
-from TrainingAnalyticsPlatform.models import CanonicalAnalyticsEngine, CanonicalRecordSet
+from TrainingAnalyticsPlatform.models import CanonicalRecordSet
 from TrainingAnalyticsPlatform.platform.exceptions import (
     IngestionIdResolutionError,
-    StorageError,
-    ValidationError,
 )
 
 CANONICAL_SCHEMA_VERSION = "2.0.1"
@@ -547,26 +545,6 @@ class StorageInfrastructure:
         df = record_set.to_dataframe
         if df.empty:
             return None
-
-        try:
-            CanonicalAnalyticsEngine.from_dataframe(df, {}, resample=False)
-        except ValidationError as exc:
-            logger.error(
-                "Refusing to persist non-1Hz canonical parquet",
-                extra={
-                    "workout_id": workout_id,
-                    "record_count": len(df),
-                    "failure_category": "canonical_sampling_validation",
-                    "is_1hz_validation_failure": True,
-                    "error_type": type(exc).__name__,
-                    "error": str(exc),
-                },
-                exc_info=True,
-            )
-            raise StorageError(
-                "Canonical parquet must be 1 Hz before persistence "
-                f"for workout {workout_id}: {exc}"
-            ) from exc
 
         buffer = io.BytesIO()
         df.to_parquet(buffer, index=False)

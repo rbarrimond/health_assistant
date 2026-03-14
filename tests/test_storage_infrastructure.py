@@ -4,9 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pandas as pd
-import pytest
 
-from TrainingAnalyticsPlatform.platform.exceptions import StorageError
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import (
     MANAGED_TABLE_NAMES,
     StorageInfrastructure,
@@ -81,10 +79,12 @@ def test_upload_parquet_blob_persists_1hz_canonical_records() -> None:
     blob_client.upload_blob.assert_called_once()
 
 
-def test_upload_parquet_blob_rejects_non_1hz_canonical_records() -> None:
-    """Canonical parquet writes should fail fast when the substrate is not 1 Hz."""
+def test_upload_parquet_blob_persists_non_1hz_canonical_records() -> None:
+    """Canonical parquet writes should persist source-derived records even when not 1 Hz."""
     infrastructure = StorageInfrastructure.__new__(StorageInfrastructure)
     infrastructure._blob_service_client = MagicMock()
+    blob_client = MagicMock()
+    infrastructure._blob_service_client.get_blob_client.return_value = blob_client
 
     record_set = SimpleNamespace(
         to_dataframe=pd.DataFrame(
@@ -95,7 +95,11 @@ def test_upload_parquet_blob_rejects_non_1hz_canonical_records() -> None:
         )
     )
 
-    with pytest.raises(StorageError, match="must be 1 Hz before persistence"):
-        infrastructure.upload_parquet_blob("workout-2", record_set)
+    blob_name = infrastructure.upload_parquet_blob("workout-2", record_set)
 
-    infrastructure._blob_service_client.get_blob_client.assert_not_called()
+    assert blob_name == "workout-2/canonical.parquet"
+    infrastructure._blob_service_client.get_blob_client.assert_called_once_with(
+        container="workouts",
+        blob="workout-2/canonical.parquet",
+    )
+    blob_client.upload_blob.assert_called_once()

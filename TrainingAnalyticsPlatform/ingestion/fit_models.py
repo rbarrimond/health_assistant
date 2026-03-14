@@ -38,7 +38,7 @@ from fitdecode.cmd.fitjson import RecordJSONEncoder
 from pydantic import BaseModel, ConfigDict, PrivateAttr, computed_field
 
 from TrainingAnalyticsPlatform.models import CanonicalRecordSet, WorkoutMetricsModel
-from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
+from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError, ValidationError
 
 from .apple_workout_types import (APPLE_WORKOUT_TYPES, INDOOR_CYCLE,
                                   INDOOR_WALK, OUTDOOR_CYCLE, OUTDOOR_WALK,
@@ -1581,10 +1581,10 @@ class BaseFitModel(BaseModel, ABC):
             metrics = WorkoutMetricsModel.from_canonical(
                 df=records_df,
                 metadata={},
-                resample=False,
+                resample=True,
             )
             return metrics.distance.distance_m
-        except (ValueError, TypeError) as exc:
+        except (ValidationError, ValueError, TypeError) as exc:
             logger.warning(
                 "Unable to derive distance from canonical records",
                 extra={

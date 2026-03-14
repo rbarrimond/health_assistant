@@ -1,11 +1,11 @@
 # Ingestion Schema
 
-Version: v15.1.3
+Version: v15.1.4
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
 
-Current state: ingestion enforces strict 1 Hz canonical cadence validation before persisting `canonical.parquet`; semantic API and weekly rollup read paths apply strict-first validation with optional `resample=True` retry and distortion-aware thresholded warnings.
+Current state: ingestion is source-first and persists source-derived canonical telemetry without a 1 Hz acceptance gate; semantic API and weekly rollup read paths apply strict-first validation with optional `resample=True` retry and distortion-aware thresholded warnings.
 
 For historical changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
@@ -40,7 +40,7 @@ Canonical schema documentation is centralized in this document.
 - Canonical record field definitions are modeled by `CanonicalRecord` in `TrainingAnalyticsPlatform/models/substrate.py`.
 - `BaseFitModel.build_canonical_records()` must emit records conforming to that schema.
 - Canonical records are serialized to `{ingestion_id}/canonical.parquet`.
-- Canonical records must satisfy the 1 Hz temporal contract before persistence; non-1 Hz record streams are rejected at ingestion rather than being written and deferred to read-time failure.
+- Canonical records are persisted as source-derived telemetry at ingestion; strict 1 Hz validation and optional resampling are applied in semantic/read paths.
 - Semantic API and weekly rollup read paths apply strict-first canonical validation and may retry with `resample=True` when strict validation fails, with sparse-gap distortion telemetry and thresholded warning logging.
 
 ### Canonical schema version
@@ -64,7 +64,7 @@ All ingestion-related schema/code version constants must be documented here.
 
 | Version | Current value | Code source | Purpose |
 | --- | --- | --- | --- |
-| `INGEST_VERSION` | `v15.1.3` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
+| `INGEST_VERSION` | `v15.1.4` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
 | `CANONICAL_SCHEMA_VERSION` | `2.0.1` | `TrainingAnalyticsPlatform/storage/storage_infrastructure.py` | Canonical parquet schema version persisted to `Workouts.canonical_schema_version`. |
 | `METADATA_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `metadata.json` as `metadata_schema_version`. |
 | `LAPS_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `laps.json` as `schema_version`. |
@@ -565,7 +565,7 @@ It is intentionally separate from Workouts to keep workout entities small and st
 | source_quickxor_hash | string | No | OneDrive quickXor hash for content. |
 | source_modified_at_utc | string | No | OneDrive last modified timestamp (ISO 8601 UTC). |
 | file_sha256 | string | No | SHA-256 hash of file content. |
-| ingest_version | string | Yes | Ingestion code version (current: `v15.1.2`). |
+| ingest_version | string | Yes | Ingestion code version (current: `v15.1.4`). |
 | ingested_at_utc | string | No | ISO 8601 UTC timestamp when status becomes `ingested`. |
 | error_message | string | No | Last error message (truncated). |
 

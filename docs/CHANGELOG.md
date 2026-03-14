@@ -10,6 +10,18 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-14
 
+### Ingestion Source-First Rollback [ingestion v15.1.4]
+
+**Changed**: ingestion no longer hard-rejects non-1 Hz canonical streams at persistence time; source workouts are persisted as-ingested.
+
+**Changes**:
+
+- **Write-path rollback**: removed ingestion-time hard failure in `StorageInfrastructure.upload_parquet_blob()` for non-1 Hz canonical cadence.
+- **Metadata resilience**: canonical distance derivation during metadata build now uses `resample=True` and no longer blocks ingestion on sparse-gap cadence irregularities.
+- **Contract alignment**: strict-first validation with optional resampling remains in semantic/read paths (API/rollup hydration), not as an ingestion acceptance gate.
+
+**Ingestion SemVer**: `INGEST_VERSION` v`15.1.3` → v`15.1.4`.
+
 ### Canonical Read-Time Sparse-Gap Tolerance for Semantic API/Rollups [application v1.0.1]
 
 **Changed**: Semantic-layer canonical hydration now applies strict 1 Hz validation first, then retries with `resample=True` on canonical sampling validation failures.
