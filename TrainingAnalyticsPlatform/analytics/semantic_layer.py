@@ -21,6 +21,7 @@ from TrainingAnalyticsPlatform.models.core import (
 )
 from TrainingAnalyticsPlatform.models.wellness import TrainingStateSnapshot
 from TrainingAnalyticsPlatform.platform.config import Config
+from TrainingAnalyticsPlatform.platform.exceptions import StorageError, ValidationError
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import WorkoutEntity
 
 if TYPE_CHECKING:
@@ -442,7 +443,7 @@ class SemanticLayer:
     ) -> Optional[Dict[str, Any]]:
         """Compute and persist previous completed week rollup using athlete local week semantics."""
         if weeks_ago < 1:
-            raise ValueError("weeks_ago must be >= 1")
+            raise ValidationError("weeks_ago must be >= 1")
 
         timezone_name = self._resolve_athlete_home_timezone(
             athlete_id=athlete_id,
@@ -510,7 +511,7 @@ class SemanticLayer:
     ) -> Dict[str, Any]:
         """Compute and persist previous week rollups for one or many athletes."""
         if weeks < 1:
-            raise ValueError("weeks must be >= 1")
+            raise ValidationError("weeks must be >= 1")
 
         target_athletes = athlete_ids or self.list_athletes_with_workouts()
         succeeded = []
@@ -1824,7 +1825,7 @@ class SemanticLayer:
     ) -> Dict[str, datetime]:
         """Return previous completed local week boundaries and UTC query window."""
         if weeks_ago < 1:
-            raise ValueError("weeks_ago must be >= 1")
+            raise ValidationError("weeks_ago must be >= 1")
 
         now_local = now_utc.astimezone(athlete_tz)
         current_week_start_local = (
@@ -1864,13 +1865,17 @@ class SemanticLayer:
         for workout in workouts:
             start_time_utc = workout.session.start_time_utc
             if not start_time_utc:
-                continue
+                raise StorageError(
+                    "Missing start_time_utc while building weekly rollup"
+                )
             try:
                 workout_start_utc = datetime.fromisoformat(
                     str(start_time_utc).replace("Z", UTC_OFFSET)
                 ).astimezone(timezone.utc)
-            except ValueError:
-                continue
+            except ValueError as exc:
+                raise StorageError(
+                    "Invalid start_time_utc while building weekly rollup"
+                ) from exc
             workout_start_local = workout_start_utc.astimezone(athlete_tz)
             if week_start_local <= workout_start_local <= week_end_local:
                 included.append(workout)
@@ -1901,7 +1906,9 @@ class SemanticLayer:
         """Extract and normalize week start date from a workout."""
         start_time_utc = workout.session.start_time_utc
         if not start_time_utc:
-            return None
+            raise StorageError(
+                "Missing start_time_utc while grouping weekly workouts"
+            )
         try:
             workout_date = datetime.fromisoformat(
                 str(start_time_utc).replace("Z", UTC_OFFSET)
@@ -1917,8 +1924,10 @@ class SemanticLayer:
                 )
             )
             return week_start
-        except ValueError:
-            return None
+        except ValueError as exc:
+            raise StorageError(
+                "Invalid start_time_utc while grouping weekly workouts"
+            ) from exc
 
     def _build_weekly_rollup(
         self, week_start: datetime, week_workouts: List[WorkoutMetricsModel]
@@ -2030,9 +2039,7 @@ class SemanticLayer:
                 for entity in entities:
                     if not self._entity_within_date_range(entity, start_date, end_date):
                         continue
-                    metrics_model = self._build_rollup_metrics_model(entity)
-                    if metrics_model is not None:
-                        metrics_models.append(metrics_model)
+                    metrics_models.append(self._build_rollup_metrics_model(entity))
 
             metrics_models.sort(
                 key=lambda model: model.session.start_time_utc or "",
@@ -2057,37 +2064,21 @@ class SemanticLayer:
     def _build_rollup_metrics_model(
         self,
         entity: Dict[str, Any],
-    ) -> Optional[WorkoutMetricsModel]:
+    ) -> WorkoutMetricsModel:
         """Build the typed rollup input model from canonical parquet for one workout."""
         workout_entity = WorkoutEntity.from_table_entity(entity)
         metadata_blob = self._load_metadata_blob_for_workout(entity, workout_entity)
-        session, enrichment, activity_metadata = self._extract_workout_metadata_sections(
-            metadata_blob
-        )
-        metadata = {**session, **enrichment, **activity_metadata}
-        metadata.update(
-            {
-                "sport": workout_entity.sport or metadata.get("sport"),
-                "sub_sport": workout_entity.sub_sport or metadata.get("sub_sport"),
-                "workout_name": enrichment.get("workout_name") or metadata.get("workout_name"),
-                "device_name": workout_entity.device_model,
-                "is_indoor": enrichment.get("is_indoor"),
-                "start_time_utc": workout_entity.start_time_utc,
-                "local_tz_offset": activity_metadata.get("local_tz_offset"),
-                "duration_sec": workout_entity.duration_sec or session.get("duration_sec"),
-                "moving_time_sec": session.get("moving_time_sec"),
-                "has_gps": workout_entity.has_gps,
-            }
-        )
 
         blob_name = workout_entity.canonical_records_blob or entity.get("canonical_records_blob")
         if not blob_name:
-            return None
+            raise StorageError(
+                "Missing canonical records blob for weekly rollup workout"
+            )
 
         try:
             df = self.storage.workouts.load_canonical_records(blob_name)
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger.warning(
+            logger.error(
                 "Failed to load canonical records for weekly rollup",
                 extra={
                     "blob_name": blob_name,
@@ -2095,24 +2086,29 @@ class SemanticLayer:
                     "error_type": type(exc).__name__,
                     "error": str(exc),
                 },
+                exc_info=True,
             )
-            return None
+            raise StorageError("Failed to load canonical records for weekly rollup") from exc
 
         if df.empty:
-            return None
+            raise StorageError(
+                "Canonical records parquet is empty for weekly rollup workout"
+            )
 
         try:
-            return WorkoutMetricsModel.from_canonical(df, metadata)
+            return WorkoutMetricsModel.from_canonical(df, metadata_blob)
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger.warning(
+            logger.error(
                 "Failed to build WorkoutMetricsModel for weekly rollup",
                 extra={
                     "workout_id": workout_entity.workout_id,
+                    "blob_name": blob_name,
                     "error_type": type(exc).__name__,
                     "error": str(exc),
                 },
+                exc_info=True,
             )
-            return None
+            raise StorageError("Failed to build WorkoutMetricsModel for weekly rollup") from exc
 
     def _find_last_hard_day(self, workouts: List[Dict]) -> Optional[str]:
         """
