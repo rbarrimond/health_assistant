@@ -520,45 +520,166 @@ class SemanticLayer:
             raise ValidationError("weeks must be >= 1")
 
         target_athletes = athlete_ids or self.list_athletes_with_workouts()
-        succeeded = []
-        skipped = []
-        failed = []
+        unique_athletes = sorted(set(target_athletes))
+        success_count = 0
+        skipped_count = 0
+        failed_count = 0
+        results: List[Dict[str, Any]] = []
 
-        for athlete_id in sorted(set(target_athletes)):
-            try:
-                persisted_any_week = False
-                for weeks_ago in range(1, weeks + 1):
-                    rollup = self.compute_and_persist_previous_week_rollup(
-                        athlete_id=athlete_id,
-                        now_utc=now_utc,
-                        weeks_ago=weeks_ago,
-                    )
-                    if rollup is not None:
-                        persisted_any_week = True
+        for athlete_id in unique_athletes:
+            athlete_results = self._compute_weekly_rollup_athlete_results(
+                athlete_id=athlete_id,
+                now_utc=now_utc,
+                weeks=weeks,
+            )
+            week_results = athlete_results["weeks"]
+            athlete_successes = athlete_results["summary"]["succeeded"]
+            athlete_skips = athlete_results["summary"]["skipped"]
+            athlete_failures = athlete_results["summary"]["failed"]
 
-                if persisted_any_week:
-                    succeeded.append(athlete_id)
-                else:
-                    skipped.append(athlete_id)
-            except Exception as exc:  # pylint: disable=broad-exception-caught
-                logger.error(
-                    "Failed weekly rollup persistence for athlete",
-                    extra={
-                        "athlete_id": athlete_id,
-                        "error_type": type(exc).__name__,
-                        "error": str(exc),
-                    },
-                    exc_info=True,
+            if athlete_failures > 0:
+                failed_count += 1
+                athlete_status = (
+                    "failed"
+                    if athlete_successes == 0 and athlete_skips == 0
+                    else "partial"
                 )
-                failed.append(athlete_id)
+                athlete_message = (
+                    "All requested week rollups failed"
+                    if athlete_status == "failed"
+                    else "Some requested week rollups failed"
+                )
+            elif athlete_successes > 0:
+                success_count += 1
+                athlete_status = "success"
+                athlete_message = "All requested week rollups persisted successfully"
+            else:
+                skipped_count += 1
+                athlete_status = "skipped"
+                athlete_message = "No requested week rollups were persisted"
+
+            results.append(
+                {
+                    "athlete_id": athlete_id,
+                    "status": athlete_status,
+                    "message": athlete_message,
+                    "weeks": week_results,
+                    "summary": {
+                        "requested_weeks": weeks,
+                        "succeeded": athlete_successes,
+                        "skipped": athlete_skips,
+                        "failed": athlete_failures,
+                    },
+                }
+            )
+
+        overall_status, overall_message = self._derive_rollup_status_message(
+            successes=success_count,
+            skips=skipped_count,
+            failures=failed_count,
+        )
 
         return {
-            "requested_athletes": len(target_athletes),
-            "requested_weeks": weeks,
-            "succeeded": succeeded,
-            "skipped": skipped,
-            "failed": failed,
+            "status": overall_status,
+            "message": overall_message,
+            "results": results,
         }
+
+    def _compute_weekly_rollup_athlete_results(
+        self,
+        athlete_id: str,
+        now_utc: Optional[datetime],
+        weeks: int,
+    ) -> Dict[str, Any]:
+        """Compute per-week outcomes for a single athlete weekly rollup request."""
+        week_results: List[Dict[str, Any]] = []
+        athlete_successes = 0
+        athlete_skips = 0
+        athlete_failures = 0
+
+        for weeks_ago in range(1, weeks + 1):
+            week_result = self._compute_weekly_rollup_week_result(
+                athlete_id=athlete_id,
+                now_utc=now_utc,
+                weeks_ago=weeks_ago,
+            )
+            week_results.append(week_result)
+            if week_result["status"] == "success":
+                athlete_successes += 1
+            elif week_result["status"] == "skipped":
+                athlete_skips += 1
+            else:
+                athlete_failures += 1
+
+        return {
+            "weeks": week_results,
+            "summary": {
+                "requested_weeks": weeks,
+                "succeeded": athlete_successes,
+                "skipped": athlete_skips,
+                "failed": athlete_failures,
+            },
+        }
+
+    def _compute_weekly_rollup_week_result(
+        self,
+        athlete_id: str,
+        now_utc: Optional[datetime],
+        weeks_ago: int,
+    ) -> Dict[str, Any]:
+        """Compute one week result payload for rollup persistence response."""
+        try:
+            rollup = self.compute_and_persist_previous_week_rollup(
+                athlete_id=athlete_id,
+                now_utc=now_utc,
+                weeks_ago=weeks_ago,
+            )
+            if rollup is None:
+                return {
+                    "weeks_ago": weeks_ago,
+                    "status": "skipped",
+                    "message": "No weekly rollup persisted for requested week",
+                }
+
+            return {
+                "weeks_ago": weeks_ago,
+                "status": "success",
+                "message": "Weekly rollup persisted",
+                "rollup": rollup,
+            }
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.error(
+                "Failed weekly rollup persistence for athlete week",
+                extra={
+                    "athlete_id": athlete_id,
+                    "weeks_ago": weeks_ago,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
+            return {
+                "weeks_ago": weeks_ago,
+                "status": "failed",
+                "message": "Failed to persist weekly rollup for requested week",
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+
+    @staticmethod
+    def _derive_rollup_status_message(
+        successes: int,
+        skips: int,
+        failures: int,
+    ) -> Tuple[str, str]:
+        """Derive stable status/message for weekly rollup operation outcomes."""
+        if failures > 0 and successes == 0 and skips == 0:
+            return "failed", "Weekly rollup persistence failed for all requested athletes"
+        if failures > 0:
+            return "partial", "Weekly rollup persistence completed with partial failures"
+        if successes > 0:
+            return "success", "Weekly rollup persistence completed successfully"
+        return "skipped", "No weekly rollups were persisted for requested athletes"
 
     def list_athletes_with_workouts(self) -> List[str]:
         """List athlete identifiers observed in Workouts table."""

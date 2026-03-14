@@ -16,6 +16,7 @@ from TrainingAnalyticsPlatform.analytics.semantic_layer import (
     SemanticLayer,
 )
 from TrainingAnalyticsPlatform.models.core import WorkoutMetricsModel, WorkoutProjection
+from TrainingAnalyticsPlatform.models.metrics.performance import DurabilityMetricsModel
 from TrainingAnalyticsPlatform.platform.exceptions import ValidationError
 
 
@@ -1140,11 +1141,15 @@ class TestWeeklyRollupTimerComputation:
                 now_utc=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
             )
 
-        assert result["requested_athletes"] == 3
-        assert result["requested_weeks"] == 1
-        assert result["succeeded"] == ["a1"]
-        assert result["skipped"] == ["a2"]
-        assert result["failed"] == ["a3"]
+        assert result["status"] == "partial"
+        assert len(result["results"]) == 3
+        assert result["results"][0]["athlete_id"] == "a1"
+        assert result["results"][0]["status"] == "success"
+        assert result["results"][0]["weeks"][0]["status"] == "success"
+        assert result["results"][1]["status"] == "skipped"
+        assert result["results"][1]["weeks"][0]["status"] == "skipped"
+        assert result["results"][2]["status"] == "failed"
+        assert result["results"][2]["weeks"][0]["status"] == "failed"
 
     def test_compute_and_persist_previous_week_rollups_multi_week(
         self,
@@ -1162,15 +1167,41 @@ class TestWeeklyRollupTimerComputation:
                 now_utc=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
             )
 
-        assert result["requested_athletes"] == 1
-        assert result["requested_weeks"] == 3
-        assert result["succeeded"] == ["rob"]
-        assert result["skipped"] == []
-        assert result["failed"] == []
+        assert result["status"] == "success"
+        assert len(result["results"]) == 1
+        assert result["results"][0]["status"] == "success"
+        assert len(result["results"][0]["weeks"]) == 3
+        assert all(item["status"] == "success" for item in result["results"][0]["weeks"])
         assert mock_compute.call_count == 3
         assert mock_compute.call_args_list[0].kwargs["weeks_ago"] == 1
         assert mock_compute.call_args_list[1].kwargs["weeks_ago"] == 2
         assert mock_compute.call_args_list[2].kwargs["weeks_ago"] == 3
+
+    def test_compute_and_persist_previous_week_rollups_mixed_week_outcomes_same_athlete(
+        self,
+        semantic_layer,
+    ):
+        """A failed week should not hide successful/skipped weeks in detailed results."""
+        with patch.object(
+            semantic_layer,
+            "compute_and_persist_previous_week_rollup",
+            side_effect=[{"workouts_count": 1}, RuntimeError("boom"), None],
+        ):
+            result = semantic_layer.compute_and_persist_previous_week_rollups(
+                athlete_ids=["rob"],
+                weeks=3,
+                now_utc=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
+            )
+
+        assert result["status"] == "failed"
+        assert result["results"][0]["status"] == "partial"
+        weeks = result["results"][0]["weeks"]
+        assert [item["status"] for item in weeks] == ["success", "failed", "skipped"]
+
+    def test_durability_model_accepts_signed_hr_drift(self):
+        """hr_drift_bpm should preserve signed values from analytics output."""
+        metric = DurabilityMetricsModel(hr_drift_bpm=-0.4)
+        assert metric.hr_drift_bpm == pytest.approx(-0.4)
 
     def test_build_rollup_metrics_model_retries_with_resample_on_sampling_validation_error(
         self,

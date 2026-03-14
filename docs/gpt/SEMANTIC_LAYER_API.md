@@ -1,6 +1,6 @@
 # Semantic Access Layer API (GPT)
 
-Version: 5.1.0
+Version: 5.1.1
 
 The Semantic Access Layer is the **read + agent-memory write API** for ChatGPT Actions. It exposes meaningful, human-centric questions about training data rather than raw table access.
 
@@ -624,6 +624,22 @@ Get aggregated weekly training data.
   "athlete_id": "rob",
   "weeks": 16,
   "count": 16,
+  "status": "success",
+  "message": "Weekly rollups available for requested window",
+  "results": [
+    {
+      "weeks_ago": 1,
+      "status": "success",
+      "message": "Weekly rollup available",
+      "week_start_utc": "2026-01-13T00:00:00+00:00",
+      "week_end_utc": "2026-01-19T23:59:59+00:00"
+    },
+    {
+      "weeks_ago": 16,
+      "status": "skipped",
+      "message": "No weekly rollup available for requested week"
+    }
+  ],
   "rollups": [
     {
       "week_start_utc": "2026-01-13T00:00:00+00:00",
@@ -644,6 +660,12 @@ Get aggregated weekly training data.
   ]
 }
 ```
+
+**Response status semantics:**
+
+- `success` - rollups available for all requested week slots
+- `partial` - rollups available for part of requested week slots
+- `skipped` - no rollups available for requested week slots
 
 **Use cases:**
 

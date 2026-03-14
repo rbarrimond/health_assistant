@@ -1832,6 +1832,9 @@ components:
         - athlete_id
         - weeks
         - count
+        - status
+        - message
+        - results
         - rollups
       properties:
         athlete_id:
@@ -1840,6 +1843,35 @@ components:
           type: integer
         count:
           type: integer
+        status:
+          type: string
+          enum: [success, partial, skipped]
+        message:
+          type: string
+        results:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - weeks_ago
+              - status
+              - message
+            properties:
+              weeks_ago:
+                type: integer
+                minimum: 1
+              status:
+                type: string
+                enum: [success, skipped]
+              message:
+                type: string
+              week_start_utc:
+                type: string
+                format: date-time
+              week_end_utc:
+                type: string
+                format: date-time
         rollups:
           type: array
           items:

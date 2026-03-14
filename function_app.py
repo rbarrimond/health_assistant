@@ -1096,14 +1096,18 @@ def weekly_rollup_timer(timer: func.TimerRequest) -> None:
         result = dependencies.semantic_layer.compute_and_persist_previous_week_rollups(
             athlete_ids=athletes,
         )
+        athlete_results = result.get("results", [])
+        succeeded_count = sum(1 for item in athlete_results if item.get("status") == "success")
+        skipped_count = sum(1 for item in athlete_results if item.get("status") == "skipped")
+        failed_count = sum(1 for item in athlete_results if item.get("status") in {"failed", "partial"})
 
         logger.info(
             "Weekly rollup timer succeeded",
             extra={
-                "requested_athletes": result.get("requested_athletes", 0),
-                "succeeded_count": len(result.get("succeeded", [])),
-                "skipped_count": len(result.get("skipped", [])),
-                "failed_count": len(result.get("failed", [])),
+                "requested_athletes": len(athlete_results),
+                "succeeded_count": succeeded_count,
+                "skipped_count": skipped_count,
+                "failed_count": failed_count,
             },
         )
     except Exception as exc:  # pylint: disable=broad-exception-caught
@@ -1148,5 +1152,5 @@ def force_weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
         weeks=weeks,
     )
 
-    status = 200 if not result.get("failed") else 207
+    status = 207 if result.get("status") in {"partial", "failed"} else 200
     return json_response(result, status)

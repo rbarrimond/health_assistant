@@ -10,6 +10,31 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-14
 
+### BREAKING: Weekly Rollup Per-Week Outcome Visibility + Sync-Style Status Envelope [operations API v4.0.0]
+
+**Changed**: Weekly rollup APIs now return sync-style top-level status metadata and detailed per-week outcomes instead of only coarse aggregate athlete arrays.
+
+**Why**: Prior responses (for example only `succeeded/skipped/failed` athlete lists) obscured mixed outcomes and made troubleshooting difficult when one week failed while others succeeded/skipped.
+
+**Changes**:
+
+- **`TrainingAnalyticsPlatform/analytics/semantic_layer.py`**: `compute_and_persist_previous_week_rollups()` now returns top-level `status`/`message` and detailed `results[]` with per-athlete + per-week status, messages, and stable error details. Legacy top-level compatibility fields (`requested_athletes`, `requested_weeks`, `succeeded`, `skipped`, `failed`) are removed from the compute response.
+- **`TrainingAnalyticsPlatform/handlers/query_handler.py`**: `query_weekly_rollups()` now returns top-level `status`/`message` and per-requested-week `results[]` while preserving strict `rollups[]` item schema.
+- **`api_docs/openapi.operations.yaml`**: expanded `ForceWeeklyRollupsResponse` schema with `status`, `message`, and `results[]` detail models.
+- **`api_docs/openapi.yaml`**: expanded `WeeklyRollups` response envelope with top-level `status`, `message`, and `results[]`.
+- **`docs/gpt/SEMANTIC_LAYER_API.md`**: weekly rollups response examples and semantics updated for the new envelope.
+
+### Fix: Signed `hr_drift_bpm` Support in Durability Model
+
+**Fixed**: `DurabilityMetricsModel.hr_drift_bpm` no longer enforces non-negative-only values.
+
+**Root cause**: Weekly rollup hydration could produce small negative drift values (for example `-0.4`) from canonical analytics, but the durability model required `hr_drift_bpm >= 0`, causing `ValidationError` and aborting weekly rollup persistence.
+
+**Changes**:
+
+- **`TrainingAnalyticsPlatform/models/metrics/performance.py`**: removed `ge=0` constraint from `hr_drift_bpm` so signed drift values are accepted.
+- **`tests/test_semantic_layer.py`**: added regression coverage for signed drift acceptance and mixed per-week rollup outcomes.
+
 ### Fix: Garmin Sync Control-Plane Lookback Field Alignment
 
 **Fixed**: `/api/garmin/sync` request parsing expected `days` even though the operations OpenAPI and the Postman control-plane request shape use `lookback_days`.

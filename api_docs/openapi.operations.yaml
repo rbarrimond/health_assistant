@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Operations)
-  version: "3.1.0"
+  version: "4.0.0"
   description: |
     Operational and administrative API for ingestion, configuration, integrations, and plugin assets.
     Complements the semantic GPT-facing specification with platform control-plane and runtime support endpoints.
@@ -888,28 +888,78 @@ components:
     ForceWeeklyRollupsResponse:
       type: object
       properties:
-        requested_athletes:
-          type: integer
-        requested_weeks:
-          type: integer
-        succeeded:
+        status:
+          type: string
+          enum: [success, partial, failed, skipped]
+        message:
+          type: string
+        results:
           type: array
           items:
-            type: string
-        skipped:
-          type: array
-          items:
-            type: string
-        failed:
-          type: array
-          items:
-            type: string
+            $ref: '#/components/schemas/WeeklyRollupAthleteResult'
       required:
-        - requested_athletes
-        - requested_weeks
-        - succeeded
-        - skipped
-        - failed
+        - status
+        - message
+        - results
+    WeeklyRollupAthleteResult:
+      type: object
+      properties:
+        athlete_id:
+          type: string
+        status:
+          type: string
+          enum: [success, partial, failed, skipped]
+        message:
+          type: string
+        weeks:
+          type: array
+          items:
+            $ref: '#/components/schemas/WeeklyRollupWeekResult'
+        summary:
+          type: object
+          properties:
+            requested_weeks:
+              type: integer
+            succeeded:
+              type: integer
+            skipped:
+              type: integer
+            failed:
+              type: integer
+          required:
+            - requested_weeks
+            - succeeded
+            - skipped
+            - failed
+      required:
+        - athlete_id
+        - status
+        - message
+        - weeks
+        - summary
+    WeeklyRollupWeekResult:
+      type: object
+      properties:
+        weeks_ago:
+          type: integer
+          minimum: 1
+        status:
+          type: string
+          enum: [success, failed, skipped]
+        message:
+          type: string
+        rollup:
+          type: object
+          description: Present when week status is success.
+          additionalProperties: true
+        error_type:
+          type: string
+        error:
+          type: string
+      required:
+        - weeks_ago
+        - status
+        - message
     AgentContext:
       type: object
       properties:

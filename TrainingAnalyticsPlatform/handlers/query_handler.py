@@ -186,10 +186,48 @@ class QueryHandler:
         """
         try:
             rollups = self.semantic_layer.get_weekly_rollups(athlete_id, weeks)
+            results: List[Dict[str, Any]] = []
+            rollups_count = len(rollups)
+
+            for index in range(weeks):
+                weeks_ago = index + 1
+                if index < rollups_count:
+                    rollup = rollups[index]
+                    results.append(
+                        {
+                            "weeks_ago": weeks_ago,
+                            "status": "success",
+                            "message": "Weekly rollup available",
+                            "week_start_utc": rollup.get("week_start_utc"),
+                            "week_end_utc": rollup.get("week_end_utc"),
+                        }
+                    )
+                else:
+                    results.append(
+                        {
+                            "weeks_ago": weeks_ago,
+                            "status": "skipped",
+                            "message": "No weekly rollup available for requested week",
+                        }
+                    )
+
+            if rollups_count == 0:
+                status = "skipped"
+                message = "No weekly rollups available for requested window"
+            elif rollups_count < weeks:
+                status = "partial"
+                message = "Weekly rollups available for part of requested window"
+            else:
+                status = "success"
+                message = "Weekly rollups available for requested window"
+
             return {
                 "athlete_id": athlete_id,
                 "weeks": weeks,
-                "count": len(rollups),
+                "count": rollups_count,
+                "status": status,
+                "message": message,
+                "results": results,
                 "rollups": rollups,
             }, 200
         except ValueError as exc:

@@ -49,4 +49,4 @@ class DurabilityMetricsModel(BaseModel):
     ef_first_half: Optional[float] = Field(None, ge=0)
     ef_second_half: Optional[float] = Field(None, ge=0)
     ef_overall: Optional[float] = Field(None, ge=0)
-    hr_drift_bpm: Optional[float] = Field(None, ge=0)
+    hr_drift_bpm: Optional[float] = None

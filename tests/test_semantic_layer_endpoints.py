@@ -311,6 +311,9 @@ class TestWeeklyRollupsEndpoint:
         data = json.loads(response.get_body())
         assert data["weeks"] == 12
         assert data["count"] == 1
+        assert data["status"] == "partial"
+        assert len(data["results"]) == 12
+        assert data["results"][0]["status"] == "success"
 
     def test_weeks_parameter_capped(self, mock_request, mock_semantic_layer):
         """Test that weeks parameter is capped at 52."""

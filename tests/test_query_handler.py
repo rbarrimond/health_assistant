@@ -251,6 +251,11 @@ class TestQueryHandler:
         assert result["athlete_id"] == "athlete1"
         assert result["weeks"] == 8
         assert result["count"] == 2
+        assert result["status"] == "partial"
+        assert len(result["results"]) == 8
+        assert result["results"][0]["status"] == "success"
+        assert result["results"][1]["status"] == "success"
+        assert result["results"][2]["status"] == "skipped"
         assert result["rollups"] == rollups_data
         mock_semantic_layer.get_weekly_rollups.assert_called_once_with(
             "athlete1", 8
@@ -279,6 +284,9 @@ class TestQueryHandler:
         # Assert
         assert status == 200
         assert result["weeks"] == 16  # Default is 16 weeks
+        assert result["status"] == "skipped"
+        assert len(result["results"]) == 16
+        assert result["results"][0]["status"] == "skipped"
         mock_semantic_layer.get_weekly_rollups.assert_called_once_with(
             "athlete1", 16
         )
