@@ -1,10 +1,13 @@
-"""Tests for Garmin sync ingestion handler."""
+"""Tests for Garmin sync request parsing and ingestion handler."""
 
 # pylint: disable=protected-access
 
 from unittest.mock import MagicMock
 
-from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import GarminSyncIngestionHandler
+from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import (
+    GarminSyncIngestionHandler,
+    GarminSyncRequest,
+)
 from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 from TrainingAnalyticsPlatform.platform.exceptions import WorkoutIdCalculationError
 
@@ -168,3 +171,27 @@ class TestGarminSyncIngestionHandler:
 
         assert status == 422
         assert body["error_code"] == "FIT_PARSING_FAILED"
+
+
+class TestGarminSyncRequest:
+    """Tests for Garmin sync request parsing."""
+
+    def test_lookback_days_from_body(self):
+        request = GarminSyncRequest({"lookback_days": "14"}, {})
+
+        assert request.lookback_days == 14
+
+    def test_lookback_days_from_query(self):
+        request = GarminSyncRequest({}, {"lookback_days": "21"})
+
+        assert request.lookback_days == 21
+
+    def test_lookback_days_none_when_missing(self):
+        request = GarminSyncRequest({}, {})
+
+        assert request.lookback_days is None
+
+    def test_lookback_days_invalid_value(self):
+        request = GarminSyncRequest({"lookback_days": "invalid"}, {})
+
+        assert request.lookback_days is None

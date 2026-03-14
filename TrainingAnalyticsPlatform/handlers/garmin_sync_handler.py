@@ -445,11 +445,11 @@ class GarminSyncRequest:
     @property
     def lookback_days(self) -> int | None:
         """Extract and validate lookback days."""
-        days = self.body.get("days") or self.query_params.get("days")
-        if days is None:
+        lookback_days = self.body.get("lookback_days") or self.query_params.get("lookback_days")
+        if lookback_days is None:
             return None
         try:
-            return int(days)
+            return int(lookback_days)
         except (ValueError, TypeError):
             return None
 

@@ -10,6 +10,19 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-14
 
+### Fix: Garmin Sync Control-Plane Lookback Field Alignment
+
+**Fixed**: `/api/garmin/sync` request parsing expected `days` even though the operations OpenAPI and the Postman control-plane request shape use `lookback_days`.
+
+**Root cause**: Garmin activity sync diverged from the other sync-style endpoints and from the published operations contract. Requests sending `lookback_days` silently fell back to the default environment lookback instead of using the caller-supplied value.
+
+**Changes**:
+
+- **`TrainingAnalyticsPlatform/handlers/garmin_sync_handler.py`**: changed `GarminSyncRequest.lookback_days` parsing to read `lookback_days` from the request body or query params.
+- **`tests/test_garmin_sync_handler.py`**: added request parsing coverage for valid, missing, and invalid `lookback_days` values.
+- **`tests/test_function_app_extras.py`**: added endpoint-level tests proving `/api/garmin/sync` forwards `lookback_days` from body and query params.
+- **`docs/devops/BACKENDS.md`**: updated Garmin manual sync examples to use `lookback_days`.
+
 ### Fix: Clamp Missing Percentage Boundaries for Rollup Model Validation [application v1.0.3]
 
 **Fixed**: `CanonicalAnalyticsEngine` could compute slight negative `hr_missing_pct` / `pwr_missing_pct` values (for example `-0.1`) under off-by-one duration/sample boundary conditions, causing `SampleMetricsModel` validation failures and aborting weekly rollup persistence.

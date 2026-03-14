@@ -634,6 +634,60 @@ class TestOneDriveHelpersAndEndpoints:
         )
 
 
+class TestGarminEndpointHandlers:
+    def test_garmin_sync_uses_lookback_days_from_body(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {
+            "lookback_days": 30,
+            "athlete_id": "rob",
+            "async": False,
+        }
+        req.params = {}
+
+        mock_handler = MagicMock()
+
+        def _handle(sync_req):
+            assert sync_req.lookback_days == 30
+            assert sync_req.athlete_id == "rob"
+            assert sync_req.async_mode is False
+            return {"status": "success", "lookback_days": 30}, 200
+
+        mock_handler.handle.side_effect = _handle
+
+        with _patch_dependency("garmin_service", mock_handler):
+            response = function_app.garmin_sync_http(req)
+
+        assert response.status_code == 200
+        body = json.loads(response.get_body())
+        assert body["lookback_days"] == 30
+        mock_handler.handle.assert_called_once()
+
+    def test_garmin_sync_uses_lookback_days_from_query_param(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {"athlete_id": "rob"}
+        req.params = {"lookback_days": "60", "async": "false"}
+
+        mock_handler = MagicMock()
+
+        def _handle(sync_req):
+            assert sync_req.lookback_days == 60
+            assert sync_req.athlete_id == "rob"
+            assert sync_req.async_mode is False
+            return {"status": "success", "lookback_days": 60}, 200
+
+        mock_handler.handle.side_effect = _handle
+
+        with _patch_dependency("garmin_service", mock_handler):
+            response = function_app.garmin_sync_http(req)
+
+        assert response.status_code == 200
+        body = json.loads(response.get_body())
+        assert body["lookback_days"] == 60
+        mock_handler.handle.assert_called_once()
+
+
 class TestIntervalsEndpointHandlers:
     """Tests for Intervals.icu sync endpoint ID splitting."""
 
