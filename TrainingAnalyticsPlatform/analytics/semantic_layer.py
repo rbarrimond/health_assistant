@@ -807,19 +807,14 @@ class SemanticLayer:
 
             workouts = []
             for partition_key in months:
-                query = f"PartitionKey eq '{partition_key}'"
-                entities = table_client.query_entities(query)
-
-                for entity in entities:
-                    workout_start = entity.get("start_time_utc")
-                    if workout_start:
-                        # Parse workout date and filter
-                        workout_date = datetime.fromisoformat(
-                            workout_start.replace("Z", UTC_OFFSET)
-                        ).astimezone(timezone.utc)
-
-                        if start_date <= workout_date <= end_date:
-                            workouts.append(self._entity_to_workout_dict(entity))
+                workouts.extend(
+                    self._collect_partition_workouts(
+                        table_client=table_client,
+                        partition_key=partition_key,
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
+                )
 
             # Sort by date descending (newest first)
             workouts.sort(
@@ -841,6 +836,38 @@ class SemanticLayer:
                 exc_info=True,
             )
             return []
+
+    def _collect_partition_workouts(
+        self,
+        table_client: Any,
+        partition_key: str,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> List[Dict[str, Any]]:
+        """Collect workouts for a single partition constrained to date window."""
+        query = f"PartitionKey eq '{partition_key}'"
+        entities = table_client.query_entities(query)
+
+        workouts: List[Dict[str, Any]] = []
+        for entity in entities:
+            workout_start = entity.get("start_time_utc")
+            if not workout_start:
+                continue
+
+            try:
+                workout_date = datetime.fromisoformat(
+                    workout_start.replace("Z", UTC_OFFSET)
+                ).astimezone(timezone.utc)
+            except ValueError:
+                continue
+
+            if not (start_date <= workout_date <= end_date):
+                continue
+
+            workout = self._entity_to_workout_dict(entity)
+            workouts.append(workout)
+
+        return workouts
 
     def _get_workout_projections_in_range(
         self,
@@ -1762,11 +1789,15 @@ class SemanticLayer:
         end_date: datetime,
     ) -> List[Dict[str, Any]]:
         """Compute weekly rollups on read from workouts when table rollups are unavailable."""
-        workouts = self._get_workouts_in_range(athlete_id, start_date, end_date)
-        if not workouts:
+        metrics_models = self._get_rollup_metrics_models_in_range(
+            athlete_id=athlete_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        if not metrics_models:
             return []
 
-        weekly_buckets = self._bucket_workouts_by_week(workouts)
+        weekly_buckets = self._bucket_workouts_by_week(metrics_models)
         rollups = [
             self._build_weekly_rollup(week_start, week_workouts)
             for week_start, week_workouts in weekly_buckets.items()
@@ -1775,10 +1806,10 @@ class SemanticLayer:
         return rollups
 
     def _bucket_workouts_by_week(
-        self, workouts: List[Dict[str, Any]]
-    ) -> Dict[datetime, List[Dict[str, Any]]]:
+        self, workouts: List[WorkoutMetricsModel]
+    ) -> Dict[datetime, List[WorkoutMetricsModel]]:
         """Organize workouts into weekly buckets."""
-        weekly_buckets: Dict[datetime, List[Dict[str, Any]]] = {}
+        weekly_buckets: Dict[datetime, List[WorkoutMetricsModel]] = {}
         for workout in workouts:
             week_start = self._extract_week_start(workout)
             if week_start:
@@ -1822,16 +1853,16 @@ class SemanticLayer:
         week_start_local: datetime,
         week_end_local: datetime,
         athlete_tz: ZoneInfo,
-    ) -> List[Dict[str, Any]]:
-        """Get workouts belonging to athlete local week based on local start time inclusion."""
-        workouts = self._get_workouts_in_range(
+    ) -> List[WorkoutMetricsModel]:
+        """Get rollup metrics models belonging to athlete local week based on local start time."""
+        workouts = self._get_rollup_metrics_models_in_range(
             athlete_id=athlete_id,
             start_date=week_start_local.astimezone(timezone.utc),
             end_date=week_end_local.astimezone(timezone.utc),
         )
-        included = []
+        included: List[WorkoutMetricsModel] = []
         for workout in workouts:
-            start_time_utc = workout.get("start_time_utc")
+            start_time_utc = workout.session.start_time_utc
             if not start_time_utc:
                 continue
             try:
@@ -1850,7 +1881,7 @@ class SemanticLayer:
         week_start_local: datetime,
         week_end_local: datetime,
         athlete_home_timezone: str,
-        week_workouts: List[Dict[str, Any]],
+        week_workouts: List[WorkoutMetricsModel],
     ) -> Dict[str, Any]:
         """Build weekly rollup with local-week authoritative semantics and persisted timezone context."""
         week_start_utc = week_start_local.astimezone(timezone.utc)
@@ -1866,9 +1897,9 @@ class SemanticLayer:
         rollup["athlete_home_timezone"] = athlete_home_timezone
         return rollup
 
-    def _extract_week_start(self, workout: Dict[str, Any]) -> Optional[datetime]:
+    def _extract_week_start(self, workout: WorkoutMetricsModel) -> Optional[datetime]:
         """Extract and normalize week start date from a workout."""
-        start_time_utc = workout.get("start_time_utc")
+        start_time_utc = workout.session.start_time_utc
         if not start_time_utc:
             return None
         try:
@@ -1890,7 +1921,7 @@ class SemanticLayer:
             return None
 
     def _build_weekly_rollup(
-        self, week_start: datetime, week_workouts: List[Dict[str, Any]]
+        self, week_start: datetime, week_workouts: List[WorkoutMetricsModel]
     ) -> Dict[str, Any]:
         """Build a single weekly rollup from workouts."""
         week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
@@ -1900,11 +1931,30 @@ class SemanticLayer:
             "week_start_utc": week_start.isoformat(),
             "week_end_utc": week_end.isoformat(),
             "workouts_count": len(week_workouts),
-            "total_duration_min": self._sum_zone_time(week_workouts, "duration_sec"),
-            "total_hr_z2_min": self._sum_zone_time(week_workouts, "hr_z2_sec"),
-            "total_pwr_z2_min": self._sum_zone_time(week_workouts, "pwr_z2_sec"),
-            "total_low_aerobic_min": self._sum_zone_time(week_workouts, "low_aerobic_sec"),
-            "total_intensity_min": round(self._sum_high_intensity(week_workouts), 2),
+            "total_duration_min": round(sum(
+                float(workout.session.duration_sec or 0) / 60
+                for workout in week_workouts
+            ), 2),
+            "total_hr_z2_min": round(sum(
+                float(workout.zones_hr.hr_z2_sec or 0) / 60
+                for workout in week_workouts
+                if workout.zones_hr is not None
+            ), 2),
+            "total_pwr_z2_min": round(sum(
+                float(workout.zones_power.pwr_z2_sec or 0) / 60
+                for workout in week_workouts
+                if workout.zones_power is not None
+            ), 2),
+            "total_low_aerobic_min": round(sum(
+                float(workout.zones_power.low_aerobic_sec or 0) / 60
+                for workout in week_workouts
+                if workout.zones_power is not None
+            ), 2),
+            "total_intensity_min": round(sum(
+                float(workout.zones_power.intensity_sec or 0) / 60
+                for workout in week_workouts
+                if workout.zones_power is not None
+            ), 2),
             "last_updated_at_utc": now_utc,
         }
 
@@ -1913,34 +1963,43 @@ class SemanticLayer:
         
         # Add derived counts
         rollup["hard_days_count"] = sum(
-            1 for w in week_workouts if self._get_high_intensity_seconds(w) > 300
+            1
+            for workout in week_workouts
+            if workout.zones_power is not None
+            and float(workout.zones_power.intensity_sec or 0) > 300
         )
         rollup["long_rides_count"] = sum(
             1
-            for w in week_workouts
+            for workout in week_workouts
             if max(
-                float(w.get("hr_z2_sec") or 0),
-                float(w.get("pwr_z2_sec") or 0),
+                float(workout.zones_hr.hr_z2_sec or 0)
+                if workout.zones_hr is not None else 0,
+                float(workout.zones_power.pwr_z2_sec or 0)
+                if workout.zones_power is not None else 0,
             ) > 3600
         )
 
         return rollup
 
     def _add_optional_rollup_metrics(
-        self, rollup: Dict[str, Any], week_workouts: List[Dict[str, Any]]
+        self, rollup: Dict[str, Any], week_workouts: List[WorkoutMetricsModel]
     ) -> None:
         """Add optional aggregated metrics to rollup if data is available."""
         distance_values_m = [
-            float(w["distance_m"]) for w in week_workouts
-            if w.get("distance_m") is not None
+            float(workout.distance.distance_m)
+            for workout in week_workouts
+            if workout.distance.distance_m is not None
         ]
         elevation_values_m = [
-            float(w["elevation_gain_m"]) for w in week_workouts
-            if w.get("elevation_gain_m") is not None
+            float(workout.distance.elevation_gain_m)
+            for workout in week_workouts
+            if workout.distance.elevation_gain_m is not None
         ]
         decoupling_values = [
-            float(w["decoupling_pct"]) for w in week_workouts
-            if w.get("decoupling_pct") is not None
+            float(workout.durability.decoupling_pct)
+            for workout in week_workouts
+            if workout.durability is not None
+            and workout.durability.decoupling_pct is not None
         ]
 
         if distance_values_m:
@@ -1953,14 +2012,117 @@ class SemanticLayer:
                 2,
             )
 
+    def _get_rollup_metrics_models_in_range(
+        self,
+        athlete_id: str,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> List[WorkoutMetricsModel]:
+        """Load weekly-rollup input models from canonical parquet for a date range."""
+        try:
+            table_client = self.storage.infrastructure.get_table_client("Workouts")  # pylint: disable=protected-access
+            months = self._get_month_partitions(athlete_id, start_date, end_date)
+            metrics_models: List[WorkoutMetricsModel] = []
+
+            for partition_key in months:
+                query = f"PartitionKey eq '{partition_key}'"
+                entities = table_client.query_entities(query)
+                for entity in entities:
+                    if not self._entity_within_date_range(entity, start_date, end_date):
+                        continue
+                    metrics_model = self._build_rollup_metrics_model(entity)
+                    if metrics_model is not None:
+                        metrics_models.append(metrics_model)
+
+            metrics_models.sort(
+                key=lambda model: model.session.start_time_utc or "",
+                reverse=True,
+            )
+            return metrics_models
+
+        except HttpResponseError as exc:
+            logger.error(
+                "Error querying rollup metrics models",
+                extra={
+                    "athlete_id": athlete_id,
+                    "start_date": start_date.isoformat() if start_date else None,
+                    "end_date": end_date.isoformat() if end_date else None,
+                    "error_type": "HttpResponseError",
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
+            return []
+
+    def _build_rollup_metrics_model(
+        self,
+        entity: Dict[str, Any],
+    ) -> Optional[WorkoutMetricsModel]:
+        """Build the typed rollup input model from canonical parquet for one workout."""
+        workout_entity = WorkoutEntity.from_table_entity(entity)
+        metadata_blob = self._load_metadata_blob_for_workout(entity, workout_entity)
+        session, enrichment, activity_metadata = self._extract_workout_metadata_sections(
+            metadata_blob
+        )
+        metadata = {**session, **enrichment, **activity_metadata}
+        metadata.update(
+            {
+                "sport": workout_entity.sport or metadata.get("sport"),
+                "sub_sport": workout_entity.sub_sport or metadata.get("sub_sport"),
+                "workout_name": enrichment.get("workout_name") or metadata.get("workout_name"),
+                "device_name": workout_entity.device_model,
+                "is_indoor": enrichment.get("is_indoor"),
+                "start_time_utc": workout_entity.start_time_utc,
+                "local_tz_offset": activity_metadata.get("local_tz_offset"),
+                "duration_sec": workout_entity.duration_sec or session.get("duration_sec"),
+                "moving_time_sec": session.get("moving_time_sec"),
+                "has_gps": workout_entity.has_gps,
+            }
+        )
+
+        blob_name = workout_entity.canonical_records_blob or entity.get("canonical_records_blob")
+        if not blob_name:
+            return None
+
+        try:
+            df = self.storage.workouts.load_canonical_records(blob_name)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.warning(
+                "Failed to load canonical records for weekly rollup",
+                extra={
+                    "blob_name": blob_name,
+                    "workout_id": workout_entity.workout_id,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
+            return None
+
+        if df.empty:
+            return None
+
+        try:
+            return WorkoutMetricsModel.from_canonical(df, metadata)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.warning(
+                "Failed to build WorkoutMetricsModel for weekly rollup",
+                extra={
+                    "workout_id": workout_entity.workout_id,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
+            return None
+
     def _find_last_hard_day(self, workouts: List[Dict]) -> Optional[str]:
         """
         Find date of last high-intensity workout.
 
-        High intensity = intensity_sec > 300 (5 minutes) or HR Z4+Z5 > 300 sec
+        High intensity = intensity_sec > 300 (5 minutes)
         """
         for workout in workouts:
-            if self._get_high_intensity_seconds(workout) > 300:  # > 5 minutes
+            intensity_sec = float(workout.get("intensity_sec") or 0)
+            if intensity_sec > 300:  # > 5 minutes
                 return workout.get("start_time_utc")
 
         return None
@@ -2008,19 +2170,8 @@ class SemanticLayer:
         """Sum high intensity minutes (Z4+) across workouts."""
         total = 0.0
         for workout in workouts:
-            total += self._get_high_intensity_seconds(workout) / 60
+            total += float(workout.get("intensity_sec") or 0) / 60
         return total
-
-    @staticmethod
-    def _get_high_intensity_seconds(workout: Dict[str, Any]) -> float:
-        """Return workout high-intensity seconds using power first, then HR fallback."""
-        intensity_sec = float(workout.get("intensity_sec", 0) or 0)
-        if intensity_sec > 0:
-            return intensity_sec
-
-        hr_z4_sec = float(workout.get("hr_z4_sec", 0) or 0)
-        hr_z5_sec = float(workout.get("hr_z5_sec", 0) or 0)
-        return hr_z4_sec + hr_z5_sec
 
     def _detect_notable_flags(self, workouts: List[Dict]) -> List[str]:
         """

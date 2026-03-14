@@ -15,7 +15,23 @@ from TrainingAnalyticsPlatform.analytics.semantic_layer import (
     WEEKLY_ROLLUP_ALLOWED_FIELDS,
     SemanticLayer,
 )
-from TrainingAnalyticsPlatform.models.core import WorkoutProjection
+from TrainingAnalyticsPlatform.models.core import WorkoutMetricsModel, WorkoutProjection
+
+
+def build_rollup_metrics_model(flat_metrics):
+    """Build a typed WorkoutMetricsModel for weekly rollup tests."""
+    return WorkoutMetricsModel.from_flat_metrics(
+        flat_metrics,
+        metadata={
+            "sport": flat_metrics.get("sport", "Cycling"),
+            "sub_sport": flat_metrics.get("sub_sport"),
+            "workout_name": flat_metrics.get("workout_name"),
+            "start_time_utc": flat_metrics.get("start_time_utc"),
+            "duration_sec": flat_metrics.get("duration_sec"),
+            "local_tz_offset": flat_metrics.get("local_tz_offset"),
+            "has_gps": flat_metrics.get("distance_m") is not None,
+        },
+    )
 
 
 @pytest.fixture
@@ -613,35 +629,41 @@ class TestWeeklyRollupQueries:
         mock_table_client.query_entities.return_value = []
 
         fallback_workouts = [
-            {
+            build_rollup_metrics_model({
                 "workout_id": "w1",
                 "start_time_utc": "2026-02-10T10:00:00+00:00",
                 "duration_sec": 3600,
                 "distance_m": 50000,
                 "elevation_gain_m": 700,
+                "hr_zone_basis": "LTHR",
+                "hr_zone_reference_bpm": 165,
                 "hr_z2_sec": 2400,
+                "ftp_watts": 250,
                 "pwr_z2_sec": 2100,
                 "low_aerobic_sec": 1800,
                 "intensity_sec": 600,
                 "decoupling_pct": 3.0,
-            },
-            {
+            }),
+            build_rollup_metrics_model({
                 "workout_id": "w2",
                 "start_time_utc": "2026-02-12T08:00:00+00:00",
                 "duration_sec": 5400,
                 "distance_m": 70000,
                 "elevation_gain_m": 900,
+                "hr_zone_basis": "LTHR",
+                "hr_zone_reference_bpm": 165,
                 "hr_z2_sec": 3900,
+                "ftp_watts": 250,
                 "pwr_z2_sec": 3300,
                 "low_aerobic_sec": 2400,
                 "intensity_sec": 420,
                 "decoupling_pct": 2.0,
-            },
+            }),
         ]
 
         with patch.object(
             semantic_layer,
-            "_get_workouts_in_range",
+            "_get_rollup_metrics_models_in_range",
             return_value=fallback_workouts,
         ):
             rollups = semantic_layer._get_weekly_rollups("rob", days=14)
@@ -920,33 +942,43 @@ class TestWeeklyRollupTimerComputation:
     def test_compute_and_persist_previous_week_rollup(self, semantic_layer, mock_storage):
         """Persist rollup for previous local week with timezone context fields."""
         workouts = [
-            {
+            build_rollup_metrics_model({
                 "workout_id": "w-local-1",
                 "start_time_utc": "2026-03-03T12:00:00+00:00",
                 "duration_sec": 3600,
                 "distance_m": 42000,
                 "elevation_gain_m": 500,
+                "hr_zone_basis": "LTHR",
+                "hr_zone_reference_bpm": 165,
                 "hr_z2_sec": 2400,
+                "ftp_watts": 250,
                 "pwr_z2_sec": 2100,
                 "low_aerobic_sec": 1800,
                 "intensity_sec": 420,
                 "decoupling_pct": 2.0,
-            },
-            {
+            }),
+            build_rollup_metrics_model({
                 "workout_id": "w-local-2",
                 "start_time_utc": "2026-03-08T23:00:00+00:00",
                 "duration_sec": 5400,
                 "distance_m": 68000,
                 "elevation_gain_m": 800,
+                "hr_zone_basis": "LTHR",
+                "hr_zone_reference_bpm": 165,
                 "hr_z2_sec": 3600,
+                "ftp_watts": 250,
                 "pwr_z2_sec": 3300,
                 "low_aerobic_sec": 2400,
                 "intensity_sec": 600,
                 "decoupling_pct": 3.0,
-            },
+            }),
         ]
 
-        with patch.object(semantic_layer, "_get_workouts_in_range", return_value=workouts):
+        with patch.object(
+            semantic_layer,
+            "_get_rollup_metrics_models_in_range",
+            return_value=workouts,
+        ):
             rollup = semantic_layer.compute_and_persist_previous_week_rollup(
                 athlete_id="rob",
                 athlete_home_timezone="America/New_York",
@@ -970,25 +1002,72 @@ class TestWeeklyRollupTimerComputation:
         self,
         semantic_layer,
     ):
-        """HR-only hard efforts should contribute to weekly intensity and hard-day counts."""
+        """HR-only workouts should not contribute without intensity_sec."""
         workouts = [
-            {
+            build_rollup_metrics_model({
                 "workout_id": "w-hr-hard",
                 "start_time_utc": "2026-03-03T12:00:00+00:00",
                 "duration_sec": 3600,
+                "hr_zone_basis": "LTHR",
+                "hr_zone_reference_bpm": 165,
                 "hr_z4_sec": 240,
                 "hr_z5_sec": 180,
-            },
-            {
+            }),
+            build_rollup_metrics_model({
                 "workout_id": "w-hr-easy",
                 "start_time_utc": "2026-03-05T12:00:00+00:00",
                 "duration_sec": 1800,
+                "hr_zone_basis": "LTHR",
+                "hr_zone_reference_bpm": 165,
                 "hr_z4_sec": 120,
                 "hr_z5_sec": 60,
-            },
+            }),
         ]
 
-        with patch.object(semantic_layer, "_get_workouts_in_range", return_value=workouts):
+        with patch.object(
+            semantic_layer,
+            "_get_rollup_metrics_models_in_range",
+            return_value=workouts,
+        ):
+            rollup = semantic_layer.compute_and_persist_previous_week_rollup(
+                athlete_id="rob",
+                athlete_home_timezone="America/New_York",
+                now_utc=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
+            )
+
+        assert rollup is not None
+        assert rollup["total_intensity_min"] == pytest.approx(0.0)
+        assert rollup["hard_days_count"] == 0
+
+    def test_compute_and_persist_previous_week_rollup_mixes_power_and_hr_intensity(
+        self,
+        semantic_layer,
+    ):
+        """Weekly intensity and hard-days should use intensity_sec only."""
+        workouts = [
+            build_rollup_metrics_model({
+                "workout_id": "w-power-hard",
+                "start_time_utc": "2026-03-03T12:00:00+00:00",
+                "duration_sec": 3600,
+                "ftp_watts": 250,
+                "intensity_sec": 600,
+            }),
+            build_rollup_metrics_model({
+                "workout_id": "w-hr-hard",
+                "start_time_utc": "2026-03-06T12:00:00+00:00",
+                "duration_sec": 2700,
+                "hr_zone_basis": "LTHR",
+                "hr_zone_reference_bpm": 165,
+                "hr_z4_sec": 180,
+                "hr_z5_sec": 180,
+            }),
+        ]
+
+        with patch.object(
+            semantic_layer,
+            "_get_rollup_metrics_models_in_range",
+            return_value=workouts,
+        ):
             rollup = semantic_layer.compute_and_persist_previous_week_rollup(
                 athlete_id="rob",
                 athlete_home_timezone="America/New_York",
@@ -998,38 +1077,6 @@ class TestWeeklyRollupTimerComputation:
         assert rollup is not None
         assert rollup["total_intensity_min"] == pytest.approx(10.0)
         assert rollup["hard_days_count"] == 1
-
-    def test_compute_and_persist_previous_week_rollup_mixes_power_and_hr_intensity(
-        self,
-        semantic_layer,
-    ):
-        """Weekly intensity should combine power-based and HR-fallback workouts."""
-        workouts = [
-            {
-                "workout_id": "w-power-hard",
-                "start_time_utc": "2026-03-03T12:00:00+00:00",
-                "duration_sec": 3600,
-                "intensity_sec": 600,
-            },
-            {
-                "workout_id": "w-hr-hard",
-                "start_time_utc": "2026-03-06T12:00:00+00:00",
-                "duration_sec": 2700,
-                "hr_z4_sec": 180,
-                "hr_z5_sec": 180,
-            },
-        ]
-
-        with patch.object(semantic_layer, "_get_workouts_in_range", return_value=workouts):
-            rollup = semantic_layer.compute_and_persist_previous_week_rollup(
-                athlete_id="rob",
-                athlete_home_timezone="America/New_York",
-                now_utc=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
-            )
-
-        assert rollup is not None
-        assert rollup["total_intensity_min"] == pytest.approx(16.0)
-        assert rollup["hard_days_count"] == 2
 
     def test_compute_and_persist_previous_week_rollups_batch(self, semantic_layer):
         """Batch wrapper should classify succeeded/skipped/failed athletes."""
@@ -1150,8 +1197,8 @@ class TestHelperMethods:
         # workout-001: 480sec = 8 minutes total
         assert total_intensity == pytest.approx(8.0)
 
-    def test_sum_high_intensity_falls_back_to_hr_zones(self, semantic_layer):
-        """HR Z4+Z5 should contribute when power intensity is absent."""
+    def test_sum_high_intensity_ignores_hr_when_intensity_missing(self, semantic_layer):
+        """Without intensity_sec, HR zones should not contribute to intensity sum."""
         workouts = [
             {
                 "workout_id": "hr-only-1",
@@ -1162,7 +1209,7 @@ class TestHelperMethods:
 
         total_intensity = semantic_layer._sum_high_intensity(workouts)
 
-        assert total_intensity == pytest.approx(6.0)
+        assert total_intensity == pytest.approx(0.0)
 
     def test_detect_notable_flags_missing_hr(self, semantic_layer):
         """Test flag detection for missing HR data."""
