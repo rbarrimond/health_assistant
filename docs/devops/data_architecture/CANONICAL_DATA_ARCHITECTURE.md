@@ -1,7 +1,7 @@
 # Canonical Data Architecture
 <!-- markdownlint-disable MD024 -->
 
-Version: 2.2.3
+Version: 2.2.4
 
 =====================================================================
 
@@ -78,6 +78,7 @@ Derived strictly from FIT `Record` messages.
 Persistence contract:
 
 - Ingestion must reject any canonical record stream that does not already validate as 1 Hz before writing `canonical.parquet`.
+- Semantic read paths (API metrics hydration, weekly rollup assembly) perform strict validation first and may retry with `resample=True` to tolerate sparse gaps; fallback emits distortion telemetry and thresholded warnings.
 
 Canonical fields include:
 

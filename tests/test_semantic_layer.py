@@ -1123,11 +1123,11 @@ class TestWeeklyRollupTimerComputation:
         assert mock_compute.call_args_list[1].kwargs["weeks_ago"] == 2
         assert mock_compute.call_args_list[2].kwargs["weeks_ago"] == 3
 
-    def test_build_rollup_metrics_model_propagates_canonical_sampling_validation_error(
+    def test_build_rollup_metrics_model_retries_with_resample_on_sampling_validation_error(
         self,
         semantic_layer,
     ):
-        """Non-1Hz canonical validation errors should propagate as typed validation failures."""
+        """Non-1Hz canonical validation errors should retry with resample=True."""
         entity = {
             "PartitionKey": "rob|2026-03",
             "RowKey": "20260308|w-1",
@@ -1152,13 +1152,101 @@ class TestWeeklyRollupTimerComputation:
             }
         )
 
+        expected = build_rollup_metrics_model(
+            {
+                "sport": "Cycling",
+                "start_time_utc": "2026-03-08T23:24:18+00:00",
+                "duration_sec": 67,
+                "hr_avg_bpm": 125.5,
+                "hr_samples_count": 2,
+            }
+        )
+
         with patch.object(
             WorkoutMetricsModel,
             "from_canonical",
-            side_effect=ValidationError("strict_1hz_failed", status_code=422),
-        ):
-            with pytest.raises(ValidationError):
-                semantic_layer._build_rollup_metrics_model(entity)
+            side_effect=[
+                ValidationError("strict_1hz_failed", status_code=422),
+                expected,
+            ],
+        ) as mock_from_canonical:
+            result = semantic_layer._build_rollup_metrics_model(entity)
+
+        assert result == expected
+        assert mock_from_canonical.call_count == 2
+        assert mock_from_canonical.call_args_list[0].kwargs.get("resample", False) is False
+        assert mock_from_canonical.call_args_list[1].kwargs.get("resample") is True
+
+    def test_compute_metrics_from_canonical_retries_with_resample(
+        self,
+        semantic_layer,
+    ):
+        """Semantic metrics path should retry canonical engine with resample=True."""
+        df = pd.DataFrame(
+            {
+                "timestamp_utc": pd.to_datetime(
+                    ["2026-03-08T23:24:18Z", "2026-03-08T23:25:25Z"],
+                    utc=True,
+                ),
+                "heart_rate_bpm": [125.0, 126.0],
+            }
+        )
+        metadata = {"sport": "Cycling"}
+
+        mocked_engine = MagicMock()
+        mocked_engine.to_metrics_dict.return_value = {"hr_avg_bpm": 125.5}
+
+        with patch(
+            "TrainingAnalyticsPlatform.analytics.semantic_layer.CanonicalAnalyticsEngine.from_dataframe",
+            side_effect=[
+                ValidationError("strict_1hz_failed", status_code=422),
+                mocked_engine,
+            ],
+        ) as mock_from_dataframe:
+            result = semantic_layer._compute_metrics_from_canonical(df, metadata)
+
+        assert result == {"hr_avg_bpm": 125.5}
+        assert mock_from_dataframe.call_count == 2
+        assert mock_from_dataframe.call_args_list[0].kwargs.get("resample", False) is False
+        assert mock_from_dataframe.call_args_list[1].kwargs.get("resample") is True
+
+    def test_log_canonical_resample_fallback_warns_only_above_threshold(
+        self,
+        semantic_layer,
+    ):
+        """Resample fallback should warn only when distortion exceeds configured threshold."""
+        strict_exc = ValidationError("strict_1hz_failed", status_code=422)
+
+        with patch("TrainingAnalyticsPlatform.analytics.semantic_layer.logger") as mock_logger:
+            semantic_layer._log_canonical_resample_fallback(
+                scope="weekly_rollup",
+                strict_error=strict_exc,
+                record_count=100,
+                distortion={
+                    "gap_count": 1,
+                    "max_gap_sec": 14.0,
+                    "inserted_missing_bins": 13,
+                    "distortion_pct": 0.8,
+                },
+                workout_id="w-1",
+                blob_name="ing-1/canonical.parquet",
+            )
+            semantic_layer._log_canonical_resample_fallback(
+                scope="weekly_rollup",
+                strict_error=strict_exc,
+                record_count=100,
+                distortion={
+                    "gap_count": 1,
+                    "max_gap_sec": 120.0,
+                    "inserted_missing_bins": 119,
+                    "distortion_pct": 9.5,
+                },
+                workout_id="w-2",
+                blob_name="ing-2/canonical.parquet",
+            )
+
+        assert mock_logger.info.call_count == 1
+        assert mock_logger.warning.call_count == 1
 
 
 class TestHelperMethods:

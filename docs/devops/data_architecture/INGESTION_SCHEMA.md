@@ -1,13 +1,11 @@
 # Ingestion Schema
 
-Version: 15.2.1
+Version: v15.1.3
 
 This document defines the current ingestion payloads, FIT model architecture, and IngestionState table schema.
 It is intentionally explicit to avoid ambiguity between ingestion metadata and workout metrics.
 
-**Version 15.2.1 changes** (2026-03-14): documented the write-time canonical cadence gate. Ingestion must reject `canonical.parquet` persistence when canonical records are not already 1 Hz sampled.
-
-**Version 15.2.0 changes** (2026-03-13): documented the corrected physiometrics storage identity contract for source-qualified daily snapshots (`RowKey = YYYY-MM-DD|source`) and the requirement to reconstitute overwritten legacy physiometrics rows after deployment. See [CHANGELOG.md](../../CHANGELOG.md) for details.
+Current state: ingestion enforces strict 1 Hz canonical cadence validation before persisting `canonical.parquet`; semantic API and weekly rollup read paths apply strict-first validation with optional `resample=True` retry and distortion-aware thresholded warnings.
 
 For historical changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
@@ -43,6 +41,7 @@ Canonical schema documentation is centralized in this document.
 - `BaseFitModel.build_canonical_records()` must emit records conforming to that schema.
 - Canonical records are serialized to `{ingestion_id}/canonical.parquet`.
 - Canonical records must satisfy the 1 Hz temporal contract before persistence; non-1 Hz record streams are rejected at ingestion rather than being written and deferred to read-time failure.
+- Semantic API and weekly rollup read paths apply strict-first canonical validation and may retry with `resample=True` when strict validation fails, with sparse-gap distortion telemetry and thresholded warning logging.
 
 ### Canonical schema version
 
@@ -57,7 +56,7 @@ Current canonical schema version: `2.0.1`.
   1. Bumping `CANONICAL_SCHEMA_VERSION`
   2. Updating this document
   3. Recording the change in `docs/CHANGELOG.md`
-- Non-breaking documentation clarifications in this file still require incrementing the document version at the top of this file.
+- Documentation-only clarifications in this file do not introduce a separate document SemVer; the header version stays aligned to `INGEST_VERSION`.
 
 ### Version registry (authoritative)
 

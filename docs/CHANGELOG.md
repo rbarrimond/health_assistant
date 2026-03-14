@@ -10,6 +10,24 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-14
 
+### Canonical Read-Time Sparse-Gap Tolerance for Semantic API/Rollups [application v1.0.1]
+
+**Changed**: Semantic-layer canonical hydration now applies strict 1 Hz validation first, then retries with `resample=True` on canonical sampling validation failures.
+
+**Changes**:
+
+- **Strict-first fallback path**: semantic canonical metric hydration now retries with resampling when strict validation fails instead of immediately downgrading to basic sample stats.
+- **Weekly rollup resilience**: weekly rollup model building now retries with `resample=True` for non-1 Hz canonical streams before surfacing failure.
+- **Distortion observability**: fallback logs now include sparse-gap distortion telemetry (`gap_count`, `max_gap_sec`, `inserted_missing_bins`, `distortion_pct`).
+- **Thresholded warnings**: distortion warnings are emitted only when `distortion_pct` exceeds `CANONICAL_DISTORTION_WARN_PCT` (default `5.0`).
+
+**Notes**:
+
+- Ingestion write-path remains strict 1 Hz validated; this change adds tolerance at read-time analytics hydration surfaces.
+- No canonical telemetry schema changes.
+
+**Application SemVer**: `pyproject.toml` v`1.0.0` → v`1.0.1`.
+
 ### Canonical Parquet Write-Time 1 Hz Validation [ingestion v15.1.3]
 
 **Fixed**: ingestion now rejects canonical parquet payloads that do not already satisfy the 1 Hz canonical sampling contract.

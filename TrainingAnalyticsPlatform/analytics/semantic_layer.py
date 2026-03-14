@@ -6,6 +6,7 @@ It shapes data for reasoning, constrains scope, and encodes how humans think abo
 # pylint: disable=too-many-lines
 
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, TypedDict
@@ -32,6 +33,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 UTC_OFFSET = "+00:00"
+CANONICAL_DISTORTION_WARN_PCT = float(os.getenv("CANONICAL_DISTORTION_WARN_PCT", "5.0"))
+_NON_1HZ_EPSILON_SEC = 1.01
 
 WEEKLY_ROLLUP_REQUIRED_FIELDS = (
     "week_start_utc",
@@ -1203,18 +1206,109 @@ class SemanticLayer:
         try:
             canonical = CanonicalAnalyticsEngine.from_dataframe(df, metadata)
         except ValidationError as exc:
-            logger.warning(
-                "Canonical analytics computation skipped: canonical validation error",
-                extra={
-                    "error_type": type(exc).__name__,
-                    "error": str(exc),
-                    "record_count": len(df),
-                    "failure_category": "canonical_sampling_validation",
-                    "is_1hz_validation_failure": True,
-                },
+            distortion = self._canonical_sampling_distortion(df)
+            try:
+                canonical = CanonicalAnalyticsEngine.from_dataframe(df, metadata, resample=True)
+            except ValidationError:
+                logger.warning(
+                    "Canonical analytics computation skipped: canonical validation error",
+                    extra={
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                        "record_count": len(df),
+                        "failure_category": "canonical_sampling_validation",
+                        "is_1hz_validation_failure": True,
+                        **distortion,
+                    },
+                )
+                return self._compute_basic_metrics_from_canonical(df)
+
+            self._log_canonical_resample_fallback(
+                scope="semantic_metrics",
+                strict_error=exc,
+                record_count=len(df),
+                distortion=distortion,
             )
-            return self._compute_basic_metrics_from_canonical(df)
         return canonical.to_metrics_dict()
+
+    def _canonical_sampling_distortion(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Compute sparse-gap distortion summary for canonical timeline."""
+        if "timestamp_utc" not in df.columns or df.empty:
+            return {
+                "gap_count": 0,
+                "max_gap_sec": 0.0,
+                "inserted_missing_bins": 0,
+                "distortion_pct": None,
+            }
+
+        timestamps = pd.to_datetime(df["timestamp_utc"], utc=True, errors="coerce")
+        timestamps = timestamps.dropna().sort_values().reset_index(drop=True)
+        if len(timestamps) < 2:
+            return {
+                "gap_count": 0,
+                "max_gap_sec": 0.0,
+                "inserted_missing_bins": 0,
+                "distortion_pct": None,
+            }
+
+        diffs = timestamps.diff().dt.total_seconds().dropna()
+        gaps = diffs[diffs > _NON_1HZ_EPSILON_SEC]
+        if gaps.empty:
+            return {
+                "gap_count": 0,
+                "max_gap_sec": 0.0,
+                "inserted_missing_bins": 0,
+                "distortion_pct": 0.0,
+            }
+
+        span_sec = float((timestamps.iloc[-1] - timestamps.iloc[0]).total_seconds())
+        inserted_missing_bins = int(sum(max(int(round(float(gap))) - 1, 0) for gap in gaps))
+        distortion_pct = (
+            round((inserted_missing_bins / span_sec) * 100, 3)
+            if span_sec > 0
+            else None
+        )
+        return {
+            "gap_count": int(len(gaps)),
+            "max_gap_sec": round(float(gaps.max()), 3),
+            "inserted_missing_bins": inserted_missing_bins,
+            "distortion_pct": distortion_pct,
+        }
+
+    def _log_canonical_resample_fallback(
+        self,
+        *,
+        scope: str,
+        strict_error: ValidationError,
+        record_count: int,
+        distortion: Dict[str, Any],
+        workout_id: Optional[str] = None,
+        blob_name: Optional[str] = None,
+    ) -> None:
+        """Log strict->resample canonical fallback with thresholded warning level."""
+        distortion_pct = distortion.get("distortion_pct")
+        exceeds_threshold = (
+            isinstance(distortion_pct, (int, float))
+            and distortion_pct > CANONICAL_DISTORTION_WARN_PCT
+        )
+        log_level = logger.warning if exceeds_threshold else logger.info
+        log_level(
+            "Canonical analytics strict validation failed; resample fallback applied",
+            extra={
+                "scope": scope,
+                "workout_id": workout_id,
+                "blob_name": blob_name,
+                "error_type": type(strict_error).__name__,
+                "error": str(strict_error),
+                "record_count": record_count,
+                "failure_category": "canonical_sampling_validation",
+                "is_1hz_validation_failure": True,
+                "resample_fallback_applied": True,
+                "distortion_warn_threshold_pct": CANONICAL_DISTORTION_WARN_PCT,
+                "distortion_warn_exceeded": exceeds_threshold,
+                **distortion,
+            },
+        )
 
     def _compute_basic_metrics_from_canonical(self, df: pd.DataFrame) -> Dict[str, Any]:
         """Compute minimal sample statistics when full canonical analytics are unavailable."""
@@ -2103,24 +2197,39 @@ class SemanticLayer:
         try:
             return WorkoutMetricsModel.from_canonical(df, metadata_blob)
         except ValidationError as exc:
-            logger.error(
-                "Weekly rollup canonical validation failed",
-                extra={
-                    "workout_id": workout_entity.workout_id,
-                    "blob_name": blob_name,
-                    "error_type": type(exc).__name__,
-                    "error": str(exc),
-                    "failure_category": "canonical_sampling_validation",
-                    "is_1hz_validation_failure": True,
-                    "status_code": exc.status_code,
-                },
-                exc_info=True,
+            distortion = self._canonical_sampling_distortion(df)
+            try:
+                model = WorkoutMetricsModel.from_canonical(df, metadata_blob, resample=True)
+            except ValidationError:
+                logger.error(
+                    "Weekly rollup canonical validation failed",
+                    extra={
+                        "workout_id": workout_entity.workout_id,
+                        "blob_name": blob_name,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                        "failure_category": "canonical_sampling_validation",
+                        "is_1hz_validation_failure": True,
+                        "status_code": exc.status_code,
+                        **distortion,
+                    },
+                    exc_info=True,
+                )
+                raise ValidationError(
+                    "Weekly rollup canonical validation failed for workout "
+                    f"{workout_entity.workout_id} (blob={blob_name}): {exc}",
+                    status_code=exc.status_code,
+                ) from exc
+
+            self._log_canonical_resample_fallback(
+                scope="weekly_rollup",
+                workout_id=workout_entity.workout_id,
+                blob_name=blob_name,
+                strict_error=exc,
+                record_count=len(df),
+                distortion=distortion,
             )
-            raise ValidationError(
-                "Weekly rollup canonical validation failed for workout "
-                f"{workout_entity.workout_id} (blob={blob_name}): {exc}",
-                status_code=exc.status_code,
-            ) from exc
+            return model
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error(
                 "Failed to build WorkoutMetricsModel for weekly rollup",
