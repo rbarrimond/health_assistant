@@ -10,6 +10,23 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-14
 
+### Fix: Clamp Missing Percentage Boundaries for Rollup Model Validation [application v1.0.3]
+
+**Fixed**: `CanonicalAnalyticsEngine` could compute slight negative `hr_missing_pct` / `pwr_missing_pct` values (for example `-0.1`) under off-by-one duration/sample boundary conditions, causing `SampleMetricsModel` validation failures and aborting weekly rollup persistence.
+
+**Root cause**: missing-percentage formulas use `(1 - samples / duration_sec) * 100`. When `samples_count` exceeded computed `duration_sec` by one sample due to boundary semantics, the raw percentage became slightly negative and violated schema constraints (`ge=0`).
+
+**Production impact**: Weekly rollup model build raised Pydantic `ValidationError`, which propagated as `StorageError` (`Failed to build WorkoutMetricsModel for weekly rollup`) and failed athlete weekly rollup persistence.
+
+**Changes**:
+
+- **`TrainingAnalyticsPlatform/models/core.py`**: added canonical missing-percentage boundary helper and updated `hr_missing_pct` / `pwr_missing_pct` to clamp computed values to `[0, 100]` before returning.
+- **`tests/test_canonical_validation.py`**: added regression tests for off-by-one sample/duration mismatch clamping and invalid-input `None` semantics.
+- **`tests/test_semantic_layer.py`**: added weekly rollup hydration regression test proving `_build_rollup_metrics_model` succeeds for off-by-one mismatch cases and emits bounded missing percentages.
+- **`docs/gpt/WORKOUT_SCHEMA.md`**: clarified that missing-percentage fields are bounded to `0–100` before validation.
+
+**Application SemVer**: `pyproject.toml` v`1.0.2` → v`1.0.3`.
+
 ### Fix: Signed HR–Power Lag Schema Constraint [application v1.0.2]
 
 **Fixed**: `DurabilityMetricsModel.hr_power_lag_sec` incorrectly enforced `ge=0`, causing Pydantic `ValidationError` for valid negative lag values produced by the cross-correlation algorithm.

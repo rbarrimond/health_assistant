@@ -917,6 +917,16 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
         hr = self._numeric_series(self.df, "heart_rate_bpm")
         return int(hr.size) if not hr.empty else None
 
+    @staticmethod
+    def _missing_pct(duration: Optional[float], samples: Optional[int]) -> Optional[float]:
+        if not duration or duration <= 0:
+            return None
+        if not samples:
+            return None
+        missing_pct = (1 - samples / duration) * 100
+        bounded_missing_pct = min(max(missing_pct, 0.0), 100.0)
+        return round(bounded_missing_pct, 1)
+
     @computed_field
     @property
     def hr_missing_pct(self) -> Optional[float]:
@@ -926,7 +936,7 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
         samples = self.hr_samples_count
         if not samples:
             return None
-        return round((1 - samples / duration) * 100, 1)
+        return self._missing_pct(self.duration_sec, self.hr_samples_count)
 
     @computed_field
     @property
@@ -970,7 +980,7 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
         samples = self.pwr_samples_count
         if not samples:
             return None
-        return round((1 - samples / duration) * 100, 1)
+        return self._missing_pct(self.duration_sec, self.pwr_samples_count)
 
     @computed_field
     @property

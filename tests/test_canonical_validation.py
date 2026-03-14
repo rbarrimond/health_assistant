@@ -79,6 +79,36 @@ def test_accept_1hz_data_without_resampling(df_1hz):
     assert metrics.hr_avg_bpm == pytest.approx(125.8, rel=0.01)
 
 
+def test_missing_pct_clamps_to_zero_for_off_by_one_duration_sample_mismatch():
+    """missing_pct should clamp to 0.0 when sample count is slightly above duration.
+
+    Repro case: 1001 samples over elapsed_sec 0..1000 yields raw missing_pct=-0.1.
+    The canonical engine must clamp before model validation.
+    """
+    df = pd.DataFrame({
+        "elapsed_sec": list(range(1001)),
+        "heart_rate_bpm": [140.0] * 1001,
+        "power_watts": [220.0] * 1001,
+    })
+
+    metrics = CanonicalAnalyticsEngine(df=df, metadata={})
+
+    assert metrics.duration_sec == pytest.approx(1000.0)
+    assert metrics.hr_samples_count == 1001
+    assert metrics.pwr_samples_count == 1001
+    assert metrics.hr_missing_pct == pytest.approx(0.0)
+    assert metrics.pwr_missing_pct == pytest.approx(0.0)
+
+
+def test_missing_pct_returns_none_when_duration_invalid_or_samples_missing():
+    """missing_pct helper should preserve None semantics for invalid inputs."""
+    assert CanonicalAnalyticsEngine._missing_pct(None, 10) is None
+    assert CanonicalAnalyticsEngine._missing_pct(0.0, 10) is None
+    assert CanonicalAnalyticsEngine._missing_pct(-1.0, 10) is None
+    assert CanonicalAnalyticsEngine._missing_pct(100.0, None) is None
+    assert CanonicalAnalyticsEngine._missing_pct(100.0, 0) is None
+
+
 def test_model_dump_returns_metrics_only(df_1hz):
     """model_dump should return the metrics dict without raw fields."""
     metrics = CanonicalAnalyticsEngine(df=df_1hz, metadata={})

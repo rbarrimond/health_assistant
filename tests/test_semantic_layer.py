@@ -1281,6 +1281,46 @@ class TestWeeklyRollupTimerComputation:
         metadata_arg = mock_from_canonical.call_args.args[1]
         assert metadata_arg.get("start_time_utc") == "2026-03-08T23:24:18+00:00"
 
+    def test_build_rollup_metrics_model_clamps_negative_missing_pct_from_off_by_one_duration(
+        self,
+        semantic_layer,
+    ):
+        """Weekly rollup hydration should succeed when raw missing_pct would otherwise be -0.1."""
+        entity = {
+            "PartitionKey": "rob|2026-03",
+            "RowKey": "20260308|w-1",
+            "workout_id": "w-1",
+            "athlete_id": "rob",
+            "ingestion_id": "ing-1",
+            "canonical_records_blob": "ing-1/canonical.parquet",
+            "start_time_utc": "2026-03-08T23:24:18+00:00",
+            "sport": "Cycling",
+        }
+
+        semantic_layer.storage.workouts.load_metadata_json.return_value = {
+            "identity": {
+                "start_time_utc": "2026-03-08T23:24:18+00:00",
+                "sport": "Cycling",
+            },
+            "session": {},
+            "enrichment": {},
+            "activity_metadata": {},
+        }
+        semantic_layer.storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+            {
+                "elapsed_sec": list(range(1001)),
+                "heart_rate_bpm": [140.0] * 1001,
+                "power_watts": [220.0] * 1001,
+            }
+        )
+
+        result = semantic_layer._build_rollup_metrics_model(entity)
+
+        assert result.samples.hr_missing_pct == pytest.approx(0.0)
+        assert result.samples.pwr_missing_pct == pytest.approx(0.0)
+        assert result.samples.hr_samples_count == 1001
+        assert result.samples.pwr_samples_count == 1001
+
     def test_workouts_for_local_week_skips_malformed_start_time_utc(
         self,
         semantic_layer,
