@@ -1904,7 +1904,7 @@ class SemanticLayer:
             "total_hr_z2_min": self._sum_zone_time(week_workouts, "hr_z2_sec"),
             "total_pwr_z2_min": self._sum_zone_time(week_workouts, "pwr_z2_sec"),
             "total_low_aerobic_min": self._sum_zone_time(week_workouts, "low_aerobic_sec"),
-            "total_intensity_min": self._sum_zone_time(week_workouts, "intensity_sec"),
+            "total_intensity_min": round(self._sum_high_intensity(week_workouts), 2),
             "last_updated_at_utc": now_utc,
         }
 
@@ -1913,7 +1913,7 @@ class SemanticLayer:
         
         # Add derived counts
         rollup["hard_days_count"] = sum(
-            1 for w in week_workouts if float(w.get("intensity_sec") or 0) > 300
+            1 for w in week_workouts if self._get_high_intensity_seconds(w) > 300
         )
         rollup["long_rides_count"] = sum(
             1
@@ -1960,15 +1960,7 @@ class SemanticLayer:
         High intensity = intensity_sec > 300 (5 minutes) or HR Z4+Z5 > 300 sec
         """
         for workout in workouts:
-            # Check power-based intensity (Z4-Z7 combined)
-            intensity_sec = workout.get("intensity_sec", 0) or 0
-            if intensity_sec > 300:  # > 5 minutes
-                return workout.get("start_time_utc")
-
-            # Fallback: check HR zones
-            hr_z4_sec = workout.get("hr_z4_sec", 0) or 0
-            hr_z5_sec = workout.get("hr_z5_sec", 0) or 0
-            if (hr_z4_sec + hr_z5_sec) > 300:  # > 5 minutes
+            if self._get_high_intensity_seconds(workout) > 300:  # > 5 minutes
                 return workout.get("start_time_utc")
 
         return None
@@ -2016,16 +2008,19 @@ class SemanticLayer:
         """Sum high intensity minutes (Z4+) across workouts."""
         total = 0.0
         for workout in workouts:
-            # Use intensity_sec if available (power zones Z4-Z7 combined)
-            intensity_sec = workout.get("intensity_sec", 0) or 0
-            if intensity_sec > 0:
-                total += intensity_sec / 60  # Convert to minutes
-            else:
-                # Fallback: calculate from HR zones (Z4 + Z5)
-                hr_z4_sec = workout.get("hr_z4_sec", 0) or 0
-                hr_z5_sec = workout.get("hr_z5_sec", 0) or 0
-                total += (hr_z4_sec + hr_z5_sec) / 60
+            total += self._get_high_intensity_seconds(workout) / 60
         return total
+
+    @staticmethod
+    def _get_high_intensity_seconds(workout: Dict[str, Any]) -> float:
+        """Return workout high-intensity seconds using power first, then HR fallback."""
+        intensity_sec = float(workout.get("intensity_sec", 0) or 0)
+        if intensity_sec > 0:
+            return intensity_sec
+
+        hr_z4_sec = float(workout.get("hr_z4_sec", 0) or 0)
+        hr_z5_sec = float(workout.get("hr_z5_sec", 0) or 0)
+        return hr_z4_sec + hr_z5_sec
 
     def _detect_notable_flags(self, workouts: List[Dict]) -> List[str]:
         """
