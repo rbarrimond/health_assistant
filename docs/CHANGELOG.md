@@ -24,6 +24,8 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - **`api_docs/openapi.yaml`**: expanded `WeeklyRollups` response envelope with top-level `status`, `message`, and `results[]`.
 - **`docs/gpt/SEMANTIC_LAYER_API.md`**: weekly rollups response examples and semantics updated for the new envelope.
 
+**Semantic API SemVer**: `openapi.yaml` v`5.1.0` → v`5.2.0` (backward-compatible weekly rollup response envelope expansion).
+
 ### Fix: Signed `hr_drift_bpm` Support in Durability Model
 
 **Fixed**: `DurabilityMetricsModel.hr_drift_bpm` no longer enforces non-negative-only values.

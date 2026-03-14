@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Health Assistant - FIT File Processing",
-    "description": "Complete test collection with API coverage across ingestion, config/assets, agent memory, planning/analysis (WorkoutProjection lightweight batch queries), physiometrics CRUD, TrainingState projection endpoints, OneDrive/Garmin/Intervals.icu sync, and OAuth flows. [Updated 2026-03-14: Config update now supports as_of + athlete_info.home_timezone + gear payloads; weekly rollup timezone resolution prioritizes AgentPreferences home-timezone categories (athlete_home_timezone/home_timezone). Semantic API v5.1.0 weekly rollup strict schema + local-timezone fields; Operations API v4.0.0 weekly compute returns canonical status/message/results (legacy top-level aggregate fields removed) and supports weeks for forced multi-week rollup persistence.]",
+    "description": "Complete test collection with API coverage across ingestion, config/assets, agent memory, planning/analysis (WorkoutProjection lightweight batch queries), physiometrics CRUD, TrainingState projection endpoints, OneDrive/Garmin/Intervals.icu sync, and OAuth flows. [Updated 2026-03-14: Config update now supports as_of + athlete_info.home_timezone + gear payloads; weekly rollup timezone resolution prioritizes AgentPreferences home-timezone categories (athlete_home_timezone/home_timezone). Semantic API v5.2.0 weekly rollup strict schema + local-timezone fields; Operations API v4.0.0 weekly compute returns canonical status/message/results (legacy top-level aggregate fields removed) and supports weeks for forced multi-week rollup persistence.]",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
