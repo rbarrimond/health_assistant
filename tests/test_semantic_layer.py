@@ -977,7 +977,7 @@ class TestWeeklyRollupTimerComputation:
 
         with patch.object(
             semantic_layer,
-            "_get_rollup_metrics_models_in_range",
+            "_workouts_for_local_week",
             return_value=workouts,
         ):
             rollup = semantic_layer.compute_and_persist_previous_week_rollup(
@@ -998,6 +998,55 @@ class TestWeeklyRollupTimerComputation:
         assert kwargs["year"] == "2026"
         assert kwargs["week"] == "10"
         assert kwargs["rollup_data"]["athlete_home_timezone"] == "America/New_York"
+
+    def test_workouts_for_local_week_skips_malformed_start_time_utc_in_rollup_path(
+        self,
+        semantic_layer,
+        caplog,
+    ):
+        """Malformed Workouts.start_time_utc values should be skipped before model hydration."""
+        entities = [
+            {
+                "workout_id": "w-valid",
+                "start_time_utc": "2026-03-03T12:00:00+00:00",
+            },
+            {
+                "workout_id": "w-missing",
+            },
+            {
+                "workout_id": "w-invalid",
+                "start_time_utc": "not-a-timestamp",
+            },
+        ]
+        valid_model = build_rollup_metrics_model(
+            {
+                "workout_id": "w-valid",
+                "start_time_utc": "2026-03-03T12:00:00+00:00",
+                "duration_sec": 3600,
+            }
+        )
+
+        with patch.object(
+            semantic_layer,
+            "_get_rollup_entities_in_range",
+            return_value=entities,
+        ), patch.object(
+            semantic_layer,
+            "_build_rollup_metrics_model",
+            return_value=valid_model,
+        ) as build_model_mock:
+            with caplog.at_level("WARNING"):
+                included = semantic_layer._workouts_for_local_week(
+                    athlete_id="rob",
+                    week_start_local=datetime(2026, 3, 2, 0, 0, tzinfo=ZoneInfo("America/New_York")),
+                    week_end_local=datetime(2026, 3, 8, 23, 59, 59, tzinfo=ZoneInfo("America/New_York")),
+                    athlete_tz=ZoneInfo("America/New_York"),
+                )
+
+        assert len(included) == 1
+        assert included[0].session.start_time_utc == "2026-03-03T12:00:00+00:00"
+        assert build_model_mock.call_count == 1
+        assert "Skipping workouts with malformed Workouts.start_time_utc while building weekly rollup" in caplog.text
 
     def test_compute_and_persist_previous_week_rollup_uses_hr_fallback_for_intensity(
         self,
@@ -1027,7 +1076,7 @@ class TestWeeklyRollupTimerComputation:
 
         with patch.object(
             semantic_layer,
-            "_get_rollup_metrics_models_in_range",
+            "_workouts_for_local_week",
             return_value=workouts,
         ):
             rollup = semantic_layer.compute_and_persist_previous_week_rollup(
@@ -1066,7 +1115,7 @@ class TestWeeklyRollupTimerComputation:
 
         with patch.object(
             semantic_layer,
-            "_get_rollup_metrics_models_in_range",
+            "_workouts_for_local_week",
             return_value=workouts,
         ):
             rollup = semantic_layer.compute_and_persist_previous_week_rollup(
@@ -1177,6 +1226,108 @@ class TestWeeklyRollupTimerComputation:
         assert mock_from_canonical.call_args_list[0].kwargs.get("resample", False) is False
         assert mock_from_canonical.call_args_list[1].kwargs.get("resample") is True
 
+    def test_build_rollup_metrics_model_promotes_identity_start_time_for_canonical(
+        self,
+        semantic_layer,
+    ):
+        """Weekly rollup should pass start_time_utc from metadata.identity to canonical engine."""
+        entity = {
+            "PartitionKey": "rob|2026-03",
+            "RowKey": "20260308|w-1",
+            "workout_id": "w-1",
+            "athlete_id": "rob",
+            "ingestion_id": "ing-1",
+            "canonical_records_blob": "ing-1/canonical.parquet",
+        }
+
+        semantic_layer.storage.workouts.load_metadata_json.return_value = {
+            "identity": {
+                "start_time_utc": "2026-03-08T23:24:18+00:00",
+                "sport": "Cycling",
+            },
+            "session": {},
+            "enrichment": {},
+            "activity_metadata": {},
+        }
+        semantic_layer.storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+            {
+                "timestamp_utc": pd.to_datetime(
+                    ["2026-03-08T23:24:18Z", "2026-03-08T23:24:19Z"],
+                    utc=True,
+                ),
+                "heart_rate_bpm": [125.0, 126.0],
+            }
+        )
+
+        expected = build_rollup_metrics_model(
+            {
+                "sport": "Cycling",
+                "start_time_utc": "2026-03-08T23:24:18+00:00",
+                "duration_sec": 1,
+                "hr_avg_bpm": 125.5,
+                "hr_samples_count": 2,
+            }
+        )
+
+        with patch.object(
+            WorkoutMetricsModel,
+            "from_canonical",
+            return_value=expected,
+        ) as mock_from_canonical:
+            result = semantic_layer._build_rollup_metrics_model(entity)
+
+        assert result == expected
+        assert mock_from_canonical.call_count == 1
+        metadata_arg = mock_from_canonical.call_args.args[1]
+        assert metadata_arg.get("start_time_utc") == "2026-03-08T23:24:18+00:00"
+
+    def test_workouts_for_local_week_skips_malformed_start_time_utc(
+        self,
+        semantic_layer,
+        caplog,
+    ):
+        """Malformed Workouts.start_time_utc values should be skipped before model hydration."""
+        entities = [
+            {
+                "workout_id": "w-valid",
+                "start_time_utc": "2026-03-03T12:00:00+00:00",
+            },
+            {
+                "workout_id": "w-missing",
+            },
+            {
+                "workout_id": "w-invalid",
+                "start_time_utc": "not-a-timestamp",
+            },
+        ]
+        valid_model = build_rollup_metrics_model(
+            {
+                "workout_id": "w-valid",
+                "start_time_utc": "2026-03-03T12:00:00+00:00",
+                "duration_sec": 3600,
+            }
+        )
+
+        with patch.object(
+            semantic_layer,
+            "_get_rollup_entities_in_range",
+            return_value=entities,
+        ), patch.object(
+            semantic_layer,
+            "_build_rollup_metrics_model",
+            return_value=valid_model,
+        ) as build_model_mock:
+            result = semantic_layer._workouts_for_local_week(
+                athlete_id="rob",
+                week_start_local=datetime(2026, 3, 3, 0, 0, tzinfo=ZoneInfo("UTC")),
+                week_end_local=datetime(2026, 3, 9, 23, 59, 59, tzinfo=ZoneInfo("UTC")),
+                athlete_tz=ZoneInfo("UTC"),
+            )
+
+        assert result == [valid_model]
+        assert build_model_mock.call_count == 1
+        assert "Skipping workouts with malformed Workouts.start_time_utc while building weekly rollup" in caplog.text
+
     def test_compute_metrics_from_canonical_retries_with_resample(
         self,
         semantic_layer,
@@ -1251,6 +1402,41 @@ class TestWeeklyRollupTimerComputation:
 
 class TestHelperMethods:
     """Tests for private helper methods."""
+
+    def test_get_rollup_entities_in_range_uses_partition_and_start_time_bounds(
+        self,
+        semantic_layer,
+    ):
+        """Rollup entity query should be partition-scoped and date-bounded in Azure Table filter."""
+        table_client = MagicMock()
+        table_client.query_entities.return_value = [
+            {"workout_id": "w-1", "start_time_utc": "2026-03-03T12:00:00Z"}
+        ]
+        semantic_layer.storage.infrastructure.get_table_client.return_value = table_client
+
+        start = datetime(2026, 3, 1, 0, 0, tzinfo=timezone.utc)
+        end = datetime(2026, 3, 7, 23, 59, 59, tzinfo=timezone.utc)
+
+        with patch.object(
+            semantic_layer,
+            "_get_month_partitions",
+            return_value=["rob|2026-03"],
+        ), patch.object(
+            semantic_layer,
+            "_entity_within_date_range",
+            return_value=True,
+        ):
+            result = semantic_layer._get_rollup_entities_in_range(
+                athlete_id="rob",
+                start_date=start,
+                end_date=end,
+            )
+
+        assert len(result) == 1
+        query = table_client.query_entities.call_args.args[0]
+        assert "PartitionKey eq 'rob|2026-03'" in query
+        assert "start_time_utc ge '2026-03-01T00:00:00Z'" in query
+        assert "start_time_utc le '2026-03-07T23:59:59Z'" in query
 
     def test_get_month_partitions_single_month(self, semantic_layer):
         """Test partition key generation for single month."""
