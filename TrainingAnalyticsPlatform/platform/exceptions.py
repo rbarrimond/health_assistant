@@ -11,8 +11,15 @@ class HealthAssistantError(Exception):
     error_code = "HEALTH_ASSISTANT_ERROR"
     status_code = 500
 
-    def __init__(self, message: Optional[str] = None):
+    def __init__(
+        self,
+        message: Optional[str] = None,
+        *,
+        status_code: Optional[int] = None,
+    ):
         super().__init__(message or self.__class__.__name__)
+        if status_code is not None:
+            self.status_code = status_code
 
     def to_response(
         self,

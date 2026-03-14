@@ -16,6 +16,7 @@ from TrainingAnalyticsPlatform.analytics.semantic_layer import (
     SemanticLayer,
 )
 from TrainingAnalyticsPlatform.models.core import WorkoutMetricsModel, WorkoutProjection
+from TrainingAnalyticsPlatform.platform.exceptions import ValidationError
 
 
 def build_rollup_metrics_model(flat_metrics):
@@ -525,7 +526,7 @@ class TestWorkoutQueries:
 
         with patch(
             "TrainingAnalyticsPlatform.analytics.semantic_layer.CanonicalAnalyticsEngine.from_dataframe",
-            side_effect=ValueError("strict_1hz_failed"),
+            side_effect=ValidationError("strict_1hz_failed", status_code=422),
         ):
             workout = semantic_layer.get_workout_detail("rob", mock_entity["workout_id"])
 
@@ -1121,6 +1122,43 @@ class TestWeeklyRollupTimerComputation:
         assert mock_compute.call_args_list[0].kwargs["weeks_ago"] == 1
         assert mock_compute.call_args_list[1].kwargs["weeks_ago"] == 2
         assert mock_compute.call_args_list[2].kwargs["weeks_ago"] == 3
+
+    def test_build_rollup_metrics_model_propagates_canonical_sampling_validation_error(
+        self,
+        semantic_layer,
+    ):
+        """Non-1Hz canonical validation errors should propagate as typed validation failures."""
+        entity = {
+            "PartitionKey": "rob|2026-03",
+            "RowKey": "20260308|w-1",
+            "workout_id": "w-1",
+            "athlete_id": "rob",
+            "ingestion_id": "ing-1",
+            "canonical_records_blob": "ing-1/canonical.parquet",
+        }
+
+        semantic_layer.storage.workouts.load_metadata_json.return_value = {
+            "session": {},
+            "enrichment": {},
+            "activity_metadata": {},
+        }
+        semantic_layer.storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+            {
+                "timestamp_utc": pd.to_datetime(
+                    ["2026-03-08T23:24:18Z", "2026-03-08T23:25:25Z"],
+                    utc=True,
+                ),
+                "heart_rate_bpm": [125.0, 126.0],
+            }
+        )
+
+        with patch.object(
+            WorkoutMetricsModel,
+            "from_canonical",
+            side_effect=ValidationError("strict_1hz_failed", status_code=422),
+        ):
+            with pytest.raises(ValidationError):
+                semantic_layer._build_rollup_metrics_model(entity)
 
 
 class TestHelperMethods:

@@ -39,6 +39,7 @@ from pydantic import (BaseModel, ConfigDict, Field, computed_field,
                       model_serializer, model_validator)
 
 from TrainingAnalyticsPlatform.platform.config import Config
+from TrainingAnalyticsPlatform.platform.exceptions import ValidationError
 from TrainingAnalyticsPlatform.models.constants import (
     CLIMB_MIN_GRADE, CLIMB_MIN_SEC, DATETIME64_NS,
     INTERVAL_MIN_SEC, INTERVAL_THRESHOLD_FACTOR, ISO_8601_UTC_DESC,
@@ -514,7 +515,7 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
         >>> # Or use WorkoutMetricsModel.from_canonical() for typed output
     
     Validation:
-    - By default, raises ValueError if input DataFrame is not 1 Hz sampled
+    - By default, raises ValidationError (422) if input DataFrame is not 1 Hz sampled
     - Set resample=True to automatically resample non-1Hz data
     - Requires 'timestamp_utc' or 'elapsed_sec' column for temporal index
     
@@ -555,9 +556,16 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
 
         # Not 1 Hz - check if resampling is allowed
         if not self.__dict__.get("resample", False):
-            raise ValueError(
-                "Input DataFrame is not 1 Hz sampled. "
-                "Set resample=True to enable automatic resampling, or provide pre-resampled 1 Hz data."
+            diffs = working.index.to_series().diff().dt.total_seconds().dropna()
+            median_interval_sec = round(float(diffs.median()), 3) if not diffs.empty else None
+            min_interval_sec = round(float(diffs.min()), 3) if not diffs.empty else None
+            max_interval_sec = round(float(diffs.max()), 3) if not diffs.empty else None
+            raise ValidationError(
+                "Canonical validation failed: input DataFrame is not 1 Hz sampled "
+                f"(rows={len(working)}, median_interval_sec={median_interval_sec}, "
+                f"min_interval_sec={min_interval_sec}, max_interval_sec={max_interval_sec}). "
+                "Set resample=True to enable automatic resampling, or provide pre-resampled 1 Hz data.",
+                status_code=422,
             )
 
         resampled = self._resample_to_1hz(working)

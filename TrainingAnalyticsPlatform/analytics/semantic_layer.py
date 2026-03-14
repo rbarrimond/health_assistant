@@ -21,7 +21,10 @@ from TrainingAnalyticsPlatform.models.core import (
 )
 from TrainingAnalyticsPlatform.models.wellness import TrainingStateSnapshot
 from TrainingAnalyticsPlatform.platform.config import Config
-from TrainingAnalyticsPlatform.platform.exceptions import StorageError, ValidationError
+from TrainingAnalyticsPlatform.platform.exceptions import (
+    StorageError,
+    ValidationError,
+)
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import WorkoutEntity
 
 if TYPE_CHECKING:
@@ -1199,13 +1202,15 @@ class SemanticLayer:
         """Compute derived metrics using CanonicalAnalyticsEngine."""
         try:
             canonical = CanonicalAnalyticsEngine.from_dataframe(df, metadata)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
+        except ValidationError as exc:
             logger.warning(
-                "Canonical analytics computation failed",
+                "Canonical analytics computation skipped: canonical validation error",
                 extra={
                     "error_type": type(exc).__name__,
                     "error": str(exc),
                     "record_count": len(df),
+                    "failure_category": "canonical_sampling_validation",
+                    "is_1hz_validation_failure": True,
                 },
             )
             return self._compute_basic_metrics_from_canonical(df)
@@ -2097,6 +2102,25 @@ class SemanticLayer:
 
         try:
             return WorkoutMetricsModel.from_canonical(df, metadata_blob)
+        except ValidationError as exc:
+            logger.error(
+                "Weekly rollup canonical validation failed",
+                extra={
+                    "workout_id": workout_entity.workout_id,
+                    "blob_name": blob_name,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                    "failure_category": "canonical_sampling_validation",
+                    "is_1hz_validation_failure": True,
+                    "status_code": exc.status_code,
+                },
+                exc_info=True,
+            )
+            raise ValidationError(
+                "Weekly rollup canonical validation failed for workout "
+                f"{workout_entity.workout_id} (blob={blob_name}): {exc}",
+                status_code=exc.status_code,
+            ) from exc
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error(
                 "Failed to build WorkoutMetricsModel for weekly rollup",
@@ -2105,6 +2129,8 @@ class SemanticLayer:
                     "blob_name": blob_name,
                     "error_type": type(exc).__name__,
                     "error": str(exc),
+                    "failure_category": "workout_metrics_model_build",
+                    "is_1hz_validation_failure": False,
                 },
                 exc_info=True,
             )
