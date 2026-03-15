@@ -2526,7 +2526,7 @@ class SemanticLayer:
         
         Args:
             workouts: List of workout dicts
-            zone_field: Field name (e.g., 'hr_z2_sec', 'hr_z2_min')
+            zone_field: Field name (e.g., 'hr_z2_sec', 'pwr_z2_sec')
             
         Returns:
             Total time in minutes, rounded to 2 decimal places

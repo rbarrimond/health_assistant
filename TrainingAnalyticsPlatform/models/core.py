@@ -230,15 +230,10 @@ class WorkoutMetricsModel(BaseModel):
             hr_zone_basis=str(hr_zone_basis),
             hr_zone_reference_bpm=float(hr_zone_reference),
             hr_z1_sec=metrics.get("hr_z1_sec") or 0,
-            hr_z1_min=metrics.get("hr_z1_min") or 0,
             hr_z2_sec=metrics.get("hr_z2_sec") or 0,
-            hr_z2_min=metrics.get("hr_z2_min") or 0,
             hr_z3_sec=metrics.get("hr_z3_sec") or 0,
-            hr_z3_min=metrics.get("hr_z3_min") or 0,
             hr_z4_sec=metrics.get("hr_z4_sec") or 0,
-            hr_z4_min=metrics.get("hr_z4_min") or 0,
             hr_z5_sec=metrics.get("hr_z5_sec") or 0,
-            hr_z5_min=metrics.get("hr_z5_min") or 0,
             hr_z1_low_bpm=metrics.get("hr_z1_low_bpm"),
             hr_z1_high_bpm=metrics.get("hr_z1_high_bpm"),
             hr_z2_low_bpm=metrics.get("hr_z2_low_bpm"),
@@ -1654,13 +1649,9 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
         zone_bounds = list(zones.values())
         lows = np.array([low for low, _ in zone_bounds], dtype=float)
         highs = np.array([high for _, high in zone_bounds], dtype=float)
-        in_range = (hrs_array >= lows[0]) & (hrs_array <= highs[-1])
-        hrs_valid = hrs_array[in_range]
-        if hrs_valid.size:
-            bin_indices = np.digitize(hrs_valid, highs, right=True)
-            counts = np.bincount(bin_indices, minlength=len(highs))[:len(highs)]
-        else:
-            counts = np.zeros(len(highs), dtype=int)
+        hrs_clamped = np.clip(hrs_array, lows[0], highs[-1])
+        bin_indices = np.digitize(hrs_clamped, highs, right=True)
+        counts = np.bincount(bin_indices, minlength=len(highs))[:len(highs)]
 
         metrics: Dict[str, float | int | str] = {}
         total_sec = 0

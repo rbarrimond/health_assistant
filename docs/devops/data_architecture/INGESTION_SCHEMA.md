@@ -48,7 +48,7 @@ Canonical schema documentation is centralized in this document.
 - `canonical_schema_version` persisted in Workouts is sourced from `CANONICAL_SCHEMA_VERSION` in `TrainingAnalyticsPlatform/storage/table_storage.py`.
 - The value is attached during ingestion in `FitIngestionBaseHandler._parse_and_store()`.
 
-Current canonical schema version: `2.0.1`.
+Current canonical schema version: `2.0.2`.
 
 ### Change management contract
 
@@ -65,7 +65,7 @@ All ingestion-related schema/code version constants must be documented here.
 | Version | Current value | Code source | Purpose |
 | --- | --- | --- | --- |
 | `INGEST_VERSION` | `v15.1.4` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
-| `CANONICAL_SCHEMA_VERSION` | `2.0.1` | `TrainingAnalyticsPlatform/storage/storage_infrastructure.py` | Canonical parquet schema version persisted to `Workouts.canonical_schema_version`. |
+| `CANONICAL_SCHEMA_VERSION` | `2.0.2` | `TrainingAnalyticsPlatform/storage/table_storage.py` | Canonical parquet schema version persisted to `Workouts.canonical_schema_version`. |
 | `METADATA_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `metadata.json` as `metadata_schema_version`. |
 | `LAPS_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `laps.json` as `schema_version`. |
 | `FIT_ANALYSIS_VERSION` | `v1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `fit_analysis.json` as `analysis_version`. |

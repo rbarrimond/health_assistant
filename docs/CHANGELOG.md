@@ -10,6 +10,20 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-14
 
+### HR Zone Seconds-Only Contract Alignment [canonical_schema v2.0.2]
+
+- **Changed**: Removed non-canonical per-workout HR minute fields (`hr_z1_min`..`hr_z5_min`) from the metrics model surface.
+- **Why**: HR zones now mirror power zones with a single canonical unit (`*_sec`). Minute values are derived at query/aggregation boundaries.
+- **Code updates**:
+  - `TrainingAnalyticsPlatform/models/metrics/zones.py`: removed `HRZonesModel` minute fields.
+  - `TrainingAnalyticsPlatform/models/core.py`: removed dead `metrics.get("hr_z*_min")` mappings in `_build_hr_zones()`.
+  - `TrainingAnalyticsPlatform/analytics/semantic_layer.py`: clarified `_sum_zone_time()` docstring examples to seconds-based fields.
+- **Contract/docs updates**:
+  - `CANONICAL_SCHEMA_VERSION` bumped to `2.0.2` in `TrainingAnalyticsPlatform/storage/table_storage.py`.
+  - `docs/devops/data_architecture/INGESTION_SCHEMA.md` updated with `2.0.2` and canonical source-path correction.
+  - `docs/devops/data_architecture/CANONICAL_ANALYTICS_SURFACE.md` explicitly documents seconds-only per-workout zone contract.
+  - `docs/gpt/WORKOUT_SCHEMA.md` clarifies that minute zone values are derived reporting projections.
+
 ### BREAKING: Weekly Rollup Per-Week Outcome Visibility + Sync-Style Status Envelope [operations API v4.0.0]
 
 **Changed**: Weekly rollup APIs now return sync-style top-level status metadata and detailed per-week outcomes instead of only coarse aggregate athlete arrays.

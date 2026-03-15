@@ -299,5 +299,5 @@ Returned by `GET /api/rollups/weekly`.
 - Elevation: meters (`*_m`).
 - Power: watts.
 - Heart rate: bpm.
-- Time-in-zone: seconds.
+- Time-in-zone: per-workout fields use seconds only; minute values are derived for aggregate/reporting surfaces.
 - Timestamps: ISO 8601 with explicit UTC offset (no trailing `Z`).
