@@ -6,6 +6,7 @@
 import json
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -34,6 +35,48 @@ def build_rollup_metrics_model(flat_metrics):
             "has_gps": flat_metrics.get("distance_m") is not None,
         },
     )
+
+
+def test_apply_canonical_metrics_recomputes_inconsistent_hr_zone_total(
+    semantic_layer,
+    mock_storage,
+):
+    """Canonical recompute should run when hr_zone_total_sec mismatches per-zone seconds."""
+    workout_entity = SimpleNamespace(
+        canonical_records_blob="workouts/test/canonical.parquet",
+        workout_id="workout-001",
+    )
+
+    metrics = {
+        "hr_avg_bpm": 154.4,
+        "hr_z1_sec": 301,
+        "hr_z2_sec": 622,
+        "hr_z3_sec": 771,
+        "hr_z4_sec": 925,
+        "hr_z5_sec": 746,
+        "hr_zone_total_sec": 0,
+    }
+
+    mock_storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+        {
+            "timestamp_utc": [
+                "2026-02-22T01:51:12+00:00",
+                "2026-02-22T01:51:13+00:00",
+            ],
+            "elapsed_sec": [0, 1],
+            "heart_rate_bpm": [150.0, 151.0],
+        }
+    )
+
+    with patch.object(
+        semantic_layer,
+        "_compute_metrics_from_canonical",
+        return_value={"hr_zone_total_sec": 3365},
+    ) as recompute:
+        enriched = semantic_layer._apply_canonical_metrics(workout_entity, metrics)
+
+    recompute.assert_called_once()
+    assert enriched["hr_zone_total_sec"] == 3365
 
 
 @pytest.fixture

@@ -1249,6 +1249,7 @@ class SemanticLayer:
                         "hr_z3_sec",
                         "hr_z4_sec",
                         "hr_z5_sec",
+                        "hr_zone_total_sec",
                         "hr_zone_basis",
                         "hr_zone_reference_bpm",
                     },
@@ -1311,7 +1312,10 @@ class SemanticLayer:
         metrics: Dict,
     ) -> Dict:
         """Derive metrics from canonical parquet when table metrics are missing."""
-        if metrics.get("hr_avg_bpm") or metrics.get("pwr_avg_watts"):
+        has_baseline_metrics = bool(metrics.get("hr_avg_bpm") or metrics.get("pwr_avg_watts"))
+        hr_zone_total_inconsistent = self._is_hr_zone_total_inconsistent(metrics)
+
+        if has_baseline_metrics and not hr_zone_total_inconsistent:
             return metrics
 
         blob_name = workout_entity.canonical_records_blob or metrics.get(
@@ -1340,6 +1344,24 @@ class SemanticLayer:
         enriched = dict(metrics)
         enriched.update(self._compute_metrics_from_canonical(df, enriched))
         return enriched
+
+    @staticmethod
+    def _is_hr_zone_total_inconsistent(metrics: Dict[str, Any]) -> bool:
+        """Return True when HR zone total is absent/mismatched against per-zone seconds."""
+        zone_values = [float(metrics.get(f"hr_z{i}_sec") or 0) for i in range(1, 6)]
+        zones_sum = float(sum(zone_values))
+        total = metrics.get("hr_zone_total_sec")
+
+        has_any_zone = any(value > 0 for value in zone_values)
+        if not has_any_zone:
+            return False
+        if total is None:
+            return True
+
+        try:
+            return float(total) != zones_sum
+        except (TypeError, ValueError):
+            return True
 
     def _compute_metrics_from_canonical(
         self,
