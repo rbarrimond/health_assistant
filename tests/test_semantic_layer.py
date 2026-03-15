@@ -1375,7 +1375,17 @@ class TestWeeklyRollupTimerComputation:
 
     def test_durability_model_accepts_signed_hr_drift(self):
         """hr_drift_bpm should preserve signed values from analytics output."""
-        metric = DurabilityMetricsModel(hr_drift_bpm=-0.4)
+        metric = DurabilityMetricsModel(
+            efficiency_factor_avg=None,
+            decoupling_pct=None,
+            durability_slope=None,
+            fatigue_rate_power=None,
+            hr_power_lag_sec=None,
+            ef_first_half=None,
+            ef_second_half=None,
+            ef_overall=None,
+            hr_drift_bpm=-0.4,
+        )
         assert metric.hr_drift_bpm == pytest.approx(-0.4)
 
     def test_build_rollup_metrics_model_retries_with_resample_on_sampling_validation_error(
@@ -2236,6 +2246,120 @@ class TestWorkoutProjection:
         # Optional string fields
         if projection.workout_name is not None:
             assert isinstance(projection.workout_name, str)
+
+    def test_build_projection_hydrate_from_canonical_fills_missing_power_fields(
+        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+    ):
+        """Hydration should fill missing power and cadence fields from canonical metrics."""
+        sample_table_entity["canonical_records_blob"] = "ingestion-001/canonical.parquet"
+        sample_metadata_full["session"]["pwr_normalized_watts"] = None
+        sample_metadata_full["session"]["pwr_avg_watts"] = None
+        sample_metadata_full["session"]["pwr_max_watts"] = None
+        sample_metadata_full["session"]["cad_avg_rpm"] = None
+        sample_metadata_full["session"]["cad_max_rpm"] = None
+        mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
+        elapsed = list(range(120))
+        power = [240.0 + (index % 30) for index in elapsed]
+        mock_storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+            {
+                "elapsed_sec": elapsed,
+                "power_watts": power,
+                "heart_rate_bpm": [160.0 + (index % 5) for index in elapsed],
+                "cadence_rpm": [90.0 + (index % 3) for index in elapsed],
+                "distance_m": [float(index * 10) for index in elapsed],
+            }
+        )
+
+        projection = semantic_layer.build_workout_projection(
+            sample_table_entity,
+        )
+
+        assert projection is not None
+        assert projection.pwr_avg_watts is not None
+        assert projection.pwr_max_watts is not None
+        assert projection.pwr_normalized_watts is not None
+        assert projection.cad_avg_rpm is not None
+        assert projection.cad_max_rpm is not None
+
+    def test_build_projection_hydrate_from_canonical_preserves_metadata_values(
+        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+    ):
+        """Hydration must not overwrite metadata-provided values."""
+        sample_table_entity["canonical_records_blob"] = "ingestion-001/canonical.parquet"
+        sample_metadata_full["session"]["pwr_normalized_watts"] = 305.0
+        sample_metadata_full["session"]["moving_time_sec"] = 3540.0
+        mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
+        mock_storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+            {
+                "elapsed_sec": [0, 1, 2, 3, 4],
+                "power_watts": [200.0, 210.0, 220.0, 230.0, 240.0],
+                "heart_rate_bpm": [150.0, 151.0, 152.0, 153.0, 154.0],
+            }
+        )
+
+        projection = semantic_layer.build_workout_projection(
+            sample_table_entity,
+        )
+
+        assert projection is not None
+        assert projection.pwr_normalized_watts == pytest.approx(305.0)
+        assert projection.moving_time_sec == pytest.approx(3540.0)
+
+    def test_build_projection_hydrate_skips_when_capability_flags_false(
+        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+    ):
+        """Hydration should be skipped when has_hr/has_power are both False."""
+        sample_table_entity["canonical_records_blob"] = "ingestion-001/canonical.parquet"
+        sample_table_entity["has_power"] = False
+        sample_table_entity["has_hr"] = False
+        sample_metadata_full["capabilities"]["has_power"] = False
+        sample_metadata_full["capabilities"]["has_hr"] = False
+        sample_metadata_full["session"]["pwr_normalized_watts"] = None
+        mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
+
+        projection = semantic_layer.build_workout_projection(sample_table_entity)
+
+        assert projection is not None
+        mock_storage.workouts.load_canonical_records.assert_not_called()
+
+    def test_build_projection_hydrate_from_canonical_graceful_fallback_on_load_error(
+        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+    ):
+        """Canonical hydration failures should degrade gracefully to metadata values."""
+        sample_table_entity["canonical_records_blob"] = "ingestion-001/canonical.parquet"
+        sample_metadata_full["session"]["pwr_normalized_watts"] = None
+        mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
+        mock_storage.workouts.load_canonical_records.side_effect = RuntimeError("blob unavailable")
+
+        projection = semantic_layer.build_workout_projection(sample_table_entity)
+
+        assert projection is not None
+        assert projection.workout_id == "proj-001"
+        assert projection.pwr_normalized_watts is None
+
+    def test_build_projection_hydrates_hr_only_when_has_hr_true(
+        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+    ):
+        """Hydration should populate HR-dependent fields when has_hr=True and values missing."""
+        sample_table_entity["canonical_records_blob"] = "ingestion-001/canonical.parquet"
+        sample_table_entity["has_power"] = False
+        sample_metadata_full["capabilities"]["has_power"] = False
+        sample_metadata_full["session"]["hr_avg_bpm"] = None
+        sample_metadata_full["session"]["hr_max_bpm"] = None
+        mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
+        mock_storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+            {
+                "elapsed_sec": list(range(60)),
+                "heart_rate_bpm": [150.0 + (index % 6) for index in range(60)],
+            }
+        )
+
+        projection = semantic_layer.build_workout_projection(sample_table_entity)
+
+        assert projection is not None
+        assert projection.hr_avg_bpm is not None
+        assert projection.hr_max_bpm is not None
+        assert projection.pwr_normalized_watts is None
 
 
 # =========================================================================

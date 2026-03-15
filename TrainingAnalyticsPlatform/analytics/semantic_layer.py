@@ -1649,6 +1649,14 @@ class SemanticLayer:
             metadata_blob = self._load_projection_metadata_blob(lookup_id, workout_entity.workout_id)
             metadata = self._extract_projection_metadata_sections(metadata_blob)
             projection_kwargs = self._build_workout_projection_kwargs(workout_entity, metadata)
+            projection_kwargs.update(
+                self._hydrate_projection_from_canonical(
+                    workout_entity,
+                    entity,
+                    metadata_blob,
+                    projection_kwargs,
+                )
+            )
             return WorkoutProjection(**projection_kwargs)
 
         except Exception as exc:  # pylint: disable=broad-exception-caught
@@ -1661,6 +1669,123 @@ class SemanticLayer:
                 exc_info=True,
             )
             return None
+
+    def _load_projection_canonical_records(
+        self,
+        workout_entity: WorkoutEntity,
+        entity: Dict[str, Any],
+    ) -> tuple[Optional[str], Optional[pd.DataFrame]]:
+        """Load canonical records used for optional projection hydration."""
+        ingestion_id = workout_entity.ingestion_id or entity.get("ingestion_id")
+        blob_name = workout_entity.canonical_records_blob or entity.get("canonical_records_blob")
+        if not blob_name and ingestion_id:
+            blob_name = f"{ingestion_id}/canonical.parquet"
+        if not blob_name:
+            return None, None
+
+        try:
+            df = self.storage.workouts.load_canonical_records(blob_name)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.warning(
+                "Canonical projection hydration skipped: failed to load canonical records",
+                extra={
+                    "workout_id": workout_entity.workout_id,
+                    "blob_name": blob_name,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
+            return blob_name, None
+
+        if df.empty:
+            return blob_name, None
+        return blob_name, df
+
+    def _hydrate_projection_from_canonical(
+        self,
+        workout_entity: WorkoutEntity,
+        entity: Dict[str, Any],
+        metadata_blob: Dict[str, Any],
+        projection_kwargs: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Hydrate missing capability-dependent projection fields from canonical analytics."""
+        has_hr = bool(projection_kwargs.get("has_hr"))
+        has_power = bool(projection_kwargs.get("has_power"))
+
+        target_fields: List[str] = []
+        if has_hr:
+            target_fields.extend([
+                "hr_avg_bpm",
+                "hr_max_bpm",
+            ])
+        if has_power:
+            target_fields.extend([
+                "pwr_avg_watts",
+                "pwr_max_watts",
+                "pwr_normalized_watts",
+            ])
+        target_fields.extend([
+            "cad_avg_rpm",
+            "cad_max_rpm",
+        ])
+
+        if not target_fields:
+            return {}
+
+        needs_hydration = any(
+            projection_kwargs.get(field) is None
+            for field in target_fields
+        )
+        if not needs_hydration:
+            return {}
+
+        blob_name, df = self._load_projection_canonical_records(workout_entity, entity)
+        if df is None:
+            return {}
+
+        canonical_metadata = self._prepare_rollup_metadata_for_canonical(
+            metadata_blob,
+            workout_entity,
+        )
+
+        try:
+            canonical = CanonicalAnalyticsEngine.from_dataframe(df, canonical_metadata)
+        except ValidationError:
+            try:
+                canonical = CanonicalAnalyticsEngine.from_dataframe(
+                    df,
+                    canonical_metadata,
+                    resample=True,
+                )
+            except ValidationError as exc:
+                logger.warning(
+                    "Canonical projection hydration skipped: canonical validation failed",
+                    extra={
+                        "workout_id": workout_entity.workout_id,
+                        "blob_name": blob_name,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                        "status_code": exc.status_code,
+                    },
+                )
+                return {}
+
+        canonical_metrics = canonical.to_metrics_dict()
+        updates: Dict[str, Any] = {}
+        for field in target_fields:
+            if projection_kwargs.get(field) is None and canonical_metrics.get(field) is not None:
+                updates[field] = canonical_metrics[field]
+
+        if updates:
+            logger.debug(
+                "WorkoutProjection hydrated missing fields from canonical",
+                extra={
+                    "workout_id": workout_entity.workout_id,
+                    "blob_name": blob_name,
+                    "hydrated_fields": sorted(updates.keys()),
+                },
+            )
+        return updates
 
     def _load_projection_metadata_blob(self, lookup_id: str, workout_id: str) -> Dict[str, Any]:
         """Load metadata blob used by projection paths and normalize non-dict payloads."""

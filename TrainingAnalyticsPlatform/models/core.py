@@ -393,7 +393,10 @@ class WorkoutProjection(BaseModel):
     - Status flags (indoor, race, commute)
     - Provenance metadata (ingestion version, timestamp)
     
-    All fields extracted directly from WorkoutEntity + metadata.json (no computation).
+    Base fields are extracted directly from WorkoutEntity + metadata.json.
+    Read-time hydration automatically fills missing capability-dependent metrics from
+    CanonicalAnalyticsEngine when `has_hr`/`has_power` are true, without overwriting
+    metadata-provided values.
     Capability-dependent fields (HR/power metrics) are Optional based on has_hr/has_power.
     
     Use this for:

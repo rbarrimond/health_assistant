@@ -8,6 +8,20 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-15
+
+### WorkoutProjection Automatic Flag-Driven Canonical Hydration for Missing Dependent Fields [semantic API v6.1.0]
+
+- **Added**: automatic capability-flag-driven hydration in `SemanticLayer.build_workout_projection(...)` for missing dependent projection fields from canonical parquet via `CanonicalAnalyticsEngine`.
+- **Hydration scope**: missing-only fill for capability-dependent fields gated by projection flags (`has_hr` → `hr_avg_bpm/hr_max_bpm`, `has_power` → `pwr_avg_watts/pwr_max_watts/pwr_normalized_watts`) plus cadence peaks (`cad_avg_rpm`, `cad_max_rpm`) when absent.
+- **Precedence contract**: metadata-first; canonical hydration never overwrites values already present from `Workouts` table or `metadata.json`.
+- **Hydration gating**: canonical reads are skipped when both `has_hr` and `has_power` are false, or when capability-dependent fields are already populated.
+- **Error behavior**: canonical load/validation failures degrade gracefully to metadata-only projection output.
+- **Code updates**:
+  - `TrainingAnalyticsPlatform/analytics/semantic_layer.py`: added automatic flag-driven hydration path and canonical loader/hydrator helpers for projection.
+  - `TrainingAnalyticsPlatform/models/core.py`: updated `WorkoutProjection` docstring to describe automatic flag-driven hydration semantics.
+  - `tests/test_semantic_layer.py`: added coverage for fill-missing, metadata precedence, capability-gated skip path, and graceful fallback.
+
 ## 2026-03-14
 
 ### Workout Detail Canonical-Required Read Contract Hardening [semantic API v6.0.0]
