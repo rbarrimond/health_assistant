@@ -10,6 +10,18 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-14
 
+### HR Zone Total Seconds Edge-Clamp Fix [canonical_schema v2.0.3]
+
+- **Fixed**: `hr_zone_total_sec` no longer drops out-of-range heart-rate samples during zone classification.
+- **Why**: Previous in-range filtering could produce unexpectedly low or zero zone totals when samples fell below the configured floor or above the configured ceiling.
+- **Code updates**:
+  - `TrainingAnalyticsPlatform/models/core.py`: `_compute_hr_zones_from_series()` now edge-clamps HR samples to zone bounds before binning.
+  - `tests/test_canonical_validation.py`: added regression coverage proving below-floor samples count in Z1, above-ceiling samples count in Z5, and totals remain consistent.
+- **Contract/docs updates**:
+  - `CANONICAL_SCHEMA_VERSION` bumped to `2.0.3` in `TrainingAnalyticsPlatform/storage/table_storage.py`.
+  - `docs/devops/data_architecture/INGESTION_SCHEMA.md` updated to `2.0.3`.
+  - `docs/devops/data_architecture/CANONICAL_ANALYTICS_SURFACE.md` now explicitly documents edge-clamped HR zone classification semantics.
+
 ### HR Zone Seconds-Only Contract Alignment [canonical_schema v2.0.2]
 
 - **Changed**: Removed non-canonical per-workout HR minute fields (`hr_z1_min`..`hr_z5_min`) from the metrics model surface.

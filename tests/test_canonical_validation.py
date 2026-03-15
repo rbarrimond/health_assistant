@@ -109,6 +109,29 @@ def test_missing_pct_returns_none_when_duration_invalid_or_samples_missing():
     assert CanonicalAnalyticsEngine._missing_pct(100.0, 0) is None
 
 
+def test_hr_zone_total_sec_edge_clamps_out_of_range_samples(monkeypatch):
+    """Out-of-range HR samples should classify into edge zones, not be dropped."""
+
+    class _MockHrConfig:
+        basis = "HRmax"
+        resting_hr_bpm = 60
+        lthr_bpm = None
+        hr_max_bpm = 200
+
+    monkeypatch.setattr(
+        "TrainingAnalyticsPlatform.models.core.Config.hr_config",
+        lambda: _MockHrConfig(),
+    )
+
+    hr_series = pd.Series([30.0, 50.0, 100.0, 199.0, 220.0], dtype=float)
+
+    metrics = CanonicalAnalyticsEngine._compute_hr_zones_from_series(hr_series)
+
+    assert metrics["hr_z1_sec"] == 3
+    assert metrics["hr_z5_sec"] == 2
+    assert metrics["hr_zone_total_sec"] == 5
+
+
 def test_model_dump_returns_metrics_only(df_1hz):
     """model_dump should return the metrics dict without raw fields."""
     metrics = CanonicalAnalyticsEngine(df=df_1hz, metadata={})

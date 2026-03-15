@@ -1,7 +1,7 @@
 # Canonical Analytics Surface
 <!-- markdownlint-disable MD024 -->
 
-Version: 1.1.4
+Version: 1.1.5
 
 > This document defines the canonical analytics contract for workout computation.
 > The surface is derived deterministically from canonical.parquet streams.
@@ -82,6 +82,7 @@ All values must be reproducible from canonical.parquet.
 - `hr_z4_sec` — Total seconds spent in heart rate Zone 4.
 - `hr_z5_sec` — Total seconds spent in heart rate Zone 5.
 - `hr_zone_total_sec` — Total time in seconds across all heart rate zones.
+- HR samples outside configured zone bounds are edge-clamped for classification (below floor → Z1, above ceiling → Z5) so all valid HR samples contribute to `hr_zone_total_sec`.
 - Per-workout HR zone minute fields are not part of the canonical contract; minute projections are derived on demand from `*_sec` fields.
 - `pwr_avg_watts` — Average power output in watts.
 - `pwr_max_watts` — Maximum instantaneous power in watts.
