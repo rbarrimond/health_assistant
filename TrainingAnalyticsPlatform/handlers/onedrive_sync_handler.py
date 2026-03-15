@@ -364,6 +364,31 @@ class OneDriveSyncRequest:
         return str(async_param).lower() in {"1", "true", "yes", "y"}
 
 
+class OneDriveResetRequest:
+    """Encapsulates OneDrive delta reset request parsing."""
+
+    def __init__(self, body: Optional[Dict], query_params: Optional[Dict]):
+        self.body = body or {}
+        self.query_params = query_params or {}
+
+    @property
+    def athlete_id(self) -> str | None:
+        """Extract athlete_id from body or query params if provided."""
+        athlete_id = self.body.get("athlete_id") or self.query_params.get("athlete_id")
+        if athlete_id is None:
+            return None
+        athlete_id_str = str(athlete_id).strip()
+        return athlete_id_str or None
+
+    @property
+    def reset_all(self) -> bool:
+        """Extract bulk reset flag from body or query params."""
+        all_param = self.body.get("all")
+        if all_param is None:
+            all_param = self.query_params.get("all")
+        return str(all_param).lower() in {"1", "true", "yes", "y"}
+
+
 class OneDriveSyncHandler:
     """Orchestrates OneDrive sync workflow."""
 
@@ -405,6 +430,93 @@ class OneDriveSyncHandler:
             return self._handle_async(req.athlete_id, lookback_days)
 
         return self._handle_sync(req.athlete_id, lookback_days)
+
+    def handle_reset(self, req: OneDriveResetRequest) -> Tuple[Dict, int]:
+        """Reset OneDrive delta token state for single athlete or all athletes."""
+        reset_at_utc = datetime.now(timezone.utc).isoformat()
+
+        if req.reset_all:
+            try:
+                reset_count = self._storage.oauth_tokens.reset_all_onedrive_delta_states()
+                return {
+                    "status": "success",
+                    "scope": "bulk",
+                    "reset_count": reset_count,
+                    "reset_at_utc": reset_at_utc,
+                }, 200
+            except HealthAssistantError as exc:
+                logger.error(
+                    "OneDrive bulk delta reset failed with typed error",
+                    extra={
+                        "source_system": "onedrive",
+                        "operation": "delta_reset",
+                        "scope": "bulk",
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                    exc_info=True,
+                )
+                return exc.to_response(include_message_alias=True)
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                logger.error(
+                    "OneDrive bulk delta reset failed",
+                    extra={
+                        "source_system": "onedrive",
+                        "operation": "delta_reset",
+                        "scope": "bulk",
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                    exc_info=True,
+                )
+                return {"error": "Delta reset failed"}, 500
+
+        athlete_id = req.athlete_id
+        if not athlete_id:
+            return {
+                "error": "Provide athlete_id or set all=true for bulk reset"
+            }, 400
+
+        try:
+            reset_applied = self._storage.oauth_tokens.reset_onedrive_delta_state(
+                athlete_id
+            )
+            return {
+                "status": "success",
+                "scope": "single",
+                "athlete_id": athlete_id,
+                "reset_count": 1 if reset_applied else 0,
+                "reset_applied": reset_applied,
+                "reset_at_utc": reset_at_utc,
+            }, 200
+        except HealthAssistantError as exc:
+            logger.error(
+                "OneDrive delta reset failed with typed error",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "onedrive",
+                    "operation": "delta_reset",
+                    "scope": "single",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
+            return exc.to_response(include_message_alias=True)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.error(
+                "OneDrive delta reset failed",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "onedrive",
+                    "operation": "delta_reset",
+                    "scope": "single",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
+            return {"error": "Delta reset failed"}, 500
 
     @property
     def config(self) -> OneDriveSyncConfig:

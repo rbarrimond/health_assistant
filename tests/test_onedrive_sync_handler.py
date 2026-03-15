@@ -12,9 +12,11 @@ import pytest
 from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import (
     OneDriveSyncConfig,
     OneDriveSyncIngestionHandler,
+    OneDriveResetRequest,
     OneDriveSyncHandler,
     OneDriveSyncRequest,
 )
+from TrainingAnalyticsPlatform.platform.exceptions import StorageError
 from TrainingAnalyticsPlatform.platform.exceptions import IngestionIdResolutionError
 from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 from TrainingAnalyticsPlatform.platform.exceptions import WorkoutIdCalculationError
@@ -121,6 +123,31 @@ class TestOneDriveSyncRequest:
         for value in ["0", "false", "False", "no", "n", ""]:
             req = OneDriveSyncRequest({"async": value}, {})
             assert req.async_mode is False, f"Failed for async={value}"
+
+
+class TestOneDriveResetRequest:
+    """Test OneDriveResetRequest parsing."""
+
+    def test_athlete_id_from_body(self):
+        req = OneDriveResetRequest({"athlete_id": "athlete1"}, {})
+        assert req.athlete_id == "athlete1"
+
+    def test_athlete_id_none_when_missing(self):
+        req = OneDriveResetRequest({}, {})
+        assert req.athlete_id is None
+
+    def test_athlete_id_strips_whitespace(self):
+        req = OneDriveResetRequest({"athlete_id": "  rob  "}, {})
+        assert req.athlete_id == "rob"
+
+    def test_reset_all_true_values(self):
+        for value in ["1", "true", "True", "yes", "y"]:
+            req = OneDriveResetRequest({"all": value}, {})
+            assert req.reset_all is True
+
+    def test_reset_all_false_when_missing(self):
+        req = OneDriveResetRequest({}, {})
+        assert req.reset_all is False
 
 
 class TestOneDriveSyncHandler:
@@ -276,6 +303,50 @@ class TestOneDriveSyncHandler:
         time.sleep(0.1)
 
         handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=60)
+
+    def test_handle_reset_single_success(self, handler):
+        handler._storage.oauth_tokens.reset_onedrive_delta_state.return_value = True
+        req = OneDriveResetRequest({"athlete_id": "rob"}, {})
+
+        body, status = handler.handle_reset(req)
+
+        assert status == 200
+        assert body["status"] == "success"
+        assert body["scope"] == "single"
+        assert body["athlete_id"] == "rob"
+        assert body["reset_count"] == 1
+        assert body["reset_applied"] is True
+        handler._storage.oauth_tokens.reset_onedrive_delta_state.assert_called_once_with("rob")
+
+    def test_handle_reset_bulk_success(self, handler):
+        handler._storage.oauth_tokens.reset_all_onedrive_delta_states.return_value = 3
+        req = OneDriveResetRequest({"all": True}, {})
+
+        body, status = handler.handle_reset(req)
+
+        assert status == 200
+        assert body["status"] == "success"
+        assert body["scope"] == "bulk"
+        assert body["reset_count"] == 3
+        handler._storage.oauth_tokens.reset_all_onedrive_delta_states.assert_called_once_with()
+
+    def test_handle_reset_missing_scope_validation(self, handler):
+        req = OneDriveResetRequest({}, {})
+
+        body, status = handler.handle_reset(req)
+
+        assert status == 400
+        assert "athlete_id" in body["error"]
+
+    def test_handle_reset_typed_error(self, handler):
+        handler._storage.oauth_tokens.reset_onedrive_delta_state.side_effect = StorageError("boom")
+        req = OneDriveResetRequest({"athlete_id": "rob"}, {})
+
+        body, status = handler.handle_reset(req)
+
+        assert status == 500
+        assert body["status"] == "error"
+        assert body["error_code"] == "STORAGE_ERROR"
 
 
 class TestOneDriveIngestionIdentity:

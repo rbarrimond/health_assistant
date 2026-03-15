@@ -650,6 +650,57 @@ class TestOneDriveHelpersAndEndpoints:
             athlete_id="rob", code="auth-code"
         )
 
+    def test_onedrive_sync_reset_http_single(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {"athlete_id": "rob"}
+        req.params = {}
+
+        mock_handler = MagicMock()
+        mock_handler.handle_reset.return_value = (
+            {
+                "status": "success",
+                "scope": "single",
+                "athlete_id": "rob",
+                "reset_count": 1,
+            },
+            200,
+        )
+
+        with _patch_dependency("onedrive_service", mock_handler):
+            response = function_app.onedrive_sync_reset_http(req)
+
+        assert response.status_code == 200
+        body = json.loads(response.get_body())
+        assert body["status"] == "success"
+        assert body["scope"] == "single"
+        mock_handler.handle_reset.assert_called_once()
+
+    def test_onedrive_sync_reset_http_bulk(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {"all": True}
+        req.params = {}
+
+        mock_handler = MagicMock()
+        mock_handler.handle_reset.return_value = (
+            {
+                "status": "success",
+                "scope": "bulk",
+                "reset_count": 2,
+            },
+            200,
+        )
+
+        with _patch_dependency("onedrive_service", mock_handler):
+            response = function_app.onedrive_sync_reset_http(req)
+
+        assert response.status_code == 200
+        body = json.loads(response.get_body())
+        assert body["scope"] == "bulk"
+        assert body["reset_count"] == 2
+        mock_handler.handle_reset.assert_called_once()
+
 
 class TestGarminEndpointHandlers:
     def test_garmin_sync_uses_lookback_days_from_body(self):

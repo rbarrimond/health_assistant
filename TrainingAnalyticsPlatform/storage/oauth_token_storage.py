@@ -303,6 +303,116 @@ class OAuthTokenStorage:
             )
             raise StorageError("Failed to update OneDrive delta state") from e
 
+    def reset_onedrive_delta_state(self, athlete_id: str) -> bool:
+        """Reset OneDrive delta state for a single athlete.
+
+        Returns:
+            True if an existing token row was reset, False if no row exists.
+        """
+        existing = self.get_onedrive_tokens(athlete_id)
+        if not existing:
+            logger.info(
+                "Skipped OneDrive delta reset; no token row found",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "onedrive",
+                    "operation": "delta_reset",
+                    "scope": "single",
+                    "reset_applied": False,
+                },
+            )
+            return False
+
+        entity = {
+            "PartitionKey": athlete_id,
+            "RowKey": "onedrive",
+            "delta_token": "",
+            "last_delta_sync_at_utc": "",
+            "delta_sync_state": "initial",
+            "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+        }
+
+        try:
+            table_client = self.infra.get_table_client("OneDriveTokens")
+            table_client.upsert_entity(entity)
+            logger.info(
+                "Reset OneDrive delta state",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "onedrive",
+                    "operation": "delta_reset",
+                    "scope": "single",
+                    "reset_applied": True,
+                },
+            )
+            return True
+        except HttpResponseError as e:
+            logger.error(
+                "Error resetting OneDrive delta state",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "onedrive",
+                    "operation": "delta_reset",
+                    "scope": "single",
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            raise StorageError("Failed to reset OneDrive delta state") from e
+
+    def reset_all_onedrive_delta_states(self) -> int:
+        """Reset OneDrive delta state for all athlete token rows.
+
+        Returns:
+            Number of athlete token rows reset.
+        """
+        try:
+            table_client = self.infra.get_table_client("OneDriveTokens")
+            query = "RowKey eq 'onedrive'"
+            entities = list(table_client.query_entities(query))
+
+            reset_count = 0
+            for entity in entities:
+                athlete_id = str(entity.get("PartitionKey", ""))
+                if not athlete_id:
+                    continue
+
+                reset_entity = {
+                    "PartitionKey": athlete_id,
+                    "RowKey": "onedrive",
+                    "delta_token": "",
+                    "last_delta_sync_at_utc": "",
+                    "delta_sync_state": "initial",
+                    "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+                }
+                table_client.upsert_entity(reset_entity)
+                reset_count += 1
+
+            logger.info(
+                "Reset OneDrive delta state for all athletes",
+                extra={
+                    "source_system": "onedrive",
+                    "operation": "delta_reset",
+                    "scope": "bulk",
+                    "reset_count": reset_count,
+                },
+            )
+            return reset_count
+        except HttpResponseError as e:
+            logger.error(
+                "Error resetting OneDrive delta state for all athletes",
+                extra={
+                    "source_system": "onedrive",
+                    "operation": "delta_reset",
+                    "scope": "bulk",
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            raise StorageError("Failed to reset all OneDrive delta states") from e
+
     # ---- Garmin ----
 
     def store_garmin_tokens(

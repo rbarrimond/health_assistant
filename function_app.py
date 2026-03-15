@@ -33,6 +33,7 @@ from TrainingAnalyticsPlatform.platform.http_utils import json_response, public_
 from TrainingAnalyticsPlatform.handlers import (
     FitPayloadIngestionHandler,
     OneDriveSyncRequest,
+    OneDriveResetRequest,
     QueryHandler,
     PhysiometricsHandler,
     WithingsHandler,
@@ -168,6 +169,22 @@ def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     sync_req = OneDriveSyncRequest(body, dict(req.params))
     handler = dependencies.onedrive_service
     response, status = handler.handle(sync_req)
+
+    return json_response(response, status)
+
+
+@app.route(route="onedrive/sync/reset", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+@endpoint
+def onedrive_sync_reset_http(req: func.HttpRequest) -> func.HttpResponse:
+    """HTTP-triggered OneDrive delta reset."""
+    try:
+        body = req.get_json() if req.method == "POST" else {}
+    except ValueError:
+        body = {}
+
+    reset_req = OneDriveResetRequest(body, dict(req.params))
+    handler = dependencies.onedrive_service
+    response, status = handler.handle_reset(reset_req)
 
     return json_response(response, status)
 

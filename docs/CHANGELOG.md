@@ -10,6 +10,15 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-15
 
+### OneDrive Delta Sync Reset Control Endpoint
+
+- **Added**: `POST /api/onedrive/sync/reset` to explicitly clear OneDrive delta cursor state.
+- **Reset scopes**:
+  - `{"athlete_id": "..."}` resets one athlete token row.
+  - `{"all": true}` resets all athlete OneDrive token rows.
+- **Behavior**: reset preserves OAuth credentials and clears delta-state fields so the next sync reseeds from Graph delta start.
+- **Safety**: ingestion idempotency semantics are unchanged; reseed may re-list prior files but unchanged files remain skip-eligible.
+
 ### Canonical Session-First Timezone Resolver Alignment [ingest v13.0.34]
 
 - **Changed**: timezone resolution now uses one shared canonical resolver across ingestion and historical backfill paths.

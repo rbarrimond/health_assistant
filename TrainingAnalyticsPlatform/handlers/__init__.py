@@ -5,6 +5,7 @@ from .ingestion_base_handler import FitIngestionBaseHandler
 from .onedrive_sync_handler import (
     OneDriveSyncHandler,
     OneDriveSyncRequest,
+    OneDriveResetRequest,
     OneDriveSyncIngestionHandler,
     OneDriveSyncConfig,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "FitIngestionBaseHandler",
     "OneDriveSyncHandler",
     "OneDriveSyncRequest",
+    "OneDriveResetRequest",
     "OneDriveSyncIngestionHandler",
     "OneDriveSyncConfig",
     "GarminSyncHandler",

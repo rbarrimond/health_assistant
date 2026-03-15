@@ -160,6 +160,58 @@ HTTP-triggered OneDrive sync.
 }
 ```
 
+#### POST /api/onedrive/sync/reset
+
+Reset OneDrive delta cursor state so the next sync reseeds from Graph delta start.
+
+**Auth:** Function-level
+
+**Single athlete reset (recommended default):**
+
+```bash
+curl -X POST "https://<FUNCTION_APP>.azurewebsites.net/api/onedrive/sync/reset?code=<FUNCTION_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{"athlete_id": "rob"}'
+```
+
+**Bulk reset (all athletes):**
+
+```bash
+curl -X POST "https://<FUNCTION_APP>.azurewebsites.net/api/onedrive/sync/reset?code=<FUNCTION_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{"all": true}'
+```
+
+**Response (single):**
+
+```json
+{
+  "status": "success",
+  "scope": "single",
+  "athlete_id": "rob",
+  "reset_count": 1,
+  "reset_applied": true,
+  "reset_at_utc": "2026-03-15T10:00:00+00:00"
+}
+```
+
+**Response (bulk):**
+
+```json
+{
+  "status": "success",
+  "scope": "bulk",
+  "reset_count": 3,
+  "reset_at_utc": "2026-03-15T10:00:00+00:00"
+}
+```
+
+**Operational notes:**
+
+- Reset clears only OneDrive delta cursor fields (`delta_token`, `delta_sync_state`, sync marker); OAuth credentials are preserved.
+- First sync after reset runs in seed mode (`delta_link=None`) and persists a fresh delta cursor.
+- Reseed can re-list historical files; ingestion idempotency prevents duplicate ingests when source/hash identity is unchanged.
+
 ### OneDrive Implementation Files
 
 | File | Purpose |
