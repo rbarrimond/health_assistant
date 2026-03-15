@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Semantic/GPT)
-  version: "5.2.0"
+  version: "6.0.0"
   description: |
     Deterministic athlete intelligence API consumed by ChatGPT Actions.
     Provides typed semantic contracts for agent memory, workout intelligence, planning context, physiometrics, and training-state signals.
@@ -409,7 +409,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/workouts/{workout_id}/laps/{lap_index}:
     get:
-      summary: Get lap summary and records
+      summary: Get lap summary detail
       operationId: getWorkoutLap
       security:
         - FunctionKey: []
@@ -1711,8 +1711,7 @@ components:
           type: [array, "null"]
           description: Lap summaries when `laps=true`
           items:
-            type: object
-            additionalProperties: true
+            $ref: '#/components/schemas/LapSummary'
         lap_errors:
           type: [object, "null"]
           description: Lap loading/parsing errors when lap payload cannot be fully resolved
@@ -1774,57 +1773,108 @@ components:
         artifacts:
           type: [object, "null"]
           additionalProperties: true
+    LapSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - lap_index
+      properties:
+        lap_index:
+          type: integer
+          minimum: 0
+          description: Zero-based lap index
+        message_index:
+          type: [integer, "null"]
+          minimum: 0
+          description: FIT message_index when present
+        start_time:
+          type: [string, "null"]
+          format: date-time
+          description: Lap start timestamp in UTC
+        end_time:
+          type: [string, "null"]
+          format: date-time
+          description: Lap end timestamp in UTC
+        total_elapsed_time:
+          type: [number, "null"]
+          minimum: 0
+          description: Total elapsed time in seconds
+        total_timer_time:
+          type: [number, "null"]
+          minimum: 0
+          description: Total active timer time in seconds
+        total_distance:
+          type: [number, "null"]
+          minimum: 0
+          description: Total distance in meters
+        total_calories:
+          type: [number, "null"]
+          minimum: 0
+          description: Total calories in kilocalories
+        avg_heart_rate:
+          type: [number, "null"]
+          minimum: 0
+          description: Average heart rate in bpm
+        max_heart_rate:
+          type: [number, "null"]
+          minimum: 0
+          description: Maximum heart rate in bpm
+        avg_power:
+          type: [number, "null"]
+          minimum: 0
+          description: Average power in watts
+        max_power:
+          type: [number, "null"]
+          minimum: 0
+          description: Maximum power in watts
+        avg_cadence:
+          type: [number, "null"]
+          minimum: 0
+          description: Average cadence in rpm
+        max_cadence:
+          type: [number, "null"]
+          minimum: 0
+          description: Maximum cadence in rpm
+        avg_speed:
+          type: [number, "null"]
+          minimum: 0
+          description: Average speed in m/s
+        max_speed:
+          type: [number, "null"]
+          minimum: 0
+          description: Maximum speed in m/s
+        intensity:
+          type: [string, "null"]
+          description: FIT intensity label
+        lap_trigger:
+          type: [string, "null"]
+          description: FIT lap trigger type
+        sport:
+          type: [string, "null"]
+          description: Lap sport
+        sub_sport:
+          type: [string, "null"]
+          description: Lap sub-sport
+        extra_fields:
+          type: [object, "null"]
+          description: Additional lap fields not promoted into top-level summary attributes
+          additionalProperties: true
     WorkoutLapDetail:
       type: object
+      additionalProperties: false
+      required:
+        - workout_id
+        - athlete_id
+        - lap
       properties:
         workout_id:
           type: string
+          description: Unique workout identifier
         athlete_id:
           type: string
-        lap_index:
-          type: integer
-        record_count:
-          type: integer
-        start_time:
-          type: string
-          format: date-time
-        total_elapsed_time:
-          type: number
-        total_timer_time:
-          type: number
-        total_distance:
-          type: number
-        total_calories:
-          type: number
-        avg_heart_rate:
-          type: number
-        max_heart_rate:
-          type: number
-        avg_power:
-          type: number
-        max_power:
-          type: number
-        avg_cadence:
-          type: number
-        max_cadence:
-          type: number
-        records:
-          type: array
-          items:
-            type: object
-            properties:
-              record_index:
-                type: integer
-              heart_rate:
-                type: integer
-              power:
-                type: integer
-              cadence:
-                type: integer
-              position_lat:
-                type: number
-              position_long:
-                type: number
+          description: Athlete identifier
+        lap:
+          $ref: '#/components/schemas/LapSummary'
     WeeklyRollups:
       type: object
       additionalProperties: false

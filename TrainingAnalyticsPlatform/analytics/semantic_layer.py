@@ -16,7 +16,9 @@ from azure.core.exceptions import HttpResponseError
 
 from TrainingAnalyticsPlatform.models.core import (
     CanonicalAnalyticsEngine,
+    LapSummaryResponse,
     WorkoutDetailResponse,
+    WorkoutLapDetailResponse,
     WorkoutMetricsModel,
     WorkoutProjection,
 )
@@ -35,6 +37,30 @@ logger = logging.getLogger(__name__)
 UTC_OFFSET = "+00:00"
 CANONICAL_DISTORTION_WARN_PCT = float(os.getenv("CANONICAL_DISTORTION_WARN_PCT", "5.0"))
 _NON_1HZ_EPSILON_SEC = 1.01
+
+_LAP_PROMOTED_FIELDS = {
+    "message_index",
+    "start_time",
+    "timestamp",
+    "total_elapsed_time",
+    "total_timer_time",
+    "total_distance",
+    "total_calories",
+    "avg_heart_rate",
+    "max_heart_rate",
+    "avg_power",
+    "max_power",
+    "avg_cadence",
+    "max_cadence",
+    "avg_speed",
+    "max_speed",
+    "enhanced_avg_speed",
+    "enhanced_max_speed",
+    "intensity",
+    "lap_trigger",
+    "sport",
+    "sub_sport",
+}
 
 WEEKLY_ROLLUP_REQUIRED_FIELDS = (
     "week_start_utc",
@@ -391,10 +417,100 @@ class SemanticLayer:
             errors.update(fit_errors)
 
         if laps is not None:
-            response.laps = laps
+            response.laps = [
+                self._summarize_lap_payload(lap, idx)
+                for idx, lap in enumerate(laps)
+            ]
             response.laps_count = len(laps)
         if errors:
             response.lap_errors = errors
+
+    @staticmethod
+    def _is_meaningful_units(units: Any) -> bool:
+        return isinstance(units, str) and bool(units.strip())
+
+    @staticmethod
+    def _lap_field_map(lap_payload: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+        fields = lap_payload.get("fields") if isinstance(lap_payload, dict) else None
+        field_map: Dict[str, Dict[str, Any]] = {}
+        if not isinstance(fields, list):
+            return field_map
+
+        for field in fields:
+            if not isinstance(field, dict):
+                continue
+            name = field.get("name")
+            if not isinstance(name, str) or not name:
+                continue
+            field_map[name] = {
+                "value": field.get("value"),
+                "units": field.get("units"),
+            }
+        return field_map
+
+    @staticmethod
+    def _lap_value(field_map: Dict[str, Dict[str, Any]], name: str) -> Any:
+        return field_map.get(name, {}).get("value")
+
+    @classmethod
+    def _lap_extra_fields(cls, field_map: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+        extra_fields: Dict[str, Any] = {}
+        for field_name, data in field_map.items():
+            if field_name in _LAP_PROMOTED_FIELDS:
+                continue
+            value = data.get("value")
+            if value is None:
+                continue
+            units = data.get("units")
+            if cls._is_meaningful_units(units):
+                extra_fields[field_name] = {
+                    "value": value,
+                    "units": units,
+                }
+            else:
+                extra_fields[field_name] = value
+        return extra_fields
+
+    @classmethod
+    def _summarize_lap_payload(
+        cls,
+        lap_payload: Dict[str, Any],
+        fallback_index: int,
+    ) -> LapSummaryResponse:
+        """Convert raw FIT lap payload into compact summary for API consumers."""
+        field_map = cls._lap_field_map(lap_payload)
+        message_index = cls._lap_value(field_map, "message_index")
+        lap_index = int(message_index) if isinstance(message_index, (int, float)) else fallback_index
+
+        summary: Dict[str, Any] = {
+            "lap_index": lap_index,
+            "message_index": int(message_index) if isinstance(message_index, (int, float)) else None,
+            "start_time": cls._lap_value(field_map, "start_time"),
+            "end_time": cls._lap_value(field_map, "timestamp"),
+            "total_elapsed_time": cls._lap_value(field_map, "total_elapsed_time"),
+            "total_timer_time": cls._lap_value(field_map, "total_timer_time"),
+            "total_distance": cls._lap_value(field_map, "total_distance"),
+            "total_calories": cls._lap_value(field_map, "total_calories"),
+            "avg_heart_rate": cls._lap_value(field_map, "avg_heart_rate"),
+            "max_heart_rate": cls._lap_value(field_map, "max_heart_rate"),
+            "avg_power": cls._lap_value(field_map, "avg_power"),
+            "max_power": cls._lap_value(field_map, "max_power"),
+            "avg_cadence": cls._lap_value(field_map, "avg_cadence"),
+            "max_cadence": cls._lap_value(field_map, "max_cadence"),
+            "avg_speed": cls._lap_value(field_map, "enhanced_avg_speed") or cls._lap_value(field_map, "avg_speed"),
+            "max_speed": cls._lap_value(field_map, "enhanced_max_speed") or cls._lap_value(field_map, "max_speed"),
+            "intensity": cls._lap_value(field_map, "intensity"),
+            "lap_trigger": cls._lap_value(field_map, "lap_trigger"),
+            "sport": cls._lap_value(field_map, "sport"),
+            "sub_sport": cls._lap_value(field_map, "sub_sport"),
+        }
+
+        extra_fields = cls._lap_extra_fields(field_map)
+
+        if extra_fields:
+            summary["extra_fields"] = extra_fields
+
+        return LapSummaryResponse(**{k: v for k, v in summary.items() if v is not None})
 
     def _populate_workout_detail_developer_fields(
         self,
@@ -1719,12 +1835,14 @@ class SemanticLayer:
             if lap_payload is None:
                 return None
 
-            return {
-                "workout_id": workout_id,
-                "athlete_id": athlete_id,
-                "lap_index": lap_index,
-                "lap": lap_payload,
-            }
+            lap_summary = self._summarize_lap_payload(lap_payload, lap_index)
+            response = WorkoutLapDetailResponse(
+                workout_id=workout_id,
+                athlete_id=athlete_id,
+                lap=lap_summary,
+            )
+
+            return response.model_dump(exclude_none=True)
 
         except HttpResponseError as e:
             logger.error(

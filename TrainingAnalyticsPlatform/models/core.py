@@ -51,6 +51,9 @@ from TrainingAnalyticsPlatform.models.metrics import (
     SampleMetricsModel, SessionMetricsModel, StructuredArtifactsModel,
     TrainingLoadMetricsModel, VariabilityMetricsModel)
 
+WORKOUT_ID_DESC = "Unique workout identifier"
+ATHLETE_ID_DESC = "Athlete identifier"
+
 # ============================================================================
 # MAIN API: WorkoutMetricsModel
 # ============================================================================
@@ -474,12 +477,15 @@ class WorkoutDetailResponse(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    workout_id: str = Field(..., description="Unique workout identifier")
-    athlete_id: str = Field(..., description="Athlete identifier")
+    workout_id: str = Field(..., description=WORKOUT_ID_DESC)
+    athlete_id: str = Field(..., description=ATHLETE_ID_DESC)
     source_system: Optional[str] = Field(default=None, description="Source provider for workout ingestion")
     metrics: WorkoutMetricsModel
     laps_count: Optional[int] = Field(default=None, ge=0, description="Number of lap summaries included")
-    laps: Optional[List[Dict[str, Any]]] = Field(default=None, description="Lap summary payloads when laps=true")
+    laps: Optional[List["LapSummaryResponse"]] = Field(
+        default=None,
+        description="Lap summary payloads when laps=true",
+    )
     lap_errors: Optional[Dict[str, str]] = Field(
         default=None,
         description="Lap loading/parsing errors when lap data cannot be fully resolved",
@@ -492,6 +498,47 @@ class WorkoutDetailResponse(BaseModel):
         default=None,
         description="Developer field processing error when include_developer_fields=true",
     )
+
+
+class LapSummaryResponse(BaseModel):
+    """Typed lap summary payload for workout detail and lap detail endpoints."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    lap_index: int = Field(..., ge=0, description="Zero-based lap index")
+    message_index: Optional[int] = Field(default=None, ge=0, description="FIT message_index when present")
+    start_time: Optional[str] = Field(default=None, description=ISO_8601_UTC_DESC)
+    end_time: Optional[str] = Field(default=None, description=ISO_8601_UTC_DESC)
+    total_elapsed_time: Optional[float] = Field(default=None, ge=0, description="Lap elapsed duration in seconds")
+    total_timer_time: Optional[float] = Field(default=None, ge=0, description="Lap active timer duration in seconds")
+    total_distance: Optional[float] = Field(default=None, ge=0, description="Lap distance in meters")
+    total_calories: Optional[float] = Field(default=None, ge=0, description="Lap calories in kilocalories")
+    avg_heart_rate: Optional[float] = Field(default=None, ge=0, description="Average heart rate during lap")
+    max_heart_rate: Optional[float] = Field(default=None, ge=0, description="Maximum heart rate during lap")
+    avg_power: Optional[float] = Field(default=None, ge=0, description="Average power during lap")
+    max_power: Optional[float] = Field(default=None, ge=0, description="Maximum power during lap")
+    avg_cadence: Optional[float] = Field(default=None, ge=0, description="Average cadence during lap")
+    max_cadence: Optional[float] = Field(default=None, ge=0, description="Maximum cadence during lap")
+    avg_speed: Optional[float] = Field(default=None, ge=0, description="Average speed during lap")
+    max_speed: Optional[float] = Field(default=None, ge=0, description="Maximum speed during lap")
+    intensity: Optional[str] = Field(default=None, description="FIT lap intensity label")
+    lap_trigger: Optional[str] = Field(default=None, description="FIT lap trigger type")
+    sport: Optional[str] = Field(default=None, description="Lap sport")
+    sub_sport: Optional[str] = Field(default=None, description="Lap sub-sport")
+    extra_fields: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Additional lap fields not promoted into top-level lap summary attributes",
+    )
+
+
+class WorkoutLapDetailResponse(BaseModel):
+    """Typed response contract for workout lap detail queries."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workout_id: str = Field(..., description=WORKOUT_ID_DESC)
+    athlete_id: str = Field(..., description=ATHLETE_ID_DESC)
+    lap: LapSummaryResponse
 
 
 class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-methods

@@ -10,6 +10,17 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-14
 
+### BREAKING: Typed Lap Response Contracts + Nested Lap Detail Shape [semantic API v6.0.0]
+
+- **Changed**: Lap responses now use explicit typed models instead of untyped flat dict payloads.
+- **Why**: Enforces stable schema guarantees for ChatGPT consumers and removes ambiguous lap response surfaces.
+- **Code updates**:
+  - `TrainingAnalyticsPlatform/models/core.py`: introduced `LapSummaryResponse` and `WorkoutLapDetailResponse`; `WorkoutDetailResponse.laps` now typed as `List[LapSummaryResponse]`.
+  - `TrainingAnalyticsPlatform/analytics/semantic_layer.py`: lap summarization now builds typed `LapSummaryResponse`; lap detail now returns `{workout_id, athlete_id, lap: ...}` from `WorkoutLapDetailResponse`.
+- **Contract/docs updates**:
+  - `api_docs/openapi.yaml`: added `LapSummary` schema; `WorkoutDetail.laps[]` now references `LapSummary`; `WorkoutLapDetail` now nests lap payload under `lap`.
+  - `docs/gpt/SEMANTIC_LAYER_API.md`: updated lap detail description/examples to typed nested lap shape.
+
 ### HR Zone Total Seconds Edge-Clamp Fix [canonical_schema v2.0.3]
 
 - **Fixed**: `hr_zone_total_sec` no longer drops out-of-range heart-rate samples during zone classification.

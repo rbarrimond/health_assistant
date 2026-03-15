@@ -1,6 +1,6 @@
 # Semantic Access Layer API (GPT)
 
-Version: 5.2.0
+Version: 6.0.0
 
 The Semantic Access Layer is the **read + agent-memory write API** for ChatGPT Actions. It exposes meaningful, human-centric questions about training data rather than raw table access.
 
@@ -38,7 +38,7 @@ GET /api/planning/context?athlete_id=rob&days=45
 | `/api/planning/context` | Planning decisions | `?athlete_id=rob&days=45` |
 | `/api/workouts` | List workouts | `?athlete_id=rob&since=2026-01-01` |
 | `/api/workouts/{workout_id}` | Workout detail | `/{workout_id}?athlete_id=rob&laps=true` |
-| `/api/workouts/{workout_id}/laps/{lap_index}` | Lap detail | Per-lap records |
+| `/api/workouts/{workout_id}/laps/{lap_index}` | Lap detail | Typed single-lap summary |
 | `/api/rollups/weekly` | Weekly summaries | `?athlete_id=rob&weeks=16` |
 | `/api/analysis/zones` | Zone distribution | `?athlete_id=rob&days=30` |
 | `/api/analysis/efficiency` | Efficiency trends | `?athlete_id=rob&days=90` |
@@ -563,7 +563,7 @@ Retrieve full workout data with optional lap summaries.
 GET /api/workouts/{workout_id}/laps/{lap_index}?athlete_id=rob
 ```
 
-Retrieve lap summary and per-lap record payload for a single lap.
+Retrieve typed lap summary payload for a single lap.
 
 **Route Parameters:**
 
@@ -580,23 +580,23 @@ Retrieve lap summary and per-lap record payload for a single lap.
 {
   "workout_id": "abc123",
   "athlete_id": "rob",
-  "lap_index": 0,
-  "record_count": 300,
-  "start_time": "2026-01-15T10:00:00+00:00",
-  "total_elapsed_time": 300,
-  "total_distance": 1500.5,
-  "avg_heart_rate": 145,
-  "avg_power": 220,
-  "records": [
-    {
-      "record_index": 0,
-      "heart_rate": 145,
-      "power": 220,
-      "cadence": 90,
-      "position_lat": 384217123.0,
-      "position_long": -120123456.0
+  "lap": {
+    "lap_index": 0,
+    "message_index": 0,
+    "start_time": "2026-01-15T10:00:00+00:00",
+    "end_time": "2026-01-15T10:05:00+00:00",
+    "total_elapsed_time": 300,
+    "total_timer_time": 296,
+    "total_distance": 1500.5,
+    "avg_heart_rate": 145,
+    "avg_power": 220,
+    "extra_fields": {
+      "dev_form_power": {
+        "value": 12.5,
+        "units": "%"
+      }
     }
-  ]
+  }
 }
 ```
 

@@ -524,6 +524,94 @@ class TestWorkoutQueries:
         assert "developer_fields_summary" in workout
         assert workout["developer_fields_summary"]["field_count"] == 1
 
+    def test_get_workout_detail_summarizes_laps_payload(self, semantic_layer, mock_storage):
+        """Laps on workout detail should be compact summaries, not raw FIT frame payloads."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+
+        mock_entity = {
+            "PartitionKey": "rob",
+            "RowKey": "workout-001",
+            "workout_id": "workout-001",
+            "athlete_id": "rob",
+            "ingestion_id": "ingest-001",
+            "source_system": "onedrive",
+            "sport": "Cycling",
+            "duration_sec": 3600,
+        }
+        mock_table_client.query_entities.return_value = [mock_entity]
+        mock_storage.workouts.load_metadata_json.return_value = {
+            "session": {},
+            "enrichment": {},
+            "activity_metadata": {},
+        }
+        mock_storage.workouts.load_laps_json.return_value = {
+            "laps": [
+                {
+                    "frame_type": "data_message",
+                    "name": "lap",
+                    "header": {"local_mesg_num": 4},
+                    "chunk": {"index": 10},
+                    "fields": [
+                        {"name": "message_index", "value": 2, "units": ""},
+                        {"name": "start_time", "value": "2026-02-22T01:51:12+00:00", "units": ""},
+                        {"name": "timestamp", "value": "2026-02-22T01:56:12+00:00", "units": ""},
+                        {"name": "total_elapsed_time", "value": 300.0, "units": "s"},
+                        {"name": "avg_power", "value": 220, "units": "watts"},
+                        {"name": "dev_pedal_smoothness", "value": 31.2, "units": "%"},
+                    ],
+                }
+            ]
+        }
+
+        workout = semantic_layer.get_workout_detail("rob", "workout-001", include_laps=True)
+
+        assert workout is not None
+        assert "laps" in workout
+        lap = workout["laps"][0]
+        assert lap["lap_index"] == 2
+        assert lap["avg_power"] == 220
+        assert "fields" not in lap
+        assert "header" not in lap
+        assert "chunk" not in lap
+        assert lap["extra_fields"]["dev_pedal_smoothness"]["value"] == pytest.approx(31.2)
+        assert lap["extra_fields"]["dev_pedal_smoothness"]["units"] == "%"
+
+    def test_get_workout_lap_detail_returns_summary_shape(self, semantic_layer, mock_storage):
+        """Lap detail should return summarized lap payload shape with extra_fields."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+        mock_table_client.query_entities.return_value = [
+            {
+                "workout_id": "workout-001",
+                "athlete_id": "rob",
+                "ingestion_id": "ingest-001",
+                "source_system": "onedrive",
+            }
+        ]
+        mock_storage.workouts.load_laps_json.return_value = {
+            "laps": [
+                {
+                    "fields": [
+                        {"name": "message_index", "value": 1, "units": ""},
+                        {"name": "total_elapsed_time", "value": 120.0, "units": "s"},
+                        {"name": "avg_heart_rate", "value": 150, "units": "bpm"},
+                        {"name": "dev_form_power", "value": 12.5, "units": "%"},
+                    ]
+                }
+            ]
+        }
+
+        lap = semantic_layer.get_workout_lap_detail("rob", "workout-001", 0)
+
+        assert lap is not None
+        assert lap["workout_id"] == "workout-001"
+        assert lap["athlete_id"] == "rob"
+        assert lap["lap"]["lap_index"] == 1
+        assert lap["lap"]["total_elapsed_time"] == pytest.approx(120.0)
+        assert lap["lap"]["avg_heart_rate"] == 150
+        assert lap["lap"]["extra_fields"]["dev_form_power"]["units"] == "%"
+
     def test_get_workout_detail_falls_back_to_basic_sample_metrics_on_non_1hz(
         self,
         semantic_layer,
