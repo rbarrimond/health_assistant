@@ -69,7 +69,8 @@ This document specifies the structure of **metadata.json** blobs stored in Azure
     "file_serial_number": "string (device serial number from FIT file)"
   },
   "activity_metadata": {
-    "local_tz_offset": "string (e.g., 'UTC-05:00', 'America/New_York'), computed from device, activity, and session messages",
+    "local_tz_offset": "string UTC offset (e.g., 'UTC-05:00'), computed from device, activity, and session messages",
+    "timezone": "string canonical timezone (IANA preferred, UTC offset fallback when unresolved)",
     "Note": "Redundant timestamp fields (activity_timestamp_utc, activity_local_time) removed in v2.0.0—use session.start_time_utc instead"
   },
   "enrichment": {
@@ -315,7 +316,8 @@ Mutable — may be updated by enrichment pipeline.
     "file_serial_number": "27753"
   },
   "activity_metadata": {
-    "local_tz_offset": "America/New_York"
+    "local_tz_offset": "UTC-05:00",
+    "timezone": "America/New_York"
   },
   "enrichment": {
     "apple_workout_type": "Indoor Cycle",

@@ -161,6 +161,7 @@ class WorkoutMetricsModel(BaseModel):
     @staticmethod
     def _build_session(metrics: Dict[str, Any], metadata: Dict[str, Any]) -> SessionMetricsModel:
         local_tz_offset = metadata.get("local_tz_offset")
+        timezone_value = metadata.get("timezone") or local_tz_offset
         return SessionMetricsModel(
             sport=metadata.get("sport"),
             sub_sport=metadata.get("sub_sport"),
@@ -170,7 +171,7 @@ class WorkoutMetricsModel(BaseModel):
             is_indoor=metadata.get("is_indoor"),
             start_time_utc=metadata.get("start_time_utc") or metrics.get("start_time_utc"),
             local_tz_offset=local_tz_offset,
-            timezone=local_tz_offset,
+            timezone=timezone_value,
             duration_sec=metadata.get("duration_sec") or metrics.get("duration_sec"),
             moving_time_sec=metadata.get("moving_time_sec") or metrics.get("moving_time_sec"),
         )

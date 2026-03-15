@@ -12,11 +12,18 @@ from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 from TrainingAnalyticsPlatform.platform.exceptions import WorkoutIdCalculationError
 
 
-def _build_activity(activity_id: str, start_time: str, duration: int) -> dict:
+def _build_activity(
+    activity_id: str,
+    start_time: str,
+    duration: int,
+    *,
+    start_time_local: str | None = None,
+) -> dict:
     return {
         "activityId": activity_id,
         "activityName": "Test Ride",
         "startTimeGMT": start_time,
+        "startTimeLocal": start_time_local or start_time,
         "duration": duration,
         "distance": 25000,
         "activityType": {"typeKey": "cycling"},
@@ -25,6 +32,22 @@ def _build_activity(activity_id: str, start_time: str, duration: int) -> dict:
 
 class TestGarminSyncIngestionHandler:
     """Targeted duplicate detection tests for Garmin ingestion."""
+
+    def test_build_source_info_includes_local_and_utc_start_times(self):
+        storage = MagicMock()
+        handler = GarminSyncIngestionHandler(storage=storage, client=MagicMock())
+
+        source_info = handler._build_source_info(  # pylint: disable=protected-access
+            _build_activity(
+                "a1",
+                "2026-02-20T10:00:00+00:00",
+                3600,
+                start_time_local="2026-02-20T06:00:00",
+            )
+        )
+
+        assert source_info["source_start_time_utc"] == "2026-02-20T10:00:00+00:00"
+        assert source_info["source_start_time_local"] == "2026-02-20T06:00:00"
 
     def test_find_near_duplicate_workout_matches_by_time_and_duration(self):
         storage = MagicMock()

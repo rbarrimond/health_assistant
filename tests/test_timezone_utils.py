@@ -6,6 +6,8 @@ from TrainingAnalyticsPlatform.ingestion.timezone_utils import (
     iana_from_offset,
     infer_timezone_from_activity,
     infer_timezone_from_session,
+    is_zwift_cloud_workout,
+    resolve_canonical_timezone,
     resolve_timezone,
 )
 
@@ -144,3 +146,47 @@ def test_iana_from_offset_major_city_priority() -> None:
     # Prefer_zone should still override major city priority
     result = iana_from_offset("UTC-05:00", timestamp, prefer_zone="America/Toronto")
     assert result == "America/Toronto"
+
+
+def test_resolve_canonical_timezone_prefers_session_offset() -> None:
+    """Session offset must remain canonical over fallback offset sources."""
+    local_tz_offset, timezone_value = resolve_canonical_timezone(
+        explicit_timezone=None,
+        session_offset="UTC-04:00",
+        fallback_offsets=("UTC-05:00", "UTC-06:00"),
+        start_time_utc=datetime(2026, 2, 24, 12, 0, 0, tzinfo=timezone.utc),
+        athlete_timezone=None,
+        is_zwift_workout=False,
+    )
+
+    assert local_tz_offset == "UTC-04:00"
+    assert timezone_value == "UTC-04:00"
+
+
+def test_resolve_canonical_timezone_zwift_uses_athlete_timezone() -> None:
+    """Zwift cloud sessions at UTC should use athlete home timezone."""
+    _, timezone_value = resolve_canonical_timezone(
+        explicit_timezone=None,
+        session_offset="UTC+00:00",
+        fallback_offsets=(),
+        start_time_utc=datetime(2026, 2, 24, 12, 0, 0, tzinfo=timezone.utc),
+        athlete_timezone="America/New_York",
+        is_zwift_workout=True,
+    )
+
+    assert timezone_value == "America/New_York"
+
+
+def test_is_zwift_cloud_workout_requires_zwift_signal_and_utc_offset() -> None:
+    """UTC offset alone should not trigger Zwift override without Zwift signals."""
+    assert is_zwift_cloud_workout(
+        local_tz_offset="UTC+00:00",
+        device_manufacturer="garmin",
+        sub_sport="indoor_cycling",
+    ) is False
+
+    assert is_zwift_cloud_workout(
+        local_tz_offset="UTC+00:00",
+        device_manufacturer="zwift",
+        sub_sport="virtual_activity",
+    ) is True

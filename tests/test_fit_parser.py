@@ -19,7 +19,7 @@ import pandas as pd
 
 from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_file_hash
 from TrainingAnalyticsPlatform.ingestion.apple_workout_types import INDOOR_CYCLE, INDOOR_RUN, FUNCTIONAL_STRENGTH
-from TrainingAnalyticsPlatform.ingestion.fit_models import BaseFitModel, HealthFitModel, PayloadFitModel
+from TrainingAnalyticsPlatform.ingestion.fit_models import BaseFitModel, GarminFitModel, HealthFitModel, PayloadFitModel
 from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 
 
@@ -276,6 +276,87 @@ class TestHealthFitTimezoneInference:
         assert model.inferred_timezone_filename == "UTC+00:00"
         assert model.local_tz_offset == "UTC+00:00"
         assert model.timezone == "UTC+00:00"
+
+
+class TestGarminTimezoneInference:
+    """Regression tests for Garmin timezone fallback behavior."""
+
+    def test_garmin_timezone_fallback_uses_source_local_vs_utc_times(self) -> None:
+        """Verify Garmin derives UTC offset from source_start_time_local and source_start_time_utc."""
+        model = GarminFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                "source_start_time_local": "2026-02-24T06:00:00",
+                "source_start_time_utc": "2026-02-24T10:00:00+00:00",
+            },
+        )
+
+        assert model.local_tz_offset == "UTC-04:00"
+
+    def test_garmin_timezone_fallback_returns_none_without_local_start(self) -> None:
+        """Verify Garmin fallback requires both local and UTC source start times."""
+        model = GarminFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                "source_start_time_utc": "2026-02-24T10:00:00+00:00",
+            },
+        )
+
+        assert model._source_specific_timezone_fallback() is None  # pylint: disable=protected-access
+
+    def test_local_tz_offset_prefers_session_signal_over_fallbacks(self) -> None:
+        """Session-derived offset must be canonical when available."""
+        model = GarminFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                "source_start_time_local": "2026-02-24T07:00:00",
+                "source_start_time_utc": "2026-02-24T12:00:00+00:00",
+            },
+        )
+
+        with patch.object(
+            GarminFitModel,
+            "_inferred_timezone_session",
+            return_value="UTC-04:00",
+        ), patch.object(
+            GarminFitModel,
+            "_device_utc_offset_minutes",
+            return_value=-300,
+        ), patch.object(
+            GarminFitModel,
+            "_inferred_timezone_activity",
+            return_value="UTC-06:00",
+        ):
+            assert model.local_tz_offset == "UTC-04:00"
+
+    def test_utc_offset_without_zwift_signal_does_not_use_athlete_home_timezone(self) -> None:
+        """Athlete-home override applies only to Zwift cloud signals."""
+        model = GarminFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                "source_start_time_local": "2026-02-24T12:00:00",
+                "source_start_time_utc": "2026-02-24T12:00:00+00:00",
+                "source_activity_name": "Easy Trainer Ride",
+            },
+        )
+        model._session_msg = cast(  # pylint: disable=protected-access
+            Any,
+            _MessageStub({
+                "sport": "cycling",
+                "sub_sport": "indoor_cycling",
+            }),
+        )
+
+        with patch.object(
+            GarminFitModel,
+            "_inferred_timezone_session",
+            return_value="UTC+00:00",
+        ), patch.object(
+            GarminFitModel,
+            "_get_athlete_timezone",
+            return_value="America/New_York",
+        ):
+            assert model.timezone != "America/New_York"
 
 
 class TestSessionTimeMathSemantics:

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 FIT_EPOCH_LOCAL = datetime(1989, 12, 31, 0, 0, 0)
+
+ZWIFT_MANUFACTURER_NAME = "zwift"
 
 
 
@@ -86,6 +88,96 @@ def infer_timezone_from_session(
     if normalized is None:
         return None
     return format_utc_offset(normalized)
+
+
+def _normalized_string(value: Optional[str]) -> Optional[str]:
+    """Return lower-cased, trimmed string value when present."""
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    return normalized or None
+
+
+def is_zwift_cloud_workout(
+    *,
+    local_tz_offset: Optional[str],
+    device_manufacturer: Optional[str] = None,
+    device_name: Optional[str] = None,
+    source_activity_name: Optional[str] = None,
+    sport: Optional[str] = None,
+    sub_sport: Optional[str] = None,
+) -> bool:
+    """Detect Zwift cloud workouts that require athlete home timezone override.
+
+    Zwift cloud sessions are typically persisted with UTC+00:00 because device-local
+    context is not available from source metadata. We only apply the Zwift override
+    when a Zwift/virtual signal is present and offset is UTC+00:00.
+    """
+    if _normalized_string(local_tz_offset) != "utc+00:00":
+        return False
+
+    manufacturer = _normalized_string(device_manufacturer)
+    if manufacturer == ZWIFT_MANUFACTURER_NAME:
+        return True
+
+    device = _normalized_string(device_name)
+    if device and ZWIFT_MANUFACTURER_NAME in device:
+        return True
+
+    activity_name = _normalized_string(source_activity_name)
+    if activity_name and ZWIFT_MANUFACTURER_NAME in activity_name:
+        return True
+
+    return _normalized_string(sub_sport) == "virtual_activity" or _normalized_string(sport) == "virtual_activity"
+
+
+def _first_present(values: Sequence[Optional[str]]) -> Optional[str]:
+    """Return first non-empty string from a sequence."""
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def resolve_canonical_timezone(
+    *,
+    explicit_timezone: Optional[str],
+    session_offset: Optional[str],
+    fallback_offsets: Sequence[Optional[str]],
+    start_time_utc: Optional[datetime],
+    athlete_timezone: Optional[str],
+    is_zwift_workout: bool,
+) -> tuple[Optional[str], Optional[str]]:
+    """Resolve canonical timezone context from a single shared precedence model.
+
+    Returns:
+        Tuple of (local_tz_offset, timezone), where:
+        - local_tz_offset is session-derived when available, else fallback offset
+        - timezone is explicit IANA, Zwift athlete override, IANA conversion, or offset
+    """
+    local_tz_offset = _first_present([session_offset, *fallback_offsets])
+
+    if isinstance(explicit_timezone, str) and explicit_timezone.strip():
+        return local_tz_offset, explicit_timezone.strip()
+
+    if is_zwift_workout and isinstance(athlete_timezone, str) and athlete_timezone.strip():
+        return local_tz_offset, athlete_timezone.strip()
+
+    if (
+        local_tz_offset
+        and start_time_utc is not None
+        and isinstance(athlete_timezone, str)
+        and athlete_timezone.strip()
+    ):
+        resolved = iana_from_offset(
+            local_tz_offset,
+            start_time_utc,
+            prefer_zone=athlete_timezone.strip(),
+        )
+        if resolved:
+            return local_tz_offset, resolved
+
+    return local_tz_offset, local_tz_offset
 
 
 def _check_preferred_zone(

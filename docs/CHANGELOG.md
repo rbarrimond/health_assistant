@@ -10,6 +10,25 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-15
 
+### Canonical Session-First Timezone Resolver Alignment [ingest v13.0.34]
+
+- **Changed**: timezone resolution now uses one shared canonical resolver across ingestion and historical backfill paths.
+- **Canonical rule**: `local_tz_offset` is derived from FIT session local-vs-UTC timing first; fallback signals are used only when session fields are missing/invalid.
+- **Zwift edge-case hardening**: athlete home timezone override now applies only to explicit Zwift/virtual `UTC+00:00` workouts.
+- **Parity fix**: ingestion and backfill now share the same Zwift detection and timezone precedence to prevent diverging outcomes.
+
+### Timezone Propagation Fix Across Ingestion and Model Surfaces [ingest v13.0.33]
+
+- **Fixed**: canonical timezone (`activity_metadata.timezone`) is now propagated from FIT model timezone resolution into model/session/projection surfaces instead of being overwritten with `local_tz_offset`.
+- **Behavior contract restored**: `timezone` now prefers IANA timezone names and falls back to UTC offset only when IANA resolution is unavailable.
+- **Model alignment**:
+  - `WorkoutMetricsModel._build_session(...)` now uses `metadata.timezone` first, then `local_tz_offset` fallback.
+  - Semantic projection defaults now preserve `activity_metadata.timezone` when present.
+- **Metadata alignment**: `BaseFitModel._build_canonical_activity_metadata()` now emits both `local_tz_offset` and `timezone`.
+- **Schema/docs alignment**: canonical metadata schema examples now reflect separate `local_tz_offset` and `timezone` fields.
+- **Operational utility**: added `scripts/backfill_workout_timezone.py` for historical correction with dry-run/apply modes and idempotent updates across Workouts rows and metadata blobs.
+- **Zwift edge-case handling**: timezone backfill now treats Zwift virtual workouts (`UTC+00:00`) as no-local-timezone sessions and uses athlete home timezone when configured.
+
 ### WorkoutProjection Automatic Flag-Driven Canonical Hydration for Missing Dependent Fields [semantic API v6.1.0]
 
 - **Added**: automatic capability-flag-driven hydration in `SemanticLayer.build_workout_projection(...)` for missing dependent projection fields from canonical parquet via `CanonicalAnalyticsEngine`.

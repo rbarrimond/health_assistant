@@ -26,7 +26,7 @@ class SessionMetricsModel(BaseModel):
     )
     timezone: Optional[str] = Field(
         None,
-        description="Compatibility alias of local_tz_offset",
+        description="Canonical timezone (IANA preferred, falls back to local_tz_offset when unresolved)",
     )
     duration_sec: Optional[float] = Field(None, ge=0, description="Total elapsed time seconds")
     moving_time_sec: Optional[float] = Field(None, ge=0, description="Active movement seconds")

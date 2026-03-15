@@ -1446,6 +1446,7 @@ class SemanticLayer:
         """Build workout identity and summary fields with schema-defined precedence."""
         sport = workout_entity.sport or self._infer_sport(metrics)
         local_tz_offset = activity_metadata.get("local_tz_offset")
+        timezone_value = activity_metadata.get("timezone") or local_tz_offset
         return {
             "workout_id": workout_entity.workout_id,
             "athlete_id": workout_entity.athlete_id,
@@ -1456,7 +1457,7 @@ class SemanticLayer:
             "is_indoor": enrichment.get("is_indoor") or self._infer_is_indoor(metrics),
             "start_time_utc": workout_entity.start_time_utc,
             "local_tz_offset": local_tz_offset,
-            "timezone": local_tz_offset,
+            "timezone": timezone_value,
             "duration_sec": workout_entity.duration_sec or session.get("duration_sec"),
             "moving_time_sec": session.get("moving_time_sec"),
             "distance_m": workout_entity.distance_m or session.get("distance_m"),
@@ -2691,6 +2692,43 @@ class SemanticLayer:
             raise StorageError("Failed to build WorkoutMetricsModel for weekly rollup") from exc
 
     @staticmethod
+    def _as_metadata_dict(value: Any) -> Dict[str, Any]:
+        """Return a dict metadata section or empty dict."""
+        return value if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _rollup_promoted_defaults(
+        *,
+        identity: Dict[str, Any],
+        session: Dict[str, Any],
+        enrichment: Dict[str, Any],
+        activity: Dict[str, Any],
+        workout_entity: WorkoutEntity,
+    ) -> Dict[str, Any]:
+        """Build promoted top-level defaults for canonical rollup metadata."""
+        timezone_value = activity.get("timezone") or activity.get("local_tz_offset")
+        return {
+            "start_time_utc": (
+                identity.get("start_time_utc")
+                or session.get("start_time_utc")
+                or workout_entity.start_time_utc
+            ),
+            "sport": identity.get("sport") or workout_entity.sport,
+            "sub_sport": identity.get("sub_sport") or workout_entity.sub_sport,
+            "workout_name": enrichment.get("workout_name"),
+            "device_name": identity.get("device_name") or workout_entity.device_model,
+            "is_indoor": enrichment.get("is_indoor"),
+            "local_tz_offset": activity.get("local_tz_offset"),
+            "timezone": timezone_value,
+            "duration_sec": session.get("duration_sec") or workout_entity.duration_sec,
+            "moving_time_sec": session.get("moving_time_sec"),
+            "distance_m": session.get("distance_m") or workout_entity.distance_m,
+            "elevation_gain_m": session.get("elevation_gain_m"),
+            "elevation_loss_m": session.get("elevation_loss_m"),
+            "calories_kcal": session.get("calories_kcal"),
+        }
+
+    @staticmethod
     def _prepare_rollup_metadata_for_canonical(
         metadata_blob: Dict[str, Any],
         workout_entity: WorkoutEntity,
@@ -2703,37 +2741,17 @@ class SemanticLayer:
         existing top-level values already present.
         """
         metadata = dict(metadata_blob) if isinstance(metadata_blob, dict) else {}
-        identity_raw = metadata.get("identity")
-        session_raw = metadata.get("session")
-        enrichment_raw = metadata.get("enrichment")
-        activity_raw = metadata.get("activity_metadata")
-
-        identity: Dict[str, Any] = identity_raw if isinstance(identity_raw, dict) else {}
-        session: Dict[str, Any] = session_raw if isinstance(session_raw, dict) else {}
-        enrichment: Dict[str, Any] = (
-            enrichment_raw if isinstance(enrichment_raw, dict) else {}
+        identity = SemanticLayer._as_metadata_dict(metadata.get("identity"))
+        session = SemanticLayer._as_metadata_dict(metadata.get("session"))
+        enrichment = SemanticLayer._as_metadata_dict(metadata.get("enrichment"))
+        activity = SemanticLayer._as_metadata_dict(metadata.get("activity_metadata"))
+        promoted_defaults = SemanticLayer._rollup_promoted_defaults(
+            identity=identity,
+            session=session,
+            enrichment=enrichment,
+            activity=activity,
+            workout_entity=workout_entity,
         )
-        activity: Dict[str, Any] = activity_raw if isinstance(activity_raw, dict) else {}
-
-        promoted_defaults = {
-            "start_time_utc": (
-                identity.get("start_time_utc")
-                or session.get("start_time_utc")
-                or workout_entity.start_time_utc
-            ),
-            "sport": identity.get("sport") or workout_entity.sport,
-            "sub_sport": identity.get("sub_sport") or workout_entity.sub_sport,
-            "workout_name": enrichment.get("workout_name"),
-            "device_name": identity.get("device_name") or workout_entity.device_model,
-            "is_indoor": enrichment.get("is_indoor"),
-            "local_tz_offset": activity.get("local_tz_offset"),
-            "duration_sec": session.get("duration_sec") or workout_entity.duration_sec,
-            "moving_time_sec": session.get("moving_time_sec"),
-            "distance_m": session.get("distance_m") or workout_entity.distance_m,
-            "elevation_gain_m": session.get("elevation_gain_m"),
-            "elevation_loss_m": session.get("elevation_loss_m"),
-            "calories_kcal": session.get("calories_kcal"),
-        }
 
         for key, value in promoted_defaults.items():
             if metadata.get(key) is None and value is not None:

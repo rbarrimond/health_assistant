@@ -136,6 +136,29 @@ Contains structured FIT messages:
 
 Provides fast metadata access without decompressing `raw_fit.json.gz`.
 
+---------------------------------------------------------------------
+
+### Timezone Resolution Contract
+
+Timezone semantics are deterministic and shared across ingestion, projection, and
+historical remediation paths.
+
+Resolution order:
+
+1. Derive `local_tz_offset` from FIT **session** local-vs-UTC timing
+  (`session.start_time` vs `session.timestamp - session.total_elapsed_time`).
+2. If session timing fields are missing/invalid, use fallback offset signals
+  (device/activity/source metadata) to preserve ingestion resilience.
+3. Resolve `timezone` from the derived offset using existing timezone rules.
+4. **Zwift cloud exception**: for explicit Zwift/virtual workouts at `UTC+00:00`,
+  use athlete home timezone because source-local wall-clock context is hidden.
+
+Invariants:
+
+- `local_tz_offset` is always the offset context for the workout.
+- `timezone` is canonical timezone context (IANA when resolvable, offset fallback).
+- Non-Zwift `UTC+00:00` workouts must not be coerced to athlete home timezone.
+
 =====================================================================
 
 ## Section III. Workout Table

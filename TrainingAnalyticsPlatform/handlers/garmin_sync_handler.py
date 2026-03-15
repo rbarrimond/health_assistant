@@ -277,6 +277,7 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
             "source_activity_name": activity.get("activityName"),
             "source_activity_type": activity.get("activityType", {}).get("typeKey"),
             "source_start_time_utc": activity.get("startTimeGMT"),
+            "source_start_time_local": activity.get("startTimeLocal"),
             "source_duration_sec": activity.get("duration"),
             "source_distance_meters": activity.get("distance"),
         }
