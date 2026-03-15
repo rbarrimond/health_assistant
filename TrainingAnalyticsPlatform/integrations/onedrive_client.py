@@ -18,6 +18,10 @@ class OneDriveGraphError(ExternalServiceError):
     """Raised when Microsoft Graph calls fail."""
 
 
+class OneDriveDeltaTokenExpiredError(OneDriveGraphError):
+    """Raised when a stored OneDrive delta token is no longer valid."""
+
+
 class OneDriveGraphClient:
     """Minimal Microsoft Graph client for OneDrive Personal (delegated OAuth)."""
 
@@ -135,6 +139,74 @@ class OneDriveGraphClient:
                 results.append(item)
 
         return results
+
+    def list_files_delta(
+        self,
+        *,
+        access_token: str,
+        folder_path: str,
+        delta_link: Optional[str] = None,
+        extensions: Optional[Iterable[str]] = None,
+    ) -> tuple[list[Dict], Optional[str]]:
+        """List changed files using OneDrive delta query and return next delta link."""
+        path = _normalize_folder_path(folder_path)
+        url = delta_link or f"{self.graph_base_url}/me/drive/root:{path}:/delta"
+        params = None if delta_link else {
+            "$select": "id,name,size,file,folder,lastModifiedDateTime,parentReference,eTag,cTag,deleted",
+            "$top": "200",
+        }
+        results: list[Dict] = []
+        latest_delta_link: Optional[str] = None
+
+        next_url = url
+        next_params: Optional[Dict[str, str]] = params
+
+        while next_url:
+            data = self._fetch_delta_page(
+                access_token=access_token,
+                url=next_url,
+                params=next_params,
+            )
+
+            for item in data.get("value", []):
+                if _should_include(item, extensions, modified_since=None):
+                    results.append(item)
+
+            latest_delta_link = data.get("@odata.deltaLink") or latest_delta_link
+            next_url = data.get("@odata.nextLink")
+            next_params = None
+
+        return results, latest_delta_link
+
+    def _fetch_delta_page(
+        self,
+        *,
+        access_token: str,
+        url: str,
+        params: Optional[Dict[str, str]],
+    ) -> Dict:
+        """Fetch one page of OneDrive delta response."""
+        try:
+            response = requests.get(
+                url,
+                headers=_auth_header(access_token),
+                params=params,
+                timeout=30,
+            )
+            if response.status_code == 410:
+                raise OneDriveDeltaTokenExpiredError(
+                    "OneDrive delta token expired; full resync required"
+                )
+            response.raise_for_status()
+            return response.json()
+        except OneDriveDeltaTokenExpiredError:
+            raise
+        except requests.RequestException as exc:
+            logger.error("Delta list files failed: %s", exc)
+            raise OneDriveGraphError("Failed to list OneDrive delta changes") from exc
+        except ValueError as exc:
+            logger.error("Delta list files returned invalid JSON")
+            raise OneDriveGraphError("Invalid OneDrive delta response payload") from exc
 
     def download_file(self, *, access_token: str, item_id: str) -> bytes:
         """Download a OneDrive file by item id."""

@@ -7,6 +7,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from TrainingAnalyticsPlatform.integrations.onedrive_client import (
+    OneDriveDeltaTokenExpiredError,
+)
 from TrainingAnalyticsPlatform.handlers import onedrive_sync_handler
 from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import (
     OneDriveSyncConfig,
@@ -67,6 +70,7 @@ def test_sync_calls_ingestion_handler(monkeypatch):
         "refresh_token": "refresh",
         "expires_at_utc": future.isoformat(),
         "drive_id": "drive-id",
+        "delta_token": "delta-link-1",
     }
     storage.oauth_tokens.get_onedrive_tokens.return_value = tokens
 
@@ -81,18 +85,24 @@ def test_sync_calls_ingestion_handler(monkeypatch):
         ingestion_handler=ingestion_handler,
     )
 
-    client.list_files = MagicMock(return_value=[{
+    client.list_files_delta = MagicMock(return_value=([{
         "id": "file-id",
         "name": "test.fit",
         "size": 10,
         "eTag": "etag",
         "parentReference": {"path": "/drive/root:/Apps/HealthFit", "driveId": "drive-id"},
-    }])
+    }], "delta-link-2"))
 
     result = handler.sync(athlete_id="rob", lookback_days=30)
 
     assert result["status"] == "success"
     assert result["ingested"] == 1
+    assert result["sync_mode"] == "incremental"
+    storage.oauth_tokens.update_onedrive_delta_state.assert_called_once_with(
+        "rob",
+        delta_token="delta-link-2",
+        delta_sync_state="active",
+    )
     ingestion_handler.handle.assert_called_once()
 
 
@@ -114,6 +124,7 @@ def test_sync_filters_by_filename_date(monkeypatch):
         "refresh_token": "refresh",
         "expires_at_utc": future.isoformat(),
         "drive_id": "drive-id",
+        "delta_token": "delta-link-1",
     }
     storage.oauth_tokens.get_onedrive_tokens.return_value = tokens
 
@@ -134,7 +145,7 @@ def test_sync_filters_by_filename_date(monkeypatch):
         ingestion_handler=ingestion_handler,
     )
 
-    client.list_files = MagicMock(return_value=[{
+    client.list_files_delta = MagicMock(return_value=([{
         "id": "recent",
         "name": "2026-01-15-ride.fit",
         "size": 10,
@@ -148,15 +159,13 @@ def test_sync_filters_by_filename_date(monkeypatch):
         "eTag": "etag",
         "parentReference": {"path": "/drive/root:/Apps/HealthFit", "driveId": "drive-id"},
         "lastModifiedDateTime": "2026-01-31T12:00:00Z",
-    }])
+    }], "delta-link-2"))
 
     result = handler.sync(athlete_id="rob", lookback_days=30)
 
     assert result["found"] == 1
     assert result["ingested"] == 1
-    client.list_files.assert_called_once()
-    _, kwargs = client.list_files.call_args
-    assert kwargs["modified_since"] is None
+    client.list_files_delta.assert_called_once()
     ingestion_handler.handle.assert_called_once()
 
 
@@ -169,6 +178,7 @@ def test_sync_falls_back_to_modified_date(monkeypatch):
         "refresh_token": "refresh",
         "expires_at_utc": future.isoformat(),
         "drive_id": "drive-id",
+        "delta_token": "delta-link-1",
     }
     storage.oauth_tokens.get_onedrive_tokens.return_value = tokens
 
@@ -189,20 +199,66 @@ def test_sync_falls_back_to_modified_date(monkeypatch):
         ingestion_handler=ingestion_handler,
     )
 
-    client.list_files = MagicMock(return_value=[{
+    client.list_files_delta = MagicMock(return_value=([{
         "id": "unknown",
         "name": "workout.fit",
         "size": 10,
         "eTag": "etag",
         "parentReference": {"path": "/drive/root:/Apps/HealthFit", "driveId": "drive-id"},
         "lastModifiedDateTime": "2025-12-01T12:00:00Z",
-    }])
+    }], "delta-link-2"))
 
     result = handler.sync(athlete_id="rob", lookback_days=30)
 
     assert result["found"] == 0
     assert result["ingested"] == 0
     ingestion_handler.handle.assert_not_called()
+
+
+def test_sync_resets_delta_when_token_expired():
+    storage = MagicMock()
+    storage.oauth_tokens = MagicMock()
+    future = datetime.now(timezone.utc) + timedelta(hours=2)
+    storage.oauth_tokens.get_onedrive_tokens.return_value = {
+        "access_token": "access",
+        "refresh_token": "refresh",
+        "expires_at_utc": future.isoformat(),
+        "drive_id": "drive-id",
+        "delta_token": "expired-delta",
+    }
+
+    client = MagicMock()
+    ingestion_handler = MagicMock()
+    ingestion_handler.handle.return_value = ({"status": "success"}, 200)
+
+    client.list_files_delta.side_effect = [
+        OneDriveDeltaTokenExpiredError("expired"),
+        ([{
+            "id": "file-id",
+            "name": "test.fit",
+            "size": 10,
+            "eTag": "etag",
+            "parentReference": {"path": "/drive/root:/Apps/HealthFit", "driveId": "drive-id"},
+        }], "new-delta-link"),
+    ]
+
+    handler = OneDriveSyncHandler(
+        _config(),
+        storage,
+        client=client,
+        ingestion_handler=ingestion_handler,
+    )
+
+    result = handler.sync(athlete_id="rob", lookback_days=30)
+
+    assert result["status"] == "success"
+    assert result["sync_mode"] == "fallback_reset"
+    assert client.list_files_delta.call_count == 2
+    storage.oauth_tokens.update_onedrive_delta_state.assert_called_once_with(
+        "rob",
+        delta_token="new-delta-link",
+        delta_sync_state="active",
+    )
 
 
 def test_sync_skips_when_no_tokens():

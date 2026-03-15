@@ -129,6 +129,9 @@ class OAuthTokenStorage:
         expires_in: int,
         scope: str,
         drive_id: Optional[str] = None,
+        delta_token: Optional[str] = None,
+        last_delta_sync_at_utc: Optional[str] = None,
+        delta_sync_state: str = "initial",
     ) -> None:
         """Store OneDrive OAuth credentials."""
 
@@ -141,6 +144,9 @@ class OAuthTokenStorage:
             "expires_at_utc": expires_at.isoformat(),
             "scope": scope,
             "drive_id": drive_id or "",
+            "delta_token": delta_token or "",
+            "last_delta_sync_at_utc": last_delta_sync_at_utc or "",
+            "delta_sync_state": delta_sync_state,
             "updated_at_utc": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -197,6 +203,9 @@ class OAuthTokenStorage:
         expires_in: int,
         scope: Optional[str] = None,
         drive_id: Optional[str] = None,
+        delta_token: Optional[str] = None,
+        last_delta_sync_at_utc: Optional[str] = None,
+        delta_sync_state: Optional[str] = None,
     ) -> None:
         """Update OneDrive tokens after OAuth refresh."""
         existing = self.get_onedrive_tokens(athlete_id)
@@ -208,6 +217,24 @@ class OAuthTokenStorage:
         drive_id = drive_id or (
             existing.get("drive_id") if existing and existing.get("drive_id") else None
         )
+        delta_token = self._existing_or_incoming(
+            existing,
+            incoming=delta_token,
+            field_name="delta_token",
+        )
+        last_delta_sync_at_utc = self._existing_or_incoming(
+            existing,
+            incoming=last_delta_sync_at_utc,
+            field_name="last_delta_sync_at_utc",
+        )
+        delta_sync_state = (
+            self._existing_or_incoming(
+                existing,
+                incoming=delta_sync_state,
+                field_name="delta_sync_state",
+            )
+            or "initial"
+        )
 
         self.store_onedrive_tokens(
             athlete_id=athlete_id,
@@ -216,7 +243,65 @@ class OAuthTokenStorage:
             expires_in=expires_in,
             scope=scope,
             drive_id=drive_id,
+            delta_token=delta_token,
+            last_delta_sync_at_utc=last_delta_sync_at_utc,
+            delta_sync_state=delta_sync_state,
         )
+
+    @staticmethod
+    def _existing_or_incoming(
+        existing: Optional[Dict],
+        *,
+        incoming: Optional[str],
+        field_name: str,
+    ) -> Optional[str]:
+        """Return incoming value when provided, otherwise existing value."""
+        if incoming is not None:
+            return incoming
+        if existing and existing.get(field_name):
+            return str(existing.get(field_name))
+        return None
+
+    def update_onedrive_delta_state(
+        self,
+        athlete_id: str,
+        *,
+        delta_token: str,
+        delta_sync_state: str = "active",
+    ) -> None:
+        """Persist OneDrive delta token state for incremental sync."""
+        entity = {
+            "PartitionKey": athlete_id,
+            "RowKey": "onedrive",
+            "delta_token": delta_token,
+            "last_delta_sync_at_utc": datetime.now(timezone.utc).isoformat(),
+            "delta_sync_state": delta_sync_state,
+            "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+        }
+
+        try:
+            table_client = self.infra.get_table_client("OneDriveTokens")
+            table_client.upsert_entity(entity)
+            logger.info(
+                "Updated OneDrive delta state",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "onedrive",
+                    "delta_sync_state": delta_sync_state,
+                },
+            )
+        except HttpResponseError as e:
+            logger.error(
+                "Error updating OneDrive delta state",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "onedrive",
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            raise StorageError("Failed to update OneDrive delta state") from e
 
     # ---- Garmin ----
 

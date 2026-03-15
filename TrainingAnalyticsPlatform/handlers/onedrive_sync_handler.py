@@ -10,7 +10,10 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Dict, Optional, Tuple
 
-from TrainingAnalyticsPlatform.integrations.onedrive_client import OneDriveGraphClient
+from TrainingAnalyticsPlatform.integrations.onedrive_client import (
+    OneDriveDeltaTokenExpiredError,
+    OneDriveGraphClient,
+)
 from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_bytes_hash
 from TrainingAnalyticsPlatform.ingestion.fit_file_preprocessor import FitFilePreprocessor
 from TrainingAnalyticsPlatform.platform.config import Config as PlatformConfig
@@ -524,14 +527,38 @@ class OneDriveSyncHandler:
     def sync(self, *, athlete_id: str, lookback_days: int) -> Dict:
         """Sync OneDrive folder and ingest qualifying FIT files."""
         access_token = self._get_access_token(athlete_id)
+        tokens = self._get_tokens(athlete_id)
+        drive_id = tokens.get("drive_id") or None
+        delta_link = tokens.get("delta_token") or None
+
+        delta_mode = "incremental" if delta_link else "seed"
+        try:
+            files, next_delta_link = self._client.list_files_delta(
+                access_token=access_token,
+                folder_path=self._config.folder_path,
+                delta_link=delta_link,
+                extensions={".fit", ".fit.gz"},
+            )
+        except OneDriveDeltaTokenExpiredError:
+            logger.warning(
+                "OneDrive delta token expired; restarting delta sync from scratch",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "onedrive",
+                    "folder_path": self._config.folder_path,
+                    "delta_mode": "fallback_reset",
+                },
+            )
+            files, next_delta_link = self._client.list_files_delta(
+                access_token=access_token,
+                folder_path=self._config.folder_path,
+                delta_link=None,
+                extensions={".fit", ".fit.gz"},
+            )
+            delta_mode = "fallback_reset"
+
         cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
         cutoff_date = cutoff.date()
-        files = self._client.list_files(
-            access_token=access_token,
-            folder_path=self._config.folder_path,
-            modified_since=None,
-            extensions={".fit", ".fit.gz"},
-        )
         pre_filter_count = len(files)
         files = [
             item for item in files
@@ -547,13 +574,22 @@ class OneDriveSyncHandler:
                 "lookback_days": lookback_days,
                 "cutoff_date": cutoff_date.isoformat(),
                 "folder_path": self._config.folder_path,
+                "delta_mode": delta_mode,
             },
         )
+
+        if next_delta_link:
+            self._storage.oauth_tokens.update_onedrive_delta_state(
+                athlete_id,
+                delta_token=next_delta_link,
+                delta_sync_state="active",
+            )
 
         results = {
             "status": "success",
             "lookback_days": lookback_days,
             "folder_path": self._config.folder_path,
+            "sync_mode": delta_mode,
             "found": len(files),
             "ingested": 0,
             "skipped": 0,
@@ -561,9 +597,6 @@ class OneDriveSyncHandler:
             "errors": [],
             "items": [],
         }
-
-        tokens = self._get_tokens(athlete_id)
-        drive_id = tokens.get("drive_id") or None
 
         for item in files:
             try:
@@ -635,6 +668,7 @@ class OneDriveSyncHandler:
             new_refresh_token=token_data.get("refresh_token", refresh_token),
             expires_in=int(token_data.get("expires_in", 3600)),
             scope=token_data.get("scope"),
+            delta_token=token_data.get("delta_token"),
         )
         return token_data
 

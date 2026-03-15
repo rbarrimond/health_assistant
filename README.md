@@ -32,7 +32,7 @@ Azure Functions App (31 HTTP/Timer Endpoints)
     │   ├── Metric Computation (TSS, IF, NP, EF)
     │   └── Zone Calculation (HR/Power zones)
     ├── Backend Integration Layer
-    │   ├── OneDrive OAuth + Hourly Sync
+    │   ├── OneDrive OAuth + 10-Minute Sync
     │   ├── Withings OAuth + Webhook
     │   └── Idempotency Tracking
     └── Handler Architecture
@@ -77,7 +77,7 @@ Read Interfaces
 ### Data Flow
 
 - **Ingestion Triggers**:
-  - Hourly timer trigger for OneDrive sync (Microsoft Graph API)
+  - 10-minute timer trigger for OneDrive sync (Microsoft Graph delta query)
   - Withings webhook for real-time body metrics
   - HTTP endpoint for manual FIT file uploads
   - Daily backup export to Azure Blob Storage
@@ -470,7 +470,7 @@ health_assistant/
 
 **Timer Triggers** (3 background jobs):
 
-- Hourly OneDrive sync (Microsoft Graph delta query)
+- Every 10 minutes OneDrive sync (Microsoft Graph delta query)
 - Daily Garmin sync (3 AM UTC)
 - Daily backup export to Blob Storage (2 AM UTC)
 

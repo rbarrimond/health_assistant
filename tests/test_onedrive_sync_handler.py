@@ -547,11 +547,11 @@ class TestSyncStatus:
     def test_sync_status_success_when_all_ingested(self, handler):
         """Test status='success' when all files ingested."""
         # Arrange: 3 files, all ingested
-        handler._client.list_files = MagicMock(return_value=[
+        handler._client.list_files_delta = MagicMock(return_value=([
             {"id": "1", "name": "file1.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
             {"id": "2", "name": "file2.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
             {"id": "3", "name": "file3.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
-        ])
+        ], "delta-link"))
         handler._ingestion_handler.handle = MagicMock(return_value=(
             {"status": "success", "workout_id": "w1"}, 200
         ))
@@ -574,13 +574,13 @@ class TestSyncStatus:
     def test_sync_status_failed_when_all_fail(self, handler):
         """Test status='failed' when all files fail."""
         # Arrange: 5 files, all failed
-        handler._client.list_files = MagicMock(return_value=[
+        handler._client.list_files_delta = MagicMock(return_value=([
             {"id": "1", "name": "f1.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
             {"id": "2", "name": "f2.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
             {"id": "3", "name": "f3.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
             {"id": "4", "name": "f4.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
             {"id": "5", "name": "f5.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
-        ])
+        ], "delta-link"))
         handler._ingestion_handler.handle = MagicMock(side_effect=Exception("Parse error"))
         handler._storage.oauth_tokens = MagicMock()
         handler._storage.oauth_tokens.get_onedrive_tokens = MagicMock(return_value={
@@ -601,13 +601,13 @@ class TestSyncStatus:
     def test_sync_status_partial_when_mixed_results(self, handler):
         """Test status='partial' when some succeed and some fail."""
         # Arrange: 5 files, 2 ingested, 1 skipped, 2 failed
-        handler._client.list_files = MagicMock(return_value=[
+        handler._client.list_files_delta = MagicMock(return_value=([
             {"id": "1", "name": "f1.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
             {"id": "2", "name": "f2.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
             {"id": "3", "name": "f3.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
             {"id": "4", "name": "f4.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
             {"id": "5", "name": "f5.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
-        ])
+        ], "delta-link"))
         # First 2 success, 3rd skipped, 4th-5th fail
         handler._ingestion_handler.handle = MagicMock(side_effect=[
             ({"status": "success", "workout_id": "w1"}, 200),
@@ -636,11 +636,11 @@ class TestSyncStatus:
     def test_sync_status_skipped_when_none_ingested(self, handler):
         """Test status='skipped' when no files ingested but none failed."""
         # Arrange: 3 files, all skipped
-        handler._client.list_files = MagicMock(return_value=[
+        handler._client.list_files_delta = MagicMock(return_value=([
             {"id": "1", "name": "f1.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
             {"id": "2", "name": "f2.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
             {"id": "3", "name": "f3.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
-        ])
+        ], "delta-link"))
         handler._ingestion_handler.handle = MagicMock(return_value=(
             {"status": "skipped", "workout_id": None}, 200
         ))
@@ -664,12 +664,12 @@ class TestSyncStatus:
     def test_sync_status_partial_with_only_skipped_and_failed(self, handler):
         """Test status='partial' when some skipped and some failed."""
         # Arrange: 4 files, 2 skipped, 2 failed
-        handler._client.list_files = MagicMock(return_value=[
+        handler._client.list_files_delta = MagicMock(return_value=([
             {"id": "1", "name": "f1.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
             {"id": "2", "name": "f2.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
             {"id": "3", "name": "f3.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
             {"id": "4", "name": "f4.fit", "lastModifiedDateTime": "2026-02-18T00:00:00Z"},
-        ])
+        ], "delta-link"))
         handler._ingestion_handler.handle = MagicMock(side_effect=[
             ({"status": "skipped"}, 200),
             ({"status": "skipped"}, 200),

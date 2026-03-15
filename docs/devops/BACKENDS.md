@@ -84,6 +84,7 @@ By default the endpoint runs asynchronously and returns a 202 digest. Set `async
 Automatic sync (Timer):
 
 - Runs every 10 minutes
+- Uses Microsoft Graph delta query with persisted delta token state
 - Uses `ONEDRIVE_SYNC_LOOKBACK_DAYS` by default
 
 Lookback filtering uses the workout date parsed from the filename (YYYY-MM-DD) when available. If no date is found, it falls back to OneDrive `lastModifiedDateTime`.
