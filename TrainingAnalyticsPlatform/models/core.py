@@ -101,29 +101,13 @@ class WorkoutMetricsModel(BaseModel):
     artifacts: Optional[StructuredArtifactsModel] = None
 
     @classmethod
-    def from_flat_metrics(
+    def from_canonical_metrics(
         cls,
         metrics: Dict[str, Any],
         metadata: Optional[Dict[str, Any]] = None,
     ) -> "WorkoutMetricsModel":
-        """Build a typed metrics model from flattened storage/API fields.
-
-        The semantic layer currently derives a flat dictionary for workout detail responses.
-        This helper normalizes legacy flat keys into canonical metric names and maps
-        the payload into the compositional `WorkoutMetricsModel` structure.
-        """
-        metadata_payload = metadata or {}
-        normalized_metrics = dict(metrics)
-
-        # Normalize legacy artifact key names used by workout detail payloads.
-        if "intervals_json" in normalized_metrics and "intervals" not in normalized_metrics:
-            normalized_metrics["intervals"] = normalized_metrics.get("intervals_json")
-        if "climbs_json" in normalized_metrics and "climbs" not in normalized_metrics:
-            normalized_metrics["climbs"] = normalized_metrics.get("climbs_json")
-        if "power_curve_json" in normalized_metrics and "power_curve" not in normalized_metrics:
-            normalized_metrics["power_curve"] = normalized_metrics.get("power_curve_json")
-
-        return cls._from_metrics(normalized_metrics, metadata_payload)
+        """Build a typed metrics model from canonical analytics output plus metadata context."""
+        return cls._from_metrics(metrics, metadata or {})
 
     @classmethod
     def from_canonical(

@@ -18,12 +18,12 @@ from TrainingAnalyticsPlatform.analytics.semantic_layer import (
 )
 from TrainingAnalyticsPlatform.models.core import WorkoutMetricsModel, WorkoutProjection
 from TrainingAnalyticsPlatform.models.metrics.performance import DurabilityMetricsModel
-from TrainingAnalyticsPlatform.platform.exceptions import ValidationError
+from TrainingAnalyticsPlatform.platform.exceptions import StorageError, ValidationError
 
 
 def build_rollup_metrics_model(flat_metrics):
     """Build a typed WorkoutMetricsModel for weekly rollup tests."""
-    return WorkoutMetricsModel.from_flat_metrics(
+    return WorkoutMetricsModel.from_canonical_metrics(
         flat_metrics,
         metadata={
             "sport": flat_metrics.get("sport", "Cycling"),
@@ -35,48 +35,6 @@ def build_rollup_metrics_model(flat_metrics):
             "has_gps": flat_metrics.get("distance_m") is not None,
         },
     )
-
-
-def test_apply_canonical_metrics_recomputes_inconsistent_hr_zone_total(
-    semantic_layer,
-    mock_storage,
-):
-    """Canonical recompute should run when hr_zone_total_sec mismatches per-zone seconds."""
-    workout_entity = SimpleNamespace(
-        canonical_records_blob="workouts/test/canonical.parquet",
-        workout_id="workout-001",
-    )
-
-    metrics = {
-        "hr_avg_bpm": 154.4,
-        "hr_z1_sec": 301,
-        "hr_z2_sec": 622,
-        "hr_z3_sec": 771,
-        "hr_z4_sec": 925,
-        "hr_z5_sec": 746,
-        "hr_zone_total_sec": 0,
-    }
-
-    mock_storage.workouts.load_canonical_records.return_value = pd.DataFrame(
-        {
-            "timestamp_utc": [
-                "2026-02-22T01:51:12+00:00",
-                "2026-02-22T01:51:13+00:00",
-            ],
-            "elapsed_sec": [0, 1],
-            "heart_rate_bpm": [150.0, 151.0],
-        }
-    )
-
-    with patch.object(
-        semantic_layer,
-        "_compute_metrics_from_canonical",
-        return_value={"hr_zone_total_sec": 3365},
-    ) as recompute:
-        enriched = semantic_layer._apply_canonical_metrics(workout_entity, metrics)
-
-    recompute.assert_called_once()
-    assert enriched["hr_zone_total_sec"] == 3365
 
 
 @pytest.fixture
@@ -448,17 +406,87 @@ class TestWorkoutQueries:
             "workout_id": "workout-001",
             "athlete_id": "rob",
             "ingestion_id": "ingest-001",
+            "canonical_records_blob": "ingest-001/canonical.parquet",
             "source_system": "onedrive",
             "sport": "Cycling",
             "duration_sec": 3600,
         }
         mock_table_client.query_entities.return_value = [mock_entity]
+        mock_storage.workouts.load_metadata_json.return_value = {
+            "session": {},
+            "enrichment": {},
+            "activity_metadata": {},
+        }
+        mock_storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+            {
+                "timestamp_utc": pd.date_range("2026-02-22T01:51:12Z", periods=120, freq="s"),
+                "elapsed_sec": pd.Series(range(120), dtype=float),
+                "heart_rate_bpm": 140.0,
+                "power_watts": 210.0,
+            }
+        )
 
         workout = semantic_layer.get_workout_detail("rob", "workout-001")
 
         assert workout is not None
         assert workout["workout_id"] == "workout-001"
         assert workout["athlete_id"] == "rob"
+
+    def test_get_workout_detail_includes_full_metric_families_when_canonical_complete(
+        self,
+        semantic_layer,
+        mock_storage,
+    ):
+        """Deep-dive workout detail should populate all canonical metric families when data supports them."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+
+        mock_entity = {
+            "PartitionKey": "rob",
+            "RowKey": "workout-full-001",
+            "workout_id": "workout-full-001",
+            "athlete_id": "rob",
+            "ingestion_id": "ingest-full-001",
+            "canonical_records_blob": "ingest-full-001/canonical.parquet",
+            "source_system": "onedrive",
+            "sport": "Cycling",
+            "duration_sec": 4000,
+        }
+        mock_table_client.query_entities.return_value = [mock_entity]
+        mock_storage.workouts.load_metadata_json.return_value = {
+            "session": {},
+            "enrichment": {},
+            "activity_metadata": {},
+        }
+
+        row_count = 4000
+        timestamps = pd.date_range("2026-02-22T01:51:12Z", periods=row_count, freq="s")
+        elapsed = pd.Series(range(row_count), dtype=float)
+        mock_storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+            {
+                "timestamp_utc": timestamps,
+                "elapsed_sec": elapsed,
+                "power_watts": 220 + (elapsed % 120) * 1.5,
+                "heart_rate_bpm": 135 + (elapsed % 90) * 0.4,
+                "cadence_rpm": 84 + (elapsed % 20) * 0.6,
+                "speed_mps": 8.5 + (elapsed % 15) * 0.03,
+                "distance_m": elapsed * 8.7,
+                "elevation_m": 100 + elapsed * 0.02,
+            }
+        )
+
+        workout = semantic_layer.get_workout_detail("rob", "workout-full-001")
+
+        assert workout is not None
+        metrics = workout["metrics"]
+        assert "zones_hr" in metrics
+        assert "zones_power" in metrics
+        assert "training_load" in metrics
+        assert "power_duration" in metrics
+        assert "envelope" in metrics
+        assert "variability" in metrics
+        assert "durability" in metrics
+        assert "artifacts" in metrics
 
     def test_get_workout_detail_not_found(self, semantic_layer, mock_storage):
         """Test retrieving non-existent workout."""
@@ -500,6 +528,7 @@ class TestWorkoutQueries:
             "workout_id": "workout-001",
             "athlete_id": "rob",
             "ingestion_id": "ing-001",
+            "canonical_records_blob": "ing-001/canonical.parquet",
             "sport": "Cycling",
             "duration_sec": 3600,
         }
@@ -513,6 +542,14 @@ class TestWorkoutQueries:
                 }
             ]
         }
+        mock_storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+            {
+                "timestamp_utc": pd.date_range("2026-02-22T01:51:12Z", periods=120, freq="s"),
+                "elapsed_sec": pd.Series(range(120), dtype=float),
+                "heart_rate_bpm": 140.0,
+                "power_watts": 210.0,
+            }
+        )
 
         workout = semantic_layer.get_workout_detail(
             "rob",
@@ -535,6 +572,7 @@ class TestWorkoutQueries:
             "workout_id": "workout-001",
             "athlete_id": "rob",
             "ingestion_id": "ingest-001",
+            "canonical_records_blob": "ingest-001/canonical.parquet",
             "source_system": "onedrive",
             "sport": "Cycling",
             "duration_sec": 3600,
@@ -563,6 +601,14 @@ class TestWorkoutQueries:
                 }
             ]
         }
+        mock_storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+            {
+                "timestamp_utc": pd.date_range("2026-02-22T01:51:12Z", periods=120, freq="s"),
+                "elapsed_sec": pd.Series(range(120), dtype=float),
+                "heart_rate_bpm": 140.0,
+                "power_watts": 210.0,
+            }
+        )
 
         workout = semantic_layer.get_workout_detail("rob", "workout-001", include_laps=True)
 
@@ -612,12 +658,12 @@ class TestWorkoutQueries:
         assert lap["lap"]["avg_heart_rate"] == 150
         assert lap["lap"]["extra_fields"]["dev_form_power"]["units"] == "%"
 
-    def test_get_workout_detail_falls_back_to_basic_sample_metrics_on_non_1hz(
+    def test_get_workout_detail_raises_storage_error_on_non_1hz_validation_failure(
         self,
         semantic_layer,
         mock_storage,
     ):
-        """Populate sample counts from canonical records when strict analytics rejects cadence gaps."""
+        """Workout detail must fail when canonical validation cannot hydrate metrics."""
         mock_table_client = MagicMock()
         mock_storage.infrastructure.get_table_client.return_value = mock_table_client
 
@@ -660,13 +706,11 @@ class TestWorkoutQueries:
             "TrainingAnalyticsPlatform.analytics.semantic_layer.CanonicalAnalyticsEngine.from_dataframe",
             side_effect=ValidationError("strict_1hz_failed", status_code=422),
         ):
-            workout = semantic_layer.get_workout_detail("rob", mock_entity["workout_id"])
-
-        assert workout is not None
-        samples = workout["metrics"]["samples"]
-        assert samples["hr_samples_count"] == 2
-        assert samples["cad_samples_count"] == 2
-        assert samples["pwr_samples_count"] == 0
+            with pytest.raises(
+                StorageError,
+                match="Workout detail is temporarily unavailable",
+            ):
+                semantic_layer.get_workout_detail("rob", mock_entity["workout_id"])
 
 
 class TestAnalysisQueries:
@@ -1760,84 +1804,6 @@ class TestHelperMethods:
 
         assert any("very short" in flag for flag in flags)
 
-    def test_entity_to_workout_dict_basic(self, semantic_layer):
-        """Test entity conversion to workout dict."""
-        entity = {
-            "PartitionKey": "rob|2026-02",
-            "RowKey": "20260214|abc",
-            "workout_id": "workout-001",
-            "athlete_id": "rob",
-            "ingestion_id": "ing-001",
-            "sport": "Cycling",
-            "duration_sec": 3600,
-        }
-        
-        # Mock metadata blob with session/enrichment zones
-        metadata_blob = {
-            "session": {
-                "hr_avg_bpm": 145,
-                "duration_sec": 3600,
-            },
-            "enrichment": {},
-            "activity_metadata": {
-                "local_tz_offset": "UTC-05:00",
-            },
-        }
-        semantic_layer.storage.workouts.load_metadata_json.return_value = metadata_blob
-
-        workout = semantic_layer._entity_to_workout_dict(entity)
-
-        assert workout["workout_id"] == "workout-001"
-        assert workout["sport"] == "Cycling"
-        assert workout["hr_avg_bpm"] == 145
-        assert workout["local_tz_offset"] == "UTC-05:00"
-        assert workout["timezone"] == "UTC-05:00"
-
-    def test_entity_to_workout_dict_timezone_falls_back_to_local_offset(self, semantic_layer):
-        """Test timezone field falls back to local_tz_offset when timezone is absent."""
-        entity = {
-            "PartitionKey": "rob|2026-02",
-            "RowKey": "20260214|abc",
-            "workout_id": "workout-002",
-            "athlete_id": "rob",
-            "ingestion_id": "ing-002",
-            "sport": "Running",
-            "duration_sec": 1800,
-        }
-        
-        # Mock metadata blob with activity_metadata zone containing local_tz_offset
-        metadata_blob = {
-            "session": {
-                "duration_sec": 1800,
-            },
-            "enrichment": {},
-            "activity_metadata": {
-                "local_tz_offset": "UTC+01:00",
-            },
-        }
-        semantic_layer.storage.workouts.load_metadata_json.return_value = metadata_blob
-
-        workout = semantic_layer._entity_to_workout_dict(entity)
-
-        assert workout["local_tz_offset"] == "UTC+01:00"
-        assert workout["timezone"] == "UTC+01:00"
-
-    def test_entity_to_workout_dict_with_records(self, semantic_layer):
-        """Test entity conversion ignores time series when not stored."""
-        entity = {
-            "PartitionKey": "rob|2026-02",
-            "RowKey": "20260214|abc",
-            "workout_id": "workout-001",
-            "athlete_id": "rob",
-            "ingestion_id": "ing-001",
-            "records_json": json.dumps([{"heart_rate": 145}]),
-        }
-
-        workout = semantic_layer._entity_to_workout_dict(entity)
-
-        assert "records" not in workout
-
-
 class TestDecouplingSignSemantics:
     """Tests to verify aerobic decoupling sign semantics: positive = fatigue, negative = improvement."""
 
@@ -2346,8 +2312,8 @@ class TestHrPowerLagSignSemantics:
 
         assert result is not None
 
-    def test_workout_metrics_model_from_flat_metrics_accepts_negative_lag(self):
-        """WorkoutMetricsModel constructed from flat metrics accepts negative hr_power_lag_sec."""
+    def test_workout_metrics_model_from_canonical_metrics_accepts_negative_lag(self):
+        """WorkoutMetricsModel constructed from canonical metrics accepts negative hr_power_lag_sec."""
         model = build_rollup_metrics_model(
             {
                 "sport": "Cycling",

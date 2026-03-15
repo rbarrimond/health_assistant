@@ -4,6 +4,7 @@ import logging
 from typing import Any, Dict, List, Tuple
 
 from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.platform.exceptions import StorageError
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,9 @@ class QueryHandler:
         except ValueError as exc:
             logger.warning("Workout detail validation failed: %s", exc)
             return {"error": str(exc)}, 400
+        except StorageError as exc:
+            logger.error("Workout detail storage failure: %s", exc, exc_info=True)
+            return {"error": "Workout detail is temporarily unavailable"}, 500
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Workout detail query failed: %s", exc, exc_info=True)
             return {"error": "Internal server error"}, 500

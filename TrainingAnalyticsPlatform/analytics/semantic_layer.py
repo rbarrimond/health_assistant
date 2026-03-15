@@ -27,6 +27,7 @@ from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.platform.exceptions import (
     StorageError,
     ValidationError,
+    WorkoutDetailUnavailableError,
 )
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import WorkoutEntity
 
@@ -374,9 +375,36 @@ class SemanticLayer:
         workout_entity: WorkoutEntity,
     ) -> WorkoutDetailResponse:
         """Build typed workout detail response from table entity and derived metrics."""
-        workout = self._entity_to_workout_dict(entity)
-        metrics = WorkoutMetricsModel.from_flat_metrics(
-            workout,
+        metadata_blob = self._load_metadata_blob_for_workout(entity, workout_entity)
+        session, enrichment, activity_metadata = self._extract_workout_metadata_sections(
+            metadata_blob
+        )
+        detail_metrics = self._build_workout_detail_metrics(
+            workout_entity,
+            session,
+            enrichment,
+            activity_metadata,
+        )
+        workout = self._build_workout_base_dict(
+            workout_entity,
+            session,
+            enrichment,
+            activity_metadata,
+            detail_metrics,
+        )
+        detail_metrics.update(
+            {
+                "start_time_utc": workout.get("start_time_utc"),
+                "duration_sec": workout.get("duration_sec"),
+                "moving_time_sec": workout.get("moving_time_sec"),
+                "distance_m": workout.get("distance_m"),
+                "elevation_gain_m": workout.get("elevation_gain_m"),
+                "elevation_loss_m": workout.get("elevation_loss_m"),
+                "calories_kcal": workout.get("calories_kcal"),
+            }
+        )
+        metrics = WorkoutMetricsModel.from_canonical_metrics(
+            detail_metrics,
             metadata={
                 "sport": workout.get("sport"),
                 "sub_sport": workout.get("sub_sport"),
@@ -388,7 +416,7 @@ class SemanticLayer:
                 "duration_sec": workout.get("duration_sec"),
                 "moving_time_sec": workout.get("moving_time_sec"),
                 "has_gps": workout_entity.has_gps,
-                "hr_resting_bpm": workout.get("hr_resting_bpm"),
+                "hr_resting_bpm": detail_metrics.get("hr_resting_bpm"),
             },
         )
         return WorkoutDetailResponse(
@@ -397,6 +425,95 @@ class SemanticLayer:
             source_system=entity.get("source_system"),
             metrics=metrics,
         )
+
+    def _build_workout_detail_metrics(
+        self,
+        workout_entity: WorkoutEntity,
+        session: Dict[str, Any],
+        enrichment: Dict[str, Any],
+        activity_metadata: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Build deep-dive metrics payload using canonical analytics as required source."""
+        metrics: Dict[str, Any] = {**session, **enrichment, **activity_metadata}
+        blob_name = workout_entity.canonical_records_blob or metrics.get(
+            "canonical_records_blob"
+        )
+        if not blob_name:
+            logger.error(
+                "Workout detail unavailable: canonical records blob missing",
+                extra={
+                    "workout_id": workout_entity.workout_id,
+                    "failure_category": "missing_canonical_blob",
+                },
+            )
+            raise WorkoutDetailUnavailableError()
+
+        try:
+            df = self.storage.workouts.load_canonical_records(blob_name)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.error(
+                "Failed to load canonical records",
+                extra={
+                    "blob_name": blob_name,
+                    "workout_id": workout_entity.workout_id,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
+            raise WorkoutDetailUnavailableError() from exc
+
+        if df.empty:
+            logger.error(
+                "Workout detail unavailable: canonical records empty",
+                extra={
+                    "workout_id": workout_entity.workout_id,
+                    "blob_name": blob_name,
+                    "failure_category": "empty_canonical_records",
+                },
+            )
+            raise WorkoutDetailUnavailableError()
+
+        try:
+            canonical = CanonicalAnalyticsEngine.from_dataframe(df, metrics)
+        except ValidationError as exc:
+            distortion = self._canonical_sampling_distortion(df)
+            try:
+                canonical = CanonicalAnalyticsEngine.from_dataframe(
+                    df,
+                    metrics,
+                    resample=True,
+                )
+            except ValidationError as resample_exc:
+                logger.error(
+                    "Workout detail canonical validation failed",
+                    extra={
+                        "workout_id": workout_entity.workout_id,
+                        "blob_name": blob_name,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                        "failure_category": "canonical_sampling_validation",
+                        "is_1hz_validation_failure": True,
+                        "status_code": exc.status_code,
+                        **distortion,
+                    },
+                    exc_info=True,
+                )
+                raise WorkoutDetailUnavailableError() from resample_exc
+
+            self._log_canonical_resample_fallback(
+                scope="workout_detail",
+                strict_error=exc,
+                record_count=len(df),
+                distortion=distortion,
+                workout_id=workout_entity.workout_id,
+                blob_name=blob_name,
+            )
+
+        canonical_metrics = canonical.to_metrics_dict()
+        enriched = dict(metrics)
+        enriched.update(canonical_metrics)
+        return enriched
 
     def _populate_workout_detail_laps(
         self,
@@ -1052,7 +1169,7 @@ class SemanticLayer:
             workouts = []
             for partition_key in months:
                 workouts.extend(
-                    self._collect_partition_workouts(
+                    self._collect_partition_workout_metrics(
                         table_client=table_client,
                         partition_key=partition_key,
                         start_date=start_date,
@@ -1081,7 +1198,7 @@ class SemanticLayer:
             )
             return []
 
-    def _collect_partition_workouts(
+    def _collect_partition_workout_metrics(
         self,
         table_client: Any,
         partition_key: str,
@@ -1098,24 +1215,59 @@ class SemanticLayer:
 
         workouts: List[Dict[str, Any]] = []
         for entity in entities:
-            workout_start = entity.get("start_time_utc")
-            if not workout_start:
+            if not self._entity_within_date_range(entity, start_date, end_date):
                 continue
 
             try:
-                workout_date = datetime.fromisoformat(
-                    workout_start.replace("Z", UTC_OFFSET)
-                ).astimezone(timezone.utc)
-            except ValueError:
+                metrics_model = self._build_rollup_metrics_model(entity)
+            except StorageError as exc:
+                logger.warning(
+                    "Skipping workout in range: canonical metrics unavailable",
+                    extra={
+                        "workout_id": entity.get("workout_id"),
+                        "partition_key": partition_key,
+                        "error": str(exc),
+                    },
+                )
                 continue
-
-            if not (start_date <= workout_date <= end_date):
-                continue
-
-            workout = self._entity_to_workout_dict(entity)
-            workouts.append(workout)
+            workouts.append(self._workout_summary_from_metrics_model(entity, metrics_model))
 
         return workouts
+
+    @staticmethod
+    def _workout_summary_from_metrics_model(
+        entity: Dict[str, Any],
+        metrics_model: WorkoutMetricsModel,
+    ) -> Dict[str, Any]:
+        """Project WorkoutMetricsModel into planning/analysis summary fields."""
+        zones_hr = metrics_model.zones_hr
+        zones_power = metrics_model.zones_power
+        durability = metrics_model.durability
+        session = metrics_model.session
+        samples = metrics_model.samples
+
+        return {
+            "workout_id": entity.get("workout_id"),
+            "athlete_id": entity.get("athlete_id"),
+            "sport": session.sport,
+            "start_time_utc": session.start_time_utc,
+            "duration_sec": session.duration_sec,
+            "hr_avg_bpm": samples.hr_avg_bpm,
+            "hr_z1_sec": zones_hr.hr_z1_sec if zones_hr else 0,
+            "hr_z2_sec": zones_hr.hr_z2_sec if zones_hr else 0,
+            "hr_z3_sec": zones_hr.hr_z3_sec if zones_hr else 0,
+            "hr_z4_sec": zones_hr.hr_z4_sec if zones_hr else 0,
+            "hr_z5_sec": zones_hr.hr_z5_sec if zones_hr else 0,
+            "pwr_z1_sec": zones_power.pwr_z1_sec if zones_power else 0,
+            "pwr_z2_sec": zones_power.pwr_z2_sec if zones_power else 0,
+            "pwr_z3_sec": zones_power.pwr_z3_sec if zones_power else 0,
+            "pwr_z4_sec": zones_power.pwr_z4_sec if zones_power else 0,
+            "pwr_z5_sec": zones_power.pwr_z5_sec if zones_power else 0,
+            "intensity_sec": zones_power.intensity_sec if zones_power else 0,
+            "decoupling_pct": durability.decoupling_pct if durability else None,
+            "ef_overall": durability.ef_overall if durability else None,
+            "hr_drift_bpm": durability.hr_drift_bpm if durability else None,
+        }
 
     def _get_workout_projections_in_range(
         self,
@@ -1246,36 +1398,6 @@ class SemanticLayer:
 
         return partitions
 
-    def _entity_to_workout_dict(self, entity: Dict) -> Dict:
-        """
-        Convert Azure Table entity to workout dict.
-
-        Args:
-            entity: Raw table entity
-
-        Returns:
-            Cleaned workout dict
-        """
-        workout_entity = WorkoutEntity.from_table_entity(entity)
-        metadata_blob = self._load_metadata_blob_for_workout(entity, workout_entity)
-        session, enrichment, activity_metadata = self._extract_workout_metadata_sections(
-            metadata_blob
-        )
-
-        # Combine zones for inferential methods.
-        metrics = {**session, **enrichment, **activity_metadata}
-        metrics = self._apply_canonical_metrics(workout_entity, metrics)
-        workout = self._build_workout_base_dict(
-            workout_entity,
-            session,
-            enrichment,
-            activity_metadata,
-            metrics,
-        )
-        self._add_workout_capability_metrics(workout, metrics)
-
-        return workout
-
     def _load_metadata_blob_for_workout(
         self,
         entity: Dict[str, Any],
@@ -1343,141 +1465,6 @@ class SemanticLayer:
             "calories_kcal": session.get("calories_kcal")
             or self._infer_calories(metrics, sport),
         }
-
-    def _add_workout_capability_metrics(
-        self,
-        workout: Dict[str, Any],
-        metrics: Dict[str, Any],
-    ) -> None:
-        """Attach capability-specific and sample-level metrics onto workout response."""
-        if metrics.get("hr_avg_bpm"):
-            workout.update(
-                self._select_fields(
-                    metrics,
-                    {
-                        "hr_avg_bpm",
-                        "hr_max_bpm",
-                        "hr_min_bpm",
-                        "hr_samples_count",
-                        "hr_missing_pct",
-                        "hr_z1_sec",
-                        "hr_z2_sec",
-                        "hr_z3_sec",
-                        "hr_z4_sec",
-                        "hr_z5_sec",
-                        "hr_zone_total_sec",
-                        "hr_zone_basis",
-                        "hr_zone_reference_bpm",
-                    },
-                )
-            )
-
-        if metrics.get("pwr_avg_watts"):
-            workout.update(
-                self._select_fields(
-                    metrics,
-                    {
-                        "pwr_avg_watts",
-                        "pwr_max_watts",
-                        "pwr_normalized_watts",
-                        "pwr_variability_index",
-                        "pwr_samples_count",
-                        "pwr_missing_pct",
-                        "cad_avg_rpm",
-                        "cad_max_rpm",
-                        "cad_samples_count",
-                        "pwr_z1_sec",
-                        "pwr_z2_sec",
-                        "pwr_z3_sec",
-                        "pwr_z4_sec",
-                        "pwr_z5_sec",
-                        "pwr_z6_sec",
-                        "pwr_z7_sec",
-                        "low_aerobic_sec",
-                        "intensity_sec",
-                        "ftp_watts",
-                        "intensity_factor",
-                        "tss",
-                        "decoupling_pct",
-                        "hr_drift_bpm",
-                        "ef_first_half",
-                        "ef_second_half",
-                        "ef_overall",
-                    },
-                )
-            )
-
-        workout.update(
-            self._select_fields(
-                metrics,
-                {
-                    "hr_samples_count",
-                    "hr_missing_pct",
-                    "pwr_samples_count",
-                    "pwr_missing_pct",
-                    "cad_samples_count",
-                    "cad_avg_rpm",
-                    "cad_max_rpm",
-                },
-            )
-        )
-
-    def _apply_canonical_metrics(
-        self,
-        workout_entity: WorkoutEntity,
-        metrics: Dict,
-    ) -> Dict:
-        """Derive metrics from canonical parquet when table metrics are missing."""
-        has_baseline_metrics = bool(metrics.get("hr_avg_bpm") or metrics.get("pwr_avg_watts"))
-        hr_zone_total_inconsistent = self._is_hr_zone_total_inconsistent(metrics)
-
-        if has_baseline_metrics and not hr_zone_total_inconsistent:
-            return metrics
-
-        blob_name = workout_entity.canonical_records_blob or metrics.get(
-            "canonical_records_blob"
-        )
-        if not blob_name:
-            return metrics
-
-        try:
-            df = self.storage.workouts.load_canonical_records(blob_name)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger.warning(
-                "Failed to load canonical records",
-                extra={
-                    "blob_name": blob_name,
-                    "workout_id": workout_entity.workout_id,
-                    "error_type": type(exc).__name__,
-                    "error": str(exc),
-                },
-            )
-            return metrics
-
-        if df.empty:
-            return metrics
-
-        enriched = dict(metrics)
-        enriched.update(self._compute_metrics_from_canonical(df, enriched))
-        return enriched
-
-    @staticmethod
-    def _is_hr_zone_total_inconsistent(metrics: Dict[str, Any]) -> bool:
-        """Return True when HR zone total is absent/mismatched against per-zone seconds."""
-        zone_values = [float(metrics.get(f"hr_z{i}_sec") or 0) for i in range(1, 6)]
-        zones_sum = float(sum(zone_values))
-        total = metrics.get("hr_zone_total_sec")
-
-        has_any_zone = any(value > 0 for value in zone_values)
-        if not has_any_zone:
-            return False
-        if total is None:
-            return True
-
-        try:
-            return float(total) != zones_sum
-        except (TypeError, ValueError):
-            return True
 
     def _compute_metrics_from_canonical(
         self,

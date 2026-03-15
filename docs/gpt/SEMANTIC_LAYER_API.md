@@ -555,6 +555,11 @@ Retrieve full workout data with optional lap summaries.
 
 **Transport note:** If the client sends `Accept-Encoding: gzip`, the response will be gzip-compressed.
 
+**Error semantics:**
+
+- `404` when the workout is not found for the athlete
+- `500` when internal processing fails
+
 ---
 
 ### 3a. Get Workout Lap Detail

@@ -54,6 +54,24 @@ class StorageError(HealthAssistantError):
     status_code = 500
 
 
+class WorkoutDetailUnavailableError(StorageError):
+    """Raised when workout detail cannot be safely hydrated for client consumption."""
+
+    error_code = "WORKOUT_DETAIL_UNAVAILABLE"
+    status_code = 500
+
+    def __init__(
+        self,
+        message: Optional[str] = None,
+        *,
+        status_code: Optional[int] = None,
+    ):
+        super().__init__(
+            message or "Workout detail is temporarily unavailable",
+            status_code=status_code,
+        )
+
+
 class ConfigError(HealthAssistantError):
     """Raised when configuration is invalid or missing."""
 

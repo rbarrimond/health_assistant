@@ -236,6 +236,24 @@ Derived fields (computed from canonical.parquet):
 Derived outputs remain deterministic projections over the canonical substrate.
 No scalar duplication unless required for query optimization.
 
+---------------------------------------------------------------------
+
+### Workout Detail Read Contract (`GET /api/workouts/{workout_id}`)
+
+The single-workout detail read path is canonical-required.
+
+Read-time source boundaries:
+
+- Identity and lookup: Workouts table row
+- Metrics payload (`WorkoutMetricsModel`): derived from `canonical.parquet`
+- Lap payload (`laps`): sourced from `laps.json` when requested
+
+Failure semantics:
+
+- If canonical records are missing, unreadable, empty, or fail canonical validation,
+  the API returns an explicit server error rather than emitting a partial metrics model.
+- This preserves deterministic recomputability and prevents mixed-provenance metric payloads.
+
 =====================================================================
 
 ## Section V. Wellness Domain: Direct Ingestion (v3.0.0)

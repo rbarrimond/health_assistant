@@ -10,6 +10,17 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-14
 
+### Workout Detail Canonical-Required Read Contract Hardening [semantic API v6.0.0]
+
+- **Changed**: `GET /api/workouts/{workout_id}` now enforces canonical-required metrics hydration and no longer returns degraded/partial metrics when canonical hydration fails.
+- **Why**: Aligns runtime behavior with the canonical analytics contract and prevents mixed-provenance response shaping.
+- **Error contract**: Clients now receive a business-level `500` message (`Workout detail is temporarily unavailable`) rather than storage/canonical implementation details.
+- **Contract/docs updates**:
+  - `api_docs/openapi.yaml`: workout detail operation documents generic internal error behavior for failures.
+  - `docs/gpt/SEMANTIC_LAYER_API.md`: workout detail section documents generic `500` internal failure semantics.
+  - `docs/devops/data_architecture/CANONICAL_DATA_ARCHITECTURE.md`: added explicit workout detail read contract.
+- **Versioning note**: Semantic API version remains `6.0.0` because response schema and documented status-code surface are unchanged; this is behavior hardening to match the existing canonical contract.
+
 ### BREAKING: Typed Lap Response Contracts + Nested Lap Detail Shape [semantic API v6.0.0]
 
 - **Changed**: Lap responses now use explicit typed models instead of untyped flat dict payloads.
@@ -298,7 +309,7 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
   - Top-level identity: `workout_id`, `athlete_id`, `source_system`
   - Nested metrics: `metrics` (`WorkoutMetricsModel`)
   - Optional deep-dive additions: `laps`, `laps_count`, `lap_errors`, `developer_fields_summary`, `developer_fields_error`
-- **New**: `WorkoutMetricsModel.from_flat_metrics()` helper to map flat semantic-layer metrics into compositional typed model families.
+- **New**: `WorkoutMetricsModel.from_canonical_metrics()` helper to map canonical analytics output into compositional typed model families.
 
 #### Semantic Layer [semantic_layer.py] (v4.0.0)
 

@@ -369,6 +369,9 @@ paths:
     get:
       summary: Get detailed workout data
       operationId: getWorkout
+      description: |
+        Returns a single-workout deep-dive response with a nested `metrics` object.
+        On internal processing failure, returns `500` with `ErrorResponse`.
       security:
         - FunctionKey: []
       parameters:
@@ -1686,7 +1689,7 @@ components:
       type: object
       description: |
         Single-workout deep-dive response.
-        Returns stable workout identity fields plus nested typed metrics payload (`WorkoutMetricsModel`).
+        Returns stable workout identity fields plus nested metrics payload.
       required:
         - workout_id
         - athlete_id
@@ -1728,8 +1731,7 @@ components:
     WorkoutMetricsModel:
       type: object
       description: |
-        Typed workout metrics grouped by semantic families.
-        Mirrors the domain model used for single-workout deep-dive analysis.
+        Workout metrics grouped by semantic families.
       required:
         - session
         - samples
