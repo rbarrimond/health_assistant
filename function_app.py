@@ -1012,8 +1012,15 @@ def intervals_sync_timer(timer: func.TimerRequest) -> None:
         logger.warning("Intervals sync timer is past due")
 
     try:
-        intervals_athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
+        intervals_athlete_id = os.getenv("INTERVALS_ATHLETE_ID")
         athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
+
+        if not intervals_athlete_id:
+            logger.warning(
+                "Intervals sync timer missing INTERVALS_ATHLETE_ID; skipping sync"
+            )
+            return
+
         handler = dependencies.intervals_service
 
         response, status = handler.handle(

@@ -893,3 +893,23 @@ class TestIntervalsEndpointHandlers:
         assert call_kwargs["athlete_id"] == "rob"
         assert call_kwargs["lookback_days"] == 60
 
+
+class TestIntervalsTimerHandlers:
+    def test_intervals_timer_uses_intervals_and_default_athlete_ids(self, monkeypatch):
+        monkeypatch.setenv("INTERVALS_ATHLETE_ID", "env_intervals")
+        monkeypatch.setenv("DEFAULT_ATHLETE_ID", "default_storage")
+
+        timer = MagicMock(spec=func.TimerRequest)
+        timer.past_due = False
+
+        mock_handler = MagicMock()
+        mock_handler.handle.return_value = ({"count": 0}, 200)
+
+        with _patch_dependency("intervals_service", mock_handler):
+            function_app.intervals_sync_timer(timer)
+
+        mock_handler.handle.assert_called_once_with(
+            intervals_athlete_id="env_intervals",
+            athlete_id="default_storage",
+        )
+
