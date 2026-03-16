@@ -645,7 +645,7 @@ source-local evidence. Session timing (`session.start_time`) is explicitly
 **not** used — it is a local wall-clock context field, not a UTC offset source.
 
 | Model | Primary evidence | Fallback |
-|---|---|---|
+| --- | --- | --- |
 | **HealthFit** | Filename `YYYY-MM-DD-HHMMSS` vs FIT UTC start | Base chain |
 | **Garmin** | API `source_start_time_local` vs `source_start_time_utc` | Base chain |
 | **Base / Payload** | `activity.local_timestamp` vs `activity.timestamp` | `device_settings.utc_offset` |
