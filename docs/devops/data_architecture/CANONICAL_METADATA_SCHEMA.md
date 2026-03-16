@@ -69,8 +69,8 @@ This document specifies the structure of **metadata.json** blobs stored in Azure
     "file_serial_number": "string (device serial number from FIT file)"
   },
   "activity_metadata": {
-    "local_tz_offset": "string UTC offset (e.g., 'UTC-05:00'), computed from device, activity, and session messages",
-    "timezone": "string canonical timezone (IANA preferred, UTC offset fallback when unresolved)",
+    "local_tz_offset": "string UTC offset (e.g., 'UTC-05:00'), resolved by source-specific model rules: HealthFit prefers filename-local recording time, Garmin prefers API local-vs-UTC start times, and generic FIT/device timing is used only when authoritative source-local evidence is unavailable",
+    "timezone": "string canonical timezone (IANA preferred, UTC offset fallback when unresolved); Zwift workouts (FIT manufacturer `zwift`) use athlete home IANA timezone when configured, otherwise fall back to `local_tz_offset`",
     "Note": "Redundant timestamp fields (activity_timestamp_utc, activity_local_time) removed in v2.0.0—use session.start_time_utc instead"
   },
   "enrichment": {
