@@ -800,35 +800,48 @@ class BaseFitModel(BaseModel, ABC):
     def local_tz_offset(self) -> Optional[str]:
         """Return the best-available local timezone offset.
 
-        Primary signal is session local-vs-UTC offset. Fallback signals are only
-        used when session fields are missing or invalid.
+        Subclasses with authoritative external local-time evidence (HealthFit filename,
+        Garmin API timestamps) short-circuit this before reaching the base fallback chain.
+        The base fallback order is: activity local_timestamp, device_settings utc_offset.
+        Session timing fields are never used for offset derivation.
 
         Returns:
             `UTC±HH:MM` offset string, or None.
         """
         try:
-            inferred_session = self._inferred_timezone_session()
-            offset_minutes = self._device_utc_offset_minutes()
-            device_offset = (
-                format_utc_offset(offset_minutes)
-                if offset_minutes is not None
-                else None
-            )
-            inferred_activity = self._inferred_timezone_activity()
-            source_fallback = self._source_specific_timezone_fallback()
-
-            local_tz_offset, _ = resolve_canonical_timezone(
-                explicit_timezone=None,
-                session_offset=inferred_session,
-                fallback_offsets=(device_offset, inferred_activity, source_fallback),
-                start_time_utc=self._parse_start_time_utc(),
-                athlete_timezone=None,
-                is_zwift_workout=False,
-            )
-            return local_tz_offset
+            return self._resolve_local_tz_offset()
         except (AttributeError, TypeError, ValueError):
             pass
         return None
+
+    def _resolve_local_tz_offset(self) -> Optional[str]:
+        """Resolve local UTC offset using base FIT/device precedence.
+
+        Fallback order: activity local_timestamp vs timestamp, then device_settings
+        utc_offset, then subclass source-specific evidence (e.g. filename, API fields).
+        Session timing is NOT used — session.start_time is wall-clock context only,
+        not offset evidence.
+
+        Sources with authoritative external local-time context should override
+        this method instead of relying on the shared generic precedence.
+        """
+        offset_minutes = self._device_utc_offset_minutes()
+        device_offset = (
+            format_utc_offset(offset_minutes)
+            if offset_minutes is not None
+            else None
+        )
+        inferred_activity = self._inferred_timezone_activity()
+        source_fallback = self._source_specific_timezone_fallback()
+
+        local_tz_offset, _ = resolve_canonical_timezone(
+            explicit_timezone=None,
+            fallback_offsets=(inferred_activity, device_offset, source_fallback),
+            start_time_utc=self._parse_start_time_utc(),
+            athlete_timezone=None,
+            is_zwift_workout=False,
+        )
+        return local_tz_offset
 
     def _parse_start_time_utc(self) -> Optional[datetime]:
         """Parse canonical workout UTC start timestamp when available."""
@@ -856,7 +869,7 @@ class BaseFitModel(BaseModel, ABC):
         Returns:
             IANA timezone name if found and valid, else None.
         """
-        for key in ("timezone", "source_timezone", "tz_name"):
+        for key in self._explicit_timezone_metadata_keys():
             raw_value = self._metadata_dict.get(key)
             if not isinstance(raw_value, str):
                 continue
@@ -878,6 +891,10 @@ class BaseFitModel(BaseModel, ABC):
                 continue
 
         return None
+
+    def _explicit_timezone_metadata_keys(self) -> tuple[str, ...]:
+        """Return metadata keys that are trusted as explicit IANA timezone hints."""
+        return ("timezone", "source_timezone", "tz_name")
 
     def _get_iana_from_offset_conversion(self, athlete_tz: Optional[str]) -> Optional[str]:
         """Convert UTC offset to IANA timezone using athlete timezone as hint.
@@ -916,23 +933,16 @@ class BaseFitModel(BaseModel, ABC):
         """
         explicit_iana = self._get_explicit_iana_from_metadata()
         athlete_tz = self._get_athlete_timezone()
-        sport, sub_sport = self._resolve_session_sport_signals()
         device_manufacturer, _ = self._get_device_info()
+        local_offset = self.local_tz_offset
+        start_time_utc = self._parse_start_time_utc()
 
-        is_zwift = is_zwift_cloud_workout(
-            local_tz_offset=self.local_tz_offset,
-            device_manufacturer=device_manufacturer,
-            device_name=self.device_name,
-            source_activity_name=self._metadata_dict.get("source_activity_name"),
-            sport=sport,
-            sub_sport=sub_sport,
-        )
+        is_zwift = is_zwift_cloud_workout(device_manufacturer=device_manufacturer)
 
         _, timezone_value = resolve_canonical_timezone(
             explicit_timezone=explicit_iana,
-            session_offset=self._inferred_timezone_session(),
-            fallback_offsets=(self.local_tz_offset,),
-            start_time_utc=self._parse_start_time_utc(),
+            fallback_offsets=(local_offset,),
+            start_time_utc=start_time_utc,
             athlete_timezone=athlete_tz,
             is_zwift_workout=is_zwift,
         )
@@ -940,16 +950,8 @@ class BaseFitModel(BaseModel, ABC):
     
     def _is_zwift_workout(self) -> bool:
         """Detect Zwift cloud workouts using shared canonical detector."""
-        sport, sub_sport = self._resolve_session_sport_signals()
         device_manufacturer, _ = self._get_device_info()
-        return is_zwift_cloud_workout(
-            local_tz_offset=self.local_tz_offset,
-            device_manufacturer=device_manufacturer,
-            device_name=self.device_name,
-            source_activity_name=self._metadata_dict.get("source_activity_name"),
-            sport=sport,
-            sub_sport=sub_sport,
-        )
+        return is_zwift_cloud_workout(device_manufacturer=device_manufacturer)
     
     def _get_athlete_timezone(self) -> Optional[str]:
         """Get athlete's home timezone from configuration.
@@ -996,6 +998,17 @@ class BaseFitModel(BaseModel, ABC):
         if not isinstance(timestamp, datetime):
             timestamp = None
         if not isinstance(duration, (int, float)):
+            return None
+
+        # Guard against malformed FIT session messages where start_time is
+        # duplicated from session timestamp (end time). In that case, the
+        # inference math collapses to duration/60 and yields a spurious offset.
+        if (
+            isinstance(start_time, datetime)
+            and isinstance(timestamp, datetime)
+            and start_time == timestamp
+            and duration > 0
+        ):
             return None
         
         duration_sec = int(duration)
@@ -2052,9 +2065,20 @@ class HealthFitModel(OneDriveFitModel):
             return None
         return self._format_utc_timestamp(start_dt)
 
+    def _explicit_timezone_metadata_keys(self) -> tuple[str, ...]:
+        """HealthFit derives timezone from filename evidence only; ignore all metadata hints."""
+        return ()
+
     def _source_specific_timezone_fallback(self) -> Optional[str]:
         """Return HealthFit filename-derived timezone offset when available."""
         return self.inferred_timezone_filename
+
+    def _resolve_local_tz_offset(self) -> Optional[str]:
+        """Use HealthFit filename local time as authoritative timezone evidence."""
+        filename_offset = self.inferred_timezone_filename
+        if filename_offset:
+            return filename_offset
+        return super()._resolve_local_tz_offset()
 
     def _normalize_and_resolve_apple_type(self, raw_type: str) -> Optional[str]:
         """Normalize and resolve raw Apple workout type to canonical form.
@@ -2215,6 +2239,15 @@ class GarminFitModel(BaseFitModel):
         """Garmin does not provide source-specific Apple workout types."""
         return None
 
+    def _explicit_timezone_metadata_keys(self) -> tuple[str, ...]:
+        """Trust only source-tagged timezone keys for Garmin ingests.
+
+        Garmin reprocessing paths may carry previously persisted canonical
+        `timezone` values in metadata. Treating that generic key as source
+        authority can override FIT/API-derived timezone semantics.
+        """
+        return ("source_timezone", "tz_name")
+
     def _parse_source_datetime(self, key: str) -> Optional[datetime]:
         """Parse source datetime metadata into a datetime object."""
         raw_value = self._metadata_dict.get(key)
@@ -2241,6 +2274,13 @@ class GarminFitModel(BaseFitModel):
             utc_start = utc_start.replace(tzinfo=timezone.utc)
 
         return infer_timezone_from_activity(local_start, utc_start)
+
+    def _resolve_local_tz_offset(self) -> Optional[str]:
+        """Use Garmin API local-vs-UTC timestamps as authoritative when present."""
+        source_offset = self._source_specific_timezone_fallback()
+        if source_offset:
+            return source_offset
+        return super()._resolve_local_tz_offset()
 
 
 class PayloadFitModel(BaseFitModel):

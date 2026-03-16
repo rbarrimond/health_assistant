@@ -143,19 +143,24 @@ Provides fast metadata access without decompressing `raw_fit.json.gz`.
 Timezone semantics are deterministic and shared across ingestion, projection, and
 historical remediation paths.
 
-Resolution order:
+**Offset derivation (`local_tz_offset`)** — each model uses its own authoritative
+local-time evidence. Session timing is never used as offset evidence:
 
-1. Derive `local_tz_offset` from FIT **session** local-vs-UTC timing
-  (`session.start_time` vs `session.timestamp - session.total_elapsed_time`).
-2. If session timing fields are missing/invalid, use fallback offset signals
-  (device/activity/source metadata) to preserve ingestion resilience.
-3. Resolve `timezone` from the derived offset using existing timezone rules.
-4. **Zwift cloud exception**: for explicit Zwift/virtual workouts at `UTC+00:00`,
-  use athlete home timezone because source-local wall-clock context is hidden.
+1. **HealthFit**: filename `YYYY-MM-DD-HHMMSS` vs FIT UTC start (authoritative).
+2. **Garmin**: API `source_start_time_local` vs `source_start_time_utc` (authoritative).
+3. **Base / Payload fallback**: `activity.local_timestamp` vs `activity.timestamp`,
+   then `device_settings.utc_offset`.
+
+**Canonical timezone resolution** — applied after `local_tz_offset` is established:
+
+1. Explicit IANA hint from source metadata (HealthFit ignores all metadata keys).
+2. **Zwift override**: FIT `manufacturer == "zwift"` → athlete home timezone when configured.
+3. Offset-to-IANA conversion using athlete home timezone as disambiguation hint.
+4. Fall back to UTC offset string.
 
 Invariants:
 
-- `local_tz_offset` is always the offset context for the workout.
+- `local_tz_offset` is always an offset derived from source-local evidence, never from session timing.
 - `timezone` is canonical timezone context (IANA when resolvable, offset fallback).
 - Non-Zwift `UTC+00:00` workouts must not be coerced to athlete home timezone.
 

@@ -4,5 +4,5 @@
 METADATA_SCHEMA_VERSION = "1.0.0"
 LAPS_SCHEMA_VERSION = "1.0.0"
 FIT_ANALYSIS_VERSION = "v1.0.0"
-INGEST_VERSION = "v15.1.5"  # (v15.1.4->v15.1.5) PATCH: session-first timezone resolution with shared canonical resolver
+INGEST_VERSION = "v15.2.0"  # (v15.1.9->v15.2.0) MINOR: remove session-based offset inference; activity local_timestamp is now the only generic FIT offset fallback; HealthFit ignores explicit timezone metadata keys
 

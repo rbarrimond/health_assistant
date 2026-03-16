@@ -277,6 +277,44 @@ class TestHealthFitTimezoneInference:
         assert model.local_tz_offset == "UTC+00:00"
         assert model.timezone == "UTC+00:00"
 
+    def test_healthfit_local_tz_offset_prefers_filename_local_time_over_fit_signals(self) -> None:
+        """HealthFit filename local timestamp is authoritative when generic FIT signals disagree."""
+        model = HealthFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                "source_file_name": "2026-03-02-093346-Functional Strength Training-Robert's-Apple-Watch-7.fit",
+            },
+        )
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "timestamp": datetime(2026, 3, 2, 14, 33, 46, tzinfo=timezone.utc),
+                    "start_time": datetime(2026, 3, 2, 14, 33, 46, tzinfo=timezone.utc),
+                    "total_elapsed_time": 0,
+                    "sport": "training",
+                    "sub_sport": "strength_training",
+                }
+            ),
+        )
+        model._data_messages_by_type = {
+            "device_settings": [cast(Any, _MessageStub({"utc_offset": 0}))],
+            "activity": [
+                cast(
+                    Any,
+                    _MessageStub(
+                        {
+                            "timestamp": datetime(2026, 3, 2, 14, 33, 46, tzinfo=timezone.utc),
+                            "local_timestamp": datetime(2026, 3, 2, 14, 33, 46, tzinfo=timezone.utc),
+                        }
+                    ),
+                )
+            ],
+        }
+
+        assert model.inferred_timezone_filename == "UTC-05:00"
+        assert model.local_tz_offset == "UTC-05:00"
+
 
 class TestGarminTimezoneInference:
     """Regression tests for Garmin timezone fallback behavior."""
@@ -304,8 +342,8 @@ class TestGarminTimezoneInference:
 
         assert model._source_specific_timezone_fallback() is None  # pylint: disable=protected-access
 
-    def test_local_tz_offset_prefers_session_signal_over_fallbacks(self) -> None:
-        """Session-derived offset must be canonical when available."""
+    def test_local_tz_offset_prefers_source_metadata_over_fit_fallbacks(self) -> None:
+        """Garmin source metadata is authoritative over generic FIT/device timezone fallbacks."""
         model = GarminFitModel(
             file_bytes=b"fit",  # type: ignore[call-arg]
             source_metadata={  # type: ignore[call-arg]
@@ -327,7 +365,44 @@ class TestGarminTimezoneInference:
             "_inferred_timezone_activity",
             return_value="UTC-06:00",
         ):
-            assert model.local_tz_offset == "UTC-04:00"
+            assert model.local_tz_offset == "UTC-05:00"
+
+    def test_garmin_local_tz_offset_prefers_api_local_vs_utc_metadata(self) -> None:
+        """Garmin API local-vs-UTC timestamps are authoritative when FIT/device signals drift."""
+        model = GarminFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                "source_start_time_local": "2025-12-29T22:11:48",
+                "source_start_time_utc": "2025-12-30T03:11:48+00:00",
+            },
+        )
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "timestamp": datetime(2025, 12, 30, 3, 11, 48, tzinfo=timezone.utc),
+                    "start_time": datetime(2025, 12, 30, 3, 11, 48, tzinfo=timezone.utc),
+                    "total_elapsed_time": 3138.404,
+                }
+            ),
+        )
+        model._data_messages_by_type = {
+            "device_settings": [cast(Any, _MessageStub({"utc_offset": 0}))],
+            "activity": [
+                cast(
+                    Any,
+                    _MessageStub(
+                        {
+                            "timestamp": datetime(2025, 12, 30, 3, 11, 48, tzinfo=timezone.utc),
+                            "local_timestamp": datetime(2025, 12, 30, 3, 11, 48, tzinfo=timezone.utc),
+                        }
+                    ),
+                )
+            ],
+        }
+
+        assert model._source_specific_timezone_fallback() == "UTC-05:00"
+        assert model.local_tz_offset == "UTC-05:00"
 
     def test_utc_offset_without_zwift_signal_does_not_use_athlete_home_timezone(self) -> None:
         """Athlete-home override applies only to Zwift cloud signals."""
@@ -358,12 +433,149 @@ class TestGarminTimezoneInference:
         ):
             assert model.timezone != "America/New_York"
 
+    def test_garmin_ignores_generic_timezone_metadata_key(self) -> None:
+        """Garmin should not treat generic persisted `timezone` metadata as source-authoritative."""
+        model = GarminFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                "timezone": "Europe/London",
+                "source_start_time_local": "2025-12-29T22:11:48",
+                "source_start_time_utc": "2025-12-30T03:11:48+00:00",
+            },
+        )
+
+        with patch.object(
+            GarminFitModel,
+            "_inferred_timezone_session",
+            return_value=None,
+        ), patch.object(
+            GarminFitModel,
+            "_get_athlete_timezone",
+            return_value=None,
+        ):
+            assert model.local_tz_offset == "UTC-05:00"
+            assert model.timezone == "UTC-05:00"
+
+    def test_garmin_zwift_with_non_utc_offset_uses_athlete_home_timezone(self) -> None:
+        """Zwift workouts should use athlete-home timezone even when local offset is non-UTC."""
+        model = GarminFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                "source_start_time_local": "2026-02-14T12:51:32",
+                "source_start_time_utc": "2026-02-14T17:51:32+00:00",
+            },
+        )
+        model._file_id_msg = cast(  # pylint: disable=protected-access
+            Any,
+            _MessageStub(
+                {
+                    "manufacturer": "zwift",
+                    "product": 0,
+                }
+            ),
+        )
+        model._session_msg = cast(  # pylint: disable=protected-access
+            Any,
+            _MessageStub(
+                {
+                    "sport": "cycling",
+                    "sub_sport": "virtual_activity",
+                }
+            ),
+        )
+
+        with patch.object(
+            GarminFitModel,
+            "_get_athlete_timezone",
+            return_value="Europe/London",
+        ):
+            assert model.local_tz_offset == "UTC-05:00"
+            assert model.timezone == "Europe/London"
+
+    def test_garmin_zwift_prefers_athlete_home_over_source_timezone(self) -> None:
+        """Zwift workouts should prioritize athlete-home timezone over explicit source timezone."""
+        model = GarminFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                "source_timezone": "Europe/London",
+                "source_start_time_local": "2026-02-14T12:51:32",
+                "source_start_time_utc": "2026-02-14T17:51:32+00:00",
+            },
+        )
+        model._file_id_msg = cast(  # pylint: disable=protected-access
+            Any,
+            _MessageStub(
+                {
+                    "manufacturer": "zwift",
+                    "product": 0,
+                }
+            ),
+        )
+        model._session_msg = cast(  # pylint: disable=protected-access
+            Any,
+            _MessageStub(
+                {
+                    "sport": "cycling",
+                    "sub_sport": "virtual_activity",
+                }
+            ),
+        )
+
+        with patch.object(
+            GarminFitModel,
+            "_get_athlete_timezone",
+            return_value="America/New_York",
+        ):
+            assert model.local_tz_offset == "UTC-05:00"
+            assert model.timezone == "America/New_York"
+
+    def test_garmin_zwift_without_athlete_timezone_falls_back_to_offset(self) -> None:
+        """Zwift workouts without athlete timezone should keep UTC offset timezone."""
+        model = GarminFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                "source_timezone": "Europe/London",
+                "source_start_time_local": "2026-02-14T12:51:32",
+                "source_start_time_utc": "2026-02-14T17:51:32+00:00",
+            },
+        )
+        model._file_id_msg = cast(  # pylint: disable=protected-access
+            Any,
+            _MessageStub(
+                {
+                    "manufacturer": "zwift",
+                    "product": 0,
+                }
+            ),
+        )
+        model._session_msg = cast(  # pylint: disable=protected-access
+            Any,
+            _MessageStub(
+                {
+                    "sport": "cycling",
+                    "sub_sport": "virtual_activity",
+                }
+            ),
+        )
+
+        with patch.object(
+            GarminFitModel,
+            "_get_athlete_timezone",
+            return_value=None,
+        ):
+            assert model.local_tz_offset == "UTC-05:00"
+            assert model.timezone == "UTC-05:00"
+
 
 class TestSessionTimeMathSemantics:
     """Regression tests for session UTC and local offset semantics."""
 
-    def test_session_uses_utc_math_for_start_and_local_math_for_offset(self) -> None:
-        """Ensure start_time_utc and local_tz_offset are derived from the correct session fields."""
+    def test_session_utc_math_for_start_time_only(self) -> None:
+        """Session timestamp - elapsed gives start_time_utc; session.start_time is NOT offset evidence.
+
+        The session.start_time field is a local wall-clock context value, not UTC offset evidence.
+        local_tz_offset must be None when no activity, filename, or device-settings evidence exists.
+        """
         model = HealthFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
         model._session_msg = cast(
             Any,
@@ -377,7 +589,97 @@ class TestSessionTimeMathSemantics:
         )
 
         assert model.start_time_utc == "2026-02-24T14:00:00+00:00"
-        assert model.local_tz_offset == "UTC-04:00"
+        assert model.local_tz_offset is None
+
+    def test_session_timezone_inference_rejects_equal_start_and_end_timestamps(self) -> None:
+        """Malformed sessions with start_time == timestamp must not infer duration-based offsets."""
+        model = HealthFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "timestamp": datetime(2026, 1, 3, 19, 57, 30, tzinfo=timezone.utc),
+                    "start_time": datetime(2026, 1, 3, 19, 57, 30, tzinfo=timezone.utc),
+                    "total_elapsed_time": 4504.798,
+                }
+            ),
+        )
+
+        assert model._inferred_timezone_session() is None
+
+    def test_local_tz_offset_falls_back_when_session_timezone_is_malformed(self) -> None:
+        """When session offset is invalid, activity-derived offset should be used."""
+        model = HealthFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "timestamp": datetime(2026, 1, 3, 19, 57, 30, tzinfo=timezone.utc),
+                    "start_time": datetime(2026, 1, 3, 19, 57, 30, tzinfo=timezone.utc),
+                    "total_elapsed_time": 4504.798,
+                }
+            ),
+        )
+        model._data_messages_by_type = {
+            "activity": [
+                cast(
+                    Any,
+                    _MessageStub(
+                        {
+                            "timestamp": datetime(2026, 1, 3, 19, 57, 30, tzinfo=timezone.utc),
+                            "local_timestamp": datetime(2026, 1, 3, 14, 57, 30, tzinfo=timezone.utc),
+                        }
+                    ),
+                )
+            ]
+        }
+
+        assert model.local_tz_offset == "UTC-05:00"
+
+    def test_activity_offset_preferred_over_zero_device_offset_after_session_guard(self) -> None:
+        """If session signal is invalid and device offset is UTC+00:00, keep activity-derived UTC-05:00."""
+        model = HealthFitModel(file_bytes=b"fit", source_metadata={})  # type: ignore[call-arg]
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "timestamp": datetime(2025, 12, 30, 3, 11, 48, tzinfo=timezone.utc),
+                    "start_time": datetime(2025, 12, 30, 3, 11, 48, tzinfo=timezone.utc),
+                    "total_elapsed_time": 3138.404,
+                    "sport": "cycling",
+                    "sub_sport": "indoor_cycling",
+                }
+            ),
+        )
+        model._data_messages_by_type = {
+            "activity": [
+                cast(
+                    Any,
+                    _MessageStub(
+                        {
+                            "timestamp": datetime(2025, 12, 30, 3, 11, 48, tzinfo=timezone.utc),
+                            "local_timestamp": datetime(2025, 12, 29, 22, 11, 48, tzinfo=timezone.utc),
+                        }
+                    ),
+                )
+            ],
+            "device_settings": [
+                cast(
+                    Any,
+                    _MessageStub(
+                        {
+                            "utc_offset": 0,
+                            "time_offset": 4294949296,
+                        }
+                    ),
+                )
+            ],
+        }
+
+        assert model._inferred_timezone_session() is None
+        assert model._device_utc_offset_minutes() == 0
+        assert model._inferred_timezone_activity() == "UTC-05:00"
+        assert model.local_tz_offset == "UTC-05:00"
 
 
 class TestCanonicalMetadataDistanceFallback:

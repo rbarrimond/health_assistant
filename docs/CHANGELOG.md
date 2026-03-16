@@ -8,7 +8,49 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-16
+
+### Session Inference Removal and HealthFit Timezone Metadata Hardening [ingest v15.2.0]
+
+- **BREAKING (semantic)**: `session.start_time` is no longer used as timezone offset evidence anywhere in the resolution chain. `session.start_time` is a local wall-clock context value, not a UTC offset source.
+- **Generic offset fallback order** (Base/Payload models) is now: `activity.local_timestamp` vs `activity.timestamp` → `device_settings.utc_offset` → subclass source-specific evidence.
+- **HealthFit**: model now overrides `_explicit_timezone_metadata_keys()` to return `()`, ensuring stale persisted timezone hints (e.g. `Europe/London`) in source metadata cannot override the filename-derived offset.
+- **Garmin and HealthFit short-circuit unchanged**: both models return their authoritative source offset before reaching the base chain.
+- **`timezone` property**: `session_offset` parameter is now passed as `None`; session timing no longer participates in canonical timezone resolution.
+- **Test updated**: `test_session_utc_math_for_start_time_only` now asserts `local_tz_offset is None` when no activity/filename/device evidence is present, confirming session start_time is not treated as offset evidence.
+- **Persisted metadata impact**: workouts where `local_tz_offset` was previously derived from session timing may now emit a different (corrected) offset. HealthFit workouts with stale explicit metadata timezone keys will now emit the filename-derived offset.
+
 ## 2026-03-15
+
+### Zwift Detection and Timezone Override Narrowing [ingest v15.1.9]
+
+- **Changed**: Zwift classification is now based on FIT manufacturer identity (`zwift`) rather than broad activity-name/device/sub-sport heuristics.
+- **Timezone contract**: Zwift remains a timezone-only edge-case override; when athlete home timezone is configured, `activity_metadata.timezone` uses that value.
+- **Fallback contract**: when athlete home timezone is unavailable for Zwift workouts, timezone now falls back to the resolved `local_tz_offset` (UTC offset string).
+- **Offset stability**: `local_tz_offset` derivation is unchanged and remains source-specific (HealthFit filename, Garmin API local-vs-UTC, or FIT/device fallback).
+- **Supersedes v15.1.8 wording**: prior language about broad Zwift/virtual signal detection has been narrowed to manufacturer-based detection to reduce churn.
+
+### Zwift Timezone Simplification to Athlete Home Timezone [ingest v15.1.8]
+
+- **Changed**: Zwift workout timezone resolution now uses athlete home timezone directly when Zwift/virtual signals are present.
+- **Simplified precedence**: Zwift athlete-home override is now applied before explicit source timezone hints in canonical timezone resolution.
+- **Detection update**: Zwift detection no longer requires `UTC+00:00`; it relies on Zwift/virtual workout signals.
+- **Persisted metadata impact**: affected Zwift ingests may emit athlete-home IANA timezone values in `activity_metadata.timezone` even when `local_tz_offset` is non-UTC.
+
+### Source-Specific Timezone Resolution Hardening for HealthFit and Garmin [ingest v15.1.7]
+
+- **Changed**: local timezone resolution now uses source-specific authoritative evidence before generic FIT/device fallback logic.
+- **HealthFit contract restored**: filename-local recording time is now authoritative for UTC offset derivation when present, rather than being demoted beneath generic FIT session/activity/device signals.
+- **Garmin contract hardened**: Garmin API `source_start_time_local` vs `source_start_time_utc` is now treated as authoritative local-time evidence when available, preventing malformed indoor FIT/device timestamps from overriding API truth.
+- **OO design correction**: source-specific timezone resolution is now implemented via model overrides in the FIT model hierarchy instead of forcing all sources through one flattened fallback order.
+- **Persisted metadata impact**: affected HealthFit and Garmin ingests may now emit corrected `activity_metadata.local_tz_offset` and `activity_metadata.timezone` values; metadata schema shape is unchanged.
+
+### FIT Timezone Fallback Correction for Malformed Garmin Indoor Sessions [ingest v15.1.6]
+
+- **Fixed**: malformed FIT session messages where `session.start_time == session.timestamp` no longer produce duration-derived phantom timezone offsets such as `UTC+01:15` or `UTC+00:45`.
+- **Fallback correction**: when session timing is invalid, `local_tz_offset` now prefers activity/timestamp-correlation-derived local time over `device_settings.utc_offset`, because affected Garmin indoor files can report `utc_offset=0` while activity local timestamps clearly indicate the effective local timezone.
+- **Persisted metadata impact**: some ingests will now emit corrected `activity_metadata.local_tz_offset` and downstream `activity_metadata.timezone` values for affected files; metadata schema shape is unchanged.
+- **Regression coverage**: added tests covering malformed session start/end equality and the `activity=-05:00` vs `device utc_offset=0` precedence case.
 
 ### OneDrive Delta Sync Reset Control Endpoint
 

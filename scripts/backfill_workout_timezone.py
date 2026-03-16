@@ -121,8 +121,7 @@ def _resolve_expected_timezone(
 
     _, timezone_value = resolve_canonical_timezone(
         explicit_timezone=explicit_timezone,
-        session_offset=session_offset,
-        fallback_offsets=(),
+        fallback_offsets=(session_offset,) if session_offset else (),
         start_time_utc=_parse_iso8601_utc(start_time_utc),
         athlete_timezone=(
             str(athlete_timezone).strip() if _is_present(athlete_timezone) else None
@@ -165,7 +164,6 @@ def _is_zwift_workout(
     *,
     metadata: Dict[str, Any],
     entity: Dict[str, Any],
-    local_tz_offset: Optional[str],
 ) -> bool:
     """Detect Zwift workouts that should use athlete home timezone.
 
@@ -174,8 +172,6 @@ def _is_zwift_workout(
     """
     identity_raw = metadata.get("identity")
     identity: Dict[str, Any] = identity_raw if isinstance(identity_raw, dict) else {}
-    enrichment_raw = metadata.get("enrichment")
-    enrichment: Dict[str, Any] = enrichment_raw if isinstance(enrichment_raw, dict) else {}
     file_metadata_raw = metadata.get("file_metadata")
     file_metadata: Dict[str, Any] = (
         file_metadata_raw if isinstance(file_metadata_raw, dict) else {}
@@ -186,18 +182,7 @@ def _is_zwift_workout(
         or _to_lower(entity.get("device_manufacturer"))
         or _to_lower(file_metadata.get("file_manufacturer"))
     )
-    device_name = _to_lower(identity.get("device_name") or entity.get("device_name"))
-    workout_name = _to_lower(enrichment.get("workout_name") or entity.get("workout_name"))
-    sub_sport = _to_lower(identity.get("sub_sport") or entity.get("sub_sport"))
-
-    return is_zwift_cloud_workout(
-        local_tz_offset=local_tz_offset,
-        device_manufacturer=device_manufacturer,
-        device_name=device_name,
-        source_activity_name=workout_name,
-        sport=None,
-        sub_sport=sub_sport,
-    )
+    return is_zwift_cloud_workout(device_manufacturer=device_manufacturer)
 
 
 def _compute_update_state(
@@ -221,7 +206,6 @@ def _compute_update_state(
     is_zwift_workout = _is_zwift_workout(
         metadata=metadata,
         entity=entity,
-        local_tz_offset=local_tz_offset,
     )
     start_time_utc = _extract_start_time_utc(metadata, entity)
 

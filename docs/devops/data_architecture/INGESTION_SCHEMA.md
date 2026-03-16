@@ -635,26 +635,40 @@ Current laps `schema_version`: `1.0.0`.
 
 ## Timezone Inference (FIT)
 
-When FIT files do not provide an explicit timezone name or device UTC offset,
-timezone inference uses local vs UTC timestamps in the FIT messages. The
-priority order is:
+Timezone inference separates two concerns: deriving the UTC offset from
+source-local evidence, and resolving a canonical timezone name from that offset.
 
-1. Activity `local_timestamp` vs Activity `timestamp`, only when `local_timestamp` is not equal to FIT epoch (1989-12-31T00:00:00).
-2. Session `start_time` (local wall-clock context) vs Session `timestamp - total_elapsed_time`.
+### UTC Offset Derivation (`local_tz_offset`)
 
-This keeps FIT timestamps UTC by spec while recovering a local offset for
-workout display and grouping.
+Each FIT model derives `local_tz_offset` from its own authoritative
+source-local evidence. Session timing (`session.start_time`) is explicitly
+**not** used — it is a local wall-clock context field, not a UTC offset source.
+
+| Model | Primary evidence | Fallback |
+|---|---|---|
+| **HealthFit** | Filename `YYYY-MM-DD-HHMMSS` vs FIT UTC start | Base chain |
+| **Garmin** | API `source_start_time_local` vs `source_start_time_utc` | Base chain |
+| **Base / Payload** | `activity.local_timestamp` vs `activity.timestamp` | `device_settings.utc_offset` |
 
 FIT epoch handling rule:
 
 - `local_timestamp` equal to FIT epoch (`1989-12-31T00:00:00`) represents an unset value and must be treated as null.
 - Epoch-equivalent values must not be used to derive timezone offsets.
 
-After offset inference, `BaseFitModel.timezone` applies canonical timezone resolution:
+### Canonical Timezone Resolution (`timezone`)
 
-1. Check for device explicit IANA timezone name in FIT metadata (rare).
-2. Detect Zwift workouts: indoor workouts (`is_indoor=True`) at UTC+00:00 override to athlete's physical timezone from `Config.get_athlete_timezone()`.
-3. When athlete home timezone is configured, convert offset to IANA timezone using `iana_from_offset()` with athlete home timezone as disambiguation hint via `zoneinfo.available_timezones()` lookup at workout timestamp. Ambiguous offsets are resolved using this priority:
+After `local_tz_offset` is established, `BaseFitModel.timezone` applies canonical
+timezone resolution:
+
+1. Check for explicit IANA timezone name in source metadata. **HealthFit ignores
+   all metadata timezone keys** — filename evidence is authoritative and stale
+   persisted hints must not override it.
+2. Detect Zwift workouts (FIT `manufacturer == "zwift"`): override `timezone` to
+   athlete home timezone from `Config.get_athlete_timezone()` when configured.
+3. When athlete home timezone is configured, convert offset to IANA timezone using
+   `iana_from_offset()` with athlete home timezone as disambiguation hint via
+   `zoneinfo.available_timezones()` lookup at workout timestamp. Ambiguous offsets
+   are resolved using this priority:
    - Athlete home timezone if it matches the offset (highest priority)
    - DST-aware zones over static offset zones (prefers `America/New_York` over `America/Atikokan`)
    - Major metropolitan areas by population/usage (e.g., `America/New_York` prioritized over `America/Detroit`)
@@ -666,7 +680,7 @@ After offset inference, `BaseFitModel.timezone` applies canonical timezone resol
 Athlete home timezone configuration:
 
 - Set via `ATHLETE_TIMEZONE` environment variable or `athlete_timezone` field in `physiometrics.json`.
-- Used to disambiguate offsets like UTC-05:00 (could be New York, Toronto, Detroit, Bogotá) and to resolve Zwift/virtual workout timezones.
+- Used to disambiguate offsets like UTC-05:00 (could be New York, Toronto, Detroit, Bogotá) and to resolve Zwift manufacturer-detected workout timezones.
 - Must be a valid IANA timezone name (validated via `zoneinfo.ZoneInfo`).
 
 ---
