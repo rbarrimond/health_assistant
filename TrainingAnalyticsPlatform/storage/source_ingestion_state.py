@@ -1,5 +1,6 @@
 """Blob processing audit trail for idempotency and replay."""
 
+import base64
 import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -25,8 +26,11 @@ class SourceIngestionStateEntity:
     def to_table_entity(self) -> Dict[str, Any]:
         """Convert to Azure Table Storage entity."""
         entity = asdict(self)
-        entity["PartitionKey"] = f"{self.source_name}#{self.athlete_id}"
-        entity["RowKey"] = self.blob_name
+        entity["PartitionKey"] = _partition_key_for_source_athlete(
+            self.source_name,
+            self.athlete_id,
+        )
+        entity["RowKey"] = _row_key_for_blob_name(self.blob_name)
         return entity
 
     @staticmethod
@@ -94,11 +98,10 @@ class SourceIngestionStateStorage:
         """
         table_client = self.storage_client.get_table_client("SourceIngestionState")
 
-        # Query by RowKey (blob_name); Table Storage doesn't support RowKey filter
-        # directly, so we do a linear scan of the table
-        entities = list(table_client.query_entities(""))
+        filter_str = f"blob_name eq '{_escape_odata_string(blob_name)}'"
+        entities = list(table_client.query_entities(filter_str))
         for entity in entities:
-            if entity.get("RowKey") == blob_name:
+            if entity.get("blob_name") == blob_name:
                 entity["status"] = "processed"
                 entity["last_updated_utc"] = datetime.now(timezone.utc)
                 table_client.upsert_entity(entity)
@@ -113,9 +116,10 @@ class SourceIngestionStateStorage:
         """
         table_client = self.storage_client.get_table_client("SourceIngestionState")
 
-        entities = list(table_client.query_entities(""))
+        filter_str = f"blob_name eq '{_escape_odata_string(blob_name)}'"
+        entities = list(table_client.query_entities(filter_str))
         for entity in entities:
-            if entity.get("RowKey") == blob_name:
+            if entity.get("blob_name") == blob_name:
                 entity["status"] = "failed"
                 entity["error_message"] = error
                 entity["last_updated_utc"] = datetime.now(timezone.utc)
@@ -133,9 +137,10 @@ class SourceIngestionStateStorage:
         """
         table_client = self.storage_client.get_table_client("SourceIngestionState")
 
-        entities = list(table_client.query_entities(""))
+        filter_str = f"blob_name eq '{_escape_odata_string(blob_name)}'"
+        entities = list(table_client.query_entities(filter_str))
         for entity in entities:
-            if entity.get("RowKey") == blob_name:
+            if entity.get("blob_name") == blob_name:
                 return entity.get("status") == "processed"
 
         return False
@@ -154,8 +159,36 @@ class SourceIngestionStateStorage:
         """
         table_client = self.storage_client.get_table_client("SourceIngestionState")
 
-        partition_key = f"{source_name}#{athlete_id}"
+        partition_key = _partition_key_for_source_athlete(source_name, athlete_id)
         filter_str = f"PartitionKey eq '{partition_key}' and status eq 'fetched'"
 
         entities = list(table_client.query_entities(filter_str))
         return [SourceIngestionStateEntity.from_table_entity(e) for e in entities]
+
+
+def _row_key_for_blob_name(blob_name: str) -> str:
+    """Create a Table Storage-safe RowKey from a blob name."""
+    encoded = base64.urlsafe_b64encode(blob_name.encode("utf-8")).decode("ascii")
+    return encoded.rstrip("=")
+
+
+def _escape_odata_string(value: str) -> str:
+    """Escape single quotes for OData filter literals."""
+    return value.replace("'", "''")
+
+
+def _sanitize_table_key_component(value: str) -> str:
+    """Sanitize Azure Table key components by replacing forbidden characters."""
+    return (
+        value.replace("/", "_")
+        .replace("\\", "_")
+        .replace("#", "_")
+        .replace("?", "_")
+    )
+
+
+def _partition_key_for_source_athlete(source_name: str, athlete_id: str) -> str:
+    """Create a Table Storage-safe PartitionKey for source+athlete."""
+    safe_source = _sanitize_table_key_component(source_name)
+    safe_athlete = _sanitize_table_key_component(athlete_id)
+    return f"{safe_source}|{safe_athlete}"

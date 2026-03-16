@@ -122,7 +122,7 @@ def test_storage_instantiation() -> None:
     """StorageCoordinator should instantiate without errors."""
     with (
         patch.object(StorageInfrastructure, "_ensure_tables_exist"),
-        patch.object(StorageInfrastructure, "_ensure_blob_container"),
+        patch.object(StorageInfrastructure, "_ensure_blob_containers"),
     ):
         storage = StorageCoordinator(
             connection_string=(
@@ -137,7 +137,7 @@ def test_semantic_layer_instantiation() -> None:
     """SemanticLayer should instantiate with StorageCoordinator."""
     with (
         patch.object(StorageInfrastructure, "_ensure_tables_exist"),
-        patch.object(StorageInfrastructure, "_ensure_blob_container"),
+        patch.object(StorageInfrastructure, "_ensure_blob_containers"),
     ):
         storage = StorageCoordinator(
             connection_string=(
@@ -179,7 +179,7 @@ def test_health_handler_instantiation() -> None:
     """HealthHandler should instantiate successfully."""
     with (
         patch.object(StorageInfrastructure, "_ensure_tables_exist"),
-        patch.object(StorageInfrastructure, "_ensure_blob_container"),
+        patch.object(StorageInfrastructure, "_ensure_blob_containers"),
     ):
         storage = StorageCoordinator(
             connection_string=(

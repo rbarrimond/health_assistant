@@ -93,11 +93,11 @@ WEEKLY_ROLLUP_ALLOWED_FIELDS = (
 
 # Keep source precedence local to avoid circular import with handlers package.
 PHYSIOMETRICS_SOURCE_PRECEDENCE = {
-    "weight_kg": ["withings"],
+    "weight_kg": ["withings", "intervals"],
     "fat_mass_kg": ["withings"],
     "muscle_mass_kg": ["withings"],
     "bone_mass_kg": ["withings"],
-    "body_fat_pct": ["withings"],
+    "body_fat_pct": ["withings", "intervals"],
     "visceral_fat_index": ["withings"],
     "metabolic_age_years": ["withings"],
     "hrv_ln_rmssd": ["intervals", "garmin"],
@@ -3382,7 +3382,7 @@ class SemanticLayer:
             soreness=None,
             pred_recovery_days=None,
             data_sources="workouts,physiometrics",
-            canonical_version="3.0.0",
+            canonical_version="4.0.0",
         )
 
     def _compute_rolling_tss(

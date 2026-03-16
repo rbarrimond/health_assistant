@@ -23,6 +23,7 @@ from TrainingAnalyticsPlatform.platform.exceptions import (
 
 CANONICAL_SCHEMA_VERSION = "2.0.1"
 WORKOUTS_CONTAINER = "workouts"
+EXTERNAL_SOURCES_CONTAINER = "external-sources"
 
 logger = logging.getLogger(__name__)
 
@@ -407,7 +408,7 @@ class StorageInfrastructure:
 
         self._blob_service_client = self._build_blob_service_client(conn)
         self._ensure_tables_exist()
-        self._ensure_blob_container()
+        self._ensure_blob_containers()
 
     def _build_blob_service_client(
         self, table_connection_string: Optional[str]
@@ -444,19 +445,20 @@ class StorageInfrastructure:
                 logger.error("Error creating table %s: %s", table_name, e)
                 raise
 
-    def _ensure_blob_container(self) -> None:
-        """Create blob container if it doesn't exist."""
-        try:
-            container_client = self._blob_service_client.get_container_client(
-                WORKOUTS_CONTAINER
-            )
-            container_client.create_container()
-            logger.info("Blob container %s ready", WORKOUTS_CONTAINER)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            if "ContainerAlreadyExists" in str(exc):
-                return
-            logger.error("Error creating blob container %s: %s", WORKOUTS_CONTAINER, exc)
-            raise
+    def _ensure_blob_containers(self) -> None:
+        """Create required blob containers if they don't exist."""
+        for container_name in (WORKOUTS_CONTAINER, EXTERNAL_SOURCES_CONTAINER):
+            try:
+                container_client = self._blob_service_client.get_container_client(
+                    container_name
+                )
+                container_client.create_container()
+                logger.info("Blob container %s ready", container_name)
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                if "ContainerAlreadyExists" in str(exc):
+                    continue
+                logger.error("Error creating blob container %s: %s", container_name, exc)
+                raise
 
     def get_table_client(self, table_name: str) -> TableClient:
         """Get table client for specified table."""
@@ -475,6 +477,10 @@ class StorageInfrastructure:
     def get_blob_client(self):
         """Get blob container client for workouts container."""
         return self._blob_service_client.get_container_client(WORKOUTS_CONTAINER)
+
+    def get_external_sources_blob_client(self):
+        """Get blob container client for external sources payload archive."""
+        return self._blob_service_client.get_container_client(EXTERNAL_SOURCES_CONTAINER)
 
     # ---- Blob naming helpers ----
 
@@ -506,13 +512,30 @@ class StorageInfrastructure:
 
     def upload_json_blob(self, blob_name: str, payload: Dict) -> str:
         """Upload uncompressed JSON to blob."""
+        return self.upload_json_blob_to_container(WORKOUTS_CONTAINER, blob_name, payload)
+
+    def upload_json_blob_to_container(
+        self,
+        container_name: str,
+        blob_name: str,
+        payload: Dict,
+    ) -> str:
+        """Upload uncompressed JSON to a specific blob container."""
         body = json.dumps(payload, separators=(",", ":"), default=str)
         blob_client = self._blob_service_client.get_blob_client(
-            container=WORKOUTS_CONTAINER,
+            container=container_name,
             blob=blob_name,
         )
         blob_client.upload_blob(body, overwrite=True)
         return blob_name
+
+    def upload_external_source_json(self, blob_name: str, payload: Dict) -> str:
+        """Upload JSON payload to the external-sources container."""
+        return self.upload_json_blob_to_container(
+            EXTERNAL_SOURCES_CONTAINER,
+            blob_name,
+            payload,
+        )
 
     def load_json_blob(self, blob_name: str, *, gzipped: bool = False) -> Dict:
         """Load JSON from blob (with optional gzip decompression)."""

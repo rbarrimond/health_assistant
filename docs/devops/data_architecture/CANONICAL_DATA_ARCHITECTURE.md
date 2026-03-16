@@ -284,13 +284,13 @@ Failure semantics:
 
 =====================================================================
 
-## Section V. Wellness Domain: Direct Ingestion (v3.0.0)
+## Section V. Wellness Domain: Blob-First Ingestion (v3.1.0)
 
 ### Architecture Paradigm
 
-**Direct Ingestion Model**: `Fetch → Validate → Upsert` (no blob storage)
+**Blob-First Ingestion Model**: `Fetch → Archive Raw Payload → Validate → Upsert`
 
-All wellness data flows directly from source APIs to the canonical `Physiometrics` table. No intermediate blob storage is used for physiometrics. This approach prioritizes operational simplicity and eliminates storage overhead for sparse, low-volume wellness measurements.
+All wellness data is archived as immutable raw payload blobs in `external-sources` before canonical table processing. This preserves replayability, forensic debugging, and deterministic reprocessing when adapter or schema logic evolves.
 
 **Single Canonical Table**: `Physiometrics` (Azure Table Storage)
 
@@ -307,14 +307,14 @@ RowKey: DD
 
 This partitioning strategy enables efficient range queries for monthly rollups while maintaining daily granularity at the row level.
 
-**Schema**: Canonical 25-field model with metric-by-metric source precedence
+**Schema**: Canonical 27-field model with metric-by-metric source precedence
 
 ```python
 # Metadata (4 fields)
 athlete_id: str                # Athlete identifier
 effective_date: str            # YYYY-MM-DD (local athlete timezone)
 data_sources: str              # CSV of contributing sources (e.g., "withings,intervals,garmin")
-canonical_version: str         # Schema version (default: "3.0.0")
+canonical_version: str         # Schema version (default: "4.0.0")
 last_updated_utc: datetime     # Timestamp of last upsert
 
 # Body composition (Withings exclusive) - 5 fields
@@ -324,8 +324,9 @@ muscle_mass_kg: Optional[float]         # Muscle mass
 bone_mass_kg: Optional[float]           # Bone mass
 body_fat_pct: Optional[float]           # Body fat percentage
 
-# Recovery metrics (Intervals exclusive) - 3 fields
+# Recovery metrics (Intervals primary) - 4 fields
 hrv_ln_rmssd: Optional[float]           # HRV (natural log of RMSSD)
+hrv_sdnn_ms: Optional[float]            # HRV SDNN (ms)
 sleep_duration_sec: Optional[float]     # Sleep duration in seconds
 resting_hr_bpm: Optional[float]         # Resting heart rate (Intervals only; Garmin ignored)
 
@@ -337,6 +338,9 @@ calories_kcal: Optional[float]          # Daily calorie intake
 carbs_g: Optional[float]                # Carbohydrate intake
 protein_g: Optional[float]              # Protein intake
 fat_g: Optional[float]                  # Fat intake
+
+# Extended recovery/body metrics - 1 field
+spo2_pct: Optional[float]               # Blood oxygen saturation percentage
 
 # Performance baselines (Garmin primary; manual/chatgpt fallback for gaps) - 4 fields
 ftp_watts: Optional[float]                     # Functional threshold power
@@ -357,7 +361,7 @@ training_stress_balance: Optional[float]        # Training stress balance
 atp_probability: Optional[float]                # ATP/energy availability (0-100)
 ```
 
-**Total**: 25 metric fields + 4 metadata fields = 29 fields
+**Total**: 27 metric fields + 4 metadata fields = 31 fields
 
 ### Source Precedence: Metric Ownership with Explicit Fallbacks
 
@@ -365,10 +369,11 @@ Most fields use single-source ownership. A small set of training baseline metric
 
 | Field Group | Exclusive Owner | Rationale |
 | ----------- | --------------- | --------- |
-| **Body composition** (5) | Withings | Medical-grade scale; most accurate |
-| **Recovery metrics** (3) | Intervals | Primary HRV/sleep tracking source; Garmin resting HR less reliable |
+| **Body composition** (5) | Withings (primary), Intervals (fallback for weight/body fat) | Preserve continuity when Withings payloads are absent |
+| **Recovery metrics** (4) | Intervals (primary) | Primary HRV/sleep tracking source; Garmin resting HR less reliable |
 | **Activity** (1) | Intervals | Garmin step count less accurate |
 | **Nutrition** (4) | Intervals | Explicit nutrition logging |
+| **Extended recovery/body** (1) | Intervals (primary), Garmin (fallback) | Preserve oxygen saturation for wellness context |
 | **Performance baselines** (4) | Garmin (primary), then chatgpt/manual for FTP/LTHR/HRmax only | Preserve config-originated baseline values when Garmin baseline fields are missing |
 | **Training state** (3) | Garmin | Proprietary training load algorithms |
 | **Extended training** (5) | Garmin | Proprietary recovery/readiness models |
@@ -377,7 +382,7 @@ Most fields use single-source ownership. A small set of training baseline metric
 
 - **Intervals resting HR is Intervals-only** (no Garmin/manual/chatgpt fallback)
 - **Intervals steps take precedence** over Garmin (Garmin values ignored)
-- **Withings body composition exclusive** (Intervals weight/body fat ignored)
+- **Withings body composition primary** with Intervals fallback for `weight_kg` and `body_fat_pct`
 - **FTP/LTHR/HRmax use limited fallback**: `garmin -> chatgpt -> manual`
 
 ### Ingestion Pathways: Direct Fetch Pattern
@@ -444,8 +449,8 @@ Most fields use single-source ownership. A small set of training baseline metric
 
 **Adapter**: `IntervalsPhysiometricsAdapter.map_to_canonical()`
 
-- Sets: `hrv_ln_rmssd`, `sleep_duration_sec`, `resting_hr_bpm`, `steps`, `calories_kcal`, `carbs_g`, `protein_g`, `fat_g`
-- **Explicitly ignores**: `weight_kg`, `body_fat_pct` (Withings exclusive)
+- Sets: `hrv_ln_rmssd`, `hrv_sdnn_ms`, `sleep_duration_sec`, `resting_hr_bpm`, `steps`, `calories_kcal`, `carbs_g`, `protein_g`, `fat_g`, `spo2_pct`
+- Fallback body composition: `weight_kg`, `body_fat_pct` (used when Withings rows are absent)
 - All other fields: `None`
 
 **Idempotency**: Upsert by `(athlete_id, effective_date, source)` ensures safe retries without cross-source overwrites
@@ -484,15 +489,17 @@ This storage identity is intentionally source-qualified. Daily rows from differe
 
 ```python
 {
-    "weight_kg": ["withings"],
+  "weight_kg": ["withings", "intervals"],
     "fat_mass_kg": ["withings"],
     "muscle_mass_kg": ["withings"],
     "bone_mass_kg": ["withings"],
-    "body_fat_pct": ["withings"],
+  "body_fat_pct": ["withings", "intervals"],
     
     "hrv_ln_rmssd": ["intervals"],
+  "hrv_sdnn_ms": ["intervals", "garmin"],
     "sleep_duration_sec": ["intervals"],
     "resting_hr_bpm": ["intervals"],  # Intervals only
+  "spo2_pct": ["intervals", "garmin"],
     
     "steps": ["intervals"],  # Garmin ignored
     

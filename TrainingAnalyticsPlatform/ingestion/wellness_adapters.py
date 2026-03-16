@@ -200,7 +200,7 @@ class WithingsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             atp_probability=None,
             # Metadata
             data_sources="withings",
-            canonical_version="3.0.0",
+            canonical_version="4.0.0",
         )
 
 
@@ -490,7 +490,7 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             atp_probability=parsed.get("atp_probability"),
             # Metadata
             data_sources="garmin",
-            canonical_version="3.0.0",
+            canonical_version="4.0.0",
         )
 
 
@@ -498,17 +498,14 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
     """Converts Intervals.icu API responses."""
 
     def _do_parse(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract wellness fields matching schema v3.0.0 scope.
-        
-        Includes recovery metrics, activity, and nutrition only.
-        Subjective wellness and extended body metrics excluded from MVP.
-        """
+        """Extract Intervals wellness fields used by canonical physiometrics schema."""
         sleep_seconds = raw_data.get("sleepSecs") or raw_data.get("sleep")
 
         return {
             "date": raw_data.get("id") or raw_data.get("date"),
             # Recovery metrics (Intervals exclusive)
             "hrv": raw_data.get("hrvRMSSD") or raw_data.get("hrv"),  # Already ln(RMSSD)
+            "hrv_sdnn_ms": raw_data.get("hrvSDNN"),
             "rhr": raw_data.get("restingHR") if raw_data.get("restingHR") is not None else raw_data.get("rhr"),
             "sleep_sec": sleep_seconds,
             "readiness": raw_data.get("readiness"),
@@ -519,24 +516,36 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             "fat_g": raw_data.get("fatTotal"),
             # Activity (Intervals exclusive)
             "steps": raw_data.get("steps"),
+            # Extended metrics and source fallbacks
+            "spo2_pct": raw_data.get("spO2"),
+            "weight_kg": raw_data.get("weight"),
+            "body_fat_pct": raw_data.get("bodyFat"),
+            # Non-scalar source payloads
+            "sport_info_json": json.dumps(raw_data.get("sportInfo"))
+            if raw_data.get("sportInfo") is not None
+            else None,
+            "source_updated_at_utc": raw_data.get("updated"),
         }
 
     def validate_semantic_contract(self, parsed: Dict[str, Any]) -> None:
-        """Validate: at least one field present in schema v3.0.0.
-        
-        Intervals provides recovery metrics, activity, and nutrition.
-        Subjective wellness and extended body metrics excluded from MVP.
-        """
+        """Validate at least one canonical Intervals metric is present."""
         # Recovery metrics (Intervals exclusive)
-        recovery_fields = ["hrv", "rhr", "sleep_sec", "readiness"]
+        recovery_fields = ["hrv", "hrv_sdnn_ms", "rhr", "sleep_sec", "readiness"]
         # Nutrition (Intervals exclusive)
         nutrition_fields = ["calories_kcal", "carbs_g", "protein_g", "fat_g"]
         # Activity (Intervals exclusive)
         activity_fields = ["steps"]
+        # Intervals fallback body metrics + extended recovery
+        fallback_fields = ["weight_kg", "body_fat_pct", "spo2_pct"]
         
-        all_fields = recovery_fields + nutrition_fields + activity_fields
-        if not any(parsed.get(f) is not None for f in all_fields):
-            raise AdapterError("No core or extended wellness metrics in Intervals response")
+        all_fields = (
+            recovery_fields
+            + nutrition_fields
+            + activity_fields
+            + fallback_fields
+        )
+        if not any(parsed.get(field) is not None for field in all_fields):
+            raise AdapterError("No canonical wellness metrics in Intervals response")
 
     def map_to_canonical(
         self, parsed: Dict[str, Any], athlete_id: str
@@ -544,22 +553,22 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
         """Map to PhysiometricsSnapshot.
         
         Intervals provides recovery metrics (HRV, sleep, resting HR), activity (steps),
-        and nutrition. Body composition (weight, body fat) ignored per schema v3.0.0
-        (Withings exclusive).
+        nutrition, and fallback body metrics when Withings is unavailable.
         """
         date = parsed.get("date", datetime.now(timezone.utc).date().isoformat())
 
         return PhysiometricsSnapshot(
             athlete_id=athlete_id,
             effective_date=date,
-            # Body composition (Withings exclusive; Intervals ignored)
-            weight_kg=None,
+            # Body composition (Withings primary; Intervals fallback)
+            weight_kg=parsed.get("weight_kg"),
             fat_mass_kg=None,
             muscle_mass_kg=None,
             bone_mass_kg=None,
-            body_fat_pct=None,
+            body_fat_pct=parsed.get("body_fat_pct"),
             # Recovery metrics (Intervals exclusive)
             hrv_ln_rmssd=parsed.get("hrv"),
+            hrv_sdnn_ms=parsed.get("hrv_sdnn_ms"),
             sleep_duration_sec=parsed.get("sleep_sec"),
             resting_hr_bpm=parsed.get("rhr"),
             # Activity (Intervals exclusive)
@@ -569,6 +578,8 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             carbs_g=parsed.get("carbs_g"),
             protein_g=parsed.get("protein_g"),
             fat_g=parsed.get("fat_g"),
+            # Extended body/recovery metrics
+            spo2_pct=parsed.get("spo2_pct"),
             # Performance baselines (Garmin exclusive)
             ftp_watts=None,
             cycling_vo2max_ml_kg_min=None,
@@ -586,7 +597,7 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             atp_probability=None,
             # Metadata
             data_sources="intervals",
-            canonical_version="3.0.0",
+            canonical_version="4.0.0",
         )
 
 

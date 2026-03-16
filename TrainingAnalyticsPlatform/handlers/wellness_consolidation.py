@@ -20,24 +20,26 @@ logger = logging.getLogger(__name__)
 class SourcePrecedenceResolver:
     """Determines metric ownership by source precedence rules.
     
-    Schema v3.0.0 field ownership:
+    Schema v4.0.0 field ownership:
     - Withings: exclusive for all body composition
     - Intervals: exclusive for resting_hr_bpm, steps, nutrition (Garmin values ignored)
     - Garmin: exclusive for training state and performance metrics
     """
 
     METRIC_SOURCES = {
-        # Body composition (Withings exclusive)
-        "weight_kg": ["withings"],
+        # Body composition (Withings primary; Intervals fallback)
+        "weight_kg": ["withings", "intervals"],
         "fat_mass_kg": ["withings"],
         "muscle_mass_kg": ["withings"],
         "bone_mass_kg": ["withings"],
-        "body_fat_pct": ["withings"],
+        "body_fat_pct": ["withings", "intervals"],
         
         # Recovery metrics (Intervals exclusive)
         "hrv_ln_rmssd": ["intervals"],
+        "hrv_sdnn_ms": ["intervals", "garmin"],
         "sleep_duration_sec": ["intervals"],
         "resting_hr_bpm": ["intervals"],  # Intervals exclusive; Garmin ignored
+        "spo2_pct": ["intervals", "garmin"],
         
         # Activity (Intervals exclusive)
         "steps": ["intervals"],  # Intervals exclusive; Garmin ignored
@@ -81,7 +83,7 @@ class PhysiometricsConsolidationHandler:
     applies source precedence rules, and optionally writes consolidated view.
     """
 
-    CONSOLIDATED_VERSION = "3.0.0"
+    CONSOLIDATED_VERSION = "4.0.0"
     METADATA_FIELDS = {"athlete_id", "effective_date", "data_sources", "canonical_version", "last_updated_utc"}
     STORAGE_FIELD_ALIASES = {
         # Legacy nested storage format aliases
@@ -202,7 +204,7 @@ class PhysiometricsConsolidationHandler:
             atp_probability=None,
             # Metadata
             data_sources="",
-            canonical_version="3.0.0",
+            canonical_version="4.0.0",
         )
 
     def _apply_precedence_rules(
@@ -218,7 +220,7 @@ class PhysiometricsConsolidationHandler:
             source_entities: Source data entities
             used_sources: Set to track which sources contributed data
         """
-        for metric_name in PhysiometricsSnapshot.__fields__.keys():
+        for metric_name in PhysiometricsSnapshot.model_fields.keys():
             if metric_name in self.METADATA_FIELDS:
                 continue
 

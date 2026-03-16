@@ -15,6 +15,12 @@ def mock_storage():
     storage = Mock()
     storage.physiometrics = Mock()
     storage.physiometrics.store_physiometrics = Mock(return_value="2025-03-01T00:00:00Z")
+    table_client = Mock()
+    table_client.upsert_entity = Mock()
+    table_client.query_entities = Mock(return_value=[])
+    storage.infrastructure = Mock()
+    storage.infrastructure.get_table_client = Mock(return_value=table_client)
+    storage.infrastructure.upload_external_source_json = Mock(return_value="physiometrics/rob/intervals/daily/blob.json")
     return storage
 
 
@@ -201,7 +207,7 @@ class TestIntervalsSyncHandlerHandle:
             intervals_athlete_id="i508584", athlete_id="rob"
         )
 
-        assert status == 200  # Partial success - error caught and logged
+        assert status == 207  # Partial failure surfaced as Multi-Status
         assert response["count"] == 0
         assert response.get("errors") is not None
 
@@ -227,7 +233,7 @@ class TestIntervalsSyncHandlerHandle:
         )
 
         # First measurement succeeds, second fails validation
-        assert status == 200
+        assert status == 207
         assert response["count"] == 1
         assert response.get("errors") is not None
         assert len(response["errors"]) > 0
@@ -243,6 +249,31 @@ class TestIntervalsSyncHandlerHandle:
         assert status == 500
         assert "error" in response
         assert "internal" in response.get("error", "").lower()
+
+    def test_handle_load_only_intervals_record_is_rejected(
+        self, handler, mock_storage, mock_client
+    ):
+        """Load-only Intervals payload should be rejected after canonical load-field removal."""
+        measurement = {
+            "id": "2025-03-01",
+            "ctl": 83.4,
+            "atl": 78.9,
+            "rampRate": 0.6,
+            "ctlLoad": 91.0,
+            "atlLoad": 95.0,
+            "sportInfo": [{"type": "Ride", "load": 91.0}],
+        }
+        mock_client.get_athlete_wellness.return_value = [measurement]
+
+        response, status = handler.handle(
+            intervals_athlete_id="i508584", athlete_id="rob"
+        )
+
+        assert status == 207
+        assert response["count"] == 0
+        assert response["records_failed"] == 1
+        assert response.get("errors") is not None
+        mock_storage.physiometrics.store_physiometrics.assert_not_called()
 
     def test_handle_converts_snapshot_to_storage_dict(
         self, handler, mock_storage, mock_client
@@ -285,7 +316,7 @@ class TestIntervalsPhysiometricsAdapter:
         return IntervalsPhysiometricsAdapter()
 
     def test_adapter_maps_extended_wellness_fields(self, adapter):
-        """Verify adapter maps v3.0.0 fields and ignores removed extended fields."""
+        """Verify adapter maps canonical Intervals fields including promoted SDNN/spO2/body fallback."""
         raw_data = {
             "id": "2025-03-01",
             "updated": "2025-03-01T12:34:56.000+00:00",
@@ -337,8 +368,10 @@ class TestIntervalsPhysiometricsAdapter:
         assert snapshot.resting_hr_bpm == pytest.approx(52.0)
         assert snapshot.sleep_duration_sec == pytest.approx(28800.0)
         assert snapshot.readiness_score == pytest.approx(78.0)
-        assert snapshot.weight_kg is None
-        assert snapshot.body_fat_pct is None
+        assert snapshot.weight_kg == pytest.approx(88.4)
+        assert snapshot.body_fat_pct == pytest.approx(20.9)
+        assert snapshot.hrv_sdnn_ms == pytest.approx(38.2)
+        assert snapshot.spo2_pct == pytest.approx(97)
 
         # Verify nutrition fields
         assert snapshot.calories_kcal == pytest.approx(2500.0)
@@ -349,8 +382,7 @@ class TestIntervalsPhysiometricsAdapter:
         # Verify activity fields
         assert snapshot.steps == 12500
 
-        # Removed fields are intentionally not part of PhysiometricsSnapshot v3.0.0.
-        assert not hasattr(snapshot, "hrv_sdnn_ms")
+        # Subjective/sport-specific fields remain non-canonical.
         assert not hasattr(snapshot, "soreness")
         assert not hasattr(snapshot, "sport_info")
 
@@ -425,4 +457,24 @@ class TestIntervalsPhysiometricsAdapter:
         snapshot = adapter.map_to_canonical(parsed=parsed, athlete_id="test_athlete")
 
         assert not hasattr(snapshot, "sport_info")
+
+    def test_adapter_maps_promoted_recovery_and_body_fields(self, adapter):
+        """Verify promoted SDNN/spO2 and Intervals body fallback mapping."""
+        raw_data = {
+            "id": "2025-03-01",
+            "hrvSDNN": 37.5,
+            "spO2": 96,
+            "weight": 87.2,
+            "bodyFat": 19.8,
+            "restingHR": 55,
+            "sleepSecs": 25000,
+        }
+
+        parsed = adapter._do_parse(raw_data)
+        snapshot = adapter.map_to_canonical(parsed=parsed, athlete_id="test_athlete")
+
+        assert snapshot.hrv_sdnn_ms == pytest.approx(37.5)
+        assert snapshot.spo2_pct == pytest.approx(96)
+        assert snapshot.weight_kg == pytest.approx(87.2)
+        assert snapshot.body_fat_pct == pytest.approx(19.8)
 

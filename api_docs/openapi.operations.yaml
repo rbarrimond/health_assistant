@@ -683,11 +683,13 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/intervals/sync:
     post:
-      summary: Sync Intervals.icu wellness data (HRV, resting HR, sleep, readiness)
+      summary: Sync Intervals.icu wellness data (HRV, resting HR, sleep, nutrition, SpO2)
       operationId: intervalsSync
       description: |
         Fetch wellness records from Intervals.icu API using HTTP Basic authentication.
-        Wellness endpoint consolidates HRV, resting heart rate, sleep duration, and readiness score.
+        Wellness endpoint consolidates HRV (RMSSD + SDNN), resting heart rate, sleep duration,
+        activity and nutrition metrics, plus SpO2. Intervals weight/body-fat values are accepted
+        as fallback when Withings body composition data is unavailable.
         Requires INTERVALS_API_KEY (stored in Key Vault) and INTERVALS_ATHLETE_ID.
       security:
         - FunctionKey: []
@@ -716,39 +718,55 @@ paths:
                   lookback_days: 60
       responses:
         '200':
-          description: Sync completed successfully
+          description: Sync completed with no record-level failures
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  status:
+                  message:
                     type: string
-                    example: success
-                  athlete_id:
-                    type: string
-                  lookback_days:
-                    type: integer
-                  records_fetched:
-                    type: integer
-                    description: Total wellness records retrieved from Intervals.icu
-                  records_processed:
+                  count:
                     type: integer
                     description: Successfully ingested wellness records
-                  records_skipped:
+                  records_fetched:
                     type: integer
-                    description: Duplicate or invalid records
-                  date_range:
-                    type: object
-                    properties:
-                      oldest:
-                        type: string
-                        format: date
-                        description: Earliest record date
-                      newest:
-                        type: string
-                        format: date
-                        description: Latest record date
+                  records_processed:
+                    type: integer
+                  records_failed:
+                    type: integer
+                  blob_name:
+                    type: string
+                    description: Archived raw payload blob path in external-sources container
+                  errors:
+                    type: array
+                    items:
+                      type: string
+        '207':
+          description: Sync completed with partial record-level failures
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  count:
+                    type: integer
+                    description: Successfully ingested wellness records
+                  records_fetched:
+                    type: integer
+                  records_processed:
+                    type: integer
+                  records_failed:
+                    type: integer
+                  blob_name:
+                    type: string
+                    description: Archived raw payload blob path in external-sources container
+                  errors:
+                    type: array
+                    items:
+                      type: string
         '400':
           description: Invalid request parameters
           content:

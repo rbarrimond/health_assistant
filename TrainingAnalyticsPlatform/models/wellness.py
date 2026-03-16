@@ -7,7 +7,7 @@ these canonical snapshots.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -54,6 +54,9 @@ class PhysiometricsSnapshot(BaseModel):
     hrv_ln_rmssd: Optional[float] = Field(
         None, description="HRV (natural log of RMSSD) for modeling"
     )
+    hrv_sdnn_ms: Optional[float] = Field(
+        None, ge=0, description="HRV SDNN in milliseconds"
+    )
     sleep_duration_sec: Optional[float] = Field(
         None, ge=0, description="Sleep duration in seconds"
     )
@@ -71,6 +74,9 @@ class PhysiometricsSnapshot(BaseModel):
     carbs_g: Optional[float] = Field(None, ge=0, description="Carbohydrate intake in grams")
     protein_g: Optional[float] = Field(None, ge=0, description="Protein intake in grams")
     fat_g: Optional[float] = Field(None, ge=0, description="Fat intake in grams")
+
+    # Extended body/recovery metrics
+    spo2_pct: Optional[float] = Field(None, ge=0, le=100, description="Blood oxygen saturation percentage")
 
     # Performance baselines (Garmin exclusive)
     ftp_watts: Optional[float] = Field(None, ge=0, description="Functional threshold power in watts")
@@ -117,10 +123,10 @@ class PhysiometricsSnapshot(BaseModel):
         default="", description="CSV of sources: withings,garmin,intervals"
     )
     canonical_version: str = Field(
-        default="3.0.0", description="Schema version (3.0.0 = simplified MVP)"
+        default="4.0.0", description="Schema version (4.0.0 = SDNN/SpO2 promotion, Intervals body fallback, load-field removal)"
     )
     last_updated_utc: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When this snapshot was canonicalized",
     )
 
@@ -146,6 +152,7 @@ class PhysiometricsSnapshot(BaseModel):
             
             # Recovery metrics (Intervals exclusive)
             "hrv_ln_rmssd": self.hrv_ln_rmssd,
+            "hrv_sdnn_ms": self.hrv_sdnn_ms,
             "sleep_duration_sec": self.sleep_duration_sec,
             "resting_hr_bpm": self.resting_hr_bpm,
             
@@ -157,6 +164,9 @@ class PhysiometricsSnapshot(BaseModel):
             "carbs_g": self.carbs_g,
             "protein_g": self.protein_g,
             "fat_g": self.fat_g,
+
+            # Extended body/recovery metrics
+            "spo2_pct": self.spo2_pct,
             
             # Performance baselines (Garmin exclusive)
             "ftp_watts": self.ftp_watts,
@@ -176,10 +186,6 @@ class PhysiometricsSnapshot(BaseModel):
             "training_stress_balance": self.training_stress_balance,
             "atp_probability": self.atp_probability,
         }
-
-    class Config:
-        """Pydantic config for serialization."""
-        json_encoders = {datetime: lambda v: v.isoformat() if v else None}
 
 
 class TrainingStateSnapshot(BaseModel):
@@ -237,15 +243,11 @@ class TrainingStateSnapshot(BaseModel):
         default="", description="CSV of sources: workouts,physiometrics,garmin"
     )
     canonical_version: str = Field(
-        default="3.0.0", description="Schema version of this snapshot"
+        default="4.0.0", description="Schema version of this snapshot"
     )
     last_updated_utc: datetime = Field(
-        default_factory=datetime.utcnow, description="When snapshot was computed"
+        default_factory=lambda: datetime.now(UTC), description="When snapshot was computed"
     )
-
-    class Config:
-        """Pydantic config for serialization."""
-        json_encoders = {datetime: lambda v: v.isoformat() if v else None}
 
 
 class MetricProvenance(BaseModel):
@@ -268,7 +270,3 @@ class MetricProvenance(BaseModel):
     confidence: Optional[float] = Field(
         None, ge=0, le=1, description="Confidence or quality score (0-1)"
     )
-
-    class Config:
-        """Pydantic config for serialization."""
-        json_encoders = {datetime: lambda v: v.isoformat() if v else None}

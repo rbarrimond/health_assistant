@@ -10,6 +10,24 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-16
 
+### **BREAKING:** Canonical Wellness Field Realignment (SDNN/SpO2 Promotion + Intervals Body Fallback) [application v2.0.0]
+
+- **Changed (schema)**: promoted `hrv_sdnn_ms` and `spo2_pct` into canonical Physiometrics semantics.
+- **Changed (source precedence)**: `weight_kg` and `body_fat_pct` now use `withings -> intervals` fallback precedence.
+- **Changed (schema rollback)**: removed Intervals load-context fields from canonical semantics: `intervals_ctl`, `intervals_atl`, `intervals_ramp_rate`, `intervals_ctl_load`, `intervals_atl_load`.
+- **Changed (adapter mapping)**: Intervals adapter now maps `hrvSDNN`, `spO2`, `weight`, and `bodyFat` into canonical fields under the precedence contract.
+- **Changed (versioning)**: canonical snapshot version advanced to `4.0.0` to reflect persisted semantic and precedence contract changes.
+- **Documentation authority alignment**: canonical architecture now explicitly documents the promoted fields and revised fallback ownership model.
+
+### Intervals Blob-First Wellness Ingestion and Partial-Failure Semantics [application v1.1.0]
+
+- **Changed**: Intervals sync now persists each fetch call payload to blob storage in `external-sources` container before canonical processing, improving replayability and forensic debugging.
+- **Changed**: Intervals sync now records source ingestion state transitions (`fetched` → `processed`/`failed`) for archived raw payload blobs.
+- **Changed**: Intervals sync now returns `207 Multi-Status` when at least one record fails processing while others succeed or are persisted with warnings.
+- **Schema change (Physiometrics persisted semantics)**: added Intervals load-context columns: `intervals_ctl`, `intervals_atl`, `intervals_ramp_rate`, `intervals_ctl_load`, `intervals_atl_load`.
+- **Adapter contract change**: Intervals load-context fields are now treated as valid wellness content for semantic validation (no longer rejected as empty when core recovery/nutrition/activity metrics are absent).
+- **Non-scalar preservation**: Intervals `sportInfo` is persisted as JSON (`sport_info_json`) and full per-record source payload remains available via archived blob envelopes.
+
 ### Session Inference Removal and HealthFit Timezone Metadata Hardening [ingest v15.2.0]
 
 - **BREAKING (semantic)**: `session.start_time` is no longer used as timezone offset evidence anywhere in the resolution chain. `session.start_time` is a local wall-clock context value, not a UTC offset source.
