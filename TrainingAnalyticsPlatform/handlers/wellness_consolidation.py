@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class SourcePrecedenceResolver:
     """Determines metric ownership by source precedence rules.
     
-    Schema v4.0.0 field ownership:
+    Schema v4.1.0 field ownership:
     - Withings: exclusive for all body composition
     - Intervals: exclusive for resting_hr_bpm, steps, nutrition (Garmin values ignored)
     - Garmin: exclusive for training state and performance metrics
@@ -53,6 +53,7 @@ class SourcePrecedenceResolver:
         # Performance baselines (Garmin exclusive)
         "ftp_watts": ["garmin"],
         "cycling_vo2max_ml_kg_min": ["garmin"],
+        "running_vo2max_ml_kg_min": ["garmin"],
         "hr_lthr_bpm": ["garmin"],
         "hr_max_bpm": ["garmin"],
         
@@ -83,7 +84,7 @@ class PhysiometricsConsolidationHandler:
     applies source precedence rules, and optionally writes consolidated view.
     """
 
-    CONSOLIDATED_VERSION = "4.0.0"
+    CONSOLIDATED_VERSION = "4.1.0"
     METADATA_FIELDS = {"athlete_id", "effective_date", "data_sources", "canonical_version", "last_updated_utc"}
     STORAGE_FIELD_ALIASES = {
         # Legacy nested storage format aliases
@@ -190,6 +191,7 @@ class PhysiometricsConsolidationHandler:
             # Performance baselines (Garmin)
             ftp_watts=None,
             cycling_vo2max_ml_kg_min=None,
+            running_vo2max_ml_kg_min=None,
             hr_lthr_bpm=None,
             hr_max_bpm=None,
             # Training state (Garmin)
@@ -204,7 +206,7 @@ class PhysiometricsConsolidationHandler:
             atp_probability=None,
             # Metadata
             data_sources="",
-            canonical_version="4.0.0",
+            canonical_version="4.1.0",
         )
 
     def _apply_precedence_rules(

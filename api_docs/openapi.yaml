@@ -1045,7 +1045,7 @@ components:
         - count
     PhysiometricSnapshot:
       type: object
-      description: Daily physiometrics snapshot aggregating body state from all sources (Withings, Intervals, Garmin). Version 3.0.0 uses exclusive ownership for all fields.
+      description: Daily physiometrics snapshot aggregating body state from all sources (Withings, Intervals, Garmin). Version 4.1.0 formalizes Garmin running VO2Max while keeping resting heart rate Intervals-exclusive.
       properties:
         athlete_id:
           type: string
@@ -1119,6 +1119,10 @@ components:
           type: number
           description: Estimated cycling VO2Max in ml/kg/min
           minimum: 0
+        running_vo2max_ml_kg_min:
+          type: number
+          description: Estimated running VO2Max in ml/kg/min
+          minimum: 0
         hr_lthr_bpm:
           type: number
           description: Lactate threshold heart rate in beats/minute
@@ -1171,8 +1175,8 @@ components:
           default: ""
         canonical_version:
           type: string
-          description: Schema version (3.0.0 = simplified MVP)
-          default: "3.0.0"
+          description: Schema version (4.1.0 = running VO2Max promotion; 4.0.0 = SDNN/SpO2 promotion, Intervals body fallback, load-field removal)
+          default: "4.1.0"
         last_updated_utc:
           type: string
           format: date-time

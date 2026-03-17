@@ -10,6 +10,14 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-16
 
+### Garmin Physiometrics Running VO2Max Formalization + Blob-First Sync Parity [application v2.1.0]
+
+- **Changed (schema)**: promoted `running_vo2max_ml_kg_min` into canonical Garmin physiometrics semantics alongside `cycling_vo2max_ml_kg_min`.
+- **Changed (versioning)**: `PhysiometricsSnapshot` canonical version advanced from `4.0.0` to `4.1.0` for the additive persisted-semantics change.
+- **Changed (Garmin adapter)**: Garmin physiometrics mapping now preserves running VO2Max end-to-end instead of parsing and silently dropping it.
+- **Changed (sync orchestration)**: Garmin physiometrics sync now archives per-day raw payloads to `external-sources`, records `SourceIngestionState` transitions, preserves `ext_json`, and returns `207 Multi-Status` when day-level failures occur.
+- **Unchanged (ownership)**: `resting_hr_bpm` remains Intervals-exclusive; Garmin resting HR continues to be intentionally ignored.
+
 ### **BREAKING:** Canonical Wellness Field Realignment (SDNN/SpO2 Promotion + Intervals Body Fallback) [application v2.0.0]
 
 - **Changed (schema)**: promoted `hrv_sdnn_ms` and `spo2_pct` into canonical Physiometrics semantics.

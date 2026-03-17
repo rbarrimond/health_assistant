@@ -44,6 +44,7 @@ def test_maps_summary_and_training_status_fields():
     assert snapshot.effective_date == "2026-03-03"
     assert snapshot.ftp_watts == 300
     assert snapshot.cycling_vo2max_ml_kg_min == pytest.approx(59.2)
+    assert snapshot.running_vo2max_ml_kg_min == pytest.approx(56.8)
     assert snapshot.hr_max_bpm == 196
     # Intervals is the exclusive source for resting HR in v3.0.0.
     assert snapshot.resting_hr_bpm is None
@@ -74,3 +75,30 @@ def test_rejects_training_effect_out_of_range():
 
     with pytest.raises(AdapterError):
         adapter.adapt(raw, athlete_id="rob")
+
+
+def test_maps_running_vo2max_from_modern_training_status_context():
+    adapter = GarminTrainingStateAdapter()
+    raw = {
+        "summary": {
+            "calendarDate": "2026-03-03",
+            "stats": {
+                "functionThreshold": 300,
+                "maxHeartRate": 196,
+                "readiness": {"score": 82},
+            },
+        },
+        "training_status": {
+            "mostRecentVO2Max": {
+                "running": {"vo2MaxPreciseValue": 57.4},
+                "cycling": {"vo2MaxPreciseValue": 60.1},
+            },
+            "trainingLoad": {"load": 87},
+            "trainingEffect": {"aerobic": 3.2, "anaerobic": 1.4},
+        },
+    }
+
+    snapshot = adapter.adapt(raw, athlete_id="rob")
+
+    assert snapshot.cycling_vo2max_ml_kg_min == pytest.approx(60.1)
+    assert snapshot.running_vo2max_ml_kg_min == pytest.approx(57.4)

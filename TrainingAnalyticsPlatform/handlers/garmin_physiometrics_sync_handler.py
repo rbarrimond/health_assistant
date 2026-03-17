@@ -16,6 +16,9 @@ from TrainingAnalyticsPlatform.integrations.garmin_client import (
     GarminConnectError,
 )
 from TrainingAnalyticsPlatform.platform.exceptions import StorageError
+from TrainingAnalyticsPlatform.storage.source_ingestion_state import (
+    SourceIngestionStateStorage,
+)
 from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
 
 logger = logging.getLogger(__name__)
@@ -34,6 +37,7 @@ class GarminPhysiometricsSyncHandler:
         self.storage = storage
         self.client = client or GarminConnectClient()
         self.adapter = create_wellness_adapter("garmin")
+        self.ingestion_state = SourceIngestionStateStorage(storage.infrastructure)
 
     def handle(
         self,
@@ -45,21 +49,12 @@ class GarminPhysiometricsSyncHandler:
             logger.warning("Missing athlete_id for Garmin physiometrics sync")
             return {"error": "athlete_id parameter required"}, 400
 
-        if lookback_days is None:
-            try:
-                lookback_days = max(
-                    1, int(os.getenv(GARMIN_PHYSIOMETRICS_SYNC_LOOKBACK_DAYS, "7"))
-                )
-            except ValueError:
-                lookback_days = 7
-        else:
-            try:
-                lookback_days = max(1, int(lookback_days))
-            except (TypeError, ValueError):
-                return {"error": "lookback_days must be a positive integer"}, 400
+        parsed_lookback = self._parse_lookback_days(lookback_days)
+        if parsed_lookback is None:
+            return {"error": "lookback_days must be a positive integer"}, 400
 
         end_date = datetime.now(timezone.utc).date()
-        start_date = end_date - timedelta(days=lookback_days)
+        start_date = end_date - timedelta(days=parsed_lookback)
 
         logger.info(
             "Syncing Garmin physiometrics for athlete %s from %s to %s",
@@ -69,43 +64,155 @@ class GarminPhysiometricsSyncHandler:
         )
 
         stored_count = 0
+        fetched_count = 0
         errors: list[str] = []
 
         for current_date in self._iter_dates(start_date, end_date):
             date_str = current_date.isoformat()
+            blob_name: Optional[str] = None
             try:
-                summary = self.client.get_user_summary(date_str)
-                training_status = self.client.get_training_status(date_str)
-
-                snapshot = self.adapter.adapt(
-                    {
-                        "summary": summary,
-                        "training_status": training_status,
-                    },
-                    athlete_id,
-                )
-
-                self.storage.physiometrics.store_physiometrics(
-                    athlete_id=athlete_id,
-                    physiometrics_data=snapshot.to_storage_dict(),
-                    effective_date=snapshot.effective_date,
-                    data_source="garmin",
-                )
+                blob_name = self._process_single_day(athlete_id, date_str)
+                fetched_count += 1
                 stored_count += 1
             except (GarminConnectError, AdapterError, StorageError) as exc:
                 message = f"{date_str}: {exc}"
                 logger.warning("Garmin physiometrics sync error: %s", message)
+                self._record_blob_failure(blob_name, message)
                 errors.append(message)
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 message = f"{date_str}: unexpected error: {exc}"
                 logger.error("Garmin physiometrics sync unexpected error", exc_info=True)
+                self._record_blob_failure(blob_name, message)
                 errors.append(message)
 
+        failed_count = len(errors)
+        status = 207 if failed_count > 0 else 200
         return {
             "message": f"Synced {stored_count} Garmin physiometrics records",
             "count": stored_count,
+            "records_fetched": fetched_count,
+            "records_processed": stored_count,
+            "records_failed": failed_count,
             "errors": errors if errors else None,
-        }, 200
+        }, status
+
+    def _parse_lookback_days(
+        self,
+        lookback_days: Optional[Union[int, str]],
+    ) -> Optional[int]:
+        """Resolve sync lookback with env fallback and validation."""
+        if lookback_days is None:
+            raw_value = os.getenv(GARMIN_PHYSIOMETRICS_SYNC_LOOKBACK_DAYS, "7")
+        else:
+            raw_value = lookback_days
+
+        try:
+            return max(1, int(raw_value))
+        except (TypeError, ValueError):
+            if lookback_days is None:
+                return 7
+            return None
+
+    def _process_single_day(self, athlete_id: str, date_str: str) -> str:
+        """Fetch, archive, parse, and persist one Garmin physiometrics day."""
+        summary = self.client.get_user_summary(date_str)
+        training_status = self.client.get_training_status(date_str)
+
+        blob_name = self._store_raw_payload(
+            athlete_id=athlete_id,
+            effective_date=date_str,
+            summary=summary,
+            training_status=training_status,
+        )
+        self.ingestion_state.record_blob_fetched(
+            source_name="garmin",
+            athlete_id=athlete_id,
+            blob_name=blob_name,
+        )
+
+        parsed = self.adapter._do_parse(
+            {
+                "summary": summary,
+                "training_status": training_status,
+            }
+        )
+        self.adapter.validate_semantic_contract(parsed)
+        snapshot = self.adapter.map_to_canonical(parsed, athlete_id)
+        storage_dict = snapshot.to_storage_dict()
+        storage_dict["ext_json"] = parsed.get("ext_json")
+
+        self._log_storage_metric_presence(
+            athlete_id=athlete_id,
+            effective_date=snapshot.effective_date,
+            storage_dict=storage_dict,
+        )
+        self.storage.physiometrics.store_physiometrics(
+            athlete_id=athlete_id,
+            physiometrics_data=storage_dict,
+            effective_date=snapshot.effective_date,
+            data_source="garmin",
+        )
+        self.ingestion_state.record_blob_processed(blob_name)
+        return blob_name
+
+    def _store_raw_payload(
+        self,
+        athlete_id: str,
+        effective_date: str,
+        summary: Dict[str, Any],
+        training_status: Dict[str, Any],
+    ) -> str:
+        """Persist one Garmin daily physiometrics fetch envelope to blob storage."""
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+        blob_name = (
+            f"physiometrics/{athlete_id}/garmin/daily/"
+            f"{effective_date}_{timestamp}.json"
+        )
+        envelope = {
+            "source": "garmin",
+            "athlete_id": athlete_id,
+            "effective_date": effective_date,
+            "fetched_at_utc": datetime.now(timezone.utc).isoformat(),
+            "payload": {
+                "summary": summary,
+                "training_status": training_status,
+            },
+        }
+        self.storage.infrastructure.upload_external_source_json(blob_name, envelope)
+        logger.info(
+            "Stored Garmin physiometrics raw payload",
+            extra={
+                "athlete_id": athlete_id,
+                "effective_date": effective_date,
+                "blob_name": blob_name,
+            },
+        )
+        return blob_name
+
+    def _record_blob_failure(self, blob_name: Optional[str], message: str) -> None:
+        """Record Garmin blob processing failure when archival already succeeded."""
+        if blob_name:
+            self.ingestion_state.record_blob_failed(blob_name, message)
+
+    @staticmethod
+    def _log_storage_metric_presence(
+        athlete_id: str,
+        effective_date: str,
+        storage_dict: Dict[str, Any],
+    ) -> None:
+        """Log the Garmin metrics that reached the storage boundary."""
+        logger.info(
+            "Prepared Garmin physiometrics storage payload",
+            extra={
+                "athlete_id": athlete_id,
+                "effective_date": effective_date,
+                "has_cycling_vo2max": storage_dict.get("cycling_vo2max_ml_kg_min") is not None,
+                "has_running_vo2max": storage_dict.get("running_vo2max_ml_kg_min") is not None,
+                "has_training_load": storage_dict.get("training_load") is not None,
+                "has_readiness": storage_dict.get("readiness_score") is not None,
+                "has_ext_json": bool(storage_dict.get("ext_json")),
+            },
+        )
 
     @staticmethod
     def _iter_dates(start_date, end_date):

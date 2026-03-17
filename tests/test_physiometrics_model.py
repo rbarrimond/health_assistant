@@ -101,11 +101,13 @@ class TestPhysiometricsSnapshotToStorageDict:
             athlete_id="athlete123",
             effective_date="2026-03-04",
             cycling_vo2max_ml_kg_min=55.2,
+            running_vo2max_ml_kg_min=51.7,
         )
 
         storage_dict = snapshot.to_storage_dict()
 
         assert storage_dict["cycling_vo2max_ml_kg_min"] == pytest.approx(55.2)
+        assert storage_dict["running_vo2max_ml_kg_min"] == pytest.approx(51.7)
 
     def test_to_storage_dict_complete_snapshot(self) -> None:
         """Verify complete v3.0.0 snapshot with all fields converts correctly."""
@@ -132,6 +134,7 @@ class TestPhysiometricsSnapshotToStorageDict:
             # Performance baselines (Garmin exclusive)
             ftp_watts=285.0,
             cycling_vo2max_ml_kg_min=55.2,
+            running_vo2max_ml_kg_min=51.7,
             hr_lthr_bpm=175.0,
             hr_max_bpm=195.0,
             # Training state (Garmin exclusive)
@@ -157,6 +160,7 @@ class TestPhysiometricsSnapshotToStorageDict:
         assert "calories_kcal" in storage_dict
         assert "ftp_watts" in storage_dict
         assert "cycling_vo2max_ml_kg_min" in storage_dict
+        assert "running_vo2max_ml_kg_min" in storage_dict
         assert "hr_lthr_bpm" in storage_dict
         assert "training_load" in storage_dict
         assert "readiness_score" in storage_dict

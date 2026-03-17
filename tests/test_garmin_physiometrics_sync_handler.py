@@ -38,6 +38,11 @@ def _training_status_payload() -> dict:
 def test_sync_handler_stores_combined_metrics():
     storage = Mock()
     storage.physiometrics = Mock()
+    storage.infrastructure = Mock()
+    storage.infrastructure.upload_external_source_json = Mock(return_value="physiometrics/rob/garmin/daily/blob.json")
+    state_table = Mock()
+    state_table.query_entities.return_value = [{"blob_name": "physiometrics/rob/garmin/daily/blob.json"}]
+    storage.infrastructure.get_table_client = Mock(return_value=state_table)
 
     client = Mock()
     client.get_user_summary.return_value = _summary_payload("2026-03-03")
@@ -56,12 +61,16 @@ def test_sync_handler_stores_combined_metrics():
     assert kwargs["data_source"] == "garmin"
     assert kwargs["physiometrics_data"]["training_load"] == 76
     assert kwargs["physiometrics_data"]["cycling_vo2max_ml_kg_min"] == pytest.approx(58.3)
-    assert "running_vo2max_ml_kg_min" not in kwargs["physiometrics_data"]
+    assert kwargs["physiometrics_data"]["running_vo2max_ml_kg_min"] == pytest.approx(55.1)
+    assert "ext_json" in kwargs["physiometrics_data"]
+    storage.infrastructure.upload_external_source_json.assert_called()
 
 
 def test_sync_handler_validates_lookback_days_type():
     storage = Mock()
     storage.physiometrics = Mock()
+    storage.infrastructure = Mock()
+    storage.infrastructure.get_table_client = Mock(return_value=Mock(query_entities=Mock(return_value=[])))
     client = Mock()
 
     handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
@@ -75,6 +84,11 @@ def test_sync_handler_validates_lookback_days_type():
 def test_sync_handler_reports_partial_errors():
     storage = Mock()
     storage.physiometrics = Mock()
+    storage.infrastructure = Mock()
+    storage.infrastructure.upload_external_source_json = Mock(return_value="physiometrics/rob/garmin/daily/blob.json")
+    state_table = Mock()
+    state_table.query_entities.return_value = [{"blob_name": "physiometrics/rob/garmin/daily/blob.json"}]
+    storage.infrastructure.get_table_client = Mock(return_value=state_table)
 
     client = Mock()
     client.get_user_summary.return_value = _summary_payload("2026-03-03")
@@ -84,6 +98,7 @@ def test_sync_handler_reports_partial_errors():
 
     response, status = handler.handle("rob", lookback_days=1)
 
-    assert status == 200
+    assert status == 207
     assert response["count"] == 0
     assert response["errors"] is not None
+    assert response["records_failed"] >= 1

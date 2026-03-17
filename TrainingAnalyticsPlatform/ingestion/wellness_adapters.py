@@ -200,7 +200,7 @@ class WithingsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             atp_probability=None,
             # Metadata
             data_sources="withings",
-            canonical_version="4.0.0",
+            canonical_version="4.1.0",
         )
 
 
@@ -280,6 +280,22 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             "vo2max_running": vo2max_running,
         }
 
+    def _log_parsed_metric_presence(self, parsed: Dict[str, Any]) -> None:
+        """Log high-signal Garmin metric presence for troubleshooting payload drift."""
+        logger.info(
+            "Parsed Garmin physiometrics payload",
+            extra={
+                "effective_date": parsed.get("effective_date"),
+                "has_ftp": parsed.get("ftp") is not None,
+                "has_vo2max_cycling": parsed.get("vo2max_cycling") is not None,
+                "has_vo2max_running": parsed.get("vo2max_running") is not None,
+                "has_training_load": parsed.get("training_load") is not None,
+                "has_training_stress_score": parsed.get("training_stress_score") is not None,
+                "has_readiness": parsed.get("readiness") is not None,
+                "has_recovery_time": parsed.get("recovery_time_minutes") is not None,
+            },
+        )
+
     def _do_parse(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """Extract queryable Garmin metrics from summary and training status payloads."""
         summary = raw_data.get("summary", raw_data)
@@ -309,7 +325,7 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             ],
         )
 
-        return {
+        parsed = {
             "ftp": stats.get("functionThreshold"),
             "vo2max_cycling": vo2_metrics["vo2max_cycling"],
             "vo2max_running": vo2_metrics["vo2max_running"],
@@ -412,6 +428,8 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
                 }
             ),
         }
+        self._log_parsed_metric_presence(parsed)
+        return parsed
 
     @staticmethod
     def _validate_range(
@@ -476,6 +494,7 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             # Performance baselines (Garmin exclusive)
             ftp_watts=parsed.get("ftp"),
             cycling_vo2max_ml_kg_min=parsed.get("vo2max_cycling"),
+            running_vo2max_ml_kg_min=parsed.get("vo2max_running"),
             hr_lthr_bpm=lthr,
             hr_max_bpm=max_hr,
             # Training state (Garmin exclusive)
@@ -490,7 +509,7 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             atp_probability=parsed.get("atp_probability"),
             # Metadata
             data_sources="garmin",
-            canonical_version="4.0.0",
+            canonical_version="4.1.0",
         )
 
 
@@ -583,6 +602,7 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             # Performance baselines (Garmin exclusive)
             ftp_watts=None,
             cycling_vo2max_ml_kg_min=None,
+            running_vo2max_ml_kg_min=None,
             hr_lthr_bpm=None,
             hr_max_bpm=None,
             # Training state (Garmin exclusive)
@@ -597,7 +617,7 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             atp_probability=None,
             # Metadata
             data_sources="intervals",
-            canonical_version="4.0.0",
+            canonical_version="4.1.0",
         )
 
 

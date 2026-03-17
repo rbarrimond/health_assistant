@@ -547,6 +547,8 @@ traces
 
 The Garmin backend provides access to workout data directly from Garmin Connect using the [garth](https://github.com/matin/garth) library for OAuth token management. It syncs activities as FIT files and reuses the existing FIT parsing pipeline.
 
+Garmin also exposes a physiometrics sync that fetches daily summary and training-status metrics into the `Physiometrics` table. Under canonical wellness schema `4.1.0`, Garmin owns performance and training-state fields including `ftp_watts`, `cycling_vo2max_ml_kg_min`, `running_vo2max_ml_kg_min`, `hr_lthr_bpm`, `hr_max_bpm`, `training_load`, `recovery_time_minutes`, `readiness_score`, `training_effect_*`, `training_stress_*`, and `atp_probability`. `resting_hr_bpm` remains Intervals-exclusive and Garmin values are intentionally ignored.
+
 **Data Flow:**
 
 ```text
@@ -652,6 +654,19 @@ Runs a sync of recent activities. Accepts JSON body:
   "errors": [],
   "items": [...]
 }
+
+#### POST /api/garmin/physiometrics/sync
+
+Runs a daily Garmin physiometrics sync using Garmin summary and training-status endpoints.
+
+```json
+{
+  "lookback_days": 7,
+  "athlete_id": "rob"
+}
+```
+
+Successful responses include `count`, `records_fetched`, `records_processed`, and `records_failed`. Partial day-level failures return HTTP `207` with accumulated `errors`. Each fetched Garmin daily payload is also archived to the `external-sources` container and tracked in `SourceIngestionState` for replayability.
 ```
 
 ### Garmin Implementation Files
@@ -660,6 +675,7 @@ Runs a sync of recent activities. Accepts JSON body:
 | --- | --- |
 | [garmin_client.py](../../TrainingAnalyticsPlatform/integrations/garmin_client.py) | garminconnect library wrapper |
 | [garmin_sync_handler.py](../../TrainingAnalyticsPlatform/handlers/garmin_sync_handler.py) | Sync orchestration + ingestion handler |
+| [garmin_physiometrics_sync_handler.py](../../TrainingAnalyticsPlatform/handlers/garmin_physiometrics_sync_handler.py) | Garmin physiometrics sync + raw payload archival |
 | [function_app.py](../../function_app.py) | HTTP sync endpoint + daily timer trigger |
 | [table_storage.py](../../TrainingAnalyticsPlatform/storage/table_storage.py) | Ingestion state tracking |
 

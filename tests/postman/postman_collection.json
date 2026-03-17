@@ -676,7 +676,7 @@
               "raw": "{\n  \"lookback_days\": 7,\n  \"athlete_id\": \"{{athlete_id}}\",\n  \"async\": false\n}"
             },
             "url": "{{base_url}}/api/garmin/physiometrics/sync?code={{function_key}}",
-            "description": "Sync Garmin physiometrics data (function key required). Downloads user summary and training status data (VO2Max, training load, training effect, recovery time, readiness score, ATP probability). v3.0.0 schema: Garmin owns performance (ftp_watts, cycling_vo2max_ml_kg_min, hr_lthr_bpm, hr_max_bpm), training state (training_load, recovery_time_minutes, readiness_score), and extended training metrics (training_effect_*, training_stress_score, training_stress_balance, atp_probability). Stores in Physiometrics table with canonical_version='3.0.0'. Defaults to async=true; set async=false for blocking."
+            "description": "Sync Garmin physiometrics data (function key required). Downloads user summary and training status data (cycling/running VO2Max, training load, training effect, recovery time, readiness score, ATP probability). v4.1.0 schema: Garmin owns performance (ftp_watts, cycling_vo2max_ml_kg_min, running_vo2max_ml_kg_min, hr_lthr_bpm, hr_max_bpm), training state (training_load, recovery_time_minutes, readiness_score), and extended training metrics (training_effect_*, training_stress_score, training_stress_balance, atp_probability). Resting HR remains Intervals-exclusive. Stores in Physiometrics table with canonical_version='4.1.0' and archives raw daily payloads to external-sources. Endpoint returns 200 on full success and 207 on partial success when some days fail validation/storage."
           },
           "response": []
         }
@@ -700,7 +700,7 @@
               "raw": "{\n  \"lookback_days\": 30,\n  \"intervals_athlete_id\": \"{{intervals_icu_id}}\",\n  \"athlete_id\": \"{{athlete_id}}\"\n}"
             },
             "url": "{{base_url}}/api/intervals/sync?code={{function_key}}",
-            "description": "Sync Intervals.icu wellness data (function key required). Fetches wellness records from Intervals.icu wellness API using HTTP Basic authentication. v4.0.0 schema: Intervals owns recovery (hrv_ln_rmssd, hrv_sdnn_ms, sleep_duration_sec, resting_hr_bpm), activity (steps), nutrition (calories_kcal, carbs_g, protein_g, fat_g), and spo2_pct; provides fallback body metrics (weight_kg, body_fat_pct) when Withings rows are absent. Stores in Physiometrics table with canonical_version='4.0.0'. Endpoint returns 200 on full success and 207 on partial success when some records fail validation/storage. Requires INTERVALS_API_KEY and INTERVALS_ATHLETE_ID environment variables. Lookback defaults to 30 days."
+            "description": "Sync Intervals.icu wellness data (function key required). Fetches wellness records from Intervals.icu wellness API using HTTP Basic authentication. v4.1.0 schema: Intervals owns recovery (hrv_ln_rmssd, hrv_sdnn_ms, sleep_duration_sec, resting_hr_bpm), activity (steps), nutrition (calories_kcal, carbs_g, protein_g, fat_g), and spo2_pct; provides fallback body metrics (weight_kg, body_fat_pct) when Withings rows are absent. Stores in Physiometrics table with canonical_version='4.1.0'. Endpoint returns 200 on full success and 207 on partial success when some records fail validation/storage. Requires INTERVALS_API_KEY and INTERVALS_ATHLETE_ID environment variables. Lookback defaults to 30 days."
           },
           "response": []
         }
