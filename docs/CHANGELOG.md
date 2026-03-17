@@ -10,6 +10,17 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-16
 
+### **BREAKING:** `readiness_score` Semantic Separation and Canonical Training-State Path [application v3.0.0]
+
+- **BREAKING (persisted semantics)**: `readiness_score` in `TrainingStateSnapshot` now exclusively represents the composite HRV + load score. Previously it returned the Garmin native readiness as an override when present (`composite or garmin_readiness`). Consumers relying on `readiness_score` as "best available readiness including Garmin" must now read `garmin_readiness_score` for the Garmin value.
+- **Changed (model)**: `_compute_composite_readiness` no longer accepts or applies `garmin_readiness`. Garmin passthrough is written only to `garmin_readiness_score`.
+- **Changed (null semantics)**: `readiness_score` is `null` when `hrv_ln_rmssd` is absent **or** `fatigue_index` is absent or zero (zero load is not credible data for a score). Previously, zero `fatigue_index` clamped to `100.0` via the inverse-fatigue formula.
+- **Changed (versioning)**: `TrainingStateSnapshot.canonical_version` advanced from `4.0.0` to `5.0.0`.
+- **Changed (canonical path)**: `TrainingStateConsolidationHandler.compute_day()` now delegates entirely to `SemanticLayer._compute_training_state_for_date()`, removing a duplicate and divergent implementation.
+- **Changed (TSS fallback)**: `SemanticLayer._compute_rolling_tss()` now falls back to `CanonicalAnalyticsEngine` when `tss` is absent from the `Workouts` table projection, via `_resolve_workout_tss()`. Previously sparse rows silently contributed zero TSS, causing underestimated load.
+- **Updated (API spec)**: `openapi.yaml` advanced to `7.0.0`; `readiness_score` and `garmin_readiness_score` descriptions updated to reflect separation.
+- **Updated (docs)**: `WELLNESS_INGESTION_IMPLEMENTATION.md` composite readiness pseudocode replaced with the exact formula and a worked example.
+
 ### Garmin Physiometrics Running VO2Max Formalization + Blob-First Sync Parity [application v2.1.0]
 
 - **Changed (schema)**: promoted `running_vo2max_ml_kg_min` into canonical Garmin physiometrics semantics alongside `cycling_vo2max_ml_kg_min`.
