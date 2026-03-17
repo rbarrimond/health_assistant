@@ -1,10 +1,15 @@
 """Tests for physiometrics source precedence consolidation."""
 
+from datetime import date
+from unittest.mock import MagicMock
+
 import pytest
 
 from TrainingAnalyticsPlatform.handlers.wellness_consolidation import (
     PhysiometricsConsolidationHandler,
+    TrainingStateConsolidationHandler,
 )
+from TrainingAnalyticsPlatform.models.wellness import TrainingStateSnapshot
 
 
 class _FakeTableClient:
@@ -93,3 +98,37 @@ def test_consolidation_handles_data_sources_csv_and_alias_fields():
     assert consolidated.resting_hr_bpm == 48
     assert consolidated.hr_lthr_bpm == 172
     assert consolidated.data_sources == "garmin,intervals"
+
+
+def test_training_state_consolidation_delegates_to_semantic_layer():
+    """Training-state consolidation should use the semantic-layer canonical path."""
+    snapshot = TrainingStateSnapshot(
+        athlete_id="rob",
+        effective_date="2026-03-17",
+        cts_rolling_7d=12.0,
+        cts_rolling_28d=18.0,
+        ats_rolling=12.0,
+        fatigue_index=0.67,
+        readiness_score=81.0,
+        garmin_readiness_score=79.0,
+        mood=None,
+        soreness=None,
+        pred_recovery_days=None,
+        data_sources="workouts,physiometrics",
+        canonical_version="4.0.0",
+    )
+    semantic_layer = MagicMock()
+    semantic_layer._compute_training_state_for_date.return_value = snapshot
+
+    handler = TrainingStateConsolidationHandler(
+        _FakeStorageClient([]),
+        semantic_layer=semantic_layer,
+    )
+
+    result = handler.compute_day("rob", "2026-03-17")
+
+    semantic_layer._compute_training_state_for_date.assert_called_once_with(
+        "rob",
+        date(2026, 3, 17),
+    )
+    assert result == snapshot

@@ -1716,6 +1716,131 @@ class TestHelperMethods:
         assert "rob|2026-01" in partitions
         assert "rob|2026-02" in partitions
 
+    def test_compute_rolling_tss_uses_canonical_fallback_when_entity_tss_missing(
+        self,
+        semantic_layer,
+    ):
+        """Training-state TSS should fall back to canonical analytics when table tss is absent."""
+        table_client = MagicMock()
+        table_client.query_entities.side_effect = [
+            [
+                {
+                    "PartitionKey": "rob|2026-02",
+                    "RowKey": "20260220T120000Z|abc",
+                    "workout_id": "w-1",
+                    "start_time_utc": "2026-02-20T12:00:00Z",
+                    "tss": None,
+                },
+                {
+                    "PartitionKey": "rob|2026-03",
+                    "RowKey": "20260315T120000Z|def",
+                    "workout_id": "w-2",
+                    "start_time_utc": "2026-03-15T12:00:00Z",
+                    "tss": None,
+                },
+            ]
+        ]
+
+        with patch.object(
+            semantic_layer,
+            "_get_month_partitions",
+            return_value=["rob|2026-02"],
+        ), patch.object(
+            semantic_layer,
+            "_build_partition_date_range_query",
+            return_value="PartitionKey eq 'rob|2026-02'",
+        ), patch.object(
+            semantic_layer,
+            "_resolve_workout_tss",
+            side_effect=[55.0, 80.0],
+        ):
+            tss_7d, tss_28d = semantic_layer._compute_rolling_tss(
+                athlete_id="rob",
+                end_date=datetime(2026, 3, 17, tzinfo=timezone.utc).date(),
+                workouts_table=table_client,
+            )
+
+        assert tss_7d == pytest.approx(80.0)
+        assert tss_28d == pytest.approx(135.0)
+
+    def test_resolve_workout_tss_rebuilds_from_canonical_metrics(
+        self,
+        semantic_layer,
+    ):
+        """Workout TSS fallback should use the canonical metrics model when table tss is missing."""
+        entity = {
+            "PartitionKey": "rob|2026-03",
+            "RowKey": "20260315T120000Z|def",
+            "workout_id": "w-2",
+            "tss": None,
+        }
+        metrics_model = MagicMock()
+        metrics_model.training_load = SimpleNamespace(tss=72.4)
+
+        with patch.object(
+            semantic_layer,
+            "_build_rollup_metrics_model",
+            return_value=metrics_model,
+        ):
+            result = semantic_layer._resolve_workout_tss(entity)
+
+        assert result == pytest.approx(72.4)
+
+    def test_resolve_workout_tss_prefers_materialized_table_value(
+        self,
+        semantic_layer,
+    ):
+        """Materialized Workouts.tss should be used directly when available."""
+        entity = {
+            "PartitionKey": "rob|2026-03",
+            "RowKey": "20260315T120000Z|def",
+            "workout_id": "w-2",
+            "tss": 91.2,
+        }
+
+        with patch.object(
+            semantic_layer,
+            "_build_rollup_metrics_model",
+        ) as build_metrics:
+            result = semantic_layer._resolve_workout_tss(entity)
+
+        build_metrics.assert_not_called()
+        assert result == pytest.approx(91.2)
+
+    def test_compute_composite_readiness_is_independent_of_garmin(self, semantic_layer):
+        """Garmin readiness must not be mixed into composite — it lives in garmin_readiness_score."""
+        # With valid HRV + load, score should be from the formula, not Garmin's value.
+        result = semantic_layer._compute_composite_readiness(
+            hrv_ln=3.5,
+            fatigue_index=1.0,
+        )
+
+        # 58.33 = avg(50.0, 66.67) — entirely from HRV + load, no Garmin influence
+        assert result == pytest.approx(58.33333333333333)
+
+    def test_compute_composite_readiness_returns_none_without_credible_load(self, semantic_layer):
+        """Composite readiness should be absent when fatigue input is missing or not credible."""
+        missing_fatigue = semantic_layer._compute_composite_readiness(
+            hrv_ln=4.2,
+            fatigue_index=None,
+        )
+        zero_fatigue = semantic_layer._compute_composite_readiness(
+            hrv_ln=4.2,
+            fatigue_index=0.0,
+        )
+
+        assert missing_fatigue is None
+        assert zero_fatigue is None
+
+    def test_compute_composite_readiness_averages_hrv_and_fatigue(self, semantic_layer):
+        """Composite readiness should average normalized HRV and fatigue when both are present."""
+        result = semantic_layer._compute_composite_readiness(
+            hrv_ln=3.5,
+            fatigue_index=1.0,
+        )
+
+        assert result == pytest.approx(58.33333333333333)
+
     def test_find_last_hard_day_found(self, semantic_layer, sample_workouts):
         """Test finding last hard workout."""
         last_hard = semantic_layer._find_last_hard_day(sample_workouts)

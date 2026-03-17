@@ -225,7 +225,7 @@ class TrainingStateSnapshot(BaseModel):
 
     # Readiness and recovery
     readiness_score: Optional[float] = Field(
-        None, ge=0, le=100, description="Composite readiness (HRV + load + HR)"
+        None, ge=0, le=100, description="Composite readiness from HRV and fatigue load (0-100)"
     )
     garmin_readiness_score: Optional[float] = Field(
         None, ge=0, le=100, description="Garmin native readiness score"

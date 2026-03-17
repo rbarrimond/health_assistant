@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Semantic/GPT)
-  version: "6.0.0"
+  version: "7.0.0"
   description: |
     Deterministic athlete intelligence API consumed by ChatGPT Actions.
     Provides typed semantic contracts for agent memory, workout intelligence, planning context, physiometrics, and training-state signals.
@@ -1235,13 +1235,13 @@ components:
           type: number
           description: Fatigue index (ATS / CTS; higher = more fatigued)
         readiness_score:
-          type: number
-          description: Composite readiness (HRV + load + HR)
+          type: [number, 'null']
+          description: Composite readiness from HRV and fatigue load (0-100); null when data absent
           minimum: 0
           maximum: 100
         garmin_readiness_score:
-          type: number
-          description: Garmin native readiness score
+          type: [number, 'null']
+          description: Garmin native readiness score (passthrough)
           minimum: 0
           maximum: 100
         mood:

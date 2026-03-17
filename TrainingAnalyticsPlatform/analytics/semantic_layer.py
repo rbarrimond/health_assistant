@@ -3307,7 +3307,6 @@ class SemanticLayer:
         composite_readiness = self._compute_composite_readiness(
             hrv_ln,
             training_load["fatigue_index"],
-            garmin_readiness,
         )
         snapshot = self._build_training_state_snapshot(
             athlete_id,
@@ -3376,13 +3375,13 @@ class SemanticLayer:
             cts_rolling_28d=training_load["cts_28d"],
             ats_rolling=training_load["ats"],
             fatigue_index=training_load["fatigue_index"],
-            readiness_score=composite_readiness or garmin_readiness,
+            readiness_score=composite_readiness,
             garmin_readiness_score=garmin_readiness,
             mood=None,
             soreness=None,
             pred_recovery_days=None,
             data_sources="workouts,physiometrics",
-            canonical_version="4.0.0",
+            canonical_version="5.0.0",
         )
 
     def _compute_rolling_tss(
@@ -3405,30 +3404,30 @@ class SemanticLayer:
         start_date_7 = end_date - timedelta(days=7)
         start_date_28 = end_date - timedelta(days=28)
 
-        # Query workouts for this athlete
-        filter_str = f"PartitionKey eq '{athlete_id}'"
-        try:
-            workout_entities = list(workouts_table.query_entities(filter_str))
-        except HttpResponseError:
-            return 0.0, 0.0
+        # Convert dates to datetime for partition key generation
+        start_dt_28 = datetime.combine(start_date_28, datetime.min.time())
+        end_dt = datetime.combine(end_date, datetime.max.time())
+
+        # Query workouts for this athlete across all months in the date range
+        # PartitionKey format is "{athlete_id}|{YYYY-MM}"
+        months = self._get_month_partitions(athlete_id, start_dt_28, end_dt)
+        workout_entities = self._query_training_window_workouts(
+            workouts_table,
+            months,
+            start_dt_28,
+            end_dt,
+        )
 
         tss_7d = 0.0
         tss_28d = 0.0
 
         for entity in workout_entities:
-            tss = entity.get("tss", 0)
-            if not tss:
+            start_date = self._parse_workout_start_date(entity)
+            if start_date is None:
                 continue
 
-            # Parse start_time_utc
-            start_str = entity.get("start_time_utc")
-            if not start_str:
-                continue
-
-            try:
-                start_dt = datetime.fromisoformat(start_str.replace("Z", UTC_OFFSET))
-                start_date = start_dt.date()
-            except (ValueError, AttributeError):
+            tss = self._resolve_workout_tss(entity)
+            if tss is None:
                 continue
 
             # Accumulate TSS
@@ -3439,52 +3438,105 @@ class SemanticLayer:
 
         return tss_7d, tss_28d
 
+    def _query_training_window_workouts(
+        self,
+        workouts_table: Any,
+        months: List[str],
+        start_dt: datetime,
+        end_dt: datetime,
+    ) -> List[Dict[str, Any]]:
+        """Query workout entities across all month partitions for the requested window."""
+        workout_entities: List[Dict[str, Any]] = []
+
+        for partition_key in months:
+            query = self._build_partition_date_range_query(
+                partition_key,
+                start_dt,
+                end_dt,
+            )
+            try:
+                workout_entities.extend(list(workouts_table.query_entities(query)))
+            except HttpResponseError:
+                continue
+
+        return workout_entities
+
+    def _parse_workout_start_date(self, entity: Dict[str, Any]) -> Optional[Any]:
+        """Parse a workout entity start date from `start_time_utc`."""
+        start_str = entity.get("start_time_utc")
+        if not start_str:
+            return None
+
+        try:
+            start_dt = datetime.fromisoformat(start_str.replace("Z", UTC_OFFSET))
+        except (ValueError, AttributeError):
+            return None
+
+        return start_dt.date()
+
+    def _resolve_workout_tss(self, entity: Dict[str, Any]) -> Optional[float]:
+        """Resolve workout TSS from the table projection or canonical analytics fallback."""
+        tss = entity.get("tss")
+        if tss is not None:
+            return float(tss)
+
+        try:
+            metrics_model = self._build_rollup_metrics_model(entity)
+        except (StorageError, ValidationError) as exc:
+            logger.warning(
+                "Skipping workout in training-state TSS calculation",
+                extra={
+                    "workout_id": entity.get("workout_id"),
+                    "partition_key": entity.get("PartitionKey"),
+                    "row_key": entity.get("RowKey"),
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
+            return None
+
+        training_load = metrics_model.training_load
+        if not training_load or training_load.tss is None:
+            return None
+
+        return float(training_load.tss)
+
     def _compute_composite_readiness(
         self,
         hrv_ln: Optional[float],
         fatigue_index: Optional[float],
-        garmin_readiness: Optional[float],
     ) -> Optional[float]:
         """
-        Compute composite readiness score (0-100) from HRV and fatigue.
+        Compute composite readiness score (0-100) from HRV and fatigue load.
 
-        Simple weighted model:
-        - HRV (ln_rmssd): typically 2.5-4.5, normalized to 0-100
-        - Fatigue index: typically 0.5-2.0, inverted and normalized
-        - Garmin readiness: preferred if available
+        Both inputs must be present and credible for a score to be produced.
+        Garmin native readiness is a separate field (garmin_readiness_score) and
+        is never mixed into this calculation.
+
+        Components:
+        - HRV (ln_rmssd): normalized from range 2.5–4.5 → 0–100
+          formula: clamp((hrv_ln - 2.5) / 2.0 * 100, 0, 100)
+        - Fatigue (fatigue_index = cts_7d / cts_28d): inverted from range 0.5–2.0 → 0–100
+          formula: clamp((2.0 - fatigue_index) / 1.5 * 100, 0, 100)
+        - Score: simple average of the two normalized components
 
         Args:
             hrv_ln: Natural log of RMSSD (HRV metric)
             fatigue_index: ATS/CTS ratio (higher = more fatigued)
-            garmin_readiness: Garmin native readiness score (0-100)
 
         Returns:
-            Composite readiness score (0-100), or None if insufficient data
+            Composite readiness score (0-100), or None if data is absent or not credible
         """
-        # Prefer Garmin readiness if available
-        if garmin_readiness is not None:
-            return garmin_readiness
-
-        # Otherwise compute from HRV and fatigue index
-        if hrv_ln is None and fatigue_index is None:
+        # Composite readiness is only credible when both recovery and load inputs exist.
+        if hrv_ln is None or fatigue_index is None or fatigue_index <= 0:
             return None
-
-        score_components = []
 
         # HRV component (normalize ln_rmssd from 2.5-4.5 to 0-100)
-        if hrv_ln is not None:
-            hrv_normalized = max(0, min(100, (hrv_ln - 2.5) / 2.0 * 100))
-            score_components.append(hrv_normalized)
+        hrv_normalized = max(0, min(100, (hrv_ln - 2.5) / 2.0 * 100))
 
         # Fatigue component (invert fatigue_index: lower fatigue = higher readiness)
-        if fatigue_index is not None:
-            # Typical range: 0.5 (fresh) to 2.0 (fatigued)
-            # Invert: 2.0 -> 0, 0.5 -> 100
-            fatigue_normalized = max(0, min(100, (2.0 - fatigue_index) / 1.5 * 100))
-            score_components.append(fatigue_normalized)
+        # Typical range: 0.5 (fresh) to 2.0 (fatigued)
+        # Invert: 2.0 -> 0, 0.5 -> 100
+        fatigue_normalized = max(0, min(100, (2.0 - fatigue_index) / 1.5 * 100))
 
-        if not score_components:
-            return None
-
-        # Weighted average
-        return sum(score_components) / len(score_components)
+        return (hrv_normalized + fatigue_normalized) / 2.0
