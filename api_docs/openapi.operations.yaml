@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Operations)
-  version: "4.0.1"
+  version: "4.1.0"
   description: |
     Operational and administrative API for ingestion, configuration, integrations, and plugin assets.
     Complements the semantic GPT-facing specification with platform control-plane and runtime support endpoints.
@@ -618,7 +618,10 @@ paths:
                   description: Number of days to look back for activities (default 30)
                 async:
                   type: boolean
-                  description: Queue sync as background task (default true)
+                  description: Queue sync as background task (default false)
+                force:
+                  type: boolean
+                  description: When true, bypass activity-id prefilter and force reprocessing of listed activities
       responses:
         '202':
           description: Sync queued (async mode)
@@ -634,12 +637,8 @@ paths:
                     type: string
                   lookback_days:
                     type: integer
-                  mode:
-                    type: string
-                    example: async
-                  queued_at_utc:
-                    type: string
-                    format: date-time
+                  force:
+                    type: boolean
         '200':
           description: Sync completed (sync mode)
           content:
@@ -654,7 +653,9 @@ paths:
                     type: string
                   lookback_days:
                     type: integer
-                  activities_found:
+                  force:
+                    type: boolean
+                  found:
                     type: integer
                     description: Total activities retrieved from Garmin
                   ingested:
@@ -662,11 +663,18 @@ paths:
                     description: Successfully ingested FIT files
                   skipped:
                     type: integer
-                    description: Already processed activities
+                    description: Total skipped activities (includes ID-prefilter and unchanged-content skips)
+                  skipped_by_id:
+                    type: integer
+                    description: Activities skipped before FIT download due to previously seen activity_id
                   failed:
                     type: integer
                     description: Failed ingestions
                   errors:
+                    type: array
+                    items:
+                      type: string
+                  items:
                     type: array
                     items:
                       type: object
@@ -675,8 +683,11 @@ paths:
                           type: string
                         activity_name:
                           type: string
-                        error:
+                        status:
                           type: string
+                          description: One of success, skipped, skipped_duplicate, skipped_seen_id, or error
+                        workout_id:
+                          type: [ string, "null" ]
         '401':
           description: Authentication failed - check GARMIN_EMAIL and GARMIN_PASSWORD
         '500':
@@ -818,6 +829,9 @@ paths:
                 lookback_days:
                   type: integer
                   description: Number of days to look back for physiometrics data (default 7)
+                force:
+                  type: boolean
+                  description: When true, bypass stored-date prefilter and re-fetch all days in range
             examples:
               basicSync:
                 summary: Default sync (7 days)
@@ -845,6 +859,9 @@ paths:
                     description: Successfully ingested physiometrics records (days with valid data)
                   records_fetched:
                     type: integer
+                  records_skipped:
+                    type: integer
+                    description: Days skipped because physiometrics already existed for effective_date
                   records_failed:
                     type: integer
                   errors:
@@ -866,6 +883,9 @@ paths:
                     type: integer
                   records_fetched:
                     type: integer
+                  records_skipped:
+                    type: integer
+                    description: Days skipped because physiometrics already existed for effective_date
                   records_failed:
                     type: integer
                   errors:

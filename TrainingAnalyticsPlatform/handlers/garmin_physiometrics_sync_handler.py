@@ -43,6 +43,8 @@ class GarminPhysiometricsSyncHandler:
         self,
         athlete_id: str,
         lookback_days: Optional[Union[int, str]] = None,
+        *,
+        force: bool = False,
     ) -> Tuple[Dict[str, Any], int]:
         """Fetch and store Garmin physiometrics snapshots by day."""
         if not athlete_id:
@@ -65,10 +67,44 @@ class GarminPhysiometricsSyncHandler:
 
         stored_count = 0
         fetched_count = 0
+        skipped_count = 0
         errors: list[str] = []
+
+        stored_dates: set[str] = set()
+        if not force:
+            try:
+                existing = self.storage.physiometrics.get_physiometrics_history(
+                    athlete_id,
+                    start_date.isoformat(),
+                    end_date.isoformat(),
+                )
+                stored_dates = {
+                    str(entity.get("effective_date"))
+                    for entity in existing
+                    if entity.get("effective_date")
+                }
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                logger.warning(
+                    "Failed to prefetch stored Garmin physiometrics dates; continuing without skip optimization",
+                    extra={
+                        "athlete_id": athlete_id,
+                        "effective_start": start_date.isoformat(),
+                        "effective_end": end_date.isoformat(),
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                    exc_info=True,
+                )
 
         for current_date in self._iter_dates(start_date, end_date):
             date_str = current_date.isoformat()
+            if not force and date_str in stored_dates:
+                skipped_count += 1
+                logger.debug(
+                    "Skipping previously stored Garmin physiometrics date",
+                    extra={"athlete_id": athlete_id, "effective_date": date_str},
+                )
+                continue
             blob_name: Optional[str] = None
             try:
                 blob_name = self._process_single_day(athlete_id, date_str)
@@ -92,6 +128,7 @@ class GarminPhysiometricsSyncHandler:
             "count": stored_count,
             "records_fetched": fetched_count,
             "records_processed": stored_count,
+            "records_skipped": skipped_count,
             "records_failed": failed_count,
             "errors": errors if errors else None,
         }, status

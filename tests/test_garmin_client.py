@@ -1,5 +1,6 @@
 """Tests for Garmin Connect client authentication behavior."""
 
+from datetime import datetime, timezone
 from typing import Any, cast
 from unittest.mock import patch
 
@@ -61,3 +62,25 @@ def test_login_clears_cached_client_after_rate_limit_failure():
 
     assert str(exc_info.value) == "Garmin Connect rate limited this login attempt"
     assert client.client is None
+
+
+def test_list_activities_uses_date_range_api():
+    class DateRangeGarmin:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+
+        def get_activities_by_date(self, startdate: str, enddate: str):
+            self.calls.append((startdate, enddate))
+            return [{"activityId": "a1"}]
+
+    client = GarminConnectClient(email="user@example.com", password="x" * 12)
+    fake = DateRangeGarmin()
+    client.client = cast(Any, fake)
+
+    activities = client.list_activities(
+        start_date=datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
+    )
+
+    assert activities == [{"activityId": "a1"}]
+    assert len(fake.calls) == 1
+    assert fake.calls[0][0] == "2026-03-01"

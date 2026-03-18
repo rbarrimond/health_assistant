@@ -8,6 +8,21 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-18
+
+### Garmin Polling Optimization + Force Override Controls [application v3.2.0, operations API v4.1.0]
+
+- **Changed (ingestion behavior)**: Garmin activity sync now prefilters by `activityId` against `IngestionState` before FIT download.
+  - Existing terminal states (`ingested`, `skipped`, `skipped_duplicate`, `filtered`) are skipped without downloading FIT payloads.
+  - Skip telemetry now includes `skipped_by_id` and per-item status `skipped_seen_id`.
+- **Changed (control-plane override)**: `/api/garmin/sync` now accepts `force` to bypass activity-id prefiltering and reprocess listed activities.
+- **Changed (library stewardship)**: Garmin activity listing switched to `garminconnect` date-range API (`get_activities_by_date`) instead of local `start=0, limit=100` plus client-side date filtering.
+- **Changed (ingestion behavior)**: Garmin physiometrics sync now prefetches existing dates from `Physiometrics` and skips already-stored days when `force=false`.
+- **Changed (control-plane override)**: `/api/garmin/physiometrics/sync` now accepts `force` to bypass stored-date skipping and re-fetch all days in range.
+- **Changed (response contract)**: Garmin physiometrics sync responses now include `records_skipped`.
+- **Updated (operations contract)**: `api_docs/openapi.operations.yaml` advanced to `4.1.0` and now documents Garmin `force` request flags and new response fields (`found`, `force`, `skipped_by_id`, `records_skipped`).
+- **Updated (backend docs)**: `docs/devops/BACKENDS.md` updated for Garmin prefilter semantics, force controls, and updated examples.
+
 ## 2026-03-17
 
 ### Physiometrics Current Response Normalization [application v3.1.1, semantic API v7.1.1, operations API v4.0.1]

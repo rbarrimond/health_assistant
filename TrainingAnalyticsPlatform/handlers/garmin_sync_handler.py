@@ -458,10 +458,25 @@ class GarminSyncRequest:
     def async_mode(self) -> bool:
         """Extract async flag from body or query params."""
         async_flag = self.body.get("async") or self.query_params.get("async")
-        if isinstance(async_flag, bool):
-            return async_flag
-        if isinstance(async_flag, str):
-            return async_flag.lower() in ("true", "1", "yes")
+        return self._to_bool(async_flag)
+
+    @property
+    def force(self) -> bool:
+        """Extract force flag from body or query params."""
+        force_flag = self.body.get("force")
+        if force_flag is None:
+            force_flag = self.query_params.get("force")
+        return self._to_bool(force_flag)
+
+    @staticmethod
+    def _to_bool(raw_value: object) -> bool:
+        """Convert common bool-like values to bool."""
+        if isinstance(raw_value, bool):
+            return raw_value
+        if isinstance(raw_value, str):
+            return raw_value.lower() in ("true", "1", "yes")
+        if isinstance(raw_value, int):
+            return raw_value == 1
         return False
 
 
@@ -501,16 +516,16 @@ class GarminSyncHandler:
         lookback_days = req.lookback_days or self._config.lookback_days
 
         if req.async_mode:
-            return self._handle_async(req.athlete_id, lookback_days)
+            return self._handle_async(req.athlete_id, lookback_days, req.force)
 
-        return self._handle_sync(req.athlete_id, lookback_days)
+        return self._handle_sync(req.athlete_id, lookback_days, req.force)
 
     @property
     def config(self) -> GarminSyncConfig:
         """Expose current sync configuration."""
         return self._config
 
-    def sync(self, *, athlete_id: str, lookback_days: int) -> Dict:
+    def sync(self, *, athlete_id: str, lookback_days: int, force: bool = False) -> Dict:
         """Sync Garmin activities and ingest FIT files."""
         # Authenticate with Garmin Connect
         try:
@@ -536,7 +551,7 @@ class GarminSyncHandler:
 
         # List activities
         try:
-            activities = self._client.list_activities(start_date=cutoff, limit=100)
+            activities = self._client.list_activities(start_date=cutoff)
         except GarminConnectError as exc:
             logger.error(
                 "Failed to list Garmin activities",
@@ -568,15 +583,43 @@ class GarminSyncHandler:
         results = {
             "status": "success",
             "lookback_days": lookback_days,
+            "force": force,
             "found": len(activities),
             "ingested": 0,
             "skipped": 0,
+            "skipped_by_id": 0,
             "failed": 0,
             "errors": [],
             "items": [],
         }
 
         for activity in activities:
+            activity_id = str(activity.get("activityId", ""))
+            if not force and activity_id and self._was_activity_previously_processed(
+                athlete_id,
+                activity_id,
+            ):
+                results["skipped"] += 1
+                results["skipped_by_id"] += 1
+                results["items"].append(
+                    {
+                        "activity_id": activity_id,
+                        "activity_name": activity.get("activityName", "Unknown"),
+                        "status": "skipped_seen_id",
+                        "workout_id": None,
+                    }
+                )
+                logger.debug(
+                    "Skipping Garmin activity with previously processed activity_id",
+                    extra={
+                        "athlete_id": athlete_id,
+                        "source_system": "garmin",
+                        "activity_id": activity_id,
+                        "status": "skipped_seen_id",
+                    },
+                )
+                continue
+
             try:
                 body, status_code = self._ingestion_handler.handle(
                     athlete_id=athlete_id,
@@ -599,10 +642,14 @@ class GarminSyncHandler:
 
         return results
 
-    def _handle_sync(self, athlete_id: str, lookback_days: int) -> Tuple[Dict, int]:
+    def _handle_sync(self, athlete_id: str, lookback_days: int, force: bool = False) -> Tuple[Dict, int]:
         """Execute synchronous sync."""
         try:
-            results = self.sync(athlete_id=athlete_id, lookback_days=lookback_days)
+            results = self.sync(
+                athlete_id=athlete_id,
+                lookback_days=lookback_days,
+                force=force,
+            )
             if results.get("status") == "error":
                 message = str(results.get("message", ""))
                 if message.startswith("Authentication failed:"):
@@ -636,11 +683,20 @@ class GarminSyncHandler:
             )
             return {"error": str(exc)}, 500
 
-    def _handle_async(self, athlete_id: str, lookback_days: int) -> Tuple[Dict, int]:
+    def _handle_async(
+        self,
+        athlete_id: str,
+        lookback_days: int,
+        force: bool = False,
+    ) -> Tuple[Dict, int]:
         """Queue asynchronous sync."""
         thread = threading.Thread(
             target=self.sync,
-            kwargs={"athlete_id": athlete_id, "lookback_days": lookback_days},
+            kwargs={
+                "athlete_id": athlete_id,
+                "lookback_days": lookback_days,
+                "force": force,
+            },
             daemon=True,
         )
         thread.start()
@@ -648,7 +704,43 @@ class GarminSyncHandler:
             "status": "queued",
             "athlete_id": athlete_id,
             "lookback_days": lookback_days,
+            "force": force,
         }, 202
+
+    def _was_activity_previously_processed(
+        self,
+        athlete_id: str,
+        activity_id: str,
+    ) -> bool:
+        """Return True when an activity has an existing terminal ingestion state."""
+        try:
+            existing_state = self._storage.workouts.get_ingestion_state(
+                athlete_id,
+                activity_id,
+            )
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.warning(
+                "Failed to load Garmin ingestion state for activity prefilter",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "activity_id": activity_id,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
+            return False
+
+        if not existing_state:
+            return False
+
+        return existing_state.get("status") in {
+            "ingested",
+            "skipped",
+            "skipped_duplicate",
+            "filtered",
+        }
 
     def _extract_request(self, args: tuple, kwargs: dict) -> GarminSyncRequest:
         """Extract GarminSyncRequest from positional or keyword arguments."""

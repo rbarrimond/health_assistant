@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, cast
 
 if TYPE_CHECKING:
@@ -104,13 +104,11 @@ class GarminConnectClient:
     def list_activities(
         self,
         start_date: Optional[datetime] = None,
-        limit: int = 100,
     ) -> List[Dict]:
         """List recent activities from Garmin Connect.
 
         Args:
             start_date: Only return activities after this date (default: 30 days ago)
-            limit: Maximum number of activities to return
 
         Returns:
             List of activity dicts from Garmin API
@@ -126,48 +124,24 @@ class GarminConnectClient:
             if start_date is None:
                 start_date = datetime.now() - timedelta(days=30)
 
-            # garminconnect uses start index (0-based) and limit
-            activities = cast(List[Dict[str, Any]],
-                              self.client.get_activities(start=0, limit=limit))
+            if start_date.tzinfo is None:
+                start_date = start_date.replace(tzinfo=timezone.utc)
 
-            # Filter by date if needed (activities are returned newest first)
-            if start_date:
-                return [
-                    activity
-                    for activity in activities
-                    if self._is_activity_after_date(activity, start_date)
-                ]
+            start_date_str = start_date.date().isoformat()
+            end_date_str = datetime.now(timezone.utc).date().isoformat()
+
+            activities = cast(
+                List[Dict[str, Any]],
+                self.client.get_activities_by_date(
+                    startdate=start_date_str,
+                    enddate=end_date_str,
+                ),
+            )
 
             return activities
         except Exception as exc:
             logger.error("Failed to list Garmin activities: %s", exc)
             raise GarminConnectError("Failed to fetch activity list") from exc
-
-    def _is_activity_after_date(
-        self, activity: Dict[str, Any], start_date: datetime
-    ) -> bool:
-        """Check if activity date is after the start date.
-
-        Args:
-            activity: Activity dict from Garmin API
-            start_date: Reference date for comparison
-
-        Returns:
-            True if activity date >= start_date, False otherwise
-        """
-        activity_date_str = activity.get("startTimeGMT") or activity.get(
-            "startTimeLocal"
-        )
-        if not activity_date_str:
-            return False
-
-        try:
-            activity_date = datetime.fromisoformat(
-                activity_date_str.replace("Z", "+00:00")
-            )
-            return activity_date >= start_date
-        except ValueError:
-            return False
 
     def _ensure_authenticated_client(self) -> Garmin:
         """Return authenticated Garmin client, logging in lazily if needed."""

@@ -1,6 +1,7 @@
 """Tests for Garmin physiometrics sync handler."""
 
-from unittest.mock import Mock
+from datetime import datetime, timezone
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -145,3 +146,104 @@ def test_sync_handler_tolerates_readiness_endpoint_failures():
     # Falls back to summary/training-status values when readiness endpoints fail.
     assert kwargs["physiometrics_data"]["readiness_score"] == 80
     assert kwargs["physiometrics_data"]["recovery_time_minutes"] == 720
+
+
+def test_sync_handler_skips_dates_already_stored_when_not_forced():
+    storage = Mock()
+    storage.physiometrics = Mock()
+    storage.physiometrics.get_physiometrics_history.return_value = [
+        {"effective_date": "2026-03-03"},
+        {"effective_date": "2026-03-04"},
+    ]
+    storage.infrastructure = Mock()
+    storage.infrastructure.get_table_client = Mock(return_value=Mock(query_entities=Mock(return_value=[])))
+
+    client = Mock()
+    client.get_user_summary.return_value = _summary_payload("2026-03-03")
+    client.get_training_status.return_value = _training_status_payload()
+    client.get_training_readiness.return_value = _training_readiness_payload()
+    client.get_morning_training_readiness.return_value = None
+
+    handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
+
+    with patch(
+        "TrainingAnalyticsPlatform.handlers.garmin_physiometrics_sync_handler.datetime"
+    ) as mocked_datetime:
+        mocked_datetime.now.return_value = datetime(2026, 3, 4, tzinfo=timezone.utc)
+        mocked_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+        response, status = handler.handle("rob", lookback_days=1, force=False)
+
+    assert status == 200
+    assert response["records_skipped"] == 2
+    assert response["records_fetched"] == 0
+    assert response["count"] == 0
+    storage.physiometrics.store_physiometrics.assert_not_called()
+
+
+def test_sync_handler_force_true_reprocesses_stored_dates():
+    storage = Mock()
+    storage.physiometrics = Mock()
+    storage.physiometrics.get_physiometrics_history.return_value = [
+        {"effective_date": "2026-03-03"},
+        {"effective_date": "2026-03-04"},
+    ]
+    storage.infrastructure = Mock()
+    storage.infrastructure.upload_external_source_json = Mock(
+        return_value="physiometrics/rob/garmin/daily/blob.json"
+    )
+    state_table = Mock()
+    state_table.query_entities.return_value = [{"blob_name": "physiometrics/rob/garmin/daily/blob.json"}]
+    storage.infrastructure.get_table_client = Mock(return_value=state_table)
+
+    client = Mock()
+    client.get_user_summary.return_value = _summary_payload("2026-03-03")
+    client.get_training_status.return_value = _training_status_payload()
+    client.get_training_readiness.return_value = _training_readiness_payload()
+    client.get_morning_training_readiness.return_value = None
+
+    handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
+
+    with patch(
+        "TrainingAnalyticsPlatform.handlers.garmin_physiometrics_sync_handler.datetime"
+    ) as mocked_datetime:
+        mocked_datetime.now.return_value = datetime(2026, 3, 4, tzinfo=timezone.utc)
+        mocked_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+        response, status = handler.handle("rob", lookback_days=1, force=True)
+
+    assert status == 200
+    assert response["records_skipped"] == 0
+    assert response["records_fetched"] == 2
+    assert storage.physiometrics.store_physiometrics.call_count == 2
+
+
+def test_sync_handler_continues_when_prefetch_history_fails():
+    storage = Mock()
+    storage.physiometrics = Mock()
+    storage.physiometrics.get_physiometrics_history.side_effect = RuntimeError("table read failed")
+    storage.infrastructure = Mock()
+    storage.infrastructure.upload_external_source_json = Mock(
+        return_value="physiometrics/rob/garmin/daily/blob.json"
+    )
+    state_table = Mock()
+    state_table.query_entities.return_value = [{"blob_name": "physiometrics/rob/garmin/daily/blob.json"}]
+    storage.infrastructure.get_table_client = Mock(return_value=state_table)
+
+    client = Mock()
+    client.get_user_summary.return_value = _summary_payload("2026-03-03")
+    client.get_training_status.return_value = _training_status_payload()
+    client.get_training_readiness.return_value = _training_readiness_payload()
+    client.get_morning_training_readiness.return_value = None
+
+    handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
+
+    with patch(
+        "TrainingAnalyticsPlatform.handlers.garmin_physiometrics_sync_handler.datetime"
+    ) as mocked_datetime:
+        mocked_datetime.now.return_value = datetime(2026, 3, 4, tzinfo=timezone.utc)
+        mocked_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+        response, status = handler.handle("rob", lookback_days=1, force=False)
+
+    assert status == 200
+    assert response["records_fetched"] == 2
+    assert response["records_skipped"] == 0
+    assert storage.physiometrics.store_physiometrics.call_count == 2

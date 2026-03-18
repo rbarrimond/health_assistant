@@ -598,10 +598,11 @@ Manual sync (HTTP):
 ```bash
 curl -X POST "https://<FUNCTION_APP>.azurewebsites.net/api/garmin/sync?code=<FUNCTION_KEY>" \
   -H "Content-Type: application/json" \
-  -d '{"lookback_days": 30, "athlete_id": "rob", "async": true}'
+  -d '{"lookback_days": 30, "athlete_id": "rob", "async": true, "force": false}'
 ```
 
-By default the endpoint runs asynchronously and returns a 202 response. Set `async=false` to block and wait for results.
+By default the endpoint runs synchronously and returns a 200 response. Set `async=true` to queue background execution and return 202.
+Set `force=true` to bypass activity-id prefiltering and reprocess listed activities.
 
 Automatic sync (Timer):
 
@@ -619,7 +620,8 @@ Runs a sync of recent activities. Accepts JSON body:
 {
   "lookback_days": 30,
   "athlete_id": "rob",
-  "async": true
+  "async": true,
+  "force": false
 }
 ```
 
@@ -629,7 +631,8 @@ Runs a sync of recent activities. Accepts JSON body:
 {
   "status": "queued",
   "athlete_id": "rob",
-  "lookback_days": 30
+  "lookback_days": 30,
+  "force": false
 }
 ```
 
@@ -639,9 +642,11 @@ Runs a sync of recent activities. Accepts JSON body:
 {
   "status": "success",
   "lookback_days": 30,
+  "force": false,
   "found": 15,
   "ingested": 12,
   "skipped": 3,
+  "skipped_by_id": 2,
   "failed": 0,
   "errors": [],
   "items": [...]
@@ -655,11 +660,12 @@ Runs a daily Garmin physiometrics sync using Garmin summary and training-status 
 ```json
 {
   "lookback_days": 7,
-  "athlete_id": "rob"
+  "athlete_id": "rob",
+  "force": false
 }
 ```
 
-Successful responses include `count`, `records_fetched`, `records_processed`, and `records_failed`. Partial day-level failures return HTTP `207` with accumulated `errors`. Each fetched Garmin daily payload is also archived to the `external-sources` container and tracked in `SourceIngestionState` for replayability.
+Successful responses include `count`, `records_fetched`, `records_processed`, `records_skipped`, and `records_failed`. Partial day-level failures return HTTP `207` with accumulated `errors`. Each fetched Garmin daily payload is also archived to the `external-sources` container and tracked in `SourceIngestionState` for replayability. Set `force=true` to bypass stored-date prefiltering and re-fetch all days in the requested range.
 
 ### Garmin Implementation Files
 
@@ -680,7 +686,7 @@ Successful responses include `count`, `records_fetched`, `records_processed`, an
 ### Activity Sync Workflow
 
 1. **Fetch Activity List:** Query Garmin Connect for activities within lookback window
-2. **Deduplicate:** Check `IngestionState` table to avoid reprocessing
+2. **Prefilter by Activity ID:** Check `IngestionState` table by `activityId` and skip terminal states before FIT download (unless `force=true`)
 3. **Download FIT Files:** Get original FIT file for each new activity
 4. **Parse & Store:** Use standard FIT parser → canonical schema → Workouts table
 5. **Track State:** Record ingestion status in `IngestionState` with source metadata
@@ -693,7 +699,12 @@ Activities are identified by:
 - `source_system`: "Garmin" (stored in IngestionState table only, not queryable in Workouts)
 - `file_sha256`: Hash of FIT file content (stored in IngestionState for dedup verification)
 
-The ingestion handler checks `IngestionState` before processing each activity:
+The sync orchestration checks `IngestionState` before FIT download using `source_item_id` (Garmin `activityId`):
+
+- Skip activity when existing status is terminal (`ingested`, `skipped`, `skipped_duplicate`, `filtered`) and `force=false`
+- Include skip telemetry via `skipped_by_id` and item status `skipped_seen_id`
+
+The ingestion handler still performs hash-level deduplication for downloaded FIT payloads:
 
 - Skip if `source_item_id` + `file_sha256` match existing state
 - Reuse existing `workout_id` when reprocessing

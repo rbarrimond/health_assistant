@@ -891,9 +891,19 @@ def garmin_physiometrics_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     lookback_days = body.get("lookback_days")
     if lookback_days is None:
         lookback_days = req.params.get("lookback_days")
+    force_raw = body.get("force")
+    if force_raw is None:
+        force_raw = req.params.get("force")
+    force = False
+    if isinstance(force_raw, bool):
+        force = force_raw
+    elif isinstance(force_raw, str):
+        force = force_raw.lower() in ("true", "1", "yes")
+    elif isinstance(force_raw, int):
+        force = force_raw == 1
 
     handler = dependencies.garmin_physiometrics_service
-    response, status = handler.handle(athlete_id, lookback_days)
+    response, status = handler.handle(athlete_id, lookback_days, force=force)
     return json_response(response, status)
 
 

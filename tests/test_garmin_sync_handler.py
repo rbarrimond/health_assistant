@@ -221,9 +221,89 @@ class TestGarminSyncRequest:
 
         assert request.lookback_days is None
 
+    def test_force_from_body_true(self):
+        request = GarminSyncRequest({"force": "true"}, {})
+
+        assert request.force is True
+
+    def test_force_from_query_false(self):
+        request = GarminSyncRequest({}, {"force": "false"})
+
+        assert request.force is False
+
 
 class TestGarminSyncHandler:
     """Tests for Garmin sync response status mapping."""
+
+    def test_sync_skips_previously_seen_activity_ids_without_download(self):
+        storage = MagicMock()
+        storage.workouts = MagicMock()
+        storage.workouts.get_ingestion_state.side_effect = [
+            {"status": "ingested"},
+            None,
+        ]
+
+        client = MagicMock()
+        client.list_activities.return_value = [
+            _build_activity("a1", "2026-02-20T10:00:00+00:00", 3600),
+            _build_activity("a2", "2026-02-20T11:00:00+00:00", 3500),
+        ]
+
+        ingestion_handler = MagicMock()
+        ingestion_handler.handle.return_value = (
+            {"status": "success", "workout_id": "w2"},
+            200,
+        )
+
+        handler = GarminSyncHandler(
+            config=GarminSyncConfig(email="user@example.com", password="x" * 12, lookback_days=30),
+            storage=storage,
+            client=client,
+            ingestion_handler=ingestion_handler,
+        )
+
+        results = handler.sync(athlete_id="rob", lookback_days=30)
+
+        assert results["status"] == "success"
+        assert results["found"] == 2
+        assert results["ingested"] == 1
+        assert results["skipped"] == 1
+        assert results["skipped_by_id"] == 1
+        assert any(item["status"] == "skipped_seen_id" for item in results["items"])
+        assert ingestion_handler.handle.call_count == 1
+
+    def test_sync_force_true_bypasses_seen_id_skip(self):
+        storage = MagicMock()
+        storage.workouts = MagicMock()
+        storage.workouts.get_ingestion_state.return_value = {"status": "ingested"}
+
+        client = MagicMock()
+        client.list_activities.return_value = [
+            _build_activity("a1", "2026-02-20T10:00:00+00:00", 3600),
+            _build_activity("a2", "2026-02-20T11:00:00+00:00", 3500),
+        ]
+
+        ingestion_handler = MagicMock()
+        ingestion_handler.handle.side_effect = [
+            ({"status": "success", "workout_id": "w1"}, 200),
+            ({"status": "success", "workout_id": "w2"}, 200),
+        ]
+
+        handler = GarminSyncHandler(
+            config=GarminSyncConfig(email="user@example.com", password="x" * 12, lookback_days=30),
+            storage=storage,
+            client=client,
+            ingestion_handler=ingestion_handler,
+        )
+
+        results = handler.sync(athlete_id="rob", lookback_days=30, force=True)
+
+        assert results["status"] == "success"
+        assert results["force"] is True
+        assert results["ingested"] == 2
+        assert results["skipped_by_id"] == 0
+        assert ingestion_handler.handle.call_count == 2
+        storage.workouts.get_ingestion_state.assert_not_called()
 
     def test_handle_sync_returns_401_for_authentication_failures(self):
         storage = MagicMock()
