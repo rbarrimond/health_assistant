@@ -545,7 +545,7 @@ traces
 
 **Status:** ✅ Production
 
-The Garmin backend provides access to workout data directly from Garmin Connect using the [garth](https://github.com/matin/garth) library for OAuth token management. It syncs activities as FIT files and reuses the existing FIT parsing pipeline.
+The Garmin backend provides access to workout data directly from Garmin Connect using the `garminconnect` library with account credential login. It syncs activities as FIT files and reuses the existing FIT parsing pipeline.
 
 Garmin also exposes a physiometrics sync that fetches daily summary and training-status metrics into the `Physiometrics` table. Under canonical wellness schema `4.1.0`, Garmin owns performance and training-state fields including `ftp_watts`, `cycling_vo2max_ml_kg_min`, `running_vo2max_ml_kg_min`, `hr_lthr_bpm`, `hr_max_bpm`, `training_load`, `recovery_time_minutes`, `readiness_score`, `training_effect_*`, `training_stress_*`, and `atp_probability`. `resting_hr_bpm` remains Intervals-exclusive and Garmin values are intentionally ignored.
 
@@ -554,7 +554,7 @@ Garmin also exposes a physiometrics sync that fetches daily summary and training
 ```text
 Garmin Connect API
     ↓
-Garth OAuth Token Management
+GarminConnect login (email/password)
     ↓
 Azure Function (Daily Timer + HTTP sync)
     ↓
@@ -565,7 +565,7 @@ FIT Parser → Metrics → Azure Table Storage
 
 **Key Features:**
 
-- OAuth 2.0 with automatic token management via garth library
+- Email/password login via `garminconnect`
 - Daily sync at 3 AM UTC
 - Configurable lookback window
 - Download original FIT files
@@ -575,31 +575,23 @@ FIT Parser → Metrics → Azure Table Storage
 
 - Garmin Connect account with activities
 - Azure Function deployed with Garmin sync endpoints
-- OAuth tokens to be obtained via authorization flow
+- Garmin credentials configured in Function App settings (`GARMIN_EMAIL`, `GARMIN_PASSWORD`)
 
 ### Garmin Setup & Configuration
 
-#### 1. Authorize with Garmin (First Time Only)
+#### 1. Configure Garmin Environment Variables
 
-**OAuth Authorization Flow:**
-
-```bash
-curl -X GET "https://<FUNCTION_APP>.azurewebsites.net/api/garmin/authorize?athlete_id=rob&code=<FUNCTION_KEY>"
-```
-
-This returns an authorization URL. Open it in a browser and complete the Garmin login flow (including 2FA if enabled). The function will exchange the OAuth tokens and store them in the `GarminTokens` table.
-
-#### 2. Configure Garmin Environment Variables
-
-Set this in your Function App configuration:
+Set these in your Function App configuration:
 
 ```bash
+GARMIN_EMAIL=<garmin-account-email>
+GARMIN_PASSWORD=<garmin-account-password>
 GARMIN_SYNC_LOOKBACK_DAYS=30  # Optional, defaults to 30 days
 ```
 
-**Note:** OAuth tokens are stored in the `GarminTokens` table after authorization (no passwords stored in config).
+In Azure deployments, store `GARMIN_EMAIL` and `GARMIN_PASSWORD` in Key Vault and use Key Vault references in app settings.
 
-#### 3. Run Sync
+#### 2. Run Sync
 
 Manual sync (HTTP):
 
@@ -654,6 +646,7 @@ Runs a sync of recent activities. Accepts JSON body:
   "errors": [],
   "items": [...]
 }
+```
 
 #### POST /api/garmin/physiometrics/sync
 
@@ -678,30 +671,11 @@ Successful responses include `count`, `records_fetched`, `records_processed`, an
 | [function_app.py](../../function_app.py) | HTTP sync endpoint + daily timer trigger |
 | [table_storage.py](../../TrainingAnalyticsPlatform/storage/table_storage.py) | Ingestion state tracking |
 
-### Garmin OAuth Token Management
+### Garmin Credential Management
 
-**Token Storage:**
-
-- Stored in `GarminTokens` table
-- PartitionKey: `athlete_id`
-- RowKey: `garmin`
-- Contains: `oauth1_token`, `oauth2_token` (JSON strings from garth)
-
-**Token Refresh:**
-
-- garth library handles token refresh automatically
-- Tokens loaded at sync time using `load_stored_tokens()`
-- Updated tokens persisted back to storage
-
-**Token Retrieval:**
-
-```python
-from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
-
-storage = StorageCoordinator()
-tokens = storage.oauth_tokens.get_garmin_tokens(athlete_id="rob")
-# Returns: {oauth1_token, oauth2_token, updated_at_utc}
-```
+- Credentials are read from `GARMIN_EMAIL` and `GARMIN_PASSWORD`.
+- In Azure, these should be Key Vault references resolved by the Function App managed identity.
+- No `GarminTokens` table is used by the current runtime Garmin integration.
 
 ### Activity Sync Workflow
 
@@ -808,7 +782,7 @@ except Exception as exc:
 | **Deduplication** | Activity ID + hash | Item ID + hash |
 | **Lookback** | 30 days default | 30 days default |
 | **Manual Sync** | `/api/garmin/sync` | `/api/onedrive/sync` |
-| **Token Storage** | Managed by library | `OneDriveTokens` table |
+| **Credential Storage** | App settings/Key Vault (`GARMIN_EMAIL`, `GARMIN_PASSWORD`) | `OneDriveTokens` table |
 
 ---
 

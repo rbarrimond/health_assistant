@@ -155,9 +155,8 @@ Read Interfaces
 
 **Garmin Connect Integration** (see [BACKENDS.md](./docs/devops/BACKENDS.md) for setup):
 
-- `GARMIN_CLIENT_ID`: Garmin developer app client ID
-- `GARMIN_CLIENT_SECRET`: Garmin developer app client secret
-- `GARMIN_REDIRECT_URI`: OAuth redirect URI (points to `/api/garmin/callback`)
+- `GARMIN_EMAIL`: Garmin Connect account email (stored in Key Vault in Azure)
+- `GARMIN_PASSWORD`: Garmin Connect account password (stored in Key Vault in Azure)
 - `GARMIN_SYNC_LOOKBACK_DAYS`: Activity sync window in days (default: `30`)
 
 **API Documentation** (for ChatGPT plugin):
@@ -374,14 +373,13 @@ health_assistant/
 - Time-series tracking with Azure Table Storage
 - CRUD endpoints for physiometrics data
 
-**Garmin Connect** (OAuth + garth library):
+**Garmin Connect** (`garminconnect` email/password login):
 
-- OAuth 1.0/2.0 hybrid authentication via garth
+- Login using `GARMIN_EMAIL` + `GARMIN_PASSWORD`
 - Automatic daily sync via timer trigger (3 AM UTC)
 - Configurable lookback window (default: 30 days)
 - HTTP endpoint for manual sync: `POST /api/garmin/sync`
 - FIT file download and parsing
-- Token persistence in Table Storage
 
 **Backup & Export**:
 
@@ -449,7 +447,7 @@ health_assistant/
 - `POST /api/config/update` - Update athlete metrics (stored in Table Storage)
 - `GET /api/config/history` - Configuration audit trail
 
-**Backend Integration** (10 endpoints):
+**Backend Integration** (9 endpoints):
 
 - `POST /api/process_fit` - Direct FIT file upload (admin)
 - `GET /api/onedrive/authorize` - OneDrive OAuth flow (admin)
@@ -458,9 +456,8 @@ health_assistant/
 - `GET /api/withings/authorize` - Withings OAuth flow (admin)
 - `GET /api/withings/callback` - Withings OAuth callback
 - `POST /api/withings/webhook` - Withings webhook receiver
-- `GET /api/garmin/authorize` - Garmin OAuth flow (admin)
-- `GET /api/garmin/callback` - Garmin OAuth callback handler
 - `POST /api/garmin/sync` - Manual sync trigger (admin)
+- `POST /api/garmin/physiometrics/sync` - Manual Garmin physiometrics sync (admin)
 
 **ChatGPT Plugin** (3 endpoints):
 

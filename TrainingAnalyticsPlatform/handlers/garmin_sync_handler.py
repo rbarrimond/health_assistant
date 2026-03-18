@@ -603,6 +603,11 @@ class GarminSyncHandler:
         """Execute synchronous sync."""
         try:
             results = self.sync(athlete_id=athlete_id, lookback_days=lookback_days)
+            if results.get("status") == "error":
+                message = str(results.get("message", ""))
+                if message.startswith("Authentication failed:"):
+                    return results, 401
+                return results, 500
             return results, 200
         except HealthAssistantError as exc:
             logger.error(

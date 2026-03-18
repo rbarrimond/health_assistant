@@ -17,16 +17,22 @@ class GarminConnectAuthenticationError(Exception):
 class GarminConnectConnectionError(Exception):
     """Exception raised for Garmin Connect connection failures."""
 
+
+class GarminConnectTooManyRequestsError(Exception):
+    """Exception raised when Garmin Connect throttles requests."""
+
 # Try to use the real implementations from garminconnect
 try:
     from garminconnect import (
         Garmin as GarminImpl,
         GarminConnectAuthenticationError as _GarminAuthError,
         GarminConnectConnectionError as _GarminConnError,
+        GarminConnectTooManyRequestsError as _GarminTooManyRequestsError,
     )
     # Update our namespace to use the real implementations if available
     GarminConnectAuthenticationError = _GarminAuthError  # type: ignore[assignment]
     GarminConnectConnectionError = _GarminConnError  # type: ignore[assignment]
+    GarminConnectTooManyRequestsError = _GarminTooManyRequestsError  # type: ignore[assignment]
 except ImportError:  # pragma: no cover - optional dependency in test/runtime variants
     GarminImpl = None  # type: ignore[assignment]
 
@@ -72,16 +78,26 @@ class GarminConnectClient:
             )
 
         try:
-            self.client = GarminImpl(self.email, self.password)
-            self.client.login()
+            candidate_client = GarminImpl(self.email, self.password)
+            candidate_client.login()
+            self.client = candidate_client
             logger.info("Successfully authenticated with Garmin Connect")
         except GarminConnectAuthenticationError as exc:
+            self.client = None
             logger.error("Garmin authentication failed: %s", exc)
             raise GarminConnectError("Authentication failed - check credentials") from exc
+        except GarminConnectTooManyRequestsError as exc:
+            self.client = None
+            logger.error("Garmin login throttled: %s", exc)
+            raise GarminConnectError(
+                "Garmin Connect rate limited this login attempt"
+            ) from exc
         except GarminConnectConnectionError as exc:
+            self.client = None
             logger.error("Garmin connection failed: %s", exc)
             raise GarminConnectError("Connection to Garmin Connect failed") from exc
         except Exception as exc:
+            self.client = None
             logger.error("Unexpected error during Garmin login: %s", exc)
             raise GarminConnectError("Failed to authenticate with Garmin Connect") from exc
 

@@ -5,6 +5,8 @@
 from unittest.mock import MagicMock
 
 from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import (
+    GarminSyncConfig,
+    GarminSyncHandler,
     GarminSyncIngestionHandler,
     GarminSyncRequest,
 )
@@ -218,3 +220,41 @@ class TestGarminSyncRequest:
         request = GarminSyncRequest({"lookback_days": "invalid"}, {})
 
         assert request.lookback_days is None
+
+
+class TestGarminSyncHandler:
+    """Tests for Garmin sync response status mapping."""
+
+    def test_handle_sync_returns_401_for_authentication_failures(self):
+        storage = MagicMock()
+        handler = GarminSyncHandler(
+            config=GarminSyncConfig(email="user@example.com", password="x" * 12, lookback_days=30),
+            storage=storage,
+            client=MagicMock(),
+        )
+        handler.sync = MagicMock(return_value={  # type: ignore[method-assign]
+            "status": "error",
+            "message": "Authentication failed: Garmin Connect rate limited this login attempt",
+        })
+
+        body, status = handler._handle_sync("rob", 30)  # pylint: disable=protected-access
+
+        assert status == 401
+        assert body["status"] == "error"
+
+    def test_handle_sync_returns_500_for_non_auth_sync_errors(self):
+        storage = MagicMock()
+        handler = GarminSyncHandler(
+            config=GarminSyncConfig(email="user@example.com", password="x" * 12, lookback_days=30),
+            storage=storage,
+            client=MagicMock(),
+        )
+        handler.sync = MagicMock(return_value={  # type: ignore[method-assign]
+            "status": "error",
+            "message": "Failed to list activities: upstream service unavailable",
+        })
+
+        body, status = handler._handle_sync("rob", 30)  # pylint: disable=protected-access
+
+        assert status == 500
+        assert body["status"] == "error"
