@@ -7,6 +7,7 @@ import pytest
 from TrainingAnalyticsPlatform.handlers.garmin_physiometrics_sync_handler import (
     GarminPhysiometricsSyncHandler,
 )
+from TrainingAnalyticsPlatform.integrations.garmin_client import GarminConnectError
 
 
 def _summary_payload(date_str: str) -> dict:
@@ -35,6 +36,13 @@ def _training_status_payload() -> dict:
     }
 
 
+def _training_readiness_payload() -> dict:
+    return {
+        "score": 84,
+        "recoveryTimeMinutes": 600,
+    }
+
+
 def test_sync_handler_stores_combined_metrics():
     storage = Mock()
     storage.physiometrics = Mock()
@@ -47,6 +55,8 @@ def test_sync_handler_stores_combined_metrics():
     client = Mock()
     client.get_user_summary.return_value = _summary_payload("2026-03-03")
     client.get_training_status.return_value = _training_status_payload()
+    client.get_training_readiness.return_value = _training_readiness_payload()
+    client.get_morning_training_readiness.return_value = None
 
     handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
 
@@ -62,6 +72,8 @@ def test_sync_handler_stores_combined_metrics():
     assert kwargs["physiometrics_data"]["training_load"] == 76
     assert kwargs["physiometrics_data"]["cycling_vo2max_ml_kg_min"] == pytest.approx(58.3)
     assert kwargs["physiometrics_data"]["running_vo2max_ml_kg_min"] == pytest.approx(55.1)
+    assert kwargs["physiometrics_data"]["readiness_score"] == 84
+    assert kwargs["physiometrics_data"]["recovery_time_minutes"] == 600
     assert "ext_json" in kwargs["physiometrics_data"]
     storage.infrastructure.upload_external_source_json.assert_called()
 
@@ -72,6 +84,8 @@ def test_sync_handler_validates_lookback_days_type():
     storage.infrastructure = Mock()
     storage.infrastructure.get_table_client = Mock(return_value=Mock(query_entities=Mock(return_value=[])))
     client = Mock()
+    client.get_training_readiness.return_value = _training_readiness_payload()
+    client.get_morning_training_readiness.return_value = None
 
     handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
 
@@ -93,6 +107,8 @@ def test_sync_handler_reports_partial_errors():
     client = Mock()
     client.get_user_summary.return_value = _summary_payload("2026-03-03")
     client.get_training_status.side_effect = RuntimeError("garmin unavailable")
+    client.get_training_readiness.return_value = _training_readiness_payload()
+    client.get_morning_training_readiness.return_value = None
 
     handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
 
@@ -102,3 +118,30 @@ def test_sync_handler_reports_partial_errors():
     assert response["count"] == 0
     assert response["errors"] is not None
     assert response["records_failed"] >= 1
+
+
+def test_sync_handler_tolerates_readiness_endpoint_failures():
+    storage = Mock()
+    storage.physiometrics = Mock()
+    storage.infrastructure = Mock()
+    storage.infrastructure.upload_external_source_json = Mock(return_value="physiometrics/rob/garmin/daily/blob.json")
+    state_table = Mock()
+    state_table.query_entities.return_value = [{"blob_name": "physiometrics/rob/garmin/daily/blob.json"}]
+    storage.infrastructure.get_table_client = Mock(return_value=state_table)
+
+    client = Mock()
+    client.get_user_summary.return_value = _summary_payload("2026-03-03")
+    client.get_training_status.return_value = _training_status_payload()
+    client.get_training_readiness.side_effect = GarminConnectError("readiness unavailable")
+    client.get_morning_training_readiness.side_effect = GarminConnectError("morning readiness unavailable")
+
+    handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
+
+    response, status = handler.handle("rob", lookback_days=1)
+
+    assert status == 200
+    assert response["count"] >= 1
+    kwargs = storage.physiometrics.store_physiometrics.call_args.kwargs
+    # Falls back to summary/training-status values when readiness endpoints fail.
+    assert kwargs["physiometrics_data"]["readiness_score"] == 80
+    assert kwargs["physiometrics_data"]["recovery_time_minutes"] == 720

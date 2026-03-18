@@ -121,12 +121,26 @@ class PhysiometricsSnapshot(BaseModel):
         None, ge=0, le=100, description="Garmin ATP/energy availability percentage"
     )
 
+    # Training status and load focus (Garmin exclusive)
+    training_status_label: Optional[str] = Field(
+        None, description="Garmin training status label (e.g., PRODUCTIVE, MAINTAINING, OVERREACHING, RECOVERY)"
+    )
+    load_focus_low_aerobic_pct: Optional[float] = Field(
+        None, ge=0, le=100, description="Percentage of Load Focus in low aerobic zone"
+    )
+    load_focus_high_aerobic_pct: Optional[float] = Field(
+        None, ge=0, le=100, description="Percentage of Load Focus in high aerobic zone"
+    )
+    load_focus_anaerobic_pct: Optional[float] = Field(
+        None, ge=0, le=100, description="Percentage of Load Focus in anaerobic zone"
+    )
+
     # Provenance and versioning
     data_sources: str = Field(
         default="", description="CSV of sources: withings,garmin,intervals"
     )
     canonical_version: str = Field(
-        default="4.1.0", description="Schema version (4.1.0 = running VO2Max promotion; 4.0.0 = SDNN/SpO2 promotion, Intervals body fallback, load-field removal)"
+        default="4.2.0", description="Schema version (4.2.0 = training status + load focus fields; 4.1.0 = running VO2Max promotion; 4.0.0 = SDNN/SpO2 promotion, Intervals body fallback, load-field removal)"
     )
     last_updated_utc: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
@@ -189,6 +203,12 @@ class PhysiometricsSnapshot(BaseModel):
             "training_stress_score": self.training_stress_score,
             "training_stress_balance": self.training_stress_balance,
             "atp_probability": self.atp_probability,
+
+            # Training status and load focus (Garmin exclusive)
+            "training_status_label": self.training_status_label,
+            "load_focus_low_aerobic_pct": self.load_focus_low_aerobic_pct,
+            "load_focus_high_aerobic_pct": self.load_focus_high_aerobic_pct,
+            "load_focus_anaerobic_pct": self.load_focus_anaerobic_pct,
         }
 
 
@@ -242,12 +262,32 @@ class TrainingStateSnapshot(BaseModel):
         None, ge=0, description="Predicted days to full recovery"
     )
 
+    # Garmin training signals (pass-through from physiometrics)
+    garmin_training_status: Optional[str] = Field(
+        None, description="Garmin training status label (e.g., PRODUCTIVE, MAINTAINING, OVERREACHING)"
+    )
+    garmin_training_load: Optional[float] = Field(
+        None, ge=0, description="Garmin 7-day training load (distinct from our computed CTS)"
+    )
+    garmin_recovery_time_hours: Optional[float] = Field(
+        None, ge=0, description="Garmin estimated recovery time in hours"
+    )
+    garmin_load_focus_low_aerobic_pct: Optional[float] = Field(
+        None, ge=0, le=100, description="Percentage of Load Focus in low aerobic zone"
+    )
+    garmin_load_focus_high_aerobic_pct: Optional[float] = Field(
+        None, ge=0, le=100, description="Percentage of Load Focus in high aerobic zone"
+    )
+    garmin_load_focus_anaerobic_pct: Optional[float] = Field(
+        None, ge=0, le=100, description="Percentage of Load Focus in anaerobic zone"
+    )
+
     # Provenance and versioning
     data_sources: str = Field(
         default="", description="CSV of sources: workouts,physiometrics,garmin"
     )
     canonical_version: str = Field(
-        default="4.0.0", description="Schema version of this snapshot"
+        default="5.1.0", description="Schema version (5.1.0 = Garmin training signals; 5.0.0 = readiness separation; 4.2.0 = training status + load focus)"
     )
     last_updated_utc: datetime = Field(
         default_factory=lambda: datetime.now(UTC), description="When snapshot was computed"

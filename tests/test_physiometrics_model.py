@@ -288,3 +288,21 @@ class TestPhysiometricsSnapshotToStorageDict:
         assert storage_dict["training_stress_balance"] is None
         assert "atp_probability" in storage_dict
         assert storage_dict["atp_probability"] is None
+
+    def test_to_storage_dict_includes_training_status_and_load_focus_fields(self) -> None:
+        """Verify Garmin training status and load-focus fields are explicitly mapped."""
+        snapshot = PhysiometricsSnapshot(  # type: ignore[call-arg]
+            athlete_id="athlete123",
+            effective_date="2026-03-04",
+            training_status_label="PRODUCTIVE_2",
+            load_focus_low_aerobic_pct=30.5,
+            load_focus_high_aerobic_pct=55.0,
+            load_focus_anaerobic_pct=14.5,
+        )
+
+        storage_dict = snapshot.to_storage_dict()
+
+        assert storage_dict["training_status_label"] == "PRODUCTIVE_2"
+        assert storage_dict["load_focus_low_aerobic_pct"] == pytest.approx(30.5)
+        assert storage_dict["load_focus_high_aerobic_pct"] == pytest.approx(55.0)
+        assert storage_dict["load_focus_anaerobic_pct"] == pytest.approx(14.5)

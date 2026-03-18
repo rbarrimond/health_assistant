@@ -117,12 +117,15 @@ class GarminPhysiometricsSyncHandler:
         """Fetch, archive, parse, and persist one Garmin physiometrics day."""
         summary = self.client.get_user_summary(date_str)
         training_status = self.client.get_training_status(date_str)
+        training_readiness, morning_training_readiness = self._fetch_training_readiness_payloads(date_str)
 
         blob_name = self._store_raw_payload(
             athlete_id=athlete_id,
             effective_date=date_str,
             summary=summary,
             training_status=training_status,
+            training_readiness=training_readiness,
+            morning_training_readiness=morning_training_readiness,
         )
         self.ingestion_state.record_blob_fetched(
             source_name="garmin",
@@ -134,6 +137,8 @@ class GarminPhysiometricsSyncHandler:
             {
                 "summary": summary,
                 "training_status": training_status,
+                "training_readiness": training_readiness,
+                "morning_training_readiness": morning_training_readiness,
             }
         )
         self.adapter.validate_semantic_contract(parsed)
@@ -155,12 +160,45 @@ class GarminPhysiometricsSyncHandler:
         self.ingestion_state.record_blob_processed(blob_name)
         return blob_name
 
+    def _fetch_training_readiness_payloads(
+        self,
+        date_str: str,
+    ) -> Tuple[
+        Optional[Union[Dict[str, Any], list[Dict[str, Any]]]],
+        Optional[Dict[str, Any]],
+    ]:
+        """Fetch Garmin readiness payloads; degrade gracefully when unavailable."""
+        training_readiness: Optional[Union[Dict[str, Any], list[Dict[str, Any]]]] = None
+        morning_training_readiness: Optional[Dict[str, Any]] = None
+
+        try:
+            training_readiness = self.client.get_training_readiness(date_str)
+        except GarminConnectError:
+            logger.info(
+                "Garmin training readiness unavailable for date",
+                extra={"effective_date": date_str},
+                exc_info=True,
+            )
+
+        try:
+            morning_training_readiness = self.client.get_morning_training_readiness(date_str)
+        except GarminConnectError:
+            logger.info(
+                "Garmin morning training readiness unavailable for date",
+                extra={"effective_date": date_str},
+                exc_info=True,
+            )
+
+        return training_readiness, morning_training_readiness
+
     def _store_raw_payload(
         self,
         athlete_id: str,
         effective_date: str,
         summary: Dict[str, Any],
         training_status: Dict[str, Any],
+        training_readiness: Optional[Union[Dict[str, Any], list[Dict[str, Any]]]],
+        morning_training_readiness: Optional[Dict[str, Any]],
     ) -> str:
         """Persist one Garmin daily physiometrics fetch envelope to blob storage."""
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
@@ -176,6 +214,8 @@ class GarminPhysiometricsSyncHandler:
             "payload": {
                 "summary": summary,
                 "training_status": training_status,
+                "training_readiness": training_readiness,
+                "morning_training_readiness": morning_training_readiness,
             },
         }
         self.storage.infrastructure.upload_external_source_json(blob_name, envelope)
@@ -210,6 +250,11 @@ class GarminPhysiometricsSyncHandler:
                 "has_running_vo2max": storage_dict.get("running_vo2max_ml_kg_min") is not None,
                 "has_training_load": storage_dict.get("training_load") is not None,
                 "has_readiness": storage_dict.get("readiness_score") is not None,
+                "has_training_status_label": storage_dict.get("training_status_label") is not None,
+                "has_load_focus": any(
+                    storage_dict.get(k) is not None 
+                    for k in ["load_focus_low_aerobic_pct", "load_focus_high_aerobic_pct", "load_focus_anaerobic_pct"]
+                ),
                 "has_ext_json": bool(storage_dict.get("ext_json")),
             },
         )

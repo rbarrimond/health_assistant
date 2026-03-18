@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 from azure.core.exceptions import HttpResponseError
 
+from TrainingAnalyticsPlatform.models.wellness import PhysiometricsSnapshot
 from TrainingAnalyticsPlatform.platform.exceptions import StorageError
 from TrainingAnalyticsPlatform.storage.physiometrics_storage import PhysiometricsStorage
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import StorageInfrastructure
@@ -129,6 +130,32 @@ class TestStorePhysiometrics:
 
         with pytest.raises(StorageError):
             storage.store_physiometrics("rob", physiometrics_data)
+
+    def test_store_physiometrics_accepts_typed_snapshot(self) -> None:
+        """Verify typed PhysiometricsSnapshot input persists Garmin status/load-focus fields."""
+        mock_table_client = MagicMock()
+        storage = _make_storage(mock_table_client)
+
+        snapshot = PhysiometricsSnapshot(  # type: ignore[call-arg]
+            athlete_id="rob",
+            effective_date="2026-03-16",
+            data_sources="garmin",
+            training_status_label="RECOVERY_2",
+            load_focus_low_aerobic_pct=66.7,
+            load_focus_high_aerobic_pct=17.0,
+            load_focus_anaerobic_pct=16.3,
+            training_load=107.0,
+        )
+
+        storage.store_physiometrics("rob", snapshot, data_source="garmin")
+
+        entity = mock_table_client.upsert_entity.call_args[0][0]
+        assert entity["RowKey"] == "2026-03-16|garmin"
+        assert entity["training_status_label"] == "RECOVERY_2"
+        assert entity["load_focus_low_aerobic_pct"] == pytest.approx(66.7)
+        assert entity["load_focus_high_aerobic_pct"] == pytest.approx(17.0)
+        assert entity["load_focus_anaerobic_pct"] == pytest.approx(16.3)
+        assert entity["training_load"] == pytest.approx(107.0)
 
 
 class TestGetPhysiometrics:
@@ -313,6 +340,44 @@ class TestListPhysiometricsHistory:
 
         with pytest.raises(StorageError):
             storage.list_physiometrics_history("rob", limit=10)
+
+
+class TestTypedSnapshotAsOf:
+    """Tests for typed physiometrics as-of retrieval."""
+
+    def test_get_physiometrics_snapshot_as_of_prefers_latest_source_row(self) -> None:
+        """Typed as-of retrieval should use newest row, not config-priority selection."""
+        mock_table_client = MagicMock()
+        mock_table_client.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-03-16|manual",
+                "effective_date": "2026-03-16",
+                "updated_at_utc": "2026-03-16T01:00:00+00:00",
+                "data_source": "manual",
+                "heart_rate_basis": "HRmax",
+            },
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-03-16|garmin",
+                "effective_date": "2026-03-16",
+                "updated_at_utc": "2026-03-16T02:00:00+00:00",
+                "data_source": "garmin",
+                "training_status_label": "RECOVERY_2",
+                "training_load": 107.0,
+                "load_focus_low_aerobic_pct": 66.7,
+                "load_focus_high_aerobic_pct": 17.0,
+                "load_focus_anaerobic_pct": 16.3,
+            },
+        ]
+        storage = _make_storage(mock_table_client)
+
+        snapshot = storage.get_physiometrics_snapshot_as_of("rob", "2026-03-16")
+
+        assert snapshot is not None
+        assert snapshot.training_status_label == "RECOVERY_2"
+        assert snapshot.training_load == pytest.approx(107.0)
+        assert snapshot.load_focus_low_aerobic_pct == pytest.approx(66.7)
 
 
 class TestEnsurePhysiometricsTable:

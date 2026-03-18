@@ -18,6 +18,7 @@ from TrainingAnalyticsPlatform.analytics.semantic_layer import (
 )
 from TrainingAnalyticsPlatform.models.core import WorkoutMetricsModel, WorkoutProjection
 from TrainingAnalyticsPlatform.models.metrics.performance import DurabilityMetricsModel
+from TrainingAnalyticsPlatform.models.wellness import PhysiometricsSnapshot
 from TrainingAnalyticsPlatform.platform.exceptions import StorageError, ValidationError
 
 
@@ -792,6 +793,124 @@ class TestAnalysisQueries:
         summary = trends["summary"]
         assert summary["total_samples"] == 1
         assert summary["avg_decoupling"] == pytest.approx(2.5)
+
+
+class TestTrainingStateQueries:
+    """Tests for training-state response projections."""
+
+    def test_compute_current_training_state_includes_new_garmin_fields(
+        self, semantic_layer
+    ):
+        """Current training-state response should expose Garmin pass-through fields."""
+        snapshot = SimpleNamespace(
+            effective_date="2026-03-18",
+            cts_rolling_7d=5.1,
+            cts_rolling_28d=10.1,
+            ats_rolling=5.1,
+            fatigue_index=0.51,
+            readiness_score=None,
+            garmin_readiness_score=None,
+            garmin_training_status="PRODUCTIVE_2",
+            garmin_training_load=376.0,
+            garmin_recovery_time_hours=6.5,
+            garmin_load_focus_low_aerobic_pct=30.0,
+            garmin_load_focus_high_aerobic_pct=55.0,
+            garmin_load_focus_anaerobic_pct=15.0,
+            mood=None,
+            soreness=None,
+            pred_recovery_days=None,
+            data_sources="workouts,physiometrics",
+            canonical_version="5.1.0",
+        )
+
+        with patch.object(
+            semantic_layer,
+            "_compute_training_state_for_date",
+            return_value=snapshot,
+        ):
+            result = semantic_layer.compute_current_training_state("rob")
+
+        assert result["garmin_training_status"] == "PRODUCTIVE_2"
+        assert result["garmin_training_load"] == pytest.approx(376.0)
+        assert result["garmin_recovery_time_hours"] == pytest.approx(6.5)
+        assert result["garmin_load_focus_low_aerobic_pct"] == pytest.approx(30.0)
+        assert result["garmin_load_focus_high_aerobic_pct"] == pytest.approx(55.0)
+        assert result["garmin_load_focus_anaerobic_pct"] == pytest.approx(15.0)
+        assert "computed_at_utc" in result
+
+    def test_compute_training_state_history_includes_new_garmin_fields(
+        self, semantic_layer
+    ):
+        """History response points should include Garmin pass-through fields."""
+        snapshot = SimpleNamespace(
+            effective_date="2026-03-18",
+            cts_rolling_7d=5.1,
+            cts_rolling_28d=10.1,
+            ats_rolling=5.1,
+            fatigue_index=0.51,
+            readiness_score=None,
+            garmin_readiness_score=None,
+            garmin_training_status="MAINTAINING_2",
+            garmin_training_load=325.0,
+            garmin_recovery_time_hours=5.0,
+            garmin_load_focus_low_aerobic_pct=32.0,
+            garmin_load_focus_high_aerobic_pct=50.0,
+            garmin_load_focus_anaerobic_pct=18.0,
+            mood=None,
+            soreness=None,
+            pred_recovery_days=None,
+            data_sources="workouts,physiometrics",
+            canonical_version="5.1.0",
+        )
+
+        with patch.object(
+            semantic_layer,
+            "_compute_training_state_for_date",
+            return_value=snapshot,
+        ):
+            result = semantic_layer.compute_training_state_history("rob", days=0)
+
+        assert result["count"] == 1
+        point = result["data_points"][0]
+        assert point["garmin_training_status"] == "MAINTAINING_2"
+        assert point["garmin_training_load"] == pytest.approx(325.0)
+        assert point["garmin_recovery_time_hours"] == pytest.approx(5.0)
+        assert point["garmin_load_focus_low_aerobic_pct"] == pytest.approx(32.0)
+        assert point["garmin_load_focus_high_aerobic_pct"] == pytest.approx(50.0)
+        assert point["garmin_load_focus_anaerobic_pct"] == pytest.approx(18.0)
+
+    def test_load_latest_physiometrics_snapshot_uses_typed_storage_path(
+        self, semantic_layer, mock_storage
+    ):
+        """Semantic layer should load typed physiometrics snapshot via storage API."""
+        typed_snapshot = PhysiometricsSnapshot(  # type: ignore[call-arg]
+            athlete_id="rob",
+            effective_date="2026-03-18",
+            data_sources="garmin",
+            training_status_label="MAINTAINING_2",
+            training_load=325.0,
+        )
+        mock_storage.physiometrics.get_physiometrics_snapshot_as_of.return_value = typed_snapshot
+
+        result = semantic_layer._load_latest_physiometrics_snapshot("rob", "2026-03-18")
+
+        assert result is typed_snapshot
+        mock_storage.physiometrics.get_physiometrics_snapshot_as_of.assert_called_once_with(
+            "rob",
+            "2026-03-18",
+        )
+
+    def test_load_latest_physiometrics_snapshot_handles_storage_error(
+        self, semantic_layer, mock_storage
+    ):
+        """Semantic layer should return None when typed physiometrics lookup fails."""
+        mock_storage.physiometrics.get_physiometrics_snapshot_as_of.side_effect = StorageError(
+            "lookup failed"
+        )
+
+        result = semantic_layer._load_latest_physiometrics_snapshot("rob", "2026-03-18")
+
+        assert result is None
 
 
 class TestWeeklyRollupQueries:

@@ -174,6 +174,7 @@ class WithingsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             bone_mass_kg=bone_mass_kg,
             # Recovery metrics (Intervals exclusive)
             hrv_ln_rmssd=None,
+            hrv_sdnn_ms=None,
             sleep_duration_sec=None,
             resting_hr_bpm=None,
             # Activity (Intervals exclusive)
@@ -183,9 +184,12 @@ class WithingsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             carbs_g=None,
             protein_g=None,
             fat_g=None,
+            # Extended body/recovery metrics
+            spo2_pct=None,
             # Performance baselines (Garmin exclusive)
             ftp_watts=None,
             cycling_vo2max_ml_kg_min=None,
+            running_vo2max_ml_kg_min=None,
             hr_lthr_bpm=None,
             hr_max_bpm=None,
             # Training state (Garmin exclusive)
@@ -198,9 +202,14 @@ class WithingsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             training_stress_score=None,
             training_stress_balance=None,
             atp_probability=None,
+            # Training status and load focus (Garmin exclusive)
+            training_status_label=None,
+            load_focus_low_aerobic_pct=None,
+            load_focus_high_aerobic_pct=None,
+            load_focus_anaerobic_pct=None,
             # Metadata
             data_sources="withings",
-            canonical_version="4.1.0",
+            canonical_version="4.2.0",
         )
 
 
@@ -251,10 +260,175 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             [("acuteTrainingLoadDTO",)],
         ) or {}
 
+        most_recent_training_load_balance = self._extract_first(
+            training_status,
+            [("mostRecentTrainingLoadBalance",)],
+        ) or {}
+
+        metrics_training_load_balance_map = self._extract_first(
+            most_recent_training_load_balance,
+            [("metricsTrainingLoadBalanceDTOMap",)],
+        ) or {}
+        metrics_training_load_balance = self._first_map_value(metrics_training_load_balance_map)
+
         return {
             "most_recent_vo2max": most_recent_vo2max,
             "latest_training_status": latest_training_status,
             "acute_training_load": acute_training_load,
+            "most_recent_training_load_balance": most_recent_training_load_balance,
+            "metrics_training_load_balance": metrics_training_load_balance,
+        }
+
+    def _extract_training_status_label(self, latest_training_status: Dict[str, Any]) -> Any:
+        """Extract Garmin training status label with modern-path priority."""
+        return self._extract_first(
+            latest_training_status,
+            [
+                ("trainingStatusFeedbackPhrase",),
+                ("trainingStatusLabel",),
+                ("status",),
+            ],
+        )
+
+    @staticmethod
+    def _normalize_minutes(
+        minutes: Optional[Any] = None,
+        hours: Optional[Any] = None,
+    ) -> Optional[int]:
+        """Normalize recovery duration to minutes when provided as hours or minutes."""
+        if minutes is not None:
+            try:
+                return int(round(float(minutes)))
+            except (TypeError, ValueError):
+                return None
+        if hours is not None:
+            try:
+                return int(round(float(hours) * 60))
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def _extract_readiness_recovery(
+        self,
+        summary: Dict[str, Any],
+        training_status: Dict[str, Any],
+        training_readiness: Optional[Union[list[Dict[str, Any]], Dict[str, Any]]],
+        morning_training_readiness: Optional[Dict[str, Any]],
+    ) -> Dict[str, Optional[Any]]:
+        """Extract readiness and recovery fields with dedicated readiness payload priority."""
+        # Normalize: prefer morning_training_readiness (already a single dict from SDK),
+        # then select the best entry from training_readiness (list or dict).
+        readiness_entry: Optional[Dict[str, Any]] = morning_training_readiness
+        if readiness_entry is None:
+            if isinstance(training_readiness, list) and training_readiness:
+                # Mirror SDK preference: AFTER_WAKEUP_RESET first, else first valid entry
+                readiness_entry = next(
+                    (e for e in training_readiness if isinstance(e, dict) and e.get("inputContext") == "AFTER_WAKEUP_RESET"),
+                    next((e for e in training_readiness if isinstance(e, dict)), None),
+                )
+            elif isinstance(training_readiness, dict):
+                readiness_entry = training_readiness
+        readiness_payload: Dict[str, Any] = readiness_entry or {}
+
+        readiness = self._extract_first(
+            readiness_payload,
+            [
+                ("score",),
+                ("trainingReadinessScore",),
+                ("readiness", "score"),
+                ("readinessScore",),
+                ("value",),
+            ],
+        )
+        if readiness is None:
+            readiness = self._extract_first(
+                summary,
+                [
+                    ("stats", "readiness", "score"),
+                    ("stats", "readinessScore"),
+                    ("stats", "trainingReadiness", "score"),
+                    ("trainingReadiness", "score"),
+                ],
+            )
+
+        recovery_minutes = self._normalize_minutes(
+            minutes=self._extract_first(
+                readiness_payload,
+                [
+                    ("recoveryTimeMinutes",),
+                    ("recoveryMinutes",),
+                    ("recoveryDurationMinutes",),
+                    ("recoveryTime", "minutes"),
+                ],
+            ),
+            hours=self._extract_first(
+                readiness_payload,
+                [
+                    ("recoveryTimeHours",),
+                    ("recoveryHours",),
+                    ("recoveryTime", "hours"),
+                ],
+            ),
+        )
+        if recovery_minutes is None:
+            recovery_minutes = self._normalize_minutes(
+                minutes=self._extract_first(
+                    training_status,
+                    [
+                        ("recoveryTimeMinutes",),
+                        ("recoveryMinutes",),
+                    ],
+                )
+            )
+
+        return {
+            "readiness": readiness,
+            "recovery_time_minutes": recovery_minutes,
+        }
+
+    def _extract_load_focus_metrics(
+        self,
+        most_recent_training_load_balance: Dict[str, Any],
+        metrics_training_load_balance: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Extract load-focus metrics from modern map shape with legacy fallback."""
+        monthly_low = self._extract_first(
+            metrics_training_load_balance,
+            [("monthlyLoadAerobicLow",)],
+        )
+        monthly_high = self._extract_first(
+            metrics_training_load_balance,
+            [("monthlyLoadAerobicHigh",)],
+        )
+        monthly_anaerobic = self._extract_first(
+            metrics_training_load_balance,
+            [("monthlyLoadAnaerobic",)],
+        )
+
+        monthly_values = [monthly_low, monthly_high, monthly_anaerobic]
+        if any(value is not None for value in monthly_values):
+            numeric_values = [float(value) if value is not None else 0.0 for value in monthly_values]
+            total = sum(numeric_values)
+            if total > 0:
+                return {
+                    "load_focus_low_aerobic_pct": (numeric_values[0] / total) * 100,
+                    "load_focus_high_aerobic_pct": (numeric_values[1] / total) * 100,
+                    "load_focus_anaerobic_pct": (numeric_values[2] / total) * 100,
+                }
+
+        return {
+            "load_focus_low_aerobic_pct": self._extract_first(
+                most_recent_training_load_balance,
+                [("loadFocusWeek", "lowAerobic"), ("loadFocusWeek", "low_aerobic")],
+            ),
+            "load_focus_high_aerobic_pct": self._extract_first(
+                most_recent_training_load_balance,
+                [("loadFocusWeek", "highAerobic"), ("loadFocusWeek", "high_aerobic")],
+            ),
+            "load_focus_anaerobic_pct": self._extract_first(
+                most_recent_training_load_balance,
+                [("loadFocusWeek", "anaerobic")],
+            ),
         }
 
     def _extract_vo2_metrics(self, stats: Dict[str, Any], most_recent_vo2max: Dict[str, Any]) -> Dict[str, Any]:
@@ -293,6 +467,10 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
                 "has_training_stress_score": parsed.get("training_stress_score") is not None,
                 "has_readiness": parsed.get("readiness") is not None,
                 "has_recovery_time": parsed.get("recovery_time_minutes") is not None,
+                "has_training_status_label": parsed.get("training_status_label") is not None,
+                "has_load_focus_low_aerobic": parsed.get("load_focus_low_aerobic_pct") is not None,
+                "has_load_focus_high_aerobic": parsed.get("load_focus_high_aerobic_pct") is not None,
+                "has_load_focus_anaerobic": parsed.get("load_focus_anaerobic_pct") is not None,
             },
         )
 
@@ -300,11 +478,15 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
         """Extract queryable Garmin metrics from summary and training status payloads."""
         summary = raw_data.get("summary", raw_data)
         training_status = raw_data.get("training_status", {})
+        training_readiness = raw_data.get("training_readiness")
+        morning_training_readiness = raw_data.get("morning_training_readiness")
         stats = summary.get("stats", summary)
         context = self._extract_training_context(training_status)
         most_recent_vo2max = context["most_recent_vo2max"]
         latest_training_status = context["latest_training_status"]
         acute_training_load = context["acute_training_load"]
+        most_recent_training_load_balance = context["most_recent_training_load_balance"]
+        metrics_training_load_balance = context["metrics_training_load_balance"]
         vo2_metrics = self._extract_vo2_metrics(stats, most_recent_vo2max)
 
         training_effect = self._extract_first(
@@ -325,13 +507,25 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             ],
         )
 
+        training_status_label = self._extract_training_status_label(latest_training_status)
+        load_focus_metrics = self._extract_load_focus_metrics(
+            most_recent_training_load_balance,
+            metrics_training_load_balance,
+        )
+        readiness_recovery = self._extract_readiness_recovery(
+            summary=summary,
+            training_status=training_status,
+            training_readiness=training_readiness,
+            morning_training_readiness=morning_training_readiness,
+        )
+
         parsed = {
             "ftp": stats.get("functionThreshold"),
             "vo2max_cycling": vo2_metrics["vo2max_cycling"],
             "vo2max_running": vo2_metrics["vo2max_running"],
             "max_hr": stats.get("maxHeartRate"),
             "resting_hr": stats.get("restingHeartRate"),
-            "readiness": stats.get("readiness", {}).get("score"),
+            "readiness": readiness_recovery["readiness"],
             "training_load": self._extract_first(
                 training_status,
                 [
@@ -412,19 +606,19 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
                     ("atp",),
                 ],
             ),
-            "recovery_time_minutes": self._extract_first(
-                training_status,
-                [
-                    ("recoveryTimeMinutes",),
-                    ("recoveryMinutes",),
-                ],
-            ),
+            "recovery_time_minutes": readiness_recovery["recovery_time_minutes"],
             "lactate_threshold_hr_bpm": lactate_threshold_hr,
+            "training_status_label": training_status_label,
+            "load_focus_low_aerobic_pct": load_focus_metrics["load_focus_low_aerobic_pct"],
+            "load_focus_high_aerobic_pct": load_focus_metrics["load_focus_high_aerobic_pct"],
+            "load_focus_anaerobic_pct": load_focus_metrics["load_focus_anaerobic_pct"],
             "effective_date": summary.get("calendarDate"),
             "ext_json": json.dumps(
                 {
                     "summary": summary,
                     "training_status": training_status,
+                    "training_readiness": training_readiness,
+                    "morning_training_readiness": morning_training_readiness,
                 }
             ),
         }
@@ -482,6 +676,7 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             bone_mass_kg=None,
             # Recovery metrics (Intervals exclusive)
             hrv_ln_rmssd=None,
+            hrv_sdnn_ms=None,
             sleep_duration_sec=None,
             resting_hr_bpm=None,  # Intervals exclusive; Garmin ignored
             # Activity (Intervals exclusive)
@@ -491,6 +686,8 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             carbs_g=None,
             protein_g=None,
             fat_g=None,
+            # Extended body/recovery metrics
+            spo2_pct=None,
             # Performance baselines (Garmin exclusive)
             ftp_watts=parsed.get("ftp"),
             cycling_vo2max_ml_kg_min=parsed.get("vo2max_cycling"),
@@ -507,9 +704,14 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             training_stress_score=parsed.get("training_stress_score"),
             training_stress_balance=parsed.get("training_stress_balance"),
             atp_probability=parsed.get("atp_probability"),
+            # Training status and load focus (Garmin exclusive, new in v4.2.0)
+            training_status_label=parsed.get("training_status_label"),
+            load_focus_low_aerobic_pct=parsed.get("load_focus_low_aerobic_pct"),
+            load_focus_high_aerobic_pct=parsed.get("load_focus_high_aerobic_pct"),
+            load_focus_anaerobic_pct=parsed.get("load_focus_anaerobic_pct"),
             # Metadata
             data_sources="garmin",
-            canonical_version="4.1.0",
+            canonical_version="4.2.0",
         )
 
 
@@ -615,9 +817,14 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             training_stress_score=None,
             training_stress_balance=None,
             atp_probability=None,
+            # Training status and load focus (Garmin exclusive)
+            training_status_label=None,
+            load_focus_low_aerobic_pct=None,
+            load_focus_high_aerobic_pct=None,
+            load_focus_anaerobic_pct=None,
             # Metadata
             data_sources="intervals",
-            canonical_version="4.1.0",
+            canonical_version="4.2.0",
         )
 
 

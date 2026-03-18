@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, cast
 
 if TYPE_CHECKING:
     from garminconnect import Garmin
@@ -183,6 +183,52 @@ class GarminConnectClient:
             )
             raise GarminConnectError(
                 f"Failed to fetch Garmin training status for {date_str}"
+            ) from exc
+
+    def get_training_readiness(
+        self,
+        date_str: str,
+    ) -> Optional[Union[Dict[str, Any], list[Dict[str, Any]]]]:
+        """Fetch Garmin training readiness payload for a specific date (YYYY-MM-DD)."""
+        client = self._ensure_authenticated_client()
+        try:
+            value = client.get_training_readiness(date_str)
+            if value is None:
+                return None
+            if isinstance(value, dict):
+                return cast(Dict[str, Any], value)
+            if isinstance(value, list):
+                return cast(list[Dict[str, Any]], value)
+            logger.warning(
+                "Unexpected Garmin training readiness payload type for %s",
+                date_str,
+                extra={"payload_type": type(value).__name__},
+            )
+            return None
+        except Exception as exc:
+            logger.error(
+                "Failed to fetch Garmin training readiness for %s: %s", date_str, exc
+            )
+            raise GarminConnectError(
+                f"Failed to fetch Garmin training readiness for {date_str}"
+            ) from exc
+
+    def get_morning_training_readiness(self, date_str: str) -> Optional[Dict[str, Any]]:
+        """Fetch Garmin morning training readiness payload for a specific date (YYYY-MM-DD)."""
+        client = self._ensure_authenticated_client()
+        try:
+            value = client.get_morning_training_readiness(date_str)
+            if value is None:
+                return None
+            return cast(Dict[str, Any], value)
+        except Exception as exc:
+            logger.error(
+                "Failed to fetch Garmin morning training readiness for %s: %s",
+                date_str,
+                exc,
+            )
+            raise GarminConnectError(
+                f"Failed to fetch Garmin morning training readiness for {date_str}"
             ) from exc
 
     def download_activity_fit(self, activity_id: str) -> bytes:

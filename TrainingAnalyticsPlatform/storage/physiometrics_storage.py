@@ -3,10 +3,12 @@
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
+from pydantic import ValidationError as PydanticValidationError
 
+from TrainingAnalyticsPlatform.models.wellness import PhysiometricsSnapshot
 from TrainingAnalyticsPlatform.platform.exceptions import StorageError
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import StorageInfrastructure
 
@@ -34,6 +36,10 @@ class PhysiometricsStorage:
         "atp_probability",
         "recovery_time_minutes",
         "lactate_threshold_hr_bpm",
+        "training_status_label",
+        "load_focus_low_aerobic_pct",
+        "load_focus_high_aerobic_pct",
+        "load_focus_anaerobic_pct",
     ]
     _SUBJECTIVE_WELLNESS_MAP = {
         "subjective_soreness": "soreness",
@@ -166,10 +172,57 @@ class PhysiometricsStorage:
 
         return self._reconstruct_from_storage_entity(latest)
 
+    @staticmethod
+    def _to_snapshot_payload(canonical: Mapping[str, Any]) -> Dict[str, Any]:
+        """Build PhysiometricsSnapshot payload from reconstructed canonical dict."""
+        payload = {
+            field_name: canonical.get(field_name)
+            for field_name in PhysiometricsSnapshot.model_fields
+        }
+
+        heart_rate = canonical.get("heart_rate") or {}
+        power = canonical.get("power") or {}
+
+        payload["resting_hr_bpm"] = payload.get("resting_hr_bpm") or heart_rate.get("resting_hr_bpm")
+        payload["hr_lthr_bpm"] = payload.get("hr_lthr_bpm") or heart_rate.get("lthr_bpm") or canonical.get("lactate_threshold_hr_bpm")
+        payload["hr_max_bpm"] = payload.get("hr_max_bpm") or heart_rate.get("hr_max_bpm")
+        payload["ftp_watts"] = payload.get("ftp_watts") or power.get("ftp_watts")
+        payload["athlete_id"] = payload.get("athlete_id") or canonical.get("athlete_id") or canonical.get("PartitionKey")
+        payload["effective_date"] = payload.get("effective_date") or canonical.get("effective_date")
+        payload["last_updated_utc"] = payload.get("last_updated_utc") or canonical.get("updated_at_utc")
+        payload["data_sources"] = payload.get("data_sources") or canonical.get("data_source") or ""
+        payload["canonical_version"] = payload.get("canonical_version") or "4.2.0"
+
+        return payload
+
+    def _hydrate_entity_snapshot(
+        self,
+        latest: Mapping[str, Any],
+    ) -> PhysiometricsSnapshot:
+        """Hydrate a storage entity into validated PhysiometricsSnapshot."""
+        canonical = self._hydrate_entity(latest)
+        canonical["athlete_id"] = canonical.get("athlete_id") or latest.get("PartitionKey")
+        canonical["updated_at_utc"] = canonical.get("updated_at_utc") or latest.get("updated_at_utc")
+        canonical["effective_date"] = canonical.get("effective_date") or latest.get("effective_date")
+        payload = self._to_snapshot_payload(canonical)
+        try:
+            return PhysiometricsSnapshot(**payload)
+        except PydanticValidationError as exc:
+            logger.error(
+                "Failed to hydrate physiometrics snapshot",
+                extra={
+                    "athlete_id": latest.get("PartitionKey"),
+                    "effective_date": latest.get("effective_date"),
+                    "data_source": latest.get("data_source"),
+                },
+                exc_info=True,
+            )
+            raise StorageError("Failed to hydrate physiometrics snapshot") from exc
+
     def store_physiometrics(
         self,
         athlete_id: str,
-        physiometrics_data: Dict,
+        physiometrics_data: Union[Dict[str, Any], PhysiometricsSnapshot],
         effective_date: Optional[str] = None,
         data_source: str = "manual",
     ) -> str:
@@ -177,10 +230,19 @@ class PhysiometricsStorage:
         timestamp = datetime.now(timezone.utc).isoformat()
         normalized_source = self._normalize_data_source(data_source)
 
+        if isinstance(physiometrics_data, PhysiometricsSnapshot):
+            payload = physiometrics_data.to_storage_dict()
+            if effective_date is None:
+                effective_date = physiometrics_data.effective_date
+            if data_source == "manual" and physiometrics_data.data_sources:
+                normalized_source = self._normalize_data_source(physiometrics_data.data_sources)
+        else:
+            payload = physiometrics_data
+
         if effective_date is None:
             effective_date = datetime.now(timezone.utc).date().isoformat()
 
-        ext_json_payload = self._build_ext_json_payload(physiometrics_data)
+        ext_json_payload = self._build_ext_json_payload(payload)
 
         entity = {
             "PartitionKey": athlete_id,
@@ -188,66 +250,70 @@ class PhysiometricsStorage:
             "updated_at_utc": timestamp,
             "effective_date": effective_date,
             "data_source": normalized_source,
-            "heart_rate_basis": physiometrics_data.get("heart_rate", {}).get("basis"),
-            "heart_rate_lthr_bpm": physiometrics_data.get("heart_rate", {}).get("lthr_bpm"),
-            "heart_rate_hr_max_bpm": physiometrics_data.get("heart_rate", {}).get("hr_max_bpm"),
+            "heart_rate_basis": payload.get("heart_rate", {}).get("basis"),
+            "heart_rate_lthr_bpm": payload.get("heart_rate", {}).get("lthr_bpm"),
+            "heart_rate_hr_max_bpm": payload.get("heart_rate", {}).get("hr_max_bpm"),
             "heart_rate_resting_bpm": (
                 # Try flat key first (from PhysiometricsSnapshot.to_storage_dict)
-                physiometrics_data.get("resting_hr_bpm")
+                payload.get("resting_hr_bpm")
                 # Fall back to nested structure for backward compatibility
-                or physiometrics_data.get("heart_rate", {}).get("resting_hr_bpm")
+                or payload.get("heart_rate", {}).get("resting_hr_bpm")
                 # Final default only if no source provided value
                 or 60
             ),
-            "power_ftp_watts": physiometrics_data.get("power", {}).get("ftp_watts"),
-            "weight_kg": physiometrics_data.get("weight_kg"),
-            "fat_mass_kg": physiometrics_data.get("fat_mass_kg"),
-            "muscle_mass_kg": physiometrics_data.get("muscle_mass_kg"),
-            "bone_mass_kg": physiometrics_data.get("bone_mass_kg"),
-            "body_fat_pct": physiometrics_data.get("body_fat_pct"),
-            "visceral_fat_index": physiometrics_data.get("visceral_fat_index"),
-            "metabolic_age_years": physiometrics_data.get("metabolic_age_years"),
-            "cycling_vo2max_ml_kg_min": physiometrics_data.get("cycling_vo2max_ml_kg_min"),
-            "running_vo2max_ml_kg_min": physiometrics_data.get("running_vo2max_ml_kg_min"),
-            "hrv_ln_rmssd": physiometrics_data.get("hrv_ln_rmssd"),
-            "hrv_sdnn_ms": physiometrics_data.get("hrv_sdnn_ms"),
-            "sleep_duration_sec": physiometrics_data.get("sleep_duration_sec"),
-            "readiness_score": physiometrics_data.get("readiness_score"),
-            "training_load": physiometrics_data.get("training_load"),
-            "training_effect_aerobic": physiometrics_data.get("training_effect_aerobic"),
-            "training_effect_anaerobic": physiometrics_data.get("training_effect_anaerobic"),
-            "training_stress_score": physiometrics_data.get("training_stress_score"),
-            "training_stress_balance": physiometrics_data.get("training_stress_balance"),
-            "atp_probability": physiometrics_data.get("atp_probability"),
-            "recovery_time_minutes": physiometrics_data.get("recovery_time_minutes"),
-            "lactate_threshold_hr_bpm": physiometrics_data.get("lactate_threshold_hr_bpm"),
+            "power_ftp_watts": payload.get("power", {}).get("ftp_watts"),
+            "weight_kg": payload.get("weight_kg"),
+            "fat_mass_kg": payload.get("fat_mass_kg"),
+            "muscle_mass_kg": payload.get("muscle_mass_kg"),
+            "bone_mass_kg": payload.get("bone_mass_kg"),
+            "body_fat_pct": payload.get("body_fat_pct"),
+            "visceral_fat_index": payload.get("visceral_fat_index"),
+            "metabolic_age_years": payload.get("metabolic_age_years"),
+            "cycling_vo2max_ml_kg_min": payload.get("cycling_vo2max_ml_kg_min"),
+            "running_vo2max_ml_kg_min": payload.get("running_vo2max_ml_kg_min"),
+            "hrv_ln_rmssd": payload.get("hrv_ln_rmssd"),
+            "hrv_sdnn_ms": payload.get("hrv_sdnn_ms"),
+            "sleep_duration_sec": payload.get("sleep_duration_sec"),
+            "readiness_score": payload.get("readiness_score"),
+            "training_load": payload.get("training_load"),
+            "training_effect_aerobic": payload.get("training_effect_aerobic"),
+            "training_effect_anaerobic": payload.get("training_effect_anaerobic"),
+            "training_stress_score": payload.get("training_stress_score"),
+            "training_stress_balance": payload.get("training_stress_balance"),
+            "atp_probability": payload.get("atp_probability"),
+            "recovery_time_minutes": payload.get("recovery_time_minutes"),
+            "lactate_threshold_hr_bpm": payload.get("lactate_threshold_hr_bpm") or payload.get("hr_lthr_bpm"),
+            "training_status_label": payload.get("training_status_label"),
+            "load_focus_low_aerobic_pct": payload.get("load_focus_low_aerobic_pct"),
+            "load_focus_high_aerobic_pct": payload.get("load_focus_high_aerobic_pct"),
+            "load_focus_anaerobic_pct": payload.get("load_focus_anaerobic_pct"),
             # Extended wellness columns
-            "subjective_soreness": physiometrics_data.get("soreness"),
-            "subjective_fatigue": physiometrics_data.get("fatigue"),
-            "subjective_stress": physiometrics_data.get("stress"),
-            "subjective_mood": physiometrics_data.get("mood"),
-            "subjective_motivation": physiometrics_data.get("motivation"),
-            "subjective_injury": physiometrics_data.get("injury"),
+            "subjective_soreness": payload.get("soreness"),
+            "subjective_fatigue": payload.get("fatigue"),
+            "subjective_stress": payload.get("stress"),
+            "subjective_mood": payload.get("mood"),
+            "subjective_motivation": payload.get("motivation"),
+            "subjective_injury": payload.get("injury"),
             # Nutrition columns
-            "nutrition_calories_kcal": physiometrics_data.get("calories_kcal"),
-            "nutrition_carbs_g": physiometrics_data.get("carbs_g"),
-            "nutrition_protein_g": physiometrics_data.get("protein_g"),
-            "nutrition_fat_g": physiometrics_data.get("fat_g"),
+            "nutrition_calories_kcal": payload.get("calories_kcal"),
+            "nutrition_carbs_g": payload.get("carbs_g"),
+            "nutrition_protein_g": payload.get("protein_g"),
+            "nutrition_fat_g": payload.get("fat_g"),
             # Activity columns
-            "activity_steps": physiometrics_data.get("steps"),
+            "activity_steps": payload.get("steps"),
             # Body composition
-            "body_abdomen_cm": physiometrics_data.get("abdomen_cm"),
-            "spo2_pct": physiometrics_data.get("spo2_pct"),
-            "systolic_bp": physiometrics_data.get("systolic_bp"),
-            "diastolic_bp": physiometrics_data.get("diastolic_bp"),
-            "vo2max_ml_kg_min": physiometrics_data.get("vo2max_ml_kg_min"),
-            "menstrual_phase": physiometrics_data.get("menstrual_phase"),
-            "menstrual_phase_predicted": physiometrics_data.get("menstrual_phase_predicted"),
+            "body_abdomen_cm": payload.get("abdomen_cm"),
+            "spo2_pct": payload.get("spo2_pct"),
+            "systolic_bp": payload.get("systolic_bp"),
+            "diastolic_bp": payload.get("diastolic_bp"),
+            "vo2max_ml_kg_min": payload.get("vo2max_ml_kg_min"),
+            "menstrual_phase": payload.get("menstrual_phase"),
+            "menstrual_phase_predicted": payload.get("menstrual_phase_predicted"),
             # Sport metrics (serialized JSON)
-            "sport_info_json": physiometrics_data.get("sport_info_json"),
+            "sport_info_json": payload.get("sport_info_json"),
             # Raw source preservation (zero-loss ingestion)
-            "source_updated_at_utc": physiometrics_data.get("source_updated_at_utc"),
-            "raw_intervals_icu_json": physiometrics_data.get("raw_intervals_icu_json"),
+            "source_updated_at_utc": payload.get("source_updated_at_utc"),
+            "raw_intervals_icu_json": payload.get("raw_intervals_icu_json"),
             "ext_json": ext_json_payload,
         }
 
@@ -400,6 +466,49 @@ class PhysiometricsStorage:
                 exc_info=True,
             )
             raise StorageError("Failed to retrieve physiometrics history point") from e
+
+    def get_physiometrics_snapshot_as_of(
+        self,
+        athlete_id: str,
+        target_date: str,
+    ) -> Optional[PhysiometricsSnapshot]:
+        """Query physiometrics as-of date and hydrate to typed PhysiometricsSnapshot.
+
+        Uses latest available source row (not config-priority) to preserve observed
+        time-series signals such as Garmin training status and load focus.
+        """
+        try:
+            table_client = self.infra.get_table_client("Physiometrics")
+            query = f"PartitionKey eq '{athlete_id}' and effective_date le '{target_date}'"
+            entities = [
+                entity
+                for entity in table_client.query_entities(query)
+                if (entity.get("effective_date") or "") <= target_date
+            ]
+
+            if not entities:
+                fallback_query = f"PartitionKey eq '{athlete_id}'"
+                entities = list(table_client.query_entities(fallback_query))
+                if not entities:
+                    return None
+
+            latest = self._latest_entity(entities)
+            if latest is None:
+                return None
+
+            return self._hydrate_entity_snapshot(latest)
+        except HttpResponseError as e:
+            logger.error(
+                "Error retrieving physiometrics snapshot as of date",
+                extra={
+                    "athlete_id": athlete_id,
+                    "target_date": target_date,
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            raise StorageError("Failed to retrieve typed physiometrics history point") from e
 
     def list_physiometrics_history(
         self,

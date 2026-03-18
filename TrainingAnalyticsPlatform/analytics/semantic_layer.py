@@ -22,7 +22,7 @@ from TrainingAnalyticsPlatform.models.core import (
     WorkoutMetricsModel,
     WorkoutProjection,
 )
-from TrainingAnalyticsPlatform.models.wellness import TrainingStateSnapshot
+from TrainingAnalyticsPlatform.models.wellness import PhysiometricsSnapshot, TrainingStateSnapshot
 from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.platform.exceptions import (
     StorageError,
@@ -3225,6 +3225,12 @@ class SemanticLayer:
             "fatigue_index": snapshot.fatigue_index,
             "readiness_score": snapshot.readiness_score,
             "garmin_readiness_score": snapshot.garmin_readiness_score,
+            "garmin_training_status": snapshot.garmin_training_status,
+            "garmin_training_load": snapshot.garmin_training_load,
+            "garmin_recovery_time_hours": snapshot.garmin_recovery_time_hours,
+            "garmin_load_focus_low_aerobic_pct": snapshot.garmin_load_focus_low_aerobic_pct,
+            "garmin_load_focus_high_aerobic_pct": snapshot.garmin_load_focus_high_aerobic_pct,
+            "garmin_load_focus_anaerobic_pct": snapshot.garmin_load_focus_anaerobic_pct,
             "mood": snapshot.mood,
             "soreness": snapshot.soreness,
             "pred_recovery_days": snapshot.pred_recovery_days,
@@ -3266,6 +3272,12 @@ class SemanticLayer:
                 "fatigue_index": snapshot.fatigue_index,
                 "readiness_score": snapshot.readiness_score,
                 "garmin_readiness_score": snapshot.garmin_readiness_score,
+                "garmin_training_status": snapshot.garmin_training_status,
+                "garmin_training_load": snapshot.garmin_training_load,
+                "garmin_recovery_time_hours": snapshot.garmin_recovery_time_hours,
+                "garmin_load_focus_low_aerobic_pct": snapshot.garmin_load_focus_low_aerobic_pct,
+                "garmin_load_focus_high_aerobic_pct": snapshot.garmin_load_focus_high_aerobic_pct,
+                "garmin_load_focus_anaerobic_pct": snapshot.garmin_load_focus_anaerobic_pct,
             })
             current_date += timedelta(days=1)
         
@@ -3295,15 +3307,22 @@ class SemanticLayer:
             TrainingStateSnapshot with computed training state metrics
         """
         workouts_table = self.storage.infrastructure.get_table_client("Workouts")
-        phys_table = self.storage.infrastructure.get_table_client("Physiometrics")
-
         tss_7d, tss_28d = self._compute_rolling_tss(
             athlete_id, date, workouts_table
         )
         training_load = self._compute_training_load_components(tss_7d, tss_28d)
-        latest_physio = self._load_latest_physiometrics_snapshot(phys_table, athlete_id)
-        hrv_ln = latest_physio.get("hrv_ln_rmssd")
-        garmin_readiness = latest_physio.get("readiness_score")
+        latest_physio = self._load_latest_physiometrics_snapshot(
+            athlete_id, date.isoformat()
+        )
+        hrv_ln = latest_physio.hrv_ln_rmssd if latest_physio else None
+        garmin_readiness = latest_physio.readiness_score if latest_physio else None
+        # Extract new Garmin fields for pass-through
+        training_status_label = latest_physio.training_status_label if latest_physio else None
+        load_focus_low_aerobic_pct = latest_physio.load_focus_low_aerobic_pct if latest_physio else None
+        load_focus_high_aerobic_pct = latest_physio.load_focus_high_aerobic_pct if latest_physio else None
+        load_focus_anaerobic_pct = latest_physio.load_focus_anaerobic_pct if latest_physio else None
+        garmin_training_load = latest_physio.training_load if latest_physio else None
+        recovery_time_minutes = latest_physio.recovery_time_minutes if latest_physio else None
         composite_readiness = self._compute_composite_readiness(
             hrv_ln,
             training_load["fatigue_index"],
@@ -3314,6 +3333,12 @@ class SemanticLayer:
             training_load,
             composite_readiness,
             garmin_readiness,
+            garmin_training_load,
+            recovery_time_minutes,
+            training_status_label,
+            load_focus_low_aerobic_pct,
+            load_focus_high_aerobic_pct,
+            load_focus_anaerobic_pct,
         )
 
         logger.debug(
@@ -3345,19 +3370,19 @@ class SemanticLayer:
             "fatigue_index": fatigue_index,
         }
 
-    @staticmethod
     def _load_latest_physiometrics_snapshot(
-        phys_table: Any,
+        self,
         athlete_id: str,
-    ) -> Dict[str, Any]:
-        """Load latest physiometrics row for athlete, returning empty dict on query errors."""
-        physio_filter = f"PartitionKey eq '{athlete_id}'"
+        target_date: str,
+    ) -> Optional[PhysiometricsSnapshot]:
+        """Load latest typed physiometrics snapshot for athlete as-of target_date."""
         try:
-            physio_entities = list(phys_table.query_entities(physio_filter))
-        except HttpResponseError:
-            return {}
-        physio_entities.sort(key=lambda e: e.get("effective_date", ""), reverse=True)
-        return physio_entities[0] if physio_entities else {}
+            return self.storage.physiometrics.get_physiometrics_snapshot_as_of(
+                athlete_id,
+                target_date,
+            )
+        except StorageError:
+            return None
 
     @staticmethod
     def _build_training_state_snapshot(
@@ -3366,8 +3391,19 @@ class SemanticLayer:
         training_load: Dict[str, Optional[float]],
         composite_readiness: Optional[float],
         garmin_readiness: Optional[float],
+        garmin_training_load: Optional[float] = None,
+        recovery_time_minutes: Optional[int] = None,
+        training_status_label: Optional[str] = None,
+        load_focus_low_aerobic_pct: Optional[float] = None,
+        load_focus_high_aerobic_pct: Optional[float] = None,
+        load_focus_anaerobic_pct: Optional[float] = None,
     ) -> TrainingStateSnapshot:
         """Build training state snapshot payload from computed inputs."""
+        # Convert recovery time from minutes to hours (None-safe)
+        recovery_time_hours = (
+            recovery_time_minutes / 60 if recovery_time_minutes is not None else None
+        )
+        
         return TrainingStateSnapshot(
             athlete_id=athlete_id,
             effective_date=date.isoformat(),
@@ -3377,11 +3413,18 @@ class SemanticLayer:
             fatigue_index=training_load["fatigue_index"],
             readiness_score=composite_readiness,
             garmin_readiness_score=garmin_readiness,
+            # New Garmin pass-through fields (v5.1.0)
+            garmin_training_status=training_status_label,
+            garmin_training_load=garmin_training_load,
+            garmin_recovery_time_hours=recovery_time_hours,
+            garmin_load_focus_low_aerobic_pct=load_focus_low_aerobic_pct,
+            garmin_load_focus_high_aerobic_pct=load_focus_high_aerobic_pct,
+            garmin_load_focus_anaerobic_pct=load_focus_anaerobic_pct,
             mood=None,
             soreness=None,
             pred_recovery_days=None,
             data_sources="workouts,physiometrics",
-            canonical_version="5.0.0",
+            canonical_version="5.1.0",
         )
 
     def _compute_rolling_tss(

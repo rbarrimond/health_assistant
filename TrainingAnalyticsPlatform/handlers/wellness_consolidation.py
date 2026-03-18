@@ -22,10 +22,10 @@ logger = logging.getLogger(__name__)
 class SourcePrecedenceResolver:
     """Determines metric ownership by source precedence rules.
     
-    Schema v4.1.0 field ownership:
+    Schema v4.2.0 field ownership (updated with training status + load focus):
     - Withings: exclusive for all body composition
     - Intervals: exclusive for resting_hr_bpm, steps, nutrition (Garmin values ignored)
-    - Garmin: exclusive for training state and performance metrics
+    - Garmin: exclusive for training state and performance metrics, training status labels, load focus percentages
     """
 
     METRIC_SOURCES = {
@@ -70,6 +70,12 @@ class SourcePrecedenceResolver:
         "training_stress_score": ["garmin"],
         "training_stress_balance": ["garmin"],
         "atp_probability": ["garmin"],
+        
+        # Training status and load focus (Garmin exclusive, new in v4.2.0)
+        "training_status_label": ["garmin"],
+        "load_focus_low_aerobic_pct": ["garmin"],
+        "load_focus_high_aerobic_pct": ["garmin"],
+        "load_focus_anaerobic_pct": ["garmin"],
     }
 
     @staticmethod
@@ -86,7 +92,7 @@ class PhysiometricsConsolidationHandler:
     applies source precedence rules, and optionally writes consolidated view.
     """
 
-    CONSOLIDATED_VERSION = "4.1.0"
+    CONSOLIDATED_VERSION = "4.2.0"
     METADATA_FIELDS = {"athlete_id", "effective_date", "data_sources", "canonical_version", "last_updated_utc"}
     STORAGE_FIELD_ALIASES = {
         # Legacy nested storage format aliases
@@ -181,6 +187,7 @@ class PhysiometricsConsolidationHandler:
             body_fat_pct=None,
             # Recovery metrics (Intervals)
             hrv_ln_rmssd=None,
+            hrv_sdnn_ms=None,
             sleep_duration_sec=None,
             resting_hr_bpm=None,
             # Activity (Intervals)
@@ -190,6 +197,8 @@ class PhysiometricsConsolidationHandler:
             carbs_g=None,
             protein_g=None,
             fat_g=None,
+            # Extended body/recovery metrics
+            spo2_pct=None,
             # Performance baselines (Garmin)
             ftp_watts=None,
             cycling_vo2max_ml_kg_min=None,
@@ -206,9 +215,14 @@ class PhysiometricsConsolidationHandler:
             training_stress_score=None,
             training_stress_balance=None,
             atp_probability=None,
+            # Training status and load focus (Garmin)
+            training_status_label=None,
+            load_focus_low_aerobic_pct=None,
+            load_focus_high_aerobic_pct=None,
+            load_focus_anaerobic_pct=None,
             # Metadata
             data_sources="",
-            canonical_version="4.1.0",
+            canonical_version="4.2.0",
         )
 
     def _apply_precedence_rules(

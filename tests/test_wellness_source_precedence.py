@@ -132,3 +132,23 @@ def test_training_state_consolidation_delegates_to_semantic_layer():
         date(2026, 3, 17),
     )
     assert result == snapshot
+
+
+def test_new_garmin_fields_registered_in_metric_sources():
+    """Verify that new training status + load focus fields are Garmin-exclusive."""
+    from TrainingAnalyticsPlatform.handlers.wellness_consolidation import (
+        SourcePrecedenceResolver,
+    )
+
+    # New fields added in v4.2.0 should be Garmin-exclusive
+    new_fields = [
+        "training_status_label",
+        "load_focus_low_aerobic_pct",
+        "load_focus_high_aerobic_pct",
+        "load_focus_anaerobic_pct",
+    ]
+
+    for field in new_fields:
+        assert field in SourcePrecedenceResolver.METRIC_SOURCES, f"Field {field} not registered"
+        sources = SourcePrecedenceResolver.METRIC_SOURCES[field]
+        assert sources == ["garmin"], f"Field {field} should be Garmin-exclusive, got {sources}"
