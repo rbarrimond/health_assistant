@@ -83,7 +83,8 @@ By default the endpoint runs asynchronously and returns a 202 digest. Set `async
 
 Automatic sync (Timer):
 
-- Runs every 10 minutes
+- Runs on a configurable safety-net schedule (weekly by default)
+- Controlled by `ONEDRIVE_SYNC_TIMER_SCHEDULE`
 - Uses Microsoft Graph delta query with persisted delta token state
 - Uses `ONEDRIVE_SYNC_LOOKBACK_DAYS` by default
 
@@ -566,7 +567,7 @@ FIT Parser → Metrics → Azure Table Storage
 **Key Features:**
 
 - Email/password login via `garminconnect`
-- Daily sync at 3 AM UTC
+- Configurable safety-net schedule (weekly by default)
 - Configurable lookback window
 - Download original FIT files
 - Reuses existing FIT parsing pipeline (same as OneDrive)
@@ -587,6 +588,8 @@ Set these in your Function App configuration:
 GARMIN_EMAIL=<garmin-account-email>
 GARMIN_PASSWORD=<garmin-account-password>
 GARMIN_SYNC_LOOKBACK_DAYS=30  # Optional, defaults to 30 days
+GARMIN_SYNC_TIMER_SCHEDULE=0 0 3 * * 1  # Optional weekly safety-net schedule
+GARMIN_PHYSIOMETRICS_SYNC_TIMER_SCHEDULE=0 30 3 * * 1  # Optional weekly safety-net schedule
 ```
 
 In Azure deployments, store `GARMIN_EMAIL` and `GARMIN_PASSWORD` in Key Vault and use Key Vault references in app settings.
@@ -606,7 +609,9 @@ Set `force=true` to bypass activity-id prefiltering and reprocess listed activit
 
 Automatic sync (Timer):
 
-- Runs daily at 3 AM UTC
+- Runs on configurable safety-net schedule
+- `GARMIN_SYNC_TIMER_SCHEDULE` controls activity sync cadence
+- `GARMIN_PHYSIOMETRICS_SYNC_TIMER_SCHEDULE` controls physiometrics sync cadence
 - Uses `GARMIN_SYNC_LOOKBACK_DAYS` by default (30 days)
 - Downloads and parses FIT files for new activities
 
@@ -786,7 +791,7 @@ except Exception as exc:
 
 | Feature | Garmin Connect | HealthFit (OneDrive) |
 | --- | --- | --- |
-| **Trigger** | Daily timer (3 AM) | 10-min timer |
+| **Trigger** | Configurable safety-net timer (weekly default) | Configurable safety-net timer (weekly default) |
 | **Authentication** | Email/Password | OAuth (Microsoft Graph) |
 | **Library** | garminconnect (v0.2.38) | microsoft-graph |
 | **File Format** | FIT (direct API) | FIT/FIT.gz (files) |

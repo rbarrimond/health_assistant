@@ -146,6 +146,7 @@ Read Interfaces
 - `ONEDRIVE_SCOPES`: Space-delimited OAuth scopes (default: `'Files.ReadWrite offline_access'`)
 - `ONEDRIVE_FOLDER_PATH`: Target folder path (default: `'/Apps/HealthFit'`)
 - `ONEDRIVE_SYNC_LOOKBACK_DAYS`: Sync window in days (default: `30`)
+- `ONEDRIVE_SYNC_TIMER_SCHEDULE`: Safety-net timer cron for OneDrive sync (default: `0 0 0 * * 1`)
 
 **Withings Integration** (see [BACKENDS.md](./docs/devops/BACKENDS.md) for setup):
 
@@ -158,6 +159,12 @@ Read Interfaces
 - `GARMIN_EMAIL`: Garmin Connect account email (stored in Key Vault in Azure)
 - `GARMIN_PASSWORD`: Garmin Connect account password (stored in Key Vault in Azure)
 - `GARMIN_SYNC_LOOKBACK_DAYS`: Activity sync window in days (default: `30`)
+- `GARMIN_SYNC_TIMER_SCHEDULE`: Safety-net timer cron for Garmin activity sync (default: `0 0 3 * * 1`)
+- `GARMIN_PHYSIOMETRICS_SYNC_TIMER_SCHEDULE`: Safety-net timer cron for Garmin physiometrics sync (default: `0 30 3 * * 1`)
+- `INTERVALS_SYNC_TIMER_SCHEDULE`: Safety-net timer cron for Intervals physiometrics sync (default: `0 0 2 * * 1`)
+- `WEEKLY_ROLLUP_PRESYNC_LOOKBACK_DAYS`: JIT pre-sync lookback window before weekly rollup compute (default: `8`)
+- `WEEKLY_ROLLUP_PRESYNC_RETRY_MAX_ATTEMPTS`: Max retries per pre-sync source (default: `3`)
+- `WEEKLY_ROLLUP_PRESYNC_RETRY_BASE_DELAY_SEC`: Exponential backoff base delay in seconds (default: `1`)
 
 **API Documentation** (for ChatGPT plugin):
 
@@ -358,7 +365,7 @@ health_assistant/
 **OneDrive Personal** (OAuth + Microsoft Graph):
 
 - Delegated authentication (consumer/personal accounts)
-- Automatic hourly sync via timer trigger
+- Configurable safety-net timer trigger (weekly by default)
 - Configurable lookback window (default: 30 days)
 - HTTP endpoint for manual sync: `POST /api/onedrive/sync`
 - Idempotent ingestion (hash-based deduplication)
@@ -376,7 +383,7 @@ health_assistant/
 **Garmin Connect** (`garminconnect` email/password login):
 
 - Login using `GARMIN_EMAIL` + `GARMIN_PASSWORD`
-- Automatic daily sync via timer trigger (3 AM UTC)
+- Configurable safety-net timer trigger (weekly by default)
 - Configurable lookback window (default: 30 days)
 - HTTP endpoint for manual sync: `POST /api/garmin/sync`
 - FIT file download and parsing
@@ -465,10 +472,11 @@ health_assistant/
 - `GET /api/openapi.yaml` - OpenAPI specification
 - `GET /api/logo.svg` - Plugin logo
 
-**Timer Triggers** (3 background jobs):
+**Timer Triggers** (external safety-net + internal maintenance):
 
-- Every 10 minutes OneDrive sync (Microsoft Graph delta query)
-- Daily Garmin sync (3 AM UTC)
+- Weekly safety-net OneDrive sync (schedule configurable via `ONEDRIVE_SYNC_TIMER_SCHEDULE`)
+- Weekly safety-net Garmin sync (schedule configurable via `GARMIN_SYNC_TIMER_SCHEDULE`)
+- Weekly safety-net Intervals sync (schedule configurable via `INTERVALS_SYNC_TIMER_SCHEDULE`)
 - Daily backup export to Blob Storage (2 AM UTC)
 
 ### 🎯 API Design Principles

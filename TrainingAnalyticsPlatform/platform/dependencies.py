@@ -25,6 +25,9 @@ from TrainingAnalyticsPlatform.handlers.intervals_sync_handler import IntervalsS
 from TrainingAnalyticsPlatform.handlers.garmin_physiometrics_sync_handler import (
     GarminPhysiometricsSyncHandler,
 )
+from TrainingAnalyticsPlatform.handlers.weekly_rollup_presync_handler import (
+    WeeklyRollupPreSyncHandler,
+)
 from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
 from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
 from TrainingAnalyticsPlatform.integrations.withings_client import WithingsClient
@@ -113,6 +116,18 @@ class FunctionAppDependencies:
             client=self.garmin_client,
         )
         logger.info("Garmin physiometrics service initialized")
+        return handler
+
+    @cached_property
+    def weekly_rollup_pre_sync_service(self) -> WeeklyRollupPreSyncHandler:
+        """Return weekly rollup pre-sync orchestration service."""
+        handler = WeeklyRollupPreSyncHandler.from_env(
+            onedrive_service=self.onedrive_service,
+            garmin_service=self.garmin_service,
+            garmin_physiometrics_service=self.garmin_physiometrics_service,
+            intervals_service=self.intervals_service,
+        )
+        logger.info("Weekly rollup pre-sync service initialized")
         return handler
 
     def warmup(self) -> None:

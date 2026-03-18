@@ -49,6 +49,14 @@ setup_logging()
 
 app = func.FunctionApp()
 
+ONEDRIVE_SYNC_TIMER_SCHEDULE = os.getenv("ONEDRIVE_SYNC_TIMER_SCHEDULE", "0 0 0 * * 1")
+GARMIN_SYNC_TIMER_SCHEDULE = os.getenv("GARMIN_SYNC_TIMER_SCHEDULE", "0 0 3 * * 1")
+GARMIN_PHYSIOMETRICS_SYNC_TIMER_SCHEDULE = os.getenv(
+    "GARMIN_PHYSIOMETRICS_SYNC_TIMER_SCHEDULE",
+    "0 30 3 * * 1",
+)
+INTERVALS_SYNC_TIMER_SCHEDULE = os.getenv("INTERVALS_SYNC_TIMER_SCHEDULE", "0 0 2 * * 1")
+
 if "PYTEST_CURRENT_TEST" not in os.environ and os.getenv("SKIP_FUNCTION_APP_WARMUP") != "1":
     dependencies.warmup()
 
@@ -66,6 +74,69 @@ def _get_athlete_id_from_state(state: str | None) -> str | None:
     if not state:
         return None
     return state.split("|", 1)[0] or None
+
+
+def _coerce_bool(value: Any, default: bool) -> bool:
+    """Parse bool-like values with default fallback."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value == 1
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes", "y"}:
+            return True
+        if lowered in {"false", "0", "no", "n"}:
+            return False
+    return default
+
+
+def _run_weekly_presync_for_athletes(
+    athlete_ids: list[str], *, enabled: bool
+) -> Dict[str, Any]:
+    """Run weekly pre-sync across target athletes with fail-fast semantics."""
+    if not enabled:
+        return {
+            "enabled": False,
+            "status": "skipped",
+            "message": "Pre-sync disabled by request",
+            "athletes": [],
+        }
+
+    unique_athletes = sorted(set(athlete_ids))
+    athlete_results = []
+    lookback_days = None
+    for athlete_id in unique_athletes:
+        outcome = dependencies.weekly_rollup_pre_sync_service.run(
+            athlete_id=athlete_id,
+            enabled=True,
+        )
+        if lookback_days is None:
+            lookback_days = outcome.get("lookback_days")
+        athlete_results.append(
+            {
+                "athlete_id": athlete_id,
+                **outcome,
+            }
+        )
+        if outcome.get("status") != "success":
+            return {
+                "enabled": True,
+                "lookback_days": lookback_days,
+                "status": "failed",
+                "message": "Weekly rollup pre-sync failed; computation aborted",
+                "athletes": athlete_results,
+            }
+
+    return {
+        "enabled": True,
+        "lookback_days": lookback_days,
+        "status": "success",
+        "message": "Weekly rollup pre-sync completed",
+        "athletes": athlete_results,
+    }
 
 # ============================================================================
 # FIT File Upload Endpoints
@@ -189,7 +260,7 @@ def onedrive_sync_reset_http(req: func.HttpRequest) -> func.HttpResponse:
     return json_response(response, status)
 
 
-@app.timer_trigger(arg_name="timer", schedule="0 */10 * * * *")  # every 10 minutes
+@app.timer_trigger(arg_name="timer", schedule=ONEDRIVE_SYNC_TIMER_SCHEDULE)
 def onedrive_sync_timer(timer: func.TimerRequest) -> None:
     """Timer-triggered OneDrive sync."""
     if timer.past_due:
@@ -845,7 +916,7 @@ def garmin_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     return json_response(response, status)
 
 
-@app.timer_trigger(arg_name="timer", schedule="0 3 * * *")  # 3 AM UTC daily
+@app.timer_trigger(arg_name="timer", schedule=GARMIN_SYNC_TIMER_SCHEDULE)
 def garmin_sync_timer(timer: func.TimerRequest) -> None:
     """Timer-triggered Garmin Connect sync."""
     if timer.past_due:
@@ -907,7 +978,7 @@ def garmin_physiometrics_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     return json_response(response, status)
 
 
-@app.timer_trigger(arg_name="timer", schedule="0 30 3 * * *")  # 3:30 AM UTC daily
+@app.timer_trigger(arg_name="timer", schedule=GARMIN_PHYSIOMETRICS_SYNC_TIMER_SCHEDULE)
 def garmin_physiometrics_sync_timer(timer: func.TimerRequest) -> None:
     """Timer-triggered Garmin physiometrics sync."""
     if timer.past_due:
@@ -1012,7 +1083,7 @@ def intervals_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     return json_response(response, status)
 
 
-@app.timer_trigger(arg_name="timer", schedule="0 2 * * *")  # 2 AM UTC daily
+@app.timer_trigger(arg_name="timer", schedule=INTERVALS_SYNC_TIMER_SCHEDULE)
 def intervals_sync_timer(timer: func.TimerRequest) -> None:
     """Timer-triggered Intervals.icu physiometrics sync.
     
@@ -1127,6 +1198,17 @@ def weekly_rollup_timer(timer: func.TimerRequest) -> None:
         if not athletes:
             athletes = [athlete_id]
 
+        pre_sync = _run_weekly_presync_for_athletes(athletes, enabled=True)
+        if pre_sync.get("status") != "success":
+            logger.error(
+                "Weekly rollup timer pre-sync failed; rollup aborted",
+                extra={
+                    "athlete_id": athlete_id,
+                    "pre_sync": pre_sync,
+                },
+            )
+            return
+
         result = dependencies.semantic_layer.compute_and_persist_previous_week_rollups(
             athlete_ids=athletes,
         )
@@ -1142,6 +1224,7 @@ def weekly_rollup_timer(timer: func.TimerRequest) -> None:
                 "succeeded_count": succeeded_count,
                 "skipped_count": skipped_count,
                 "failed_count": failed_count,
+                "pre_sync": pre_sync,
             },
         )
     except Exception as exc:  # pylint: disable=broad-exception-caught
@@ -1161,6 +1244,10 @@ def force_weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
     requested_athlete_ids = body.get("athlete_ids")
     athlete_id = body.get("athlete_id") or req.params.get("athlete_id")
     raw_weeks = body.get("weeks", req.params.get("weeks", 1))
+    pre_sync_enabled = _coerce_bool(
+        body.get("pre_sync", req.params.get("pre_sync")),
+        default=True,
+    )
 
     try:
         weeks = int(raw_weeks)
@@ -1181,10 +1268,23 @@ def force_weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
     if not athletes:
         athletes = [os.getenv("DEFAULT_ATHLETE_ID", "rob")]
 
+    pre_sync = _run_weekly_presync_for_athletes(athletes, enabled=pre_sync_enabled)
+    if pre_sync_enabled and pre_sync.get("status") != "success":
+        return json_response(
+            {
+                "status": "failed",
+                "message": "Weekly rollup pre-sync failed; computation aborted",
+                "results": [],
+                "pre_sync": pre_sync,
+            },
+            424,
+        )
+
     result = dependencies.semantic_layer.compute_and_persist_previous_week_rollups(
         athlete_ids=athletes,
         weeks=weeks,
     )
+    result["pre_sync"] = pre_sync
 
     status = 207 if result.get("status") in {"partial", "failed"} else 200
     return json_response(result, status)

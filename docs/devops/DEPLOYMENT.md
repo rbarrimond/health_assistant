@@ -169,7 +169,7 @@ See [BACKENDS.md](./BACKENDS.md#healthfit-onedrive-integration) for detailed OAu
 1. Register the OneDrive app and set redirect URI
 2. Set ONEDRIVE_* app settings above
 3. Authorize: `GET /api/onedrive/authorize?athlete_id=rob`
-4. Run `POST /api/onedrive/sync` (defaults to async; set `async=false` to block) or wait for the hourly timer
+4. Run `POST /api/onedrive/sync` (defaults to async; set `async=false` to block) or wait for the configured safety-net timer (`ONEDRIVE_SYNC_TIMER_SCHEDULE`)
 
 ## Step 6: Monitor and Test
 

@@ -6,7 +6,7 @@
 import base64
 import json
 import os
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, PropertyMock, call, patch
 
 import azure.functions as func
 
@@ -302,12 +302,27 @@ class TestWeeklyRollupOperations:
                 {"athlete_id": "sam", "status": "success", "message": "ok", "weeks": []},
             ],
         }
+        mock_presync = MagicMock()
+        mock_presync.run.return_value = {
+            "enabled": True,
+            "lookback_days": 8,
+            "status": "success",
+            "message": "Weekly rollup pre-sync completed",
+            "sources": [],
+        }
 
         with _patch_dependency("semantic_layer", mock_semantic):
-            function_app.weekly_rollup_timer(timer)
+            with _patch_dependency("weekly_rollup_pre_sync_service", mock_presync):
+                function_app.weekly_rollup_timer(timer)
 
         mock_semantic.compute_and_persist_previous_week_rollups.assert_called_once_with(
             athlete_ids=["rob", "sam"]
+        )
+        mock_presync.run.assert_has_calls(
+            [
+                call(athlete_id="rob", enabled=True),
+                call(athlete_id="sam", enabled=True),
+            ]
         )
 
     def test_force_weekly_rollups_endpoint_single_athlete(self):
@@ -335,18 +350,29 @@ class TestWeeklyRollupOperations:
                 }
             ],
         }
+        mock_presync = MagicMock()
+        mock_presync.run.return_value = {
+            "enabled": True,
+            "lookback_days": 8,
+            "status": "success",
+            "message": "Weekly rollup pre-sync completed",
+            "sources": [],
+        }
 
         with _patch_dependency("semantic_layer", mock_semantic):
-            response = function_app.force_weekly_rollups(req)
+            with _patch_dependency("weekly_rollup_pre_sync_service", mock_presync):
+                response = function_app.force_weekly_rollups(req)
 
         assert response.status_code == 200
         body = json.loads(response.get_body())
         assert body["status"] == "success"
         assert len(body["results"]) == 1
+        assert body["pre_sync"]["status"] == "success"
         mock_semantic.compute_and_persist_previous_week_rollups.assert_called_once_with(
             athlete_ids=["rob"],
             weeks=4,
         )
+        mock_presync.run.assert_called_once_with(athlete_id="rob", enabled=True)
 
     def test_force_weekly_rollups_endpoint_all_athletes(self):
         req = MagicMock(spec=func.HttpRequest)
@@ -364,17 +390,92 @@ class TestWeeklyRollupOperations:
                 {"athlete_id": "sam", "status": "partial", "message": "partial", "weeks": []},
             ],
         }
+        mock_presync = MagicMock()
+        mock_presync.run.return_value = {
+            "enabled": True,
+            "lookback_days": 8,
+            "status": "success",
+            "message": "Weekly rollup pre-sync completed",
+            "sources": [],
+        }
 
         with _patch_dependency("semantic_layer", mock_semantic):
-            response = function_app.force_weekly_rollups(req)
+            with _patch_dependency("weekly_rollup_pre_sync_service", mock_presync):
+                response = function_app.force_weekly_rollups(req)
 
         assert response.status_code == 207
         body = json.loads(response.get_body())
         assert body["status"] == "partial"
+        assert body["pre_sync"]["status"] == "success"
         mock_semantic.compute_and_persist_previous_week_rollups.assert_called_once_with(
             athlete_ids=["rob", "sam"],
             weeks=1,
         )
+        mock_presync.run.assert_has_calls(
+            [
+                call(athlete_id="rob", enabled=True),
+                call(athlete_id="sam", enabled=True),
+            ]
+        )
+
+    def test_force_weekly_rollups_endpoint_pre_sync_opt_out(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {"athlete_id": "rob", "pre_sync": False}
+        req.params = {}
+
+        mock_semantic = MagicMock()
+        mock_semantic.compute_and_persist_previous_week_rollups.return_value = {
+            "status": "success",
+            "message": "Weekly rollup persistence completed successfully",
+            "results": [],
+        }
+        mock_presync = MagicMock()
+
+        with _patch_dependency("semantic_layer", mock_semantic):
+            with _patch_dependency("weekly_rollup_pre_sync_service", mock_presync):
+                response = function_app.force_weekly_rollups(req)
+
+        assert response.status_code == 200
+        body = json.loads(response.get_body())
+        assert body["pre_sync"]["status"] == "skipped"
+        mock_presync.run.assert_not_called()
+
+    def test_force_weekly_rollups_endpoint_pre_sync_failure_aborts(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {"athlete_id": "rob"}
+        req.params = {}
+
+        mock_semantic = MagicMock()
+        mock_presync = MagicMock()
+        mock_presync.run.return_value = {
+            "enabled": True,
+            "lookback_days": 8,
+            "status": "failed",
+            "message": "Weekly rollup pre-sync failed; computation aborted",
+            "sources": [
+                {
+                    "source": "garmin_activities",
+                    "status": "failed",
+                    "http_status": 429,
+                    "message": "Rate limited",
+                    "attempts": 3,
+                    "duration_ms": 1200,
+                }
+            ],
+        }
+
+        with _patch_dependency("semantic_layer", mock_semantic):
+            with _patch_dependency("weekly_rollup_pre_sync_service", mock_presync):
+                response = function_app.force_weekly_rollups(req)
+
+        assert response.status_code == 424
+        body = json.loads(response.get_body())
+        assert body["status"] == "failed"
+        assert body["results"] == []
+        assert body["pre_sync"]["status"] == "failed"
+        mock_semantic.compute_and_persist_previous_week_rollups.assert_not_called()
 
     def test_force_weekly_rollups_endpoint_invalid_weeks(self):
         req = MagicMock(spec=func.HttpRequest)
