@@ -269,11 +269,11 @@ class TestSemanticLayerPhysiometrics:
         result = layer.get_current_physiometrics("rob")
 
         assert result["athlete_id"] == "rob"
-        assert result["weight_kg"] == pytest.approx(75.2)
-        assert result["cycling_vo2max_ml_kg_min"] == pytest.approx(52.3)
+        assert result["body_composition"]["weight_kg"] == pytest.approx(75.2)
+        assert result["vo2max"]["cycling_vo2max_ml_kg_min"] == pytest.approx(52.3)
         assert result["power"]["ftp_watts"] == 285
         assert result["heart_rate"]["resting_hr_bpm"] == 48
-        assert result["training_load"] == pytest.approx(310.0)
+        assert result["training_state"]["training_load"] == pytest.approx(310.0)
         assert sorted(result["data_sources"]) == ["garmin", "intervals", "withings"]
 
     def test_update_physiometric_value(self, layer):

@@ -10,6 +10,15 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-17
 
+### Physiometrics Current Response Normalization [application v3.1.1, semantic API v7.1.1, operations API v4.0.1]
+
+- **Changed (response contract)**: `GET /api/physiometrics/current` now emits canonical metrics in stable domain sections that are always present (null-safe):
+  - `heart_rate`, `power`, `vo2max`, `body_composition`, `recovery`, `activity`, `nutrition`, `training_state`
+- **Changed (client reliability)**: canonical fields are no longer conditionally omitted from response payloads; clients can rely on structural presence without probing for missing keys.
+- **Changed (semantic layer fix)**: metric resolution now uses latest non-null value per source (respecting source precedence) instead of only the newest row per source, preventing sparse latest rows from blanking otherwise available canonical metrics.
+- **Changed (metadata)**: `source_effective_dates` continues to reflect newest row per contributing source for freshness visibility.
+- **Documentation alignment**: OpenAPI and GPT API docs updated to reflect sectioned canonical response and optional legacy top-level extras.
+
 ### Garmin Training Status and Load Focus Integration [application v3.1.0, API v7.1.0, models v4.2.0/v5.1.0]
 
 - **Added (schema)**: New Garmin-exclusive fields in `PhysiometricsSnapshot` (`v4.2.0`):

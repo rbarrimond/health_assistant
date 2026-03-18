@@ -61,16 +61,16 @@ class TestCurrentPhysiometricsConsolidation:
 
         # Verify consolidation applied precedence correctly
         assert result["athlete_id"] == "rob"
-        assert result["weight_kg"] == pytest.approx(73.2)  # Withings
-        assert result["body_fat_pct"] == pytest.approx(14.8)  # Withings
-        assert result["muscle_mass_kg"] == pytest.approx(38.5)  # Withings
+        assert result["body_composition"]["weight_kg"] == pytest.approx(73.2)  # Withings
+        assert result["body_composition"]["body_fat_pct"] == pytest.approx(14.8)  # Withings
+        assert result["body_composition"]["muscle_mass_kg"] == pytest.approx(38.5)  # Withings
         assert result["heart_rate"]["resting_hr_bpm"] == 48  # Intervals
         assert result["fatigue"] == 6  # Intervals
-        assert result["steps"] == 11500  # Intervals
+        assert result["activity"]["steps"] == 11500  # Intervals
         assert result["power"]["ftp_watts"] == 320  # Garmin
-        assert result["cycling_vo2max_ml_kg_min"] == pytest.approx(62.5)  # Garmin
-        assert result["running_vo2max_ml_kg_min"] == pytest.approx(58.1)  # Garmin
-        assert result["training_load"] == pytest.approx(310.0)  # Garmin
+        assert result["vo2max"]["cycling_vo2max_ml_kg_min"] == pytest.approx(62.5)  # Garmin
+        assert result["vo2max"]["running_vo2max_ml_kg_min"] == pytest.approx(58.1)  # Garmin
+        assert result["training_state"]["training_load"] == pytest.approx(310.0)  # Garmin
         
         # Verify metadata includes all contributing sources
         assert sorted(result["data_sources"]) == ["garmin", "intervals", "withings"]
@@ -121,8 +121,8 @@ class TestCurrentPhysiometricsConsolidation:
         result = layer.get_current_physiometrics("rob")
 
         # Intervals values should win
-        assert result["hrv_ln_rmssd"] == pytest.approx(3.95)
-        assert result["sleep_duration_sec"] == 28000
+        assert result["heart_rate"]["hrv_ln_rmssd"] == pytest.approx(3.95)
+        assert result["recovery"]["sleep_duration_sec"] == 28000
 
     def test_metric_precedence_garmin_over_intervals_for_ftp(self, layer):
         """Garmin takes precedence over Intervals for FTP and training metrics."""
@@ -153,7 +153,41 @@ class TestCurrentPhysiometricsConsolidation:
 
         # Garmin values should win
         assert result["power"]["ftp_watts"] == 320
-        assert result["training_load"] == pytest.approx(310.0)
+        assert result["training_state"]["training_load"] == pytest.approx(310.0)
+
+    def test_metric_uses_latest_non_null_within_source(self, layer):
+        """Keep canonical metric visible when the newest row for the preferred source is sparse."""
+        mock_table = MagicMock()
+        mock_table.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-03-18|garmin",
+                "effective_date": "2026-03-18",
+                "data_source": "garmin",
+                "updated_at_utc": "2026-03-18T08:20:00+00:00",
+                "power_ftp_watts": 320,
+                "cycling_vo2max_ml_kg_min": None,
+                "running_vo2max_ml_kg_min": None,
+            },
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-03-16|garmin",
+                "effective_date": "2026-03-16",
+                "data_source": "garmin",
+                "updated_at_utc": "2026-03-16T08:20:00+00:00",
+                "cycling_vo2max_ml_kg_min": 40.0,
+                "running_vo2max_ml_kg_min": 39.0,
+                "training_load": 250.0,
+            },
+        ]
+        layer.storage.infrastructure.get_table_client = MagicMock(return_value=mock_table)
+
+        result = layer.get_current_physiometrics("rob")
+
+        assert result["power"]["ftp_watts"] == 320
+        assert result["vo2max"]["cycling_vo2max_ml_kg_min"] == pytest.approx(40.0)
+        assert result["vo2max"]["running_vo2max_ml_kg_min"] == pytest.approx(39.0)
+        assert result["training_state"]["training_load"] == pytest.approx(250.0)
 
     def test_uses_timestamp_to_break_ties(self, layer):
         """When effective_date is same, use updated_at_utc to pick latest."""

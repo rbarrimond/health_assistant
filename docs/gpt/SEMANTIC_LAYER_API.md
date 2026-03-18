@@ -784,7 +784,7 @@ Track aerobic efficiency and power-HR decoupling over time.
 GET /api/physiometrics/current?athlete_id=rob
 ```
 
-Retrieve current physiometric values for an athlete (weight, FTP, LTHR, cycling VO2Max, body composition).
+Retrieve current physiometric values for an athlete using stable canonical sections.
 
 **Query Parameters:**
 
@@ -799,23 +799,64 @@ Retrieve current physiometric values for an athlete (weight, FTP, LTHR, cycling 
     "basis": "HRmax",
     "lthr_bpm": 175,
     "hr_max_bpm": 195,
-    "resting_hr_bpm": 52
+    "resting_hr_bpm": 52,
+    "hrv_ln_rmssd": 3.95,
+    "hrv_sdnn_ms": 41.3
   },
   "power": {
     "ftp_watts": 285
   },
-  "weight_kg": 75.2,
-  "fat_mass_kg": 12.5,
-  "muscle_mass_kg": 38.2,
-  "bone_mass_kg": 3.1,
-  "body_fat_pct": 16.6,
+  "vo2max": {
+    "cycling_vo2max_ml_kg_min": 52.3,
+    "running_vo2max_ml_kg_min": 50.1
+  },
+  "body_composition": {
+    "weight_kg": 75.2,
+    "fat_mass_kg": 12.5,
+    "muscle_mass_kg": 38.2,
+    "bone_mass_kg": 3.1,
+    "body_fat_pct": 16.6
+  },
+  "recovery": {
+    "sleep_duration_sec": 28600,
+    "spo2_pct": 97.0
+  },
+  "activity": {
+    "steps": 9800
+  },
+  "nutrition": {
+    "calories_kcal": null,
+    "carbs_g": null,
+    "protein_g": null,
+    "fat_g": null
+  },
+  "training_state": {
+    "training_load": 310.0,
+    "recovery_time_minutes": 720,
+    "readiness_score": 64.0,
+    "training_effect_aerobic": 2.7,
+    "training_effect_anaerobic": 1.1,
+    "training_stress_score": 53.0,
+    "training_stress_balance": 0.2,
+    "atp_probability": null,
+    "training_status_label": "RECOVERY_2",
+    "load_focus_low_aerobic_pct": 68.2,
+    "load_focus_high_aerobic_pct": 16.2,
+    "load_focus_anaerobic_pct": 15.6
+  },
   "visceral_fat_index": 8,
   "metabolic_age_years": 32,
-  "cycling_vo2max_ml_kg_min": 52.3,
   "effective_date": "2026-01-19",
-  "data_source": "withings"
+  "data_sources": ["garmin", "intervals", "withings"],
+  "source_effective_dates": {
+    "garmin": "2026-01-19",
+    "intervals": "2026-01-19",
+    "withings": "2026-01-19"
+  }
 }
 ```
+
+Canonical sections (`heart_rate`, `power`, `vo2max`, `body_composition`, `recovery`, `activity`, `nutrition`, `training_state`) are always present and may contain `null` values for unavailable metrics. Non-canonical legacy fields remain top-level and are only returned when present.
 
 **Use cases:**
 
@@ -886,7 +927,7 @@ Physiometrics are stored as source snapshots and merged by metric precedence for
 
 ### Current Physiometrics (Read)
 
-`GET /api/physiometrics/current` returns a consolidated daily snapshot using source precedence rules, with normalized metric fields plus metadata (`effective_date`, `data_sources`). Use this for profile displays, training-zone context, and chat summaries.
+`GET /api/physiometrics/current` returns a consolidated daily snapshot using source precedence rules, with canonical metrics grouped into stable sections plus metadata (`effective_date`, `data_sources`, `source_effective_dates`). Canonical section keys are always emitted (null-safe), while non-canonical legacy fields are optional.
 
 ### Physiometrics History (Read)
 

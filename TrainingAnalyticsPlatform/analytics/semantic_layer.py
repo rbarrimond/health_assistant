@@ -137,7 +137,53 @@ PHYSIOMETRICS_SOURCE_PRECEDENCE = {
     "atp_probability": ["garmin"],
     "recovery_time_minutes": ["garmin"],
     "lactate_threshold_hr_bpm": ["garmin"],
+    "training_status_label": ["garmin"],
+    "load_focus_low_aerobic_pct": ["garmin"],
+    "load_focus_high_aerobic_pct": ["garmin"],
+    "load_focus_anaerobic_pct": ["garmin"],
 }
+
+PHYSIOMETRICS_CANONICAL_SECTIONS = {
+    "heart_rate": ["lthr_bpm", "hr_max_bpm", "resting_hr_bpm", "hrv_ln_rmssd", "hrv_sdnn_ms"],
+    "power": ["ftp_watts"],
+    "vo2max": ["cycling_vo2max_ml_kg_min", "running_vo2max_ml_kg_min"],
+    "body_composition": ["weight_kg", "fat_mass_kg", "muscle_mass_kg", "bone_mass_kg", "body_fat_pct"],
+    "recovery": ["sleep_duration_sec", "spo2_pct"],
+    "activity": ["steps"],
+    "nutrition": ["calories_kcal", "carbs_g", "protein_g", "fat_g"],
+    "training_state": [
+        "training_load",
+        "recovery_time_minutes",
+        "readiness_score",
+        "training_effect_aerobic",
+        "training_effect_anaerobic",
+        "training_stress_score",
+        "training_stress_balance",
+        "atp_probability",
+        "training_status_label",
+        "load_focus_low_aerobic_pct",
+        "load_focus_high_aerobic_pct",
+        "load_focus_anaerobic_pct",
+    ],
+}
+
+PHYSIOMETRICS_OPTIONAL_METRICS = [
+    "visceral_fat_index",
+    "metabolic_age_years",
+    "soreness",
+    "fatigue",
+    "stress",
+    "mood",
+    "motivation",
+    "injury",
+    "systolic_bp",
+    "diastolic_bp",
+    "abdomen_cm",
+    "vo2max_ml_kg_min",
+    "menstrual_phase",
+    "menstrual_phase_predicted",
+    "lactate_threshold_hr_bpm",
+]
 
 PHYSIOMETRICS_STORAGE_FIELD_ALIASES = {
     "ftp_watts": ["ftp_watts", "power_ftp_watts"],
@@ -2865,14 +2911,19 @@ class SemanticLayer:
         Returns:
             Dict containing current weight, FTP, LTHR, cycling VO2Max, body composition, etc.
         """
-        source_rows = self._get_latest_source_rows(athlete_id)
-        if not source_rows:
+        source_rows_by_source = self._get_source_rows_by_source(athlete_id)
+        source_rows = {
+            source: rows[0]
+            for source, rows in source_rows_by_source.items()
+            if rows
+        }
+        if not source_rows_by_source:
             return {
                 "athlete_id": athlete_id,
                 "error": "No physiometrics data found"
             }
 
-        merged = self._resolve_current_from_precedence(source_rows)
+        merged = self._resolve_current_from_precedence(source_rows_by_source)
         data_sources = sorted(source_rows.keys())
         source_effective_dates = {
             source: row.get("effective_date")
@@ -2884,7 +2935,7 @@ class SemanticLayer:
             default=None
         )
 
-        # Extract values for easy consumption
+        # Build canonical sectioned payload (always present, null-safe)
         result = {
             "athlete_id": athlete_id,
             "heart_rate": {
@@ -2892,47 +2943,54 @@ class SemanticLayer:
                 "lthr_bpm": merged.get("hr_lthr_bpm"),
                 "hr_max_bpm": merged.get("hr_max_bpm"),
                 "resting_hr_bpm": merged.get("resting_hr_bpm"),
+                "hrv_ln_rmssd": merged.get("hrv_ln_rmssd"),
+                "hrv_sdnn_ms": merged.get("hrv_sdnn_ms"),
             },
             "power": {
                 "ftp_watts": merged.get("ftp_watts"),
             },
+            "vo2max": {
+                "cycling_vo2max_ml_kg_min": merged.get("cycling_vo2max_ml_kg_min"),
+                "running_vo2max_ml_kg_min": merged.get("running_vo2max_ml_kg_min"),
+            },
+            "body_composition": {
+                "weight_kg": merged.get("weight_kg"),
+                "fat_mass_kg": merged.get("fat_mass_kg"),
+                "muscle_mass_kg": merged.get("muscle_mass_kg"),
+                "bone_mass_kg": merged.get("bone_mass_kg"),
+                "body_fat_pct": merged.get("body_fat_pct"),
+            },
+            "recovery": {
+                "sleep_duration_sec": merged.get("sleep_duration_sec"),
+                "spo2_pct": merged.get("spo2_pct"),
+            },
+            "activity": {
+                "steps": merged.get("steps"),
+            },
+            "nutrition": {
+                "calories_kcal": merged.get("calories_kcal"),
+                "carbs_g": merged.get("carbs_g"),
+                "protein_g": merged.get("protein_g"),
+                "fat_g": merged.get("fat_g"),
+            },
+            "training_state": {
+                "training_load": merged.get("training_load"),
+                "recovery_time_minutes": merged.get("recovery_time_minutes"),
+                "readiness_score": merged.get("readiness_score"),
+                "training_effect_aerobic": merged.get("training_effect_aerobic"),
+                "training_effect_anaerobic": merged.get("training_effect_anaerobic"),
+                "training_stress_score": merged.get("training_stress_score"),
+                "training_stress_balance": merged.get("training_stress_balance"),
+                "atp_probability": merged.get("atp_probability"),
+                "training_status_label": merged.get("training_status_label"),
+                "load_focus_low_aerobic_pct": merged.get("load_focus_low_aerobic_pct"),
+                "load_focus_high_aerobic_pct": merged.get("load_focus_high_aerobic_pct"),
+                "load_focus_anaerobic_pct": merged.get("load_focus_anaerobic_pct"),
+            },
         }
 
-        # Add body composition if present
-        optional_metrics = [
-            "weight_kg",
-            "fat_mass_kg",
-            "muscle_mass_kg",
-            "bone_mass_kg",
-            "body_fat_pct",
-            "visceral_fat_index",
-            "metabolic_age_years",
-            "cycling_vo2max_ml_kg_min",
-            "running_vo2max_ml_kg_min",
-            "training_load",
-            "training_effect_aerobic",
-            "training_effect_anaerobic",
-            "training_stress_score",
-            "training_stress_balance",
-            "atp_probability",
-            "recovery_time_minutes",
-            "lactate_threshold_hr_bpm",
-            "hrv_ln_rmssd",
-            "hrv_sdnn_ms",
-            "sleep_duration_sec",
-            "readiness_score",
-            "soreness",
-            "fatigue",
-            "stress",
-            "mood",
-            "motivation",
-            "injury",
-            "steps",
-            "spo2_pct",
-            "systolic_bp",
-            "diastolic_bp",
-        ]
-        for metric_name in optional_metrics:
+        # Add non-canonical legacy/extended metrics only when present
+        for metric_name in PHYSIOMETRICS_OPTIONAL_METRICS:
             if merged.get(metric_name) is not None:
                 result[metric_name] = merged.get(metric_name)
 
@@ -3004,18 +3062,36 @@ class SemanticLayer:
 
     def _get_latest_source_rows(self, athlete_id: str) -> Dict[str, Dict[str, Any]]:
         """Get latest physiometrics row per source for the athlete."""
+        source_rows_by_source = self._get_source_rows_by_source(athlete_id)
+        return {
+            source: rows[0]
+            for source, rows in source_rows_by_source.items()
+            if rows
+        }
+
+    def _get_source_rows_by_source(self, athlete_id: str) -> Dict[str, List[Dict[str, Any]]]:
+        """Get physiometrics rows grouped by source, sorted newest-first."""
         table_client = self.storage.infrastructure.get_table_client("Physiometrics")
         rows = list(table_client.query_entities(f"PartitionKey eq '{athlete_id}'"))
         tracked_sources = {"intervals", "garmin", "withings", "manual", "chatgpt"}
-        latest_per_source: Dict[str, Dict[str, Any]] = {}
+        rows_by_source: Dict[str, List[Dict[str, Any]]] = {}
 
         for row in rows:
             for source in self._canonical_sources_from_row(row):
                 if source not in tracked_sources:
                     continue
-                self._update_latest_for_source(latest_per_source, source, row)
+                rows_by_source.setdefault(source, []).append(row)
 
-        return latest_per_source
+        for source_rows in rows_by_source.values():
+            source_rows.sort(
+                key=lambda row: (
+                    row.get("effective_date") or "",
+                    self._parse_iso_timestamp(row.get("updated_at_utc")),
+                ),
+                reverse=True,
+            )
+
+        return rows_by_source
 
     @staticmethod
     def _resolve_row_metric_value(row: Dict[str, Any], metric_name: str) -> Optional[Any]:
@@ -3031,20 +3107,19 @@ class SemanticLayer:
         self,
         metric_name: str,
         sources: List[str],
-        latest_source_rows: Dict[str, Dict[str, Any]],
+        source_rows_by_source: Dict[str, List[Dict[str, Any]]],
     ) -> Tuple[Optional[Any], Optional[str]]:
-        """Resolve one metric using source precedence order."""
+        """Resolve one metric using source precedence and latest non-null value per source."""
         for source in sources:
-            row = latest_source_rows.get(source)
-            if row is None:
-                continue
-            value = self._resolve_row_metric_value(row, metric_name)
-            if value is not None:
-                return value, row.get("heart_rate_basis")
+            source_rows = source_rows_by_source.get(source, [])
+            for row in source_rows:
+                value = self._resolve_row_metric_value(row, metric_name)
+                if value is not None:
+                    return value, row.get("heart_rate_basis")
         return None, None
 
     def _resolve_current_from_precedence(
-        self, latest_source_rows: Dict[str, Dict[str, Any]]
+        self, source_rows_by_source: Dict[str, List[Dict[str, Any]]]
     ) -> Dict[str, Any]:
         """Resolve consolidated metric values from latest source rows using precedence."""
         resolved: Dict[str, Any] = {}
@@ -3053,7 +3128,7 @@ class SemanticLayer:
             metric_value, basis = self._resolve_metric_from_sources(
                 metric_name,
                 sources,
-                latest_source_rows,
+                source_rows_by_source,
             )
             if metric_value is None:
                 continue

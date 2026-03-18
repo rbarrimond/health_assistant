@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Semantic/GPT)
-  version: "7.1.0"
+  version: "7.1.1"
   description: |
     Deterministic athlete intelligence API consumed by ChatGPT Actions.
     Provides typed semantic contracts for agent memory, workout intelligence, planning context, physiometrics, and training-state signals.
@@ -1045,145 +1045,142 @@ components:
         - count
     PhysiometricSnapshot:
       type: object
-      description: Daily physiometrics snapshot aggregating body state from all sources (Withings, Intervals, Garmin). Version 4.1.0 formalizes Garmin running VO2Max while keeping resting heart rate Intervals-exclusive.
+      description: Consolidated current physiometrics snapshot with canonical domain sections. Canonical section fields are always present and may be null when unavailable.
       properties:
         athlete_id:
           type: string
-          description: Athlete identifier (partition key)
         effective_date:
           type: string
           format: date
-          description: Effective date (YYYY-MM-DD) in athlete local timezone
-        # Body composition (Withings exclusive)
-        weight_kg:
-          type: number
-          description: Body weight in kg
-          minimum: 0
-        fat_mass_kg:
-          type: number
-          description: Fat mass in kg
-          minimum: 0
-        muscle_mass_kg:
-          type: number
-          description: Muscle mass in kg
-          minimum: 0
-        bone_mass_kg:
-          type: number
-          description: Bone mass in kg
-          minimum: 0
-        body_fat_pct:
-          type: number
-          description: Body fat percentage
-          minimum: 0
-          maximum: 100
-        # Recovery metrics (Intervals exclusive)
-        hrv_ln_rmssd:
-          type: number
-          description: HRV (natural log of RMSSD) for modeling
-        sleep_duration_sec:
-          type: number
-          description: Sleep duration in seconds
-          minimum: 0
-        resting_hr_bpm:
-          type: number
-          description: Resting heart rate (Intervals exclusive; Garmin ignored)
-          minimum: 0
-        # Activity (Intervals exclusive)
-        steps:
-          type: integer
-          description: Daily step count (Intervals exclusive; Garmin ignored)
-          minimum: 0
-        # Nutrition (Intervals exclusive)
-        calories_kcal:
-          type: number
-          description: Daily calorie intake in kcal
-          minimum: 0
-        carbs_g:
-          type: number
-          description: Carbohydrate intake in grams
-          minimum: 0
-        protein_g:
-          type: number
-          description: Protein intake in grams
-          minimum: 0
-        fat_g:
-          type: number
-          description: Fat intake in grams
-          minimum: 0
-        # Performance baselines (Garmin exclusive)
-        ftp_watts:
-          type: number
-          description: Functional threshold power in watts
-          minimum: 0
-        cycling_vo2max_ml_kg_min:
-          type: number
-          description: Estimated cycling VO2Max in ml/kg/min
-          minimum: 0
-        running_vo2max_ml_kg_min:
-          type: number
-          description: Estimated running VO2Max in ml/kg/min
-          minimum: 0
-        hr_lthr_bpm:
-          type: number
-          description: Lactate threshold heart rate in beats/minute
-          minimum: 0
-        hr_max_bpm:
-          type: number
-          description: Maximum heart rate in beats/minute
-          minimum: 0
-        # Training state (Garmin exclusive)
-        training_load:
-          type: number
-          description: Garmin cumulative training load
-          minimum: 0
-        recovery_time_minutes:
-          type: integer
-          description: Garmin estimated recovery time in minutes
-          minimum: 0
-        readiness_score:
-          type: number
-          description: Garmin readiness score (0-100)
-          minimum: 0
-          maximum: 100
-        # Extended training metrics (Garmin exclusive)
-        training_effect_aerobic:
-          type: number
-          description: Garmin aerobic training effect (0-5)
-          minimum: 0
-          maximum: 5
-        training_effect_anaerobic:
-          type: number
-          description: Garmin anaerobic training effect (0-5)
-          minimum: 0
-          maximum: 5
-        training_stress_score:
-          type: number
-          description: Garmin training stress score
-          minimum: 0
-        training_stress_balance:
-          type: number
-          description: Garmin training stress balance
-        atp_probability:
-          type: number
-          description: Garmin ATP/energy availability percentage
-          minimum: 0
-          maximum: 100
-        # Provenance and versioning
         data_sources:
-          type: string
-          description: "CSV of sources: withings,garmin,intervals"
-          default: ""
-        canonical_version:
-          type: string
-          description: Schema version (4.1.0 = running VO2Max promotion; 4.0.0 = SDNN/SpO2 promotion, Intervals body fallback, load-field removal)
-          default: "4.1.0"
-        last_updated_utc:
-          type: string
-          format: date-time
-          description: When this snapshot was canonicalized
+          type: array
+          items:
+            type: string
+        source_effective_dates:
+          type: object
+          additionalProperties:
+            type: string
+            format: date
+        heart_rate:
+          type: object
+          properties:
+            basis:
+              type: string
+            lthr_bpm:
+              type: [number, "null"]
+            hr_max_bpm:
+              type: [number, "null"]
+            resting_hr_bpm:
+              type: [number, "null"]
+            hrv_ln_rmssd:
+              type: [number, "null"]
+            hrv_sdnn_ms:
+              type: [number, "null"]
+        power:
+          type: object
+          properties:
+            ftp_watts:
+              type: [number, "null"]
+        vo2max:
+          type: object
+          properties:
+            cycling_vo2max_ml_kg_min:
+              type: [number, "null"]
+            running_vo2max_ml_kg_min:
+              type: [number, "null"]
+        body_composition:
+          type: object
+          properties:
+            weight_kg:
+              type: [number, "null"]
+            fat_mass_kg:
+              type: [number, "null"]
+            muscle_mass_kg:
+              type: [number, "null"]
+            bone_mass_kg:
+              type: [number, "null"]
+            body_fat_pct:
+              type: [number, "null"]
+        recovery:
+          type: object
+          properties:
+            sleep_duration_sec:
+              type: [number, "null"]
+            spo2_pct:
+              type: [number, "null"]
+        activity:
+          type: object
+          properties:
+            steps:
+              type: [integer, "null"]
+        nutrition:
+          type: object
+          properties:
+            calories_kcal:
+              type: [number, "null"]
+            carbs_g:
+              type: [number, "null"]
+            protein_g:
+              type: [number, "null"]
+            fat_g:
+              type: [number, "null"]
+        training_state:
+          type: object
+          properties:
+            training_load:
+              type: [number, "null"]
+            recovery_time_minutes:
+              type: [integer, "null"]
+            readiness_score:
+              type: [number, "null"]
+            training_effect_aerobic:
+              type: [number, "null"]
+            training_effect_anaerobic:
+              type: [number, "null"]
+            training_stress_score:
+              type: [number, "null"]
+            training_stress_balance:
+              type: [number, "null"]
+            atp_probability:
+              type: [number, "null"]
+            training_status_label:
+              type: [string, "null"]
+            load_focus_low_aerobic_pct:
+              type: [number, "null"]
+            load_focus_high_aerobic_pct:
+              type: [number, "null"]
+            load_focus_anaerobic_pct:
+              type: [number, "null"]
+        visceral_fat_index:
+          type: [number, "null"]
+        metabolic_age_years:
+          type: [number, "null"]
+        soreness:
+          type: [number, "null"]
+        fatigue:
+          type: [number, "null"]
+        stress:
+          type: [number, "null"]
+        mood:
+          type: [number, "null"]
+        motivation:
+          type: [number, "null"]
+        injury:
+          type: [number, "null"]
+        systolic_bp:
+          type: [number, "null"]
+        diastolic_bp:
+          type: [number, "null"]
       required:
         - athlete_id
-        - effective_date
+        - heart_rate
+        - power
+        - vo2max
+        - body_composition
+        - recovery
+        - activity
+        - nutrition
+        - training_state
     PhysiometricHistory:
       type: object
       properties:
