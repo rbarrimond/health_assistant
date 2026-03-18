@@ -667,7 +667,6 @@ Runs a daily Garmin physiometrics sync using Garmin summary and training-status 
 ```
 
 Successful responses include `count`, `records_fetched`, `records_processed`, and `records_failed`. Partial day-level failures return HTTP `207` with accumulated `errors`. Each fetched Garmin daily payload is also archived to the `external-sources` container and tracked in `SourceIngestionState` for replayability.
-```
 
 ### Garmin Implementation Files
 
