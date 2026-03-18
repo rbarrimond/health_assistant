@@ -8,6 +8,33 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-17
+
+### Garmin Training Status and Load Focus Integration [application v3.1.0, API v7.1.0, models v4.2.0/v5.1.0]
+
+- **Added (schema)**: New Garmin-exclusive fields in `PhysiometricsSnapshot` (`v4.2.0`):
+  - `training_status_label`: Garmin raw `trainingStatusFeedbackPhrase` token (e.g., `PRODUCTIVE_3`, `MAINTAINING_2`, `UNPRODUCTIVE_5`, `PEAKING_1`, `DETRAINING`)
+    - The trailing suffix (for example `_2`) is vendor-provided feedback variant detail from Garmin and is preserved verbatim.
+  - `load_focus_low_aerobic_pct`, `load_focus_high_aerobic_pct`, `load_focus_anaerobic_pct`: Distribution percentages from Garmin Connect's Load Focus metric (week view)
+- **Added (schema)**: New Garmin pass-through fields in `TrainingStateSnapshot` (`v5.1.0`):
+  - `garmin_training_status`: Passthrough of `training_status_label` from latest physiometrics
+  - `garmin_training_load`: Garmin's native 7-day training load (distinct from our computed CTS)
+  - `garmin_recovery_time_hours`: Garmin estimated recovery time, converted from minutes to hours
+  - `garmin_load_focus_low_aerobic_pct`, `garmin_load_focus_high_aerobic_pct`, `garmin_load_focus_anaerobic_pct`: Passthroughs from physiometrics
+- **Changed (adapter)**: `GarminTrainingStateAdapter._extract_training_context()` now extracts `mostRecentTrainingLoadBalance` (previously claimed in v14.4.2 CHANGELOG but never implemented).
+- **Changed (adapter)**: `GarminTrainingStateAdapter._do_parse()` now extracts training status label from `latestTrainingStatusData.trainingStatusFeedbackPhrase` and load focus percentages from `mostRecentTrainingLoadBalance.metricsTrainingLoadBalanceDTOMap` monthly load fields.
+- **Changed (sync + adapter)**: Garmin physiometrics sync now fetches `get_training_readiness` and `get_morning_training_readiness` payloads and passes them into adapter mapping.
+  - `readiness_score` now prefers Garmin readiness endpoint values (morning first, then daily readiness payload) with summary fallback.
+  - `recovery_time_minutes` now accepts readiness-payload recovery duration fields (minutes/hours normalized to minutes) with existing training-status fallback.
+  - Readiness endpoint failures are non-fatal for daily physiometrics sync; ingestion continues with fallback mappings.
+- **Changed (semantic layer)**: `SemanticLayer._compute_training_state_for_date()` now extracts and threads new Garmin fields; `_build_training_state_snapshot()` converts `recovery_time_minutes` to `recovery_time_hours` and populates all new pass-through fields.
+- **Changed (precedence)**: `SourcePrecedenceResolver.METRIC_SOURCES` now registers all four new fields as Garmin-exclusive sources.
+- **Changed (consolidation)**: `PhysiometricsConsolidationHandler.CONSOLIDATED_VERSION` advanced to `v4.2.0`; `TrainingStateConsolidationHandler` inherits v5.1.0 semantics.
+- **Updated (sync handler)**: `GarminPhysiometricsSyncHandler._log_storage_metric_presence()` now logs presence of new fields for observability.
+- **Updated (API spec)**: `openapi.yaml` advanced to `7.1.0`; new `TrainingStateSnapshot` fields documented with ranges and descriptions.
+- **Fixed (adapter)**: Resolved CHANGELOG v14.4.2 claim that `mostRecentTrainingLoadBalance` was implemented but was never extracted; now fully extracted and parsed via multi-path fallback.
+- **Unchanged (ownership)**: All new fields are Garmin-exclusive passthrough; no multi-source consolidation applied.
+
 ## 2026-03-16
 
 ### **BREAKING:** `readiness_score` Semantic Separation and Canonical Training-State Path [application v3.0.0]

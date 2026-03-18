@@ -296,7 +296,7 @@ All wellness data is archived as immutable raw payload blobs in `external-source
 
 **On-Demand Projection**: `TrainingState` computed fresh on request (no table)
 
-### PhysiometricsSnapshot v3.0.0: Simplified Schema
+### PhysiometricsSnapshot v4.2.0: Simplified Schema
 
 **Table**: `Physiometrics`
 
@@ -314,7 +314,7 @@ This partitioning strategy enables efficient range queries for monthly rollups w
 athlete_id: str                # Athlete identifier
 effective_date: str            # YYYY-MM-DD (local athlete timezone)
 data_sources: str              # CSV of contributing sources (e.g., "withings,intervals,garmin")
-canonical_version: str         # Schema version (default: "4.0.0")
+canonical_version: str         # Schema version (default: "4.2.0")
 last_updated_utc: datetime     # Timestamp of last upsert
 
 # Body composition (Withings exclusive) - 5 fields
@@ -348,10 +348,14 @@ cycling_vo2max_ml_kg_min: Optional[float]      # Cycling VO2Max estimate
 hr_lthr_bpm: Optional[float]                   # Lactate threshold heart rate
 hr_max_bpm: Optional[float]                    # Maximum heart rate
 
-# Training state (Garmin exclusive) - 3 fields
+# Training state (Garmin exclusive) - 7 fields
 training_load: Optional[float]          # Garmin cumulative training load
 recovery_time_minutes: Optional[int]    # Garmin recovery time estimate
 readiness_score: Optional[float]        # Garmin readiness score (0-100)
+training_status_label: Optional[str]    # Garmin raw training status feedback token (e.g., "PRODUCTIVE_3", "MAINTAINING_2", "UNPRODUCTIVE_5", "PEAKING_1", "DETRAINING")
+load_focus_low_aerobic_pct: Optional[float]     # Garmin load focus: low aerobic percentage
+load_focus_high_aerobic_pct: Optional[float]    # Garmin load focus: high aerobic percentage
+load_focus_anaerobic_pct: Optional[float]       # Garmin load focus: anaerobic percentage
 
 # Extended training metrics (Garmin exclusive) - 5 fields
 training_effect_aerobic: Optional[float]        # Aerobic training effect (0-5)
@@ -361,7 +365,7 @@ training_stress_balance: Optional[float]        # Training stress balance
 atp_probability: Optional[float]                # ATP/energy availability (0-100)
 ```
 
-**Total**: 27 metric fields + 4 metadata fields = 31 fields
+**Total**: 31 metric fields + 4 metadata fields = 35 fields
 
 ### Source Precedence: Metric Ownership with Explicit Fallbacks
 
@@ -593,6 +597,12 @@ fatigue_index: Optional[float]            # ATS/CTS ratio (higher = more fatigue
 # Readiness and recovery (from Physiometrics)
 readiness_score: Optional[float]          # Composite readiness (0-100)
 garmin_readiness_score: Optional[float]   # Garmin native readiness
+garmin_training_status: Optional[str]     # Garmin training status label passthrough
+garmin_training_load: Optional[float]     # Garmin native 7-day training load passthrough
+garmin_recovery_time_hours: Optional[float]  # Garmin recovery estimate converted to hours
+garmin_load_focus_low_aerobic_pct: Optional[float]   # Garmin load focus low aerobic percentage
+garmin_load_focus_high_aerobic_pct: Optional[float]  # Garmin load focus high aerobic percentage
+garmin_load_focus_anaerobic_pct: Optional[float]     # Garmin load focus anaerobic percentage
 mood: Optional[int]                       # User-reported mood (1-5)
 soreness: Optional[int]                   # User-reported soreness (1-5)
 
@@ -601,7 +611,7 @@ pred_recovery_days: Optional[int]         # Predicted days to full recovery
 
 # Provenance
 data_sources: str                         # "workouts,physiometrics"
-canonical_version: str                    # "3.0.0"
+canonical_version: str                    # "5.1.0"
 computed_at_utc: datetime                 # When projection was computed
 ```
 
@@ -647,8 +657,14 @@ Response:
   "fatigue_index": 1.11,
   "readiness_score": 75.0,
   "garmin_readiness_score": 72.0,
+  "garmin_training_status": "PRODUCTIVE_2",
+  "garmin_training_load": 376.0,
+  "garmin_recovery_time_hours": 6.5,
+  "garmin_load_focus_low_aerobic_pct": 30.0,
+  "garmin_load_focus_high_aerobic_pct": 55.0,
+  "garmin_load_focus_anaerobic_pct": 15.0,
   "data_sources": "workouts,physiometrics",
-  "canonical_version": "3.0.0",
+  "canonical_version": "5.1.0",
   "computed_at_utc": "2026-03-05T14:30:00Z"
 }
 ```

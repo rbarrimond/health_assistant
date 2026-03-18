@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Semantic/GPT)
-  version: "7.0.0"
+  version: "7.1.0"
   description: |
     Deterministic athlete intelligence API consumed by ChatGPT Actions.
     Provides typed semantic contracts for agent memory, workout intelligence, planning context, physiometrics, and training-state signals.
@@ -1242,6 +1242,32 @@ components:
         garmin_readiness_score:
           type: [number, 'null']
           description: Garmin native readiness score (passthrough)
+          minimum: 0
+          maximum: 100
+        garmin_training_status:
+          type: [string, 'null']
+          description: Garmin training status label (e.g., PRODUCTIVE, MAINTAINING, OVERREACHING, RECOVERY)
+        garmin_training_load:
+          type: [number, 'null']
+          description: Garmin 7-day cumulative training load (distinct from our CTS)
+          minimum: 0
+        garmin_recovery_time_hours:
+          type: [number, 'null']
+          description: Garmin estimated recovery time in hours (converted from minutes)
+          minimum: 0
+        garmin_load_focus_low_aerobic_pct:
+          type: [number, 'null']
+          description: Percentage of Load Focus in low aerobic zone (0-100)
+          minimum: 0
+          maximum: 100
+        garmin_load_focus_high_aerobic_pct:
+          type: [number, 'null']
+          description: Percentage of Load Focus in high aerobic zone (0-100)
+          minimum: 0
+          maximum: 100
+        garmin_load_focus_anaerobic_pct:
+          type: [number, 'null']
+          description: Percentage of Load Focus in anaerobic zone (0-100)
           minimum: 0
           maximum: 100
         mood:
