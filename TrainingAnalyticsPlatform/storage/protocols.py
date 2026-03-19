@@ -237,14 +237,13 @@ class OAuthTokenStorageProtocol(Protocol):
     def store_garmin_tokens(
         self,
         athlete_id: str,
-        oauth1_token: str,
-        oauth2_token: str,
+        garth_token: str,
     ) -> None:
         """Store Garmin OAuth credentials."""
         ...
 
-    def get_garmin_tokens(self, athlete_id: str) -> Optional[Dict]:
-        """Retrieve Garmin tokens by athlete."""
+    def get_garmin_tokens(self, athlete_id: str) -> Optional[str]:
+        """Retrieve the serialized garth token string for an athlete."""
         ...
 
 

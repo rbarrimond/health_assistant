@@ -247,3 +247,101 @@ def test_sync_handler_continues_when_prefetch_history_fails():
     assert response["records_fetched"] == 2
     assert response["records_skipped"] == 0
     assert storage.physiometrics.store_physiometrics.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Token lifecycle tests
+# ---------------------------------------------------------------------------
+
+def _make_physiometrics_handler(storage: Mock, client: Mock) -> GarminPhysiometricsSyncHandler:
+    return GarminPhysiometricsSyncHandler(storage=storage, client=client)
+
+
+def test_handle_restores_session_from_stored_token_and_skips_login():
+    storage = Mock()
+    storage.physiometrics = Mock()
+    storage.infrastructure = Mock()
+    storage.infrastructure.get_table_client = Mock(return_value=Mock(query_entities=Mock(return_value=[])))
+    storage.oauth_tokens.get_garmin_tokens.return_value = "stored-garth-token"
+
+    client = Mock()
+    client.get_user_summary.return_value = _summary_payload("2026-03-03")
+    client.get_training_status.return_value = _training_status_payload()
+    client.get_training_readiness.return_value = None
+    client.get_morning_training_readiness.return_value = None
+    client.dump_tokens.return_value = "refreshed-garth-token"
+
+    handler = _make_physiometrics_handler(storage, client)
+    _, status = handler.handle("rob", lookback_days=1)
+
+    client.restore_from_tokens.assert_called_once_with("stored-garth-token")
+    client.login.assert_not_called()
+    storage.oauth_tokens.store_garmin_tokens.assert_called_with(
+        "rob", "refreshed-garth-token"
+    )
+    assert status == 200
+
+
+def test_handle_falls_back_to_login_when_no_stored_token():
+    storage = Mock()
+    storage.physiometrics = Mock()
+    storage.infrastructure = Mock()
+    storage.infrastructure.get_table_client = Mock(return_value=Mock(query_entities=Mock(return_value=[])))
+    storage.oauth_tokens.get_garmin_tokens.return_value = None
+
+    client = Mock()
+    client.get_user_summary.return_value = _summary_payload("2026-03-03")
+    client.get_training_status.return_value = _training_status_payload()
+    client.get_training_readiness.return_value = None
+    client.get_morning_training_readiness.return_value = None
+    client.dump_tokens.return_value = "fresh-garth-token"
+
+    handler = _make_physiometrics_handler(storage, client)
+    _, status = handler.handle("rob", lookback_days=1)
+
+    client.restore_from_tokens.assert_not_called()
+    client.login.assert_called_once()
+    storage.oauth_tokens.store_garmin_tokens.assert_called_with(
+        "rob", "fresh-garth-token"
+    )
+    assert status == 200
+
+
+def test_handle_falls_back_to_login_on_stale_token():
+    storage = Mock()
+    storage.physiometrics = Mock()
+    storage.infrastructure = Mock()
+    storage.infrastructure.get_table_client = Mock(return_value=Mock(query_entities=Mock(return_value=[])))
+    storage.oauth_tokens.get_garmin_tokens.return_value = "expired-token"
+
+    client = Mock()
+    client.restore_from_tokens.side_effect = GarminConnectError("token expired")
+    client.get_user_summary.return_value = _summary_payload("2026-03-03")
+    client.get_training_status.return_value = _training_status_payload()
+    client.get_training_readiness.return_value = None
+    client.get_morning_training_readiness.return_value = None
+    client.dump_tokens.return_value = "fresh-garth-token"
+
+    handler = _make_physiometrics_handler(storage, client)
+    _, status = handler.handle("rob", lookback_days=1)
+
+    client.restore_from_tokens.assert_called_once_with("expired-token")
+    client.login.assert_called_once()
+    storage.oauth_tokens.store_garmin_tokens.assert_called_with(
+        "rob", "fresh-garth-token"
+    )
+    assert status == 200
+
+
+def test_handle_returns_401_when_login_fails_and_no_stored_token():
+    storage = Mock()
+    storage.oauth_tokens.get_garmin_tokens.return_value = None
+
+    client = Mock()
+    client.login.side_effect = GarminConnectError("rate limited")
+
+    handler = _make_physiometrics_handler(storage, client)
+    response, status = handler.handle("rob", lookback_days=1)
+
+    assert status == 401
+    assert "Authentication failed" in response["error"]

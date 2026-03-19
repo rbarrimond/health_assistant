@@ -12,6 +12,7 @@ from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import (
 )
 from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 from TrainingAnalyticsPlatform.platform.exceptions import WorkoutIdCalculationError
+from TrainingAnalyticsPlatform.integrations.garmin_client import GarminConnectError
 
 
 def _build_activity(
@@ -338,3 +339,67 @@ class TestGarminSyncHandler:
 
         assert status == 500
         assert body["status"] == "error"
+
+
+class TestGarminSyncHandlerTokenLifecycle:
+    """Token restore / save lifecycle in GarminSyncHandler.sync()."""
+
+    def _make_handler(
+        self, storage: MagicMock, client: MagicMock
+    ) -> GarminSyncHandler:
+        config = GarminSyncConfig(
+            email="user@example.com", password="x" * 12, lookback_days=7
+        )
+        return GarminSyncHandler(config=config, storage=storage, client=client)
+
+    def test_sync_restores_session_from_stored_token_and_skips_login(self):
+        storage = MagicMock()
+        storage.oauth_tokens.get_garmin_tokens.return_value = "stored-garth-token"
+        client = MagicMock()
+        client.list_activities.return_value = []
+        client.dump_tokens.return_value = "refreshed-garth-token"
+
+        handler = self._make_handler(storage, client)
+        result = handler.sync(athlete_id="rob", lookback_days=7)
+
+        client.restore_from_tokens.assert_called_once_with("stored-garth-token")
+        client.login.assert_not_called()
+        storage.oauth_tokens.store_garmin_tokens.assert_called_once_with(
+            "rob", "refreshed-garth-token"
+        )
+        assert result["status"] == "success"
+
+    def test_sync_falls_back_to_login_when_no_stored_token(self):
+        storage = MagicMock()
+        storage.oauth_tokens.get_garmin_tokens.return_value = None
+        client = MagicMock()
+        client.list_activities.return_value = []
+        client.dump_tokens.return_value = "fresh-garth-token"
+
+        handler = self._make_handler(storage, client)
+        result = handler.sync(athlete_id="rob", lookback_days=7)
+
+        client.restore_from_tokens.assert_not_called()
+        client.login.assert_called_once()
+        storage.oauth_tokens.store_garmin_tokens.assert_called_once_with(
+            "rob", "fresh-garth-token"
+        )
+        assert result["status"] == "success"
+
+    def test_sync_falls_back_to_login_on_stale_token(self):
+        storage = MagicMock()
+        storage.oauth_tokens.get_garmin_tokens.return_value = "expired-token"
+        client = MagicMock()
+        client.restore_from_tokens.side_effect = GarminConnectError("token expired")
+        client.list_activities.return_value = []
+        client.dump_tokens.return_value = "fresh-garth-token"
+
+        handler = self._make_handler(storage, client)
+        result = handler.sync(athlete_id="rob", lookback_days=7)
+
+        client.restore_from_tokens.assert_called_once_with("expired-token")
+        client.login.assert_called_once()
+        storage.oauth_tokens.store_garmin_tokens.assert_called_once_with(
+            "rob", "fresh-garth-token"
+        )
+        assert result["status"] == "success"

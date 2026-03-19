@@ -42,6 +42,9 @@ from TrainingAnalyticsPlatform.platform.exceptions import PreprocessingError
 logger = logging.getLogger(__name__)
 
 NOT_AUTHENTICATED_ERROR = "Not authenticated. Call login() first."
+DEPENDENCY_NOT_INSTALLED_ERROR = (
+    "garminconnect dependency is not installed in this environment."
+)
 
 
 class GarminConnectError(RuntimeError):
@@ -73,9 +76,7 @@ class GarminConnectClient:
                 "Missing credentials. Set GARMIN_EMAIL and GARMIN_PASSWORD environment variables."
             )
         if GarminImpl is None:
-            raise GarminConnectError(
-                "garminconnect dependency is not installed in this environment."
-            )
+            raise GarminConnectError(DEPENDENCY_NOT_INSTALLED_ERROR)
 
         try:
             candidate_client = GarminImpl(self.email, self.password)
@@ -142,6 +143,49 @@ class GarminConnectClient:
         except Exception as exc:
             logger.error("Failed to list Garmin activities: %s", exc)
             raise GarminConnectError("Failed to fetch activity list") from exc
+
+    def dump_tokens(self) -> str:
+        """Serialize the current garth session state to a string for later restoration.
+
+        Returns:
+            Base64-encoded string containing OAuth1 + OAuth2 token data.
+
+        Raises:
+            GarminConnectError: If not authenticated or serialization fails.
+        """
+        if self.client is None:
+            raise GarminConnectError(NOT_AUTHENTICATED_ERROR)
+        try:
+            return self.client.garth.dumps()
+        except Exception as exc:
+            logger.error("Failed to serialize Garmin tokens: %s", exc)
+            raise GarminConnectError("Failed to serialize Garmin tokens") from exc
+
+    def restore_from_tokens(self, garth_token: str) -> None:
+        """Restore a previous Garmin session from a serialized garth token string.
+
+        No SSO login is performed; garth will auto-refresh the OAuth2 token from
+        the stored OAuth1 token when required.
+
+        Args:
+            garth_token: Base64-encoded token string produced by dump_tokens().
+
+        Raises:
+            GarminConnectError: If the token is invalid or restoration fails.
+        """
+        if GarminImpl is None:
+            raise GarminConnectError(DEPENDENCY_NOT_INSTALLED_ERROR)
+        try:
+            candidate_client = GarminImpl()
+            candidate_client.garth.loads(garth_token)
+            self.client = candidate_client
+            logger.info("Restored Garmin session from stored tokens")
+        except Exception as exc:
+            self.client = None
+            logger.warning("Failed to restore Garmin session from stored tokens: %s", exc)
+            raise GarminConnectError(
+                "Failed to restore Garmin session from stored tokens"
+            ) from exc
 
     def _ensure_authenticated_client(self) -> Garmin:
         """Return authenticated Garmin client, logging in lazily if needed."""
@@ -239,9 +283,7 @@ class GarminConnectClient:
         try:
             # Use ORIGINAL format to get the FIT file
             if GarminImpl is None:
-                raise GarminConnectError(
-                    "garminconnect dependency is not installed in this environment."
-                )
+                raise GarminConnectError(DEPENDENCY_NOT_INSTALLED_ERROR)
             fit_data = self.client.download_activity(
                 activity_id,
                 dl_fmt=GarminImpl.ActivityDownloadFormat.ORIGINAL,

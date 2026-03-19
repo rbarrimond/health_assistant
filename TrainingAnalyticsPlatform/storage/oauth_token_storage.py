@@ -418,16 +418,14 @@ class OAuthTokenStorage:
     def store_garmin_tokens(
         self,
         athlete_id: str,
-        oauth1_token: str,
-        oauth2_token: str,
+        garth_token: str,
     ) -> None:
         """Store Garmin OAuth credentials."""
 
         entity = {
             "PartitionKey": athlete_id,
             "RowKey": "garmin",
-            "oauth1_token": oauth1_token,
-            "oauth2_token": oauth2_token,
+            "garth_token": garth_token,
             "updated_at_utc": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -454,15 +452,22 @@ class OAuthTokenStorage:
             )
             raise StorageError("Failed to store Garmin tokens") from e
 
-    def get_garmin_tokens(self, athlete_id: str) -> Optional[Dict]:
-        """Retrieve Garmin tokens by athlete."""
+    def get_garmin_tokens(self, athlete_id: str) -> Optional[str]:
+        """Retrieve the serialized garth token string for an athlete.
+
+        Returns None if no token is stored or the stored entity pre-dates the
+        garth_token schema (legacy two-column records are silently ignored).
+        """
         try:
             table_client = self.infra.get_table_client("GarminTokens")
             query = f"PartitionKey eq '{athlete_id}' and RowKey eq 'garmin'"
             entities = list(table_client.query_entities(query, top=1))
             if not entities:
                 return None
-            return dict(entities[0])
+            token_value = entities[0].get("garth_token")
+            if not token_value:
+                return None
+            return str(token_value)
         except HttpResponseError as e:
             logger.error(
                 "Error retrieving Garmin tokens",

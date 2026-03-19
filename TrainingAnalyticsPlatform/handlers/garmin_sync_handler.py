@@ -20,6 +20,7 @@ from TrainingAnalyticsPlatform.platform.exceptions import (
     FitParsingError,
     HealthAssistantError,
     IngestionIdResolutionError,
+    StorageError,
     WorkoutIdCalculationError,
 )
 from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
@@ -527,24 +528,51 @@ class GarminSyncHandler:
 
     def sync(self, *, athlete_id: str, lookback_days: int, force: bool = False) -> Dict:
         """Sync Garmin activities and ingest FIT files."""
-        # Authenticate with Garmin Connect
+        # Try to restore session from stored tokens; fall back to full SSO login
+        stored_token: Optional[str] = None
         try:
-            self._client.login()
-        except GarminConnectError as exc:
+            stored_token = self._storage.oauth_tokens.get_garmin_tokens(athlete_id)
+        except StorageError:
             logger.error(
-                "Failed to authenticate with Garmin Connect",
+                "Failed to retrieve stored Garmin tokens; will attempt fresh login",
                 extra={
                     "athlete_id": athlete_id,
                     "source_system": "garmin",
-                    "error_type": "GarminConnectError",
-                    "error": str(exc),
                 },
-                exc_info=True,
             )
-            return {
-                "status": "error",
-                "message": f"Authentication failed: {exc}",
-            }
+
+        if stored_token:
+            try:
+                self._client.restore_from_tokens(stored_token)
+                logger.info(
+                    "Garmin session restored from stored tokens",
+                    extra={"athlete_id": athlete_id, "source_system": "garmin"},
+                )
+            except GarminConnectError:
+                logger.warning(
+                    "Stored Garmin tokens invalid; falling back to fresh login",
+                    extra={"athlete_id": athlete_id, "source_system": "garmin"},
+                )
+                stored_token = None
+
+        if not stored_token:
+            try:
+                self._client.login()
+            except GarminConnectError as exc:
+                logger.error(
+                    "Failed to authenticate with Garmin Connect",
+                    extra={
+                        "athlete_id": athlete_id,
+                        "source_system": "garmin",
+                        "error_type": "GarminConnectError",
+                        "error": str(exc),
+                    },
+                    exc_info=True,
+                )
+                return {
+                    "status": "error",
+                    "message": f"Authentication failed: {exc}",
+                }
         
         # Calculate cutoff date
         cutoff = datetime.now() - timedelta(days=lookback_days)
@@ -639,6 +667,27 @@ class GarminSyncHandler:
                     exc_info=True,
                 )
                 self._record_error_result(results, activity, exc)
+
+        # Persist tokens after sync so future invocations skip the SSO round-trip.
+        # This also captures any OAuth2 refresh that garth performed during the sync.
+        try:
+            self._storage.oauth_tokens.store_garmin_tokens(
+                athlete_id, self._client.dump_tokens()
+            )
+            logger.debug(
+                "Garmin tokens persisted after sync",
+                extra={"athlete_id": athlete_id, "source_system": "garmin"},
+            )
+        except (GarminConnectError, StorageError) as exc:
+            logger.warning(
+                "Failed to persist Garmin tokens after sync; session will not be cached",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
 
         return results
 

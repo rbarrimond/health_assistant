@@ -65,36 +65,21 @@ class GarminPhysiometricsSyncHandler:
             end_date.isoformat(),
         )
 
+        auth_error = self._authenticate_client(athlete_id)
+        if auth_error is not None:
+            return auth_error
+
         stored_count = 0
         fetched_count = 0
         skipped_count = 0
         errors: list[str] = []
 
-        stored_dates: set[str] = set()
-        if not force:
-            try:
-                existing = self.storage.physiometrics.get_physiometrics_history(
-                    athlete_id,
-                    start_date.isoformat(),
-                    end_date.isoformat(),
-                )
-                stored_dates = {
-                    str(entity.get("effective_date"))
-                    for entity in existing
-                    if entity.get("effective_date")
-                }
-            except Exception as exc:  # pylint: disable=broad-exception-caught
-                logger.warning(
-                    "Failed to prefetch stored Garmin physiometrics dates; continuing without skip optimization",
-                    extra={
-                        "athlete_id": athlete_id,
-                        "effective_start": start_date.isoformat(),
-                        "effective_end": end_date.isoformat(),
-                        "error_type": type(exc).__name__,
-                        "error": str(exc),
-                    },
-                    exc_info=True,
-                )
+        stored_dates = self._prefetch_stored_dates(
+            athlete_id=athlete_id,
+            start_date_iso=start_date.isoformat(),
+            end_date_iso=end_date.isoformat(),
+            force=force,
+        )
 
         for current_date in self._iter_dates(start_date, end_date):
             date_str = current_date.isoformat()
@@ -123,6 +108,9 @@ class GarminPhysiometricsSyncHandler:
 
         failed_count = len(errors)
         status = 207 if failed_count > 0 else 200
+
+        self._persist_tokens(athlete_id)
+
         return {
             "message": f"Synced {stored_count} Garmin physiometrics records",
             "count": stored_count,
@@ -132,6 +120,108 @@ class GarminPhysiometricsSyncHandler:
             "records_failed": failed_count,
             "errors": errors if errors else None,
         }, status
+
+    def _authenticate_client(self, athlete_id: str) -> Optional[Tuple[Dict[str, Any], int]]:
+        """Authenticate Garmin client using stored token when possible.
+
+        Returns an HTTP response tuple when authentication fails, else None.
+        """
+        stored_token: Optional[str] = None
+        try:
+            stored_token = self.storage.oauth_tokens.get_garmin_tokens(athlete_id)
+        except StorageError:
+            logger.warning(
+                "Failed to retrieve stored Garmin tokens; will attempt fresh login",
+                extra={"athlete_id": athlete_id, "source_system": "garmin"},
+            )
+
+        if stored_token:
+            try:
+                self.client.restore_from_tokens(stored_token)
+                logger.info(
+                    "Garmin session restored from stored tokens",
+                    extra={"athlete_id": athlete_id, "source_system": "garmin"},
+                )
+                return None
+            except GarminConnectError:
+                logger.warning(
+                    "Stored Garmin tokens invalid; falling back to fresh login",
+                    extra={"athlete_id": athlete_id, "source_system": "garmin"},
+                )
+
+        try:
+            self.client.login()
+            return None
+        except GarminConnectError as exc:
+            logger.error(
+                "Failed to authenticate with Garmin Connect for physiometrics sync",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "error_type": "GarminConnectError",
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
+            return {"error": f"Authentication failed: {exc}"}, 401
+
+    def _persist_tokens(self, athlete_id: str) -> None:
+        """Persist current Garmin token state for reuse in future invocations."""
+        try:
+            self.storage.oauth_tokens.store_garmin_tokens(
+                athlete_id, self.client.dump_tokens()
+            )
+            logger.debug(
+                "Garmin tokens persisted after physiometrics sync",
+                extra={"athlete_id": athlete_id, "source_system": "garmin"},
+            )
+        except (GarminConnectError, StorageError) as exc:
+            logger.warning(
+                "Failed to persist Garmin tokens after physiometrics sync; session will not be cached",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
+
+    def _prefetch_stored_dates(
+        self,
+        *,
+        athlete_id: str,
+        start_date_iso: str,
+        end_date_iso: str,
+        force: bool,
+    ) -> set[str]:
+        """Prefetch already stored effective dates for skip optimization."""
+        if force:
+            return set()
+
+        try:
+            existing = self.storage.physiometrics.get_physiometrics_history(
+                athlete_id,
+                start_date_iso,
+                end_date_iso,
+            )
+            return {
+                str(entity.get("effective_date"))
+                for entity in existing
+                if entity.get("effective_date")
+            }
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.warning(
+                "Failed to prefetch stored Garmin physiometrics dates; continuing without skip optimization",
+                extra={
+                    "athlete_id": athlete_id,
+                    "effective_start": start_date_iso,
+                    "effective_end": end_date_iso,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
+            return set()
 
     def _parse_lookback_days(
         self,
