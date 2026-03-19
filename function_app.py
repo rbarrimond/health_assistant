@@ -26,6 +26,7 @@ from config.constants import (
     TEXT_PLAIN_CONTENT_TYPE,
 )
 from TrainingAnalyticsPlatform.storage.backup_exporter import BackupExporter
+from TrainingAnalyticsPlatform.models.async_ingestion import AsyncIngestionWorkItem
 from TrainingAnalyticsPlatform.platform.dependencies import dependencies
 from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.platform.logging_setup import setup_logging
@@ -57,6 +58,7 @@ GARMIN_PHYSIOMETRICS_SYNC_TIMER_SCHEDULE = os.getenv(
 )
 INTERVALS_SYNC_TIMER_SCHEDULE = os.getenv("INTERVALS_SYNC_TIMER_SCHEDULE", "0 0 2 * * 1")
 DEFERRED_RETRY_QUEUE_NAME = os.getenv("DEFERRED_RETRY_QUEUE_NAME", "rate-limit-deferrals")
+ONEDRIVE_ASYNC_QUEUE_NAME = os.getenv("ONEDRIVE_ASYNC_QUEUE_NAME", "async-ingestion")
 
 if "PYTEST_CURRENT_TEST" not in os.environ and os.getenv("SKIP_FUNCTION_APP_WARMUP") != "1":
     dependencies.warmup()
@@ -302,6 +304,66 @@ def _process_deferred_retry_message(message_body: str) -> None:
     )
 
 
+def _process_async_ingestion_message(message_body: str) -> None:
+    """Process one async ingestion work item from queue."""
+    work_item = AsyncIngestionWorkItem.model_validate_json(message_body)
+
+    if work_item.source != "onedrive":
+        logger.warning(
+            "Unsupported async ingestion source",
+            extra={
+                "operation_id": work_item.operation_id,
+                "source": work_item.source,
+                "athlete_id": work_item.athlete_id,
+            },
+        )
+        return
+
+    logger.info(
+        "Async ingestion worker started",
+        extra={
+            "operation_id": work_item.operation_id,
+            "source": work_item.source,
+            "athlete_id": work_item.athlete_id,
+            "lookback_days": work_item.lookback_days,
+        },
+    )
+
+    try:
+        result = dependencies.onedrive_service.sync(
+            athlete_id=work_item.athlete_id,
+            lookback_days=work_item.lookback_days,
+        )
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error(
+            "Async ingestion worker failed",
+            extra={
+                "operation_id": work_item.operation_id,
+                "source": work_item.source,
+                "athlete_id": work_item.athlete_id,
+                "lookback_days": work_item.lookback_days,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            },
+            exc_info=True,
+        )
+        raise
+
+    logger.info(
+        "Async ingestion worker completed",
+        extra={
+            "operation_id": work_item.operation_id,
+            "source": work_item.source,
+            "athlete_id": work_item.athlete_id,
+            "lookback_days": work_item.lookback_days,
+            "result_status": result.get("status"),
+            "ingested": result.get("ingested"),
+            "skipped": result.get("skipped"),
+            "failed": result.get("failed"),
+        },
+    )
+
+
 @app.queue_trigger(
     arg_name="msg",
     queue_name=DEFERRED_RETRY_QUEUE_NAME,
@@ -310,6 +372,16 @@ def _process_deferred_retry_message(message_body: str) -> None:
 def process_deferred_retry(msg: func.QueueMessage) -> None:
     """Process deferred retry work items once they become visible in queue."""
     _process_deferred_retry_message(msg.get_body().decode("utf-8"))
+
+
+@app.queue_trigger(
+    arg_name="msg",
+    queue_name=ONEDRIVE_ASYNC_QUEUE_NAME,
+    connection="AzureWebJobsStorage",
+)
+def process_async_ingestion(msg: func.QueueMessage) -> None:
+    """Process async ingestion queue work items."""
+    _process_async_ingestion_message(msg.get_body().decode("utf-8"))
 
 # ============================================================================
 # FIT File Upload Endpoints

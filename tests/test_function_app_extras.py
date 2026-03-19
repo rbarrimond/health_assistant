@@ -559,6 +559,56 @@ class TestDeferredRetryQueueProcessing:
 
         process_mock.assert_called_once_with('{"operation_id":"op-3"}')
 
+
+class TestAsyncIngestionQueueProcessing:
+    def test_process_async_ingestion_message_executes_onedrive_sync(self):
+        mock_onedrive = MagicMock()
+        mock_onedrive.sync.return_value = {
+            "status": "success",
+            "ingested": 2,
+            "skipped": 1,
+            "failed": 0,
+        }
+        message = {
+            "operation_id": "op-async-1",
+            "source": "onedrive",
+            "athlete_id": "rob",
+            "lookback_days": 14,
+            "queued_at_utc": "2026-03-19T00:00:00+00:00",
+        }
+
+        with _patch_dependency("onedrive_service", mock_onedrive):
+            function_app._process_async_ingestion_message(json.dumps(message))
+
+        mock_onedrive.sync.assert_called_once_with(
+            athlete_id="rob",
+            lookback_days=14,
+        )
+
+    def test_process_async_ingestion_message_skips_unsupported_source(self):
+        mock_onedrive = MagicMock()
+        message = {
+            "operation_id": "op-async-2",
+            "source": "garmin",
+            "athlete_id": "rob",
+            "lookback_days": 14,
+            "queued_at_utc": "2026-03-19T00:00:00+00:00",
+        }
+
+        with _patch_dependency("onedrive_service", mock_onedrive):
+            function_app._process_async_ingestion_message(json.dumps(message))
+
+        mock_onedrive.sync.assert_not_called()
+
+    def test_async_ingestion_queue_trigger_calls_processor(self):
+        msg = MagicMock(spec=func.QueueMessage)
+        msg.get_body.return_value = b'{"operation_id":"op-async-3"}'
+
+        with patch("function_app._process_async_ingestion_message") as process_mock:
+            function_app.process_async_ingestion(msg)
+
+        process_mock.assert_called_once_with('{"operation_id":"op-async-3"}')
+
     def test_withings_callback_success(self):
         req = MagicMock(spec=func.HttpRequest)
         req.url = "https://health.example.com/api/withings/callback"
