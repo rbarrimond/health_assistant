@@ -37,6 +37,7 @@ from TrainingAnalyticsPlatform.handlers.deferred_retry_coordinator import (
 )
 from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
 from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
+from TrainingAnalyticsPlatform.integrations.async_ingestion_queue import AsyncIngestionQueue
 from TrainingAnalyticsPlatform.integrations.deferred_retry_queue import DeferredRetryQueue
 from TrainingAnalyticsPlatform.integrations.withings_client import WithingsClient
 from TrainingAnalyticsPlatform.integrations.garmin_client import GarminConnectClient
@@ -74,12 +75,24 @@ class FunctionAppDependencies:
         return handler.handle(payload)
 
     @cached_property
+    def onedrive_async_queue(self) -> Optional[AsyncIngestionQueue]:
+        """Return async ingestion queue adapter for OneDrive when enabled."""
+        if not self._is_onedrive_async_queue_enabled():
+            logger.info("OneDrive async queue disabled by configuration")
+            return None
+
+        queue = AsyncIngestionQueue()
+        logger.info("OneDrive async queue initialized")
+        return queue
+
+    @cached_property
     def onedrive_service(self) -> OneDriveSyncHandler:
         """Return a cached OneDrive sync handler instance, creating it on first use."""
         config = OneDriveSyncConfig.from_env()
         handler = OneDriveSyncHandler(
             config=config,
             storage=self.storage,
+            async_queue=self.onedrive_async_queue,
         )
         logger.info("OneDrive service initialized")
         return handler
@@ -151,6 +164,16 @@ class FunctionAppDependencies:
     def _is_deferred_retry_enabled() -> bool:
         """Return whether deferred retry queue integration is enabled."""
         return os.getenv("DEFERRED_RETRY_ENABLED", "false").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    @staticmethod
+    def _is_onedrive_async_queue_enabled() -> bool:
+        """Return whether OneDrive async queue mode is enabled."""
+        return os.getenv("ONEDRIVE_ASYNC_QUEUE_ENABLED", "false").lower() in {
             "1",
             "true",
             "yes",

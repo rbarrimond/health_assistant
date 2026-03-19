@@ -124,7 +124,7 @@ def test_sync_handler_executes_async_mode():
     # Verify response is immediate (202 Accepted)
     assert status == 202
     assert response["status"] == "queued"
-    assert response["mode"] == "async"
+    assert response["mode"] == "async_thread"
     assert response["athlete_id"] == "rob"
 
 

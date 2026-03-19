@@ -75,3 +75,35 @@ class TestPreSyncServicesWithDeferredRetryDisabled:
 
         assert handler is sentinel_handler
         assert from_env_mock.call_args.kwargs["deferred_retry_coordinator"] is None
+
+
+class TestOneDriveAsyncQueueDependency:
+    def test_onedrive_async_queue_returns_none_when_disabled(self, monkeypatch):
+        monkeypatch.setenv("ONEDRIVE_ASYNC_QUEUE_ENABLED", "false")
+        dependencies = FunctionAppDependencies()
+
+        queue = dependencies.onedrive_async_queue
+
+        assert queue is None
+
+    def test_onedrive_service_receives_queue_when_enabled(self, monkeypatch):
+        monkeypatch.setenv("ONEDRIVE_ASYNC_QUEUE_ENABLED", "true")
+        dependencies = FunctionAppDependencies()
+        mock_storage = MagicMock()
+        mock_queue = MagicMock()
+        sentinel_handler = MagicMock()
+
+        with _patch_dep("storage", mock_storage):
+            with _patch_dep("onedrive_async_queue", mock_queue):
+                with patch(
+                    "TrainingAnalyticsPlatform.platform.dependencies.OneDriveSyncConfig.from_env",
+                    return_value=MagicMock(),
+                ):
+                    with patch(
+                        "TrainingAnalyticsPlatform.platform.dependencies.OneDriveSyncHandler",
+                        return_value=sentinel_handler,
+                    ) as handler_cls:
+                        handler = dependencies.onedrive_service
+
+        assert handler is sentinel_handler
+        assert handler_cls.call_args.kwargs["async_queue"] is mock_queue

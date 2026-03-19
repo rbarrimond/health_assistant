@@ -6,10 +6,12 @@ import logging
 import os
 import re
 import threading
+import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
+from TrainingAnalyticsPlatform.models.async_ingestion import AsyncIngestionWorkItem
 from TrainingAnalyticsPlatform.integrations.onedrive_client import (
     OneDriveDeltaTokenExpiredError,
     OneDriveGraphClient,
@@ -399,6 +401,7 @@ class OneDriveSyncHandler:
         *,
         client: OneDriveGraphClient | None = None,
         ingestion_handler: OneDriveSyncIngestionHandler | None = None,
+        async_queue: Any | None = None,
     ):
         self._config = config
         self._storage = storage
@@ -412,6 +415,7 @@ class OneDriveSyncHandler:
             storage,
             self._client,
         )
+        self._async_queue = async_queue
 
     def handle(self, *args, **kwargs) -> Tuple[Dict, int]:
         """
@@ -587,6 +591,85 @@ class OneDriveSyncHandler:
 
     def _handle_async(self, athlete_id: str, lookback_days: int) -> Tuple[Dict, int]:
         """Queue asynchronous sync."""
+        operation_id = str(uuid.uuid4())
+        queued_at_utc = datetime.now(timezone.utc).isoformat()
+
+        if self._async_queue is not None:
+            return self._handle_async_queue(
+                athlete_id=athlete_id,
+                lookback_days=lookback_days,
+                operation_id=operation_id,
+                queued_at_utc=queued_at_utc,
+            )
+
+        return self._handle_async_thread(
+            athlete_id=athlete_id,
+            lookback_days=lookback_days,
+            operation_id=operation_id,
+            queued_at_utc=queued_at_utc,
+        )
+
+    def _handle_async_queue(
+        self,
+        *,
+        athlete_id: str,
+        lookback_days: int,
+        operation_id: str,
+        queued_at_utc: str,
+    ) -> Tuple[Dict, int]:
+        """Enqueue async OneDrive sync work item."""
+        try:
+            self._async_queue.enqueue(
+                item=AsyncIngestionWorkItem(
+                    operation_id=operation_id,
+                    source="onedrive",
+                    athlete_id=athlete_id,
+                    lookback_days=lookback_days,
+                    queued_at_utc=queued_at_utc,
+                    context={
+                        "source_system": "onedrive",
+                        "mode": "async",
+                    },
+                )
+            )
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.error(
+                "OneDrive async queue enqueue failed",
+                extra={
+                    "athlete_id": athlete_id,
+                    "lookback_days": lookback_days,
+                    "operation_id": operation_id,
+                    "source_system": "onedrive",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
+            return {
+                "status": "error",
+                "error": "Failed to queue async OneDrive sync",
+                "operation_id": operation_id,
+                "mode": "async_queue",
+            }, 500
+
+        return {
+            "status": "queued",
+            "athlete_id": athlete_id,
+            "lookback_days": lookback_days,
+            "mode": "async_queue",
+            "operation_id": operation_id,
+            "queued_at_utc": queued_at_utc,
+        }, 202
+
+    def _handle_async_thread(
+        self,
+        *,
+        athlete_id: str,
+        lookback_days: int,
+        operation_id: str,
+        queued_at_utc: str,
+    ) -> Tuple[Dict, int]:
+        """Run async OneDrive sync via in-process daemon thread (fallback mode)."""
 
         def _run_background_sync() -> None:
             try:
@@ -599,6 +682,7 @@ class OneDriveSyncHandler:
                         "athlete_id": athlete_id,
                         "lookback_days": lookback_days,
                         "source_system": "onedrive",
+                        "operation_id": operation_id,
                         "found": result.get("found"),
                         "ingested": result.get("ingested"),
                         "skipped": result.get("skipped"),
@@ -612,6 +696,7 @@ class OneDriveSyncHandler:
                         "athlete_id": athlete_id,
                         "lookback_days": lookback_days,
                         "source_system": "onedrive",
+                        "operation_id": operation_id,
                         "error_type": type(exc).__name__,
                         "error": str(exc),
                     },
@@ -624,8 +709,9 @@ class OneDriveSyncHandler:
             "status": "queued",
             "athlete_id": athlete_id,
             "lookback_days": lookback_days,
-            "mode": "async",
-            "queued_at_utc": datetime.now(timezone.utc).isoformat(),
+            "mode": "async_thread",
+            "operation_id": operation_id,
+            "queued_at_utc": queued_at_utc,
         }, 202
 
     def _extract_request(self, args: tuple, kwargs: dict) -> OneDriveSyncRequest:

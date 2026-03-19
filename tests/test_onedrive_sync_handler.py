@@ -232,7 +232,8 @@ class TestOneDriveSyncHandler:
         assert result["status"] == "queued"
         assert result["athlete_id"] == "athlete1"
         assert result["lookback_days"] == 14
-        assert result["mode"] == "async"
+        assert result["mode"] == "async_thread"
+        assert result["operation_id"]
 
         # Verify queued_at is within expected time range
         queued_time = datetime.fromisoformat(result["queued_at_utc"])
@@ -303,6 +304,30 @@ class TestOneDriveSyncHandler:
         time.sleep(0.1)
 
         handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=60)
+
+    def test_handle_async_queues_when_async_queue_configured(self):
+        """Test async mode enqueues OneDrive work item when queue integration is provided."""
+        async_queue = MagicMock()
+        handler = OneDriveSyncHandler(
+            _config(lookback_days=30),
+            MagicMock(),
+            client=MagicMock(),
+            ingestion_handler=MagicMock(),
+            async_queue=async_queue,
+        )
+        handler.sync = MagicMock()
+        req = OneDriveSyncRequest({"athlete_id": "athlete1", "days": "10", "async": "true"}, {})
+
+        result, status = handler.handle(req)
+
+        assert status == 202
+        assert result["status"] == "queued"
+        assert result["mode"] == "async_queue"
+        assert result["athlete_id"] == "athlete1"
+        assert result["lookback_days"] == 10
+        assert result["operation_id"]
+        async_queue.enqueue.assert_called_once()
+        handler.sync.assert_not_called()
 
     def test_handle_reset_single_success(self, handler):
         handler._storage.oauth_tokens.reset_onedrive_delta_state.return_value = True
