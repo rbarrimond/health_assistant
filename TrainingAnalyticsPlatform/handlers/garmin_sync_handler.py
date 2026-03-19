@@ -6,10 +6,12 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
+from TrainingAnalyticsPlatform.models.async_ingestion import AsyncIngestionWorkItem
 from TrainingAnalyticsPlatform.integrations.garmin_client import (
     GarminConnectClient,
     GarminConnectError,
@@ -491,6 +493,7 @@ class GarminSyncHandler:
         *,
         client: GarminConnectClient | None = None,
         ingestion_handler: GarminSyncIngestionHandler | None = None,
+        async_queue: Any | None = None,
     ):
         self._config = config
         self._storage = storage
@@ -502,6 +505,7 @@ class GarminSyncHandler:
             storage,
             self._client,
         )
+        self._async_queue = async_queue
 
     def handle(self, *args, **kwargs) -> Tuple[Dict, int]:
         """
@@ -739,12 +743,134 @@ class GarminSyncHandler:
         force: bool = False,
     ) -> Tuple[Dict, int]:
         """Queue asynchronous sync."""
+
+        operation_id = str(uuid.uuid4())
+        queued_at_utc = datetime.now(timezone.utc).isoformat()
+
+        if self._async_queue is not None:
+            return self._handle_async_queue(
+                athlete_id=athlete_id,
+                lookback_days=lookback_days,
+                force=force,
+                operation_id=operation_id,
+                queued_at_utc=queued_at_utc,
+            )
+
+        return self._handle_async_thread(
+            athlete_id=athlete_id,
+            lookback_days=lookback_days,
+            force=force,
+            operation_id=operation_id,
+            queued_at_utc=queued_at_utc,
+        )
+
+    def _handle_async_queue(
+        self,
+        *,
+        athlete_id: str,
+        lookback_days: int,
+        force: bool,
+        operation_id: str,
+        queued_at_utc: str,
+    ) -> Tuple[Dict, int]:
+        """Enqueue async Garmin sync work item."""
+        try:
+            self._async_queue.enqueue(
+                item=AsyncIngestionWorkItem(
+                    operation_id=operation_id,
+                    source="garmin",
+                    athlete_id=athlete_id,
+                    lookback_days=lookback_days,
+                    queued_at_utc=queued_at_utc,
+                    context={
+                        "source_system": "garmin",
+                        "mode": "async",
+                        "force": force,
+                    },
+                )
+            )
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.error(
+                "Garmin async queue enqueue failed",
+                extra={
+                    "athlete_id": athlete_id,
+                    "lookback_days": lookback_days,
+                    "force": force,
+                    "operation_id": operation_id,
+                    "source_system": "garmin",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
+            return {
+                "status": "error",
+                "error": "Failed to queue async Garmin sync",
+                "operation_id": operation_id,
+                "mode": "async_queue",
+            }, 500
+
+        return {
+            "status": "queued",
+            "athlete_id": athlete_id,
+            "lookback_days": lookback_days,
+            "force": force,
+            "mode": "async_queue",
+            "operation_id": operation_id,
+            "queued_at_utc": queued_at_utc,
+        }, 202
+
+    def _handle_async_thread(
+        self,
+        *,
+        athlete_id: str,
+        lookback_days: int,
+        force: bool,
+        operation_id: str,
+        queued_at_utc: str,
+    ) -> Tuple[Dict, int]:
+        """Run async Garmin sync via in-process daemon thread (fallback mode)."""
+
+        def _run_background_sync() -> None:
+            try:
+                result = self.sync(
+                    athlete_id=athlete_id,
+                    lookback_days=lookback_days,
+                    force=force,
+                )
+                logger.info(
+                    "Garmin async sync completed",
+                    extra={
+                        "athlete_id": athlete_id,
+                        "lookback_days": lookback_days,
+                        "force": force,
+                        "source_system": "garmin",
+                        "operation_id": operation_id,
+                        "status": result.get("status"),
+                        "found": result.get("found"),
+                        "ingested": result.get("ingested"),
+                        "skipped": result.get("skipped"),
+                        "failed": result.get("failed"),
+                    },
+                )
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                logger.error(
+                    "Garmin async sync failed",
+                    extra={
+                        "athlete_id": athlete_id,
+                        "lookback_days": lookback_days,
+                        "force": force,
+                        "source_system": "garmin",
+                        "operation_id": operation_id,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                    exc_info=True,
+                )
+
         thread = threading.Thread(
-            target=self.sync,
+            target=_run_background_sync,
             kwargs={
-                "athlete_id": athlete_id,
-                "lookback_days": lookback_days,
-                "force": force,
             },
             daemon=True,
         )
@@ -754,6 +880,9 @@ class GarminSyncHandler:
             "athlete_id": athlete_id,
             "lookback_days": lookback_days,
             "force": force,
+            "mode": "async_thread",
+            "operation_id": operation_id,
+            "queued_at_utc": queued_at_utc,
         }, 202
 
     def _was_activity_previously_processed(

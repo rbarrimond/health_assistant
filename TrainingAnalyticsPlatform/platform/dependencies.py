@@ -109,9 +109,21 @@ class FunctionAppDependencies:
         handler = GarminSyncHandler(
             config=config,
             storage=self.storage,
+            async_queue=self.garmin_async_queue,
         )
         logger.info("Garmin service initialized")
         return handler
+
+    @cached_property
+    def garmin_async_queue(self) -> Optional[AsyncIngestionQueue]:
+        """Return async ingestion queue adapter for Garmin when enabled."""
+        if not self._is_garmin_async_queue_enabled():
+            logger.info("Garmin async queue disabled by configuration")
+            return None
+
+        queue = AsyncIngestionQueue()
+        logger.info("Garmin async queue initialized")
+        return queue
 
     @cached_property
     def garmin_client(self) -> GarminConnectClient:
@@ -174,6 +186,16 @@ class FunctionAppDependencies:
     def _is_onedrive_async_queue_enabled() -> bool:
         """Return whether OneDrive async queue mode is enabled."""
         return os.getenv("ONEDRIVE_ASYNC_QUEUE_ENABLED", "false").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    @staticmethod
+    def _is_garmin_async_queue_enabled() -> bool:
+        """Return whether Garmin async queue mode is enabled."""
+        return os.getenv("GARMIN_ASYNC_QUEUE_ENABLED", "false").lower() in {
             "1",
             "true",
             "yes",

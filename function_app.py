@@ -307,17 +307,7 @@ def _process_deferred_retry_message(message_body: str) -> None:
 def _process_async_ingestion_message(message_body: str) -> None:
     """Process one async ingestion work item from queue."""
     work_item = AsyncIngestionWorkItem.model_validate_json(message_body)
-
-    if work_item.source != "onedrive":
-        logger.warning(
-            "Unsupported async ingestion source",
-            extra={
-                "operation_id": work_item.operation_id,
-                "source": work_item.source,
-                "athlete_id": work_item.athlete_id,
-            },
-        )
-        return
+    force = bool(work_item.context.get("force", False))
 
     logger.info(
         "Async ingestion worker started",
@@ -326,14 +316,32 @@ def _process_async_ingestion_message(message_body: str) -> None:
             "source": work_item.source,
             "athlete_id": work_item.athlete_id,
             "lookback_days": work_item.lookback_days,
+            "force": force,
         },
     )
 
     try:
-        result = dependencies.onedrive_service.sync(
-            athlete_id=work_item.athlete_id,
-            lookback_days=work_item.lookback_days,
-        )
+        if work_item.source == "onedrive":
+            result = dependencies.onedrive_service.sync(
+                athlete_id=work_item.athlete_id,
+                lookback_days=work_item.lookback_days,
+            )
+        elif work_item.source == "garmin":
+            result = dependencies.garmin_service.sync(
+                athlete_id=work_item.athlete_id,
+                lookback_days=work_item.lookback_days,
+                force=force,
+            )
+        else:
+            logger.warning(
+                "Unsupported async ingestion source",
+                extra={
+                    "operation_id": work_item.operation_id,
+                    "source": work_item.source,
+                    "athlete_id": work_item.athlete_id,
+                },
+            )
+            return
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.error(
             "Async ingestion worker failed",
@@ -342,6 +350,7 @@ def _process_async_ingestion_message(message_body: str) -> None:
                 "source": work_item.source,
                 "athlete_id": work_item.athlete_id,
                 "lookback_days": work_item.lookback_days,
+                "force": force,
                 "error_type": type(exc).__name__,
                 "error": str(exc),
             },
@@ -356,6 +365,7 @@ def _process_async_ingestion_message(message_body: str) -> None:
             "source": work_item.source,
             "athlete_id": work_item.athlete_id,
             "lookback_days": work_item.lookback_days,
+            "force": force,
             "result_status": result.get("status"),
             "ingested": result.get("ingested"),
             "skipped": result.get("skipped"),

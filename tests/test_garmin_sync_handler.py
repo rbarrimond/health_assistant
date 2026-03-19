@@ -236,6 +236,67 @@ class TestGarminSyncRequest:
 class TestGarminSyncHandler:
     """Tests for Garmin sync response status mapping."""
 
+    def test_handle_async_thread_returns_operation_metadata(self):
+        storage = MagicMock()
+        handler = GarminSyncHandler(
+            config=GarminSyncConfig(email="user@example.com", password="x" * 12, lookback_days=30),
+            storage=storage,
+            client=MagicMock(),
+        )
+        handler.sync = MagicMock(return_value={"status": "success"})  # type: ignore[method-assign]
+
+        response, status = handler.handle(
+            GarminSyncRequest(
+                {
+                    "athlete_id": "rob",
+                    "lookback_days": 7,
+                    "async": True,
+                },
+                {},
+            )
+        )
+
+        assert status == 202
+        assert response["status"] == "queued"
+        assert response["mode"] == "async_thread"
+        assert response["operation_id"]
+        assert response["queued_at_utc"]
+
+    def test_handle_async_queue_enqueues_work_item(self):
+        storage = MagicMock()
+        async_queue = MagicMock()
+        handler = GarminSyncHandler(
+            config=GarminSyncConfig(email="user@example.com", password="x" * 12, lookback_days=30),
+            storage=storage,
+            client=MagicMock(),
+            async_queue=async_queue,
+        )
+        handler.sync = MagicMock(return_value={"status": "success"})  # type: ignore[method-assign]
+
+        response, status = handler.handle(
+            GarminSyncRequest(
+                {
+                    "athlete_id": "rob",
+                    "lookback_days": 7,
+                    "force": True,
+                    "async": True,
+                },
+                {},
+            )
+        )
+
+        assert status == 202
+        assert response["status"] == "queued"
+        assert response["mode"] == "async_queue"
+        assert response["operation_id"]
+        handler.sync.assert_not_called()
+        async_queue.enqueue.assert_called_once()
+        enqueued_item = async_queue.enqueue.call_args.kwargs["item"]
+        assert enqueued_item.source == "garmin"
+        assert enqueued_item.athlete_id == "rob"
+        assert enqueued_item.lookback_days == 7
+        assert enqueued_item.context["force"] is True
+
     def test_sync_skips_previously_seen_activity_ids_without_download(self):
         storage = MagicMock()
         storage.workouts = MagicMock()

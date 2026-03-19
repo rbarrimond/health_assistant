@@ -107,3 +107,35 @@ class TestOneDriveAsyncQueueDependency:
 
         assert handler is sentinel_handler
         assert handler_cls.call_args.kwargs["async_queue"] is mock_queue
+
+
+class TestGarminAsyncQueueDependency:
+    def test_garmin_async_queue_returns_none_when_disabled(self, monkeypatch):
+        monkeypatch.setenv("GARMIN_ASYNC_QUEUE_ENABLED", "false")
+        dependencies = FunctionAppDependencies()
+
+        queue = dependencies.garmin_async_queue
+
+        assert queue is None
+
+    def test_garmin_service_receives_queue_when_enabled(self, monkeypatch):
+        monkeypatch.setenv("GARMIN_ASYNC_QUEUE_ENABLED", "true")
+        dependencies = FunctionAppDependencies()
+        mock_storage = MagicMock()
+        mock_queue = MagicMock()
+        sentinel_handler = MagicMock()
+
+        with _patch_dep("storage", mock_storage):
+            with _patch_dep("garmin_async_queue", mock_queue):
+                with patch(
+                    "TrainingAnalyticsPlatform.platform.dependencies.GarminSyncConfig.from_env",
+                    return_value=MagicMock(),
+                ):
+                    with patch(
+                        "TrainingAnalyticsPlatform.platform.dependencies.GarminSyncHandler",
+                        return_value=sentinel_handler,
+                    ) as handler_cls:
+                        handler = dependencies.garmin_service
+
+        assert handler is sentinel_handler
+        assert handler_cls.call_args.kwargs["async_queue"] is mock_queue

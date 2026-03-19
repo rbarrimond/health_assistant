@@ -585,11 +585,37 @@ class TestAsyncIngestionQueueProcessing:
             lookback_days=14,
         )
 
+    def test_process_async_ingestion_message_executes_garmin_sync(self):
+        mock_garmin = MagicMock()
+        mock_garmin.sync.return_value = {
+            "status": "success",
+            "ingested": 3,
+            "skipped": 0,
+            "failed": 0,
+        }
+        message = {
+            "operation_id": "op-async-garmin-1",
+            "source": "garmin",
+            "athlete_id": "rob",
+            "lookback_days": 21,
+            "queued_at_utc": "2026-03-19T00:00:00+00:00",
+            "context": {"force": True},
+        }
+
+        with _patch_dependency("garmin_service", mock_garmin):
+            function_app._process_async_ingestion_message(json.dumps(message))
+
+        mock_garmin.sync.assert_called_once_with(
+            athlete_id="rob",
+            lookback_days=21,
+            force=True,
+        )
+
     def test_process_async_ingestion_message_skips_unsupported_source(self):
         mock_onedrive = MagicMock()
         message = {
             "operation_id": "op-async-2",
-            "source": "garmin",
+            "source": "polar",
             "athlete_id": "rob",
             "lookback_days": 14,
             "queued_at_utc": "2026-03-19T00:00:00+00:00",
