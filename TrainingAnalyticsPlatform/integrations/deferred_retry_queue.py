@@ -42,7 +42,31 @@ class DeferredRetryQueue:
             resolved_conn,
             queue_name,
         )
-        self._queue_client.create_queue()
+        try:
+            self._queue_client.create_queue()
+            logger.info(
+                "Deferred retry queue initialized",
+                extra={
+                    "queue_name": queue_name,
+                    "queue_init_status": "created",
+                },
+            )
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            if self._is_queue_already_exists_error(exc):
+                logger.info(
+                    "Deferred retry queue initialized",
+                    extra={
+                        "queue_name": queue_name,
+                        "queue_init_status": "already_exists",
+                    },
+                )
+            else:
+                logger.error(
+                    "Failed to initialize deferred retry queue",
+                    extra={"queue_name": queue_name},
+                    exc_info=True,
+                )
+                raise StorageError("Failed to initialize deferred retry queue") from exc
         self._queue_name = queue_name
 
     @staticmethod
@@ -60,6 +84,24 @@ class DeferredRetryQueue:
     def queue_name(self) -> str:
         """Return configured queue name."""
         return self._queue_name
+
+    @staticmethod
+    def _is_queue_already_exists_error(exc: Exception) -> bool:
+        """Return True when queue creation failed because queue already exists."""
+        error_code = getattr(exc, "error_code", None) or getattr(exc, "code", None)
+        if isinstance(error_code, str):
+            normalized = error_code.upper()
+            if normalized in {
+                "QUEUE_ALREADY_EXISTS",
+                "STORAGEERRORCODE.QUEUE_ALREADY_EXISTS",
+            }:
+                return True
+
+        message = str(exc).upper()
+        return (
+            "QUEUE_ALREADY_EXISTS" in message
+            or "STORAGEERRORCODE.QUEUE_ALREADY_EXISTS" in message
+        )
 
     def enqueue(
         self,
