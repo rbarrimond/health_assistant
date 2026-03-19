@@ -283,6 +283,12 @@ paths:
         Primary planning endpoint for training decisions. Returns recent workouts as lightweight 
         `WorkoutProjection` objects (v3.2.0+) for efficient batch queries. For full metrics, 
         drill down via `/api/workouts/{workout_id}`.
+
+        **Read-repair behaviour**: Each call triggers a just-in-time sync of workout and
+        wellness data covering the requested window before returning results. Data already
+        present in storage is never re-ingested (all sources are idempotent). The first
+        call after a data gap may have higher latency; subsequent calls within the same
+        window are fast.
       operationId: planningContext
       security:
         - FunctionKey: []

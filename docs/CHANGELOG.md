@@ -8,6 +8,28 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-19
+
+### Deferred Retry Queue Foundation for Timeout-Risk Pre-Sync [application v3.3.1, ingestion v15.3.0]
+
+- **Added (typed contracts)**: `TrainingAnalyticsPlatform/models/retry.py` introduces strict Pydantic contracts for deferred retry queue payloads and persisted deferral state.
+- **Added (queue adapter)**: `TrainingAnalyticsPlatform/integrations/deferred_retry_queue.py` encapsulates Azure Queue enqueue/decode behavior for deferred work items.
+- **Added (state storage)**: `TrainingAnalyticsPlatform/storage/retry_deferral_storage.py` adds `RateLimitDeferrals` table operations with ETag-aware status update support.
+- **Added (orchestration)**: `TrainingAnalyticsPlatform/handlers/deferred_retry_coordinator.py` implements timeout-risk policy decisioning (`Retry-After` vs request budget/safety margin), queue scheduling, and state persistence.
+- **Changed (shared pre-sync execution)**: `TrainingAnalyticsPlatform/handlers/presync_core.py` now supports deferral metadata (`deferred`, `safe_to_retry_at_utc`, `deferred_operation_id`) and no longer forces inline retries when timeout-risk deferral is selected.
+- **Changed (DI wiring)**: `FunctionAppDependencies` now provides deferred retry queue/coordinator services and injects coordinator into weekly/planning pre-sync handlers.
+- **Added (schema surface)**: `RateLimitDeferrals` is now a managed application-owned Azure Table created by storage bootstrap.
+- **Added (config)**: `DEFERRED_RETRY_ENABLED`, `DEFERRED_RETRY_HTTP_REQUEST_BUDGET_SEC`, `DEFERRED_RETRY_SAFETY_MARGIN_SEC`, and `DEFERRED_RETRY_SCHEMA_VERSION` environment variables.
+
+### Planning Context Lazy Hydration + Force Rollup Cleanup [application v3.3.0, operations API v4.2.0]
+
+- **Added (handler)**: `PlanningContextPreSyncHandler` — best-available JIT sync across all 4 sources (OneDrive workouts, Garmin activities, Garmin physiometrics, Intervals physiometrics) before planning context reads. Uses request-driven `days` parameter as lookback window. Individual source failures produce a warning log and are recorded but do not abort remaining sources or the HTTP response.
+- **Changed (endpoint behavior)**: `GET /api/planning/context` now performs read-repair lazy hydration before returning results. All sources are idempotent; already-present data is never re-ingested. First call after a data gap may have higher latency.
+- **Changed (ops endpoint)**: `POST /api/operations/rollups/weekly/compute` (`force_weekly_rollups`) is now a pure compute trigger — `pre_sync` request field, 424 response, and pre-sync execution removed. Weekly pre-sync continues to run on the timer.
+- **Updated (operations contract)**: `openapi.operations.yaml` — removed 424 response, `pre_sync` request field, `pre_sync` response field, and 3 `ForceWeeklyRollupsPreSync*` schemas from `forceWeeklyRollups`.
+- **Updated (semantic contract)**: `openapi.yaml` — `/api/planning/context` description now explicitly documents read-repair behaviour, idempotency guarantee, and first-call latency note.
+- **Added (config)**: `PLANNING_PRESYNC_RETRY_MAX_ATTEMPTS` (default: 3) and `PLANNING_PRESYNC_RETRY_BASE_DELAY_SEC` (default: 1.0) environment variables.
+
 ## 2026-03-18
 
 ### Garmin Polling Optimization + Force Override Controls [application v3.2.0, operations API v4.1.0]

@@ -144,7 +144,7 @@ POST /api/operations/rollups/weekly/compute
 Content-Type: application/json
 ```
 
-Force previous-week rollup computation for one or more athletes with optional just-in-time dependency pre-sync.
+Force previous-week rollup computation for one or more athletes.
 
 **Request Body (optional):**
 
@@ -153,16 +153,14 @@ Force previous-week rollup computation for one or more athletes with optional ju
   "athlete_id": "rob",
   "athlete_ids": ["rob", "sam"],
   "all_athletes": false,
-  "weeks": 1,
-  "pre_sync": true
+  "weeks": 1
 }
 ```
 
 **Request Notes:**
 
-- `pre_sync` defaults to `true`.
-- When `pre_sync=true`, dependency sync runs before compute with fixed 8-day lookback across OneDrive workouts, Garmin activities, Garmin physiometrics, and Intervals physiometrics.
-- Pre-sync uses fail-fast policy: if any required dependency sync fails, weekly rollup compute is aborted.
+- This endpoint is a pure compute trigger for weekly rollups.
+- Dependency hydration is handled by timer flows and planning-context read-repair, not by this operation.
 
 **Response (200 / 207):**
 
@@ -170,75 +168,14 @@ Force previous-week rollup computation for one or more athletes with optional ju
 {
   "status": "success",
   "message": "Weekly rollup persistence completed successfully",
-  "results": [],
-  "pre_sync": {
-    "enabled": true,
-    "lookback_days": 8,
-    "status": "success",
-    "message": "Weekly rollup pre-sync completed",
-    "athletes": [
-      {
-        "athlete_id": "rob",
-        "enabled": true,
-        "lookback_days": 8,
-        "status": "success",
-        "message": "Weekly rollup pre-sync completed",
-        "sources": [
-          {
-            "source": "onedrive_workouts",
-            "status": "success",
-            "http_status": 200,
-            "message": "Source pre-sync completed",
-            "attempts": 1,
-            "duration_ms": 420
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-**Response (424 Failed Dependency):**
-
-```json
-{
-  "status": "failed",
-  "message": "Weekly rollup pre-sync failed; computation aborted",
-  "results": [],
-  "pre_sync": {
-    "enabled": true,
-    "lookback_days": 8,
-    "status": "failed",
-    "message": "Weekly rollup pre-sync failed; computation aborted",
-    "athletes": [
-      {
-        "athlete_id": "rob",
-        "enabled": true,
-        "lookback_days": 8,
-        "status": "failed",
-        "message": "Weekly rollup pre-sync failed; computation aborted",
-        "sources": [
-          {
-            "source": "garmin_activities",
-            "status": "failed",
-            "http_status": 429,
-            "message": "Rate limited",
-            "attempts": 3,
-            "duration_ms": 1400
-          }
-        ]
-      }
-    ]
-  }
+  "results": []
 }
 ```
 
 **Status Codes:**
 
-- `200`: pre-sync succeeded (or disabled) and rollup compute succeeded/skipped without athlete failures.
-- `207`: pre-sync succeeded, but rollup compute returned partial/failed athlete outcomes.
-- `424`: pre-sync failed and rollup computation was not executed.
+- `200`: rollup compute succeeded/skipped without athlete failures.
+- `207`: rollup compute returned partial/failed athlete outcomes.
 - `400`: invalid request (for example, `weeks < 1`).
 - `500`: unexpected internal error.
 

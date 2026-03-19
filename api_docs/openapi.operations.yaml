@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Operations)
-  version: "4.1.0"
+  version: "4.2.0"
   description: |
     Operational and administrative API for ingestion, configuration, integrations, and plugin assets.
     Complements the semantic GPT-facing specification with platform control-plane and runtime support endpoints.
@@ -176,12 +176,6 @@ paths:
                 $ref: '#/components/schemas/ForceWeeklyRollupsResponse'
         '207':
           description: Partial success (one or more athletes failed)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ForceWeeklyRollupsResponse'
-        '424':
-          description: Dependency pre-sync failed; rollup computation aborted
           content:
             application/json:
               schema:
@@ -993,10 +987,6 @@ components:
           type: boolean
           default: false
           description: When true, compute rollups for all athletes detected from workouts.
-        pre_sync:
-          type: boolean
-          default: true
-          description: When true, run just-in-time dependency pre-sync before weekly rollup computation.
     ForceWeeklyRollupsResponse:
       type: object
       properties:
@@ -1009,85 +999,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/WeeklyRollupAthleteResult'
-        pre_sync:
-          $ref: '#/components/schemas/ForceWeeklyRollupsPreSync'
       required:
         - status
         - message
         - results
-        - pre_sync
-    ForceWeeklyRollupsPreSync:
-      type: object
-      properties:
-        enabled:
-          type: boolean
-        lookback_days:
-          type: integer
-          minimum: 1
-        status:
-          type: string
-          enum: [success, failed, skipped]
-        message:
-          type: string
-        athletes:
-          type: array
-          items:
-            $ref: '#/components/schemas/ForceWeeklyRollupsPreSyncAthleteResult'
-      required:
-        - enabled
-        - status
-        - message
-        - athletes
-    ForceWeeklyRollupsPreSyncAthleteResult:
-      type: object
-      properties:
-        athlete_id:
-          type: string
-        enabled:
-          type: boolean
-        lookback_days:
-          type: integer
-          minimum: 1
-        status:
-          type: string
-          enum: [success, failed, skipped]
-        message:
-          type: string
-        sources:
-          type: array
-          items:
-            $ref: '#/components/schemas/ForceWeeklyRollupsPreSyncSourceResult'
-      required:
-        - athlete_id
-        - enabled
-        - status
-        - message
-        - sources
-    ForceWeeklyRollupsPreSyncSourceResult:
-      type: object
-      properties:
-        source:
-          type: string
-        status:
-          type: string
-          enum: [success, failed]
-        http_status:
-          type: integer
-        message:
-          type: string
-        attempts:
-          type: integer
-          minimum: 1
-        duration_ms:
-          type: integer
-          minimum: 0
-      required:
-        - source
-        - status
-        - http_status
-        - message
-        - attempts
-        - duration_ms
     WeeklyRollupAthleteResult:
       type: object
       properties:

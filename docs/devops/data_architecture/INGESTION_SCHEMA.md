@@ -64,7 +64,7 @@ All ingestion-related schema/code version constants must be documented here.
 
 | Version | Current value | Code source | Purpose |
 | --- | --- | --- | --- |
-| `INGEST_VERSION` | `v15.1.4` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
+| `INGEST_VERSION` | `v15.3.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
 | `CANONICAL_SCHEMA_VERSION` | `2.0.3` | `TrainingAnalyticsPlatform/storage/table_storage.py` | Canonical parquet schema version persisted to `Workouts.canonical_schema_version`. |
 | `METADATA_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `metadata.json` as `metadata_schema_version`. |
 | `LAPS_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `laps.json` as `schema_version`. |
@@ -456,6 +456,7 @@ from the semantic API.
 1. `Physiometrics` — body + fitness metrics (FTP, weight, LTHR)
 1. `TrainingState` — derived readiness / freshness snapshots for wellness projections
 1. `SourceIngestionState` — external wellness-source fetch state and blob processing provenance
+1. `RateLimitDeferrals` — deferred retry state for long `Retry-After` windows (timeout-risk queue deferrals)
 1. `AgentPreferences` — user training preferences
 1. `AgentObservations` — client GPT's training observations
 
