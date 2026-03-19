@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -75,8 +76,8 @@ class AsyncIngestionOperationState(BaseModel):
             "queued_at_utc": self.queued_at_utc,
             "created_at_utc": self.created_at_utc,
             "updated_at_utc": self.updated_at_utc,
-            "context": self.context,
-            "result": self.result,
+            "context": json.dumps(self.context),
+            "result": json.dumps(self.result),
         }
         if self.request_id is not None:
             entity["request_id"] = self.request_id
@@ -91,12 +92,29 @@ class AsyncIngestionOperationState(BaseModel):
     @classmethod
     def from_entity(cls, entity: Dict[str, Any]) -> "AsyncIngestionOperationState":
         """Construct model from Azure Table entity."""
-        context = entity.get("context")
-        if not isinstance(context, dict):
-            context = {}
-        result = entity.get("result")
-        if not isinstance(result, dict):
-            result = {}
+        context_raw = entity.get("context")
+        context: Dict[str, Any] = {}
+        if isinstance(context_raw, dict):
+            context = context_raw
+        elif isinstance(context_raw, str) and context_raw.strip():
+            try:
+                parsed_context = json.loads(context_raw)
+                if isinstance(parsed_context, dict):
+                    context = parsed_context
+            except json.JSONDecodeError:
+                context = {}
+
+        result_raw = entity.get("result")
+        result: Dict[str, Any] = {}
+        if isinstance(result_raw, dict):
+            result = result_raw
+        elif isinstance(result_raw, str) and result_raw.strip():
+            try:
+                parsed_result = json.loads(result_raw)
+                if isinstance(parsed_result, dict):
+                    result = parsed_result
+            except json.JSONDecodeError:
+                result = {}
 
         return cls(
             partition_key=entity["PartitionKey"],

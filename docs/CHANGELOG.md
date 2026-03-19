@@ -10,6 +10,12 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-19
 
+### Async Operation Table Serialization Compatibility Fix [application v3.4.1]
+
+- **Fixed (storage compatibility)**: `AsyncIngestionOperationState.to_entity()` now serializes `context` and `result` as JSON strings so Azure Table entity writes remain scalar-compatible.
+- **Fixed (read compatibility)**: `AsyncIngestionOperationState.from_entity()` now deserializes JSON payload strings back to dictionaries and safely falls back to `{}` on malformed/non-object values.
+- **Schema note**: `AsyncIngestionOperations` column names are unchanged (`context`, `result`), but persisted values are now canonical JSON-encoded object payloads.
+
 ### Async Ingestion Operation Lifecycle Persistence + Status API [application v3.4.0, operations API v4.3.0]
 
 - **Added (typed contracts)**: `TrainingAnalyticsPlatform/models/async_operation.py` introduces strict Pydantic contracts for persisted async ingestion operation state.

@@ -41,6 +41,11 @@
       "type": "string"
     },
     {
+      "key": "operation_id",
+      "value": "REPLACE_WITH_OPERATION_ID",
+      "type": "string"
+    },
+    {
       "key": "source_ctag",
       "value": "0x8D5A2B1C3E7F9A2B",
       "type": "string"
@@ -701,6 +706,21 @@
             },
             "url": "{{base_url}}/api/intervals/sync?code={{function_key}}",
             "description": "Sync Intervals.icu wellness data (function key required). Fetches wellness records from Intervals.icu wellness API using HTTP Basic authentication. v4.1.0 schema: Intervals owns recovery (hrv_ln_rmssd, hrv_sdnn_ms, sleep_duration_sec, resting_hr_bpm), activity (steps), nutrition (calories_kcal, carbs_g, protein_g, fat_g), and spo2_pct; provides fallback body metrics (weight_kg, body_fat_pct) when Withings rows are absent. Stores in Physiometrics table with canonical_version='4.1.0'. Endpoint returns 200 on full success and 207 on partial success when some records fail validation/storage. Requires INTERVALS_API_KEY and INTERVALS_ATHLETE_ID environment variables. Lookback defaults to 30 days."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Async Operations",
+      "item": [
+        {
+          "name": "GET /api/async/operations/status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/async/operations/status?athlete_id={{athlete_id}}&operation_id={{operation_id}}&code={{function_key}}",
+            "description": "Retrieve lifecycle status for an async ingestion operation returned by async sync endpoints."
           },
           "response": []
         }
