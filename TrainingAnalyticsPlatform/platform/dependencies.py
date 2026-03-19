@@ -8,8 +8,9 @@ while still providing lazy, cached initialization for performance.
 from __future__ import annotations
 
 import logging
+import os
 from functools import cached_property
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from azure.core.exceptions import AzureError
 
@@ -133,14 +134,28 @@ class FunctionAppDependencies:
         return queue
 
     @cached_property
-    def deferred_retry_coordinator(self) -> DeferredRetryCoordinator:
+    def deferred_retry_coordinator(self) -> Optional[DeferredRetryCoordinator]:
         """Return deferred retry coordinator service."""
+        if not self._is_deferred_retry_enabled():
+            logger.info("Deferred retry coordinator disabled by configuration")
+            return None
+
         coordinator = DeferredRetryCoordinator.from_env(
             queue=self.deferred_retry_queue,
             storage=self.storage.retry_deferrals,
         )
         logger.info("Deferred retry coordinator initialized")
         return coordinator
+
+    @staticmethod
+    def _is_deferred_retry_enabled() -> bool:
+        """Return whether deferred retry queue integration is enabled."""
+        return os.getenv("DEFERRED_RETRY_ENABLED", "false").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
 
     @cached_property
     def weekly_rollup_pre_sync_service(self) -> WeeklyRollupPreSyncHandler:
