@@ -43,6 +43,35 @@ class TestAsyncIngestionOperationStateSerialization:
 
         assert state.context == {"force": True, "api": "garmin"}
         assert state.result == {"ingested": 3, "failed": 0}
+        assert state.etag is None
+
+    def test_from_entity_captures_etag_from_metadata(self):
+        class FakeEntity(dict):
+            def __init__(self, payload, etag):
+                super().__init__(payload)
+                self.metadata = {"etag": etag}
+
+        entity = FakeEntity(
+            {
+                "PartitionKey": "rob",
+                "RowKey": "op-4",
+                "athlete_id": "rob",
+                "source": "onedrive",
+                "lookback_days": 14,
+                "status": "processing",
+                "mode": "async_queue",
+                "queued_at_utc": "2026-03-19T00:00:00+00:00",
+                "created_at_utc": "2026-03-19T00:00:01+00:00",
+                "updated_at_utc": "2026-03-19T00:01:00+00:00",
+                "context": '{"force": true}',
+                "result": '{"ingested": 1}',
+            },
+            'W/"test-etag"',
+        )
+
+        state = AsyncIngestionOperationState.from_entity(entity)
+
+        assert state.etag == 'W/"test-etag"'
 
     def test_from_entity_falls_back_for_malformed_or_non_object_json(self):
         malformed_entity = {
@@ -64,3 +93,4 @@ class TestAsyncIngestionOperationStateSerialization:
 
         assert state.context == {}
         assert state.result == {}
+        assert state.etag is None

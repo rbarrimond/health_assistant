@@ -92,6 +92,9 @@ class AsyncIngestionOperationState(BaseModel):
     @classmethod
     def from_entity(cls, entity: Dict[str, Any]) -> "AsyncIngestionOperationState":
         """Construct model from Azure Table entity."""
+        metadata = getattr(entity, "metadata", None)
+        etag: Optional[str] = metadata.get("etag") if isinstance(metadata, dict) else None
+
         context_raw = entity.get("context")
         context: Dict[str, Any] = {}
         if isinstance(context_raw, dict):
@@ -132,5 +135,5 @@ class AsyncIngestionOperationState(BaseModel):
             context=context,
             result=result,
             error=entity.get("error"),
-            etag=entity.get("etag") or entity.get("_etag"),
+            etag=etag,
         )

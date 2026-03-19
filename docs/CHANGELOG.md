@@ -10,6 +10,11 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-19
 
+### Async Operation ETag Capture Fix [application v3.4.2]
+
+- **Fixed (correctness)**: `AsyncIngestionOperationState.from_entity()` now reads ETag from `entity.metadata["etag"]` (Azure Data Tables SDK metadata location) instead of entity payload keys.
+- **Impact**: `mark_status()` optimistic concurrency now uses persisted ETag values as designed when an ETag is present.
+
 ### Async Operation Table Serialization Compatibility Fix [application v3.4.1]
 
 - **Fixed (storage compatibility)**: `AsyncIngestionOperationState.to_entity()` now serializes `context` and `result` as JSON strings so Azure Table entity writes remain scalar-compatible.
