@@ -41,6 +41,7 @@ MANAGED_TABLE_NAMES = (
     "SourceIngestionState",
     "TrainingState",
     "RateLimitDeferrals",
+    "AsyncIngestionOperations",
 )
 
 

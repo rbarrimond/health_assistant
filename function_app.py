@@ -27,6 +27,7 @@ from config.constants import (
 )
 from TrainingAnalyticsPlatform.storage.backup_exporter import BackupExporter
 from TrainingAnalyticsPlatform.models.async_ingestion import AsyncIngestionWorkItem
+from TrainingAnalyticsPlatform.models.async_operation import AsyncIngestionOperationState
 from TrainingAnalyticsPlatform.platform.dependencies import dependencies
 from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.platform.logging_setup import setup_logging
@@ -308,6 +309,32 @@ def _process_async_ingestion_message(message_body: str) -> None:
     """Process one async ingestion work item from queue."""
     work_item = AsyncIngestionWorkItem.model_validate_json(message_body)
     force = bool(work_item.context.get("force", False))
+    state_storage = dependencies.storage.async_operations
+
+    state = state_storage.get_state(
+        athlete_id=work_item.athlete_id,
+        operation_id=work_item.operation_id,
+    )
+    if state is None:
+        state_storage.upsert_state(
+            AsyncIngestionOperationState.queued(
+                athlete_id=work_item.athlete_id,
+                operation_id=work_item.operation_id,
+                source=work_item.source,
+                lookback_days=work_item.lookback_days,
+                mode="async_queue",
+                queued_at_utc=work_item.queued_at_utc,
+                request_id=work_item.request_id,
+                correlation_id=work_item.correlation_id,
+                context=work_item.context,
+            )
+        )
+        state = state_storage.get_state(
+            athlete_id=work_item.athlete_id,
+            operation_id=work_item.operation_id,
+        )
+
+    etag = state.etag if state else None
 
     logger.info(
         "Async ingestion worker started",
@@ -321,6 +348,13 @@ def _process_async_ingestion_message(message_body: str) -> None:
     )
 
     try:
+        state_storage.mark_status(
+            athlete_id=work_item.athlete_id,
+            operation_id=work_item.operation_id,
+            status="processing",
+            etag=etag,
+        )
+
         if work_item.source == "onedrive":
             result = dependencies.onedrive_service.sync(
                 athlete_id=work_item.athlete_id,
@@ -342,7 +376,26 @@ def _process_async_ingestion_message(message_body: str) -> None:
                 },
             )
             return
+
+        state_storage.mark_status(
+            athlete_id=work_item.athlete_id,
+            operation_id=work_item.operation_id,
+            status="succeeded",
+            result={
+                "status": result.get("status"),
+                "found": result.get("found"),
+                "ingested": result.get("ingested"),
+                "skipped": result.get("skipped"),
+                "failed": result.get("failed"),
+            },
+        )
     except Exception as exc:  # pylint: disable=broad-exception-caught
+        state_storage.mark_status(
+            athlete_id=work_item.athlete_id,
+            operation_id=work_item.operation_id,
+            status="failed",
+            error=str(exc),
+        )
         logger.error(
             "Async ingestion worker failed",
             extra={
@@ -392,6 +445,55 @@ def process_deferred_retry(msg: func.QueueMessage) -> None:
 def process_async_ingestion(msg: func.QueueMessage) -> None:
     """Process async ingestion queue work items."""
     _process_async_ingestion_message(msg.get_body().decode("utf-8"))
+
+
+@app.route(
+    route="async/operations/status",
+    methods=["GET"],
+    auth_level=func.AuthLevel.FUNCTION,
+)
+@endpoint
+def get_async_operation_status(req: func.HttpRequest) -> func.HttpResponse:
+    """Return async ingestion operation state by athlete and operation id."""
+    athlete_id = req.params.get("athlete_id") or "rob"
+    operation_id = req.params.get("operation_id")
+
+    if not operation_id:
+        return json_response({"error": "operation_id is required"}, 400)
+
+    state = dependencies.storage.async_operations.get_state(
+        athlete_id=athlete_id,
+        operation_id=operation_id,
+    )
+    if state is None:
+        return json_response(
+            {
+                "error": "Operation not found",
+                "athlete_id": athlete_id,
+                "operation_id": operation_id,
+            },
+            404,
+        )
+
+    return json_response(
+        {
+            "athlete_id": state.athlete_id,
+            "operation_id": state.row_key,
+            "source": state.source,
+            "lookback_days": state.lookback_days,
+            "status": state.status,
+            "mode": state.mode,
+            "queued_at_utc": state.queued_at_utc,
+            "created_at_utc": state.created_at_utc,
+            "updated_at_utc": state.updated_at_utc,
+            "request_id": state.request_id,
+            "correlation_id": state.correlation_id,
+            "context": state.context,
+            "result": state.result,
+            "error": state.error,
+        },
+        200,
+    )
 
 # ============================================================================
 # FIT File Upload Endpoints

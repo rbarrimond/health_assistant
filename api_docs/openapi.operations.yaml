@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Operations)
-  version: "4.2.0"
+  version: "4.3.0"
   description: |
     Operational and administrative API for ingestion, configuration, integrations, and plugin assets.
     Complements the semantic GPT-facing specification with platform control-plane and runtime support endpoints.
@@ -182,6 +182,86 @@ paths:
                 $ref: '#/components/schemas/ForceWeeklyRollupsResponse'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/async/operations/status:
+    get:
+      summary: Retrieve async ingestion operation status
+      operationId: getAsyncOperationStatus
+      description: Returns persisted lifecycle state for an async ingestion operation.
+      parameters:
+        - name: athlete_id
+          in: query
+          required: false
+          description: Athlete identifier (defaults to 'rob')
+          schema:
+            type: string
+            default: rob
+        - name: operation_id
+          in: query
+          required: true
+          description: Async operation identifier returned by async sync requests.
+          schema:
+            type: string
+      security:
+        - FunctionKey: []
+      responses:
+        '200':
+          description: Operation state found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  athlete_id:
+                    type: string
+                  operation_id:
+                    type: string
+                  source:
+                    type: string
+                  lookback_days:
+                    type: integer
+                  status:
+                    type: string
+                  mode:
+                    type: string
+                  queued_at_utc:
+                    type: string
+                  created_at_utc:
+                    type: string
+                  updated_at_utc:
+                    type: string
+                  request_id:
+                    type:
+                      - string
+                      - 'null'
+                  correlation_id:
+                    type:
+                      - string
+                      - 'null'
+                  context:
+                    type: object
+                    additionalProperties: true
+                  result:
+                    type: object
+                    additionalProperties: true
+                  error:
+                    type:
+                      - string
+                      - 'null'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Operation not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  athlete_id:
+                    type: string
+                  operation_id:
+                    type: string
   /api/logo.svg:
     get:
       summary: Retrieve the Health Assistant logo

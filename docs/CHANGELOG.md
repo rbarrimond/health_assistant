@@ -10,6 +10,15 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-19
 
+### Async Ingestion Operation Lifecycle Persistence + Status API [application v3.4.0, operations API v4.3.0]
+
+- **Added (typed contracts)**: `TrainingAnalyticsPlatform/models/async_operation.py` introduces strict Pydantic contracts for persisted async ingestion operation state.
+- **Added (state storage)**: `TrainingAnalyticsPlatform/storage/async_ingestion_operation_storage.py` adds `AsyncIngestionOperations` table operations for lifecycle state transitions.
+- **Added (schema surface)**: `AsyncIngestionOperations` is now a managed application-owned Azure Table created by storage bootstrap.
+- **Changed (async producer state)**: OneDrive and Garmin async producers now persist queued operation state with mode/source/lookback/context metadata and operation id.
+- **Changed (worker lifecycle state)**: async ingestion queue worker now records `processing` and terminal `succeeded`/`failed` statuses with result/error payload.
+- **Added (operations endpoint)**: `GET /api/async/operations/status` returns operation state by `athlete_id` + `operation_id`.
+
 ### Deferred Retry Queue Foundation for Timeout-Risk Pre-Sync [application v3.3.1, ingestion v15.3.0]
 
 - **Added (typed contracts)**: `TrainingAnalyticsPlatform/models/retry.py` introduces strict Pydantic contracts for deferred retry queue payloads and persisted deferral state.

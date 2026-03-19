@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
 
 from TrainingAnalyticsPlatform.models.async_ingestion import AsyncIngestionWorkItem
+from TrainingAnalyticsPlatform.models.async_operation import AsyncIngestionOperationState
 from TrainingAnalyticsPlatform.integrations.onedrive_client import (
     OneDriveDeltaTokenExpiredError,
     OneDriveGraphClient,
@@ -618,7 +619,18 @@ class OneDriveSyncHandler:
         queued_at_utc: str,
     ) -> Tuple[Dict, int]:
         """Enqueue async OneDrive sync work item."""
+        operation_state = AsyncIngestionOperationState.queued(
+            athlete_id=athlete_id,
+            operation_id=operation_id,
+            source="onedrive",
+            lookback_days=lookback_days,
+            mode="async_queue",
+            queued_at_utc=queued_at_utc,
+            context={"source_system": "onedrive", "mode": "async"},
+        )
+
         try:
+            self._storage.async_operations.upsert_state(operation_state)
             self._async_queue.enqueue(
                 item=AsyncIngestionWorkItem(
                     operation_id=operation_id,
@@ -671,10 +683,38 @@ class OneDriveSyncHandler:
     ) -> Tuple[Dict, int]:
         """Run async OneDrive sync via in-process daemon thread (fallback mode)."""
 
+        operation_state = AsyncIngestionOperationState.queued(
+            athlete_id=athlete_id,
+            operation_id=operation_id,
+            source="onedrive",
+            lookback_days=lookback_days,
+            mode="async_thread",
+            queued_at_utc=queued_at_utc,
+            context={"source_system": "onedrive", "mode": "async"},
+        )
+        self._storage.async_operations.upsert_state(operation_state)
+
         def _run_background_sync() -> None:
             try:
+                self._storage.async_operations.mark_status(
+                    athlete_id=athlete_id,
+                    operation_id=operation_id,
+                    status="processing",
+                )
                 result = self.sync(
                     athlete_id=athlete_id, lookback_days=lookback_days
+                )
+                self._storage.async_operations.mark_status(
+                    athlete_id=athlete_id,
+                    operation_id=operation_id,
+                    status="succeeded",
+                    result={
+                        "status": result.get("status"),
+                        "found": result.get("found"),
+                        "ingested": result.get("ingested"),
+                        "skipped": result.get("skipped"),
+                        "failed": result.get("failed"),
+                    },
                 )
                 logger.info(
                     "OneDrive async sync completed",
@@ -690,6 +730,12 @@ class OneDriveSyncHandler:
                     },
                 )
             except Exception as exc:  # pylint: disable=broad-exception-caught
+                self._storage.async_operations.mark_status(
+                    athlete_id=athlete_id,
+                    operation_id=operation_id,
+                    status="failed",
+                    error=str(exc),
+                )
                 logger.error(
                     "OneDrive async sync failed",
                     extra={

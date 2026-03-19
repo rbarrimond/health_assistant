@@ -261,6 +261,7 @@ class TestGarminSyncHandler:
         assert response["mode"] == "async_thread"
         assert response["operation_id"]
         assert response["queued_at_utc"]
+        storage.async_operations.upsert_state.assert_called_once()
 
     def test_handle_async_queue_enqueues_work_item(self):
         storage = MagicMock()
@@ -291,6 +292,7 @@ class TestGarminSyncHandler:
         assert response["operation_id"]
         handler.sync.assert_not_called()
         async_queue.enqueue.assert_called_once()
+        storage.async_operations.upsert_state.assert_called_once()
         enqueued_item = async_queue.enqueue.call_args.kwargs["item"]
         assert enqueued_item.source == "garmin"
         assert enqueued_item.athlete_id == "rob"

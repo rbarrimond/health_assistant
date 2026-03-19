@@ -308,9 +308,10 @@ class TestOneDriveSyncHandler:
     def test_handle_async_queues_when_async_queue_configured(self):
         """Test async mode enqueues OneDrive work item when queue integration is provided."""
         async_queue = MagicMock()
+        storage = MagicMock()
         handler = OneDriveSyncHandler(
             _config(lookback_days=30),
-            MagicMock(),
+            storage,
             client=MagicMock(),
             ingestion_handler=MagicMock(),
             async_queue=async_queue,
@@ -327,6 +328,7 @@ class TestOneDriveSyncHandler:
         assert result["lookback_days"] == 10
         assert result["operation_id"]
         async_queue.enqueue.assert_called_once()
+        storage.async_operations.upsert_state.assert_called_once()
         handler.sync.assert_not_called()
 
     def test_handle_reset_single_success(self, handler):

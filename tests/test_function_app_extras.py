@@ -563,6 +563,10 @@ class TestDeferredRetryQueueProcessing:
 class TestAsyncIngestionQueueProcessing:
     def test_process_async_ingestion_message_executes_onedrive_sync(self):
         mock_onedrive = MagicMock()
+        mock_storage = MagicMock()
+        mock_async_ops = MagicMock()
+        mock_storage.async_operations = mock_async_ops
+        mock_async_ops.get_state.return_value = None
         mock_onedrive.sync.return_value = {
             "status": "success",
             "ingested": 2,
@@ -577,16 +581,22 @@ class TestAsyncIngestionQueueProcessing:
             "queued_at_utc": "2026-03-19T00:00:00+00:00",
         }
 
-        with _patch_dependency("onedrive_service", mock_onedrive):
-            function_app._process_async_ingestion_message(json.dumps(message))
+        with _patch_dependency("storage", mock_storage):
+            with _patch_dependency("onedrive_service", mock_onedrive):
+                function_app._process_async_ingestion_message(json.dumps(message))
 
         mock_onedrive.sync.assert_called_once_with(
             athlete_id="rob",
             lookback_days=14,
         )
+        assert mock_async_ops.mark_status.call_count == 2
 
     def test_process_async_ingestion_message_executes_garmin_sync(self):
         mock_garmin = MagicMock()
+        mock_storage = MagicMock()
+        mock_async_ops = MagicMock()
+        mock_storage.async_operations = mock_async_ops
+        mock_async_ops.get_state.return_value = None
         mock_garmin.sync.return_value = {
             "status": "success",
             "ingested": 3,
@@ -602,17 +612,23 @@ class TestAsyncIngestionQueueProcessing:
             "context": {"force": True},
         }
 
-        with _patch_dependency("garmin_service", mock_garmin):
-            function_app._process_async_ingestion_message(json.dumps(message))
+        with _patch_dependency("storage", mock_storage):
+            with _patch_dependency("garmin_service", mock_garmin):
+                function_app._process_async_ingestion_message(json.dumps(message))
 
         mock_garmin.sync.assert_called_once_with(
             athlete_id="rob",
             lookback_days=21,
             force=True,
         )
+        assert mock_async_ops.mark_status.call_count == 2
 
     def test_process_async_ingestion_message_skips_unsupported_source(self):
         mock_onedrive = MagicMock()
+        mock_storage = MagicMock()
+        mock_async_ops = MagicMock()
+        mock_storage.async_operations = mock_async_ops
+        mock_async_ops.get_state.return_value = None
         message = {
             "operation_id": "op-async-2",
             "source": "polar",
@@ -621,10 +637,12 @@ class TestAsyncIngestionQueueProcessing:
             "queued_at_utc": "2026-03-19T00:00:00+00:00",
         }
 
-        with _patch_dependency("onedrive_service", mock_onedrive):
-            function_app._process_async_ingestion_message(json.dumps(message))
+        with _patch_dependency("storage", mock_storage):
+            with _patch_dependency("onedrive_service", mock_onedrive):
+                function_app._process_async_ingestion_message(json.dumps(message))
 
         mock_onedrive.sync.assert_not_called()
+        mock_async_ops.mark_status.assert_called_once()
 
     def test_async_ingestion_queue_trigger_calls_processor(self):
         msg = MagicMock(spec=func.QueueMessage)
@@ -724,6 +742,63 @@ class TestIngestionHelpersAndFlow:
 
         assert status_code == 400
         assert body["error"] == "No file content"
+
+
+class TestAsyncOperationStatusEndpoint:
+    def test_get_async_operation_status_requires_operation_id(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.params = {"athlete_id": "rob"}
+
+        response = function_app.get_async_operation_status(req)
+
+        assert response.status_code == 400
+
+    def test_get_async_operation_status_returns_not_found(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.params = {"athlete_id": "rob", "operation_id": "op-missing"}
+
+        mock_storage = MagicMock()
+        mock_async_ops = MagicMock()
+        mock_storage.async_operations = mock_async_ops
+        mock_async_ops.get_state.return_value = None
+
+        with _patch_dependency("storage", mock_storage):
+            response = function_app.get_async_operation_status(req)
+
+        assert response.status_code == 404
+
+    def test_get_async_operation_status_returns_state(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.params = {"athlete_id": "rob", "operation_id": "op-1"}
+
+        mock_state = MagicMock()
+        mock_state.athlete_id = "rob"
+        mock_state.row_key = "op-1"
+        mock_state.source = "onedrive"
+        mock_state.lookback_days = 14
+        mock_state.status = "succeeded"
+        mock_state.mode = "async_queue"
+        mock_state.queued_at_utc = "2026-03-19T00:00:00+00:00"
+        mock_state.created_at_utc = "2026-03-19T00:00:01+00:00"
+        mock_state.updated_at_utc = "2026-03-19T00:01:00+00:00"
+        mock_state.request_id = None
+        mock_state.correlation_id = None
+        mock_state.context = {"source_system": "onedrive"}
+        mock_state.result = {"ingested": 2}
+        mock_state.error = None
+
+        mock_storage = MagicMock()
+        mock_async_ops = MagicMock()
+        mock_storage.async_operations = mock_async_ops
+        mock_async_ops.get_state.return_value = mock_state
+
+        with _patch_dependency("storage", mock_storage):
+            response = function_app.get_async_operation_status(req)
+
+        assert response.status_code == 200
+        body = json.loads(response.get_body())
+        assert body["operation_id"] == "op-1"
+        assert body["status"] == "succeeded"
 
     def test_ingest_fit_payload_success(self):
         payload = {
