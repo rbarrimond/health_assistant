@@ -248,7 +248,7 @@ class TestIntervalsSyncHandlerHandle:
 
         assert status == 500
         assert "error" in response
-        assert "internal" in response.get("error", "").lower()
+        assert "unexpected error" in response.get("error", "").lower()
 
     def test_handle_load_only_intervals_record_is_rejected(
         self, handler, mock_storage, mock_client

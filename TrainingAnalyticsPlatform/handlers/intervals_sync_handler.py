@@ -150,12 +150,32 @@ class IntervalsSyncHandler:
             }, status
 
         except ExternalServiceError as exc:
-            logger.error("Intervals.icu API error: %s", exc)
-            return {"error": f"Intervals.icu API error: {exc}"}, 502
+            logger.error(
+                "Intervals.icu API error",
+                extra={
+                    "intervals_athlete_id": intervals_athlete_id,
+                    "athlete_id": athlete_id,
+                    "source_system": "intervals",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
+            return exc.to_response()
 
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger.error("Unexpected error in Intervals sync: %s", exc, exc_info=True)
-            return {"error": "Internal server error"}, 500
+            logger.error(
+                "Unexpected error in Intervals sync",
+                extra={
+                    "intervals_athlete_id": intervals_athlete_id,
+                    "athlete_id": athlete_id,
+                    "source_system": "intervals",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
+            return {"error": str(exc)}, 500
 
     def _process_wellness_records(
         self, athlete_id: str, wellness_records: Dict[str, Any] | list

@@ -583,7 +583,7 @@ class OneDriveSyncHandler:
                 },
                 exc_info=True,
             )
-            return {"error": "Sync failed"}, 500
+            return {"error": str(exc)}, 500
 
     def _handle_async(self, athlete_id: str, lookback_days: int) -> Tuple[Dict, int]:
         """Queue asynchronous sync."""
