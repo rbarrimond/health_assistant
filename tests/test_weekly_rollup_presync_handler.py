@@ -83,7 +83,7 @@ class TestWeeklyRollupPreSyncHandler:
     def test_retryable_status_retries_then_succeeds(self):
         onedrive = MagicMock()
         onedrive.handle.side_effect = [
-            ({"error": "Rate limited"}, 429),
+            ({"error": "Rate limited"}, 429, {"Retry-After": "60"}),
             ({"message": "ok"}, 200),
         ]
 
@@ -106,11 +106,34 @@ class TestWeeklyRollupPreSyncHandler:
             retry_base_delay_sec=0.01,
         )
 
-        with patch("TrainingAnalyticsPlatform.handlers.weekly_rollup_presync_handler.time.sleep"):
+        with patch("TrainingAnalyticsPlatform.handlers.presync_core.time.sleep"):
             result = handler.run("rob", enabled=True)
 
         assert result["status"] == "success"
         assert onedrive.handle.call_count == 2
+
+    def test_failed_rate_limit_includes_retry_after(self):
+        onedrive = MagicMock()
+        onedrive.handle.return_value = (
+            {"error": "Rate limited"},
+            429,
+            {"Retry-After": "120"},
+        )
+
+        handler = WeeklyRollupPreSyncHandler(
+            onedrive_service=onedrive,
+            garmin_service=MagicMock(),
+            garmin_physiometrics_service=MagicMock(),
+            intervals_service=MagicMock(),
+            intervals_athlete_id="i508584",
+            retry_max_attempts=1,
+        )
+
+        result = handler.run("rob", enabled=True)
+
+        assert result["status"] == "failed"
+        assert result["sources"][0]["http_status"] == 429
+        assert result["sources"][0]["retry_after"] == "120"
 
     def test_missing_intervals_identity_fails(self):
         onedrive = MagicMock()
@@ -137,3 +160,37 @@ class TestWeeklyRollupPreSyncHandler:
 
         assert result["status"] == "failed"
         assert result["sources"][-1]["source"] == "intervals_physiometrics"
+
+    def test_long_retry_after_defers_without_extra_inline_retries(self):
+        onedrive = MagicMock()
+        onedrive.handle.return_value = (
+            {"error": "Rate limited"},
+            429,
+            {"Retry-After": "86400"},
+        )
+
+        coordinator = MagicMock()
+        coordinator.maybe_defer.return_value = MagicMock(
+            deferred=True,
+            operation_id="op-123",
+            safe_to_retry_at_utc="2026-03-19T00:00:00+00:00",
+            retry_after_raw="86400",
+        )
+
+        handler = WeeklyRollupPreSyncHandler(
+            onedrive_service=onedrive,
+            garmin_service=MagicMock(),
+            garmin_physiometrics_service=MagicMock(),
+            intervals_service=MagicMock(),
+            intervals_athlete_id="i508584",
+            retry_max_attempts=3,
+            deferred_retry_coordinator=coordinator,
+        )
+
+        with patch("TrainingAnalyticsPlatform.handlers.presync_core.time.sleep"):
+            result = handler.run("rob", enabled=True)
+
+        assert result["status"] == "failed"
+        assert onedrive.handle.call_count == 1
+        assert result["sources"][0]["deferred"] is True
+        assert result["sources"][0]["deferred_operation_id"] == "op-123"

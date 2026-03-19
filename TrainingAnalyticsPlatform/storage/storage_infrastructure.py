@@ -40,6 +40,7 @@ MANAGED_TABLE_NAMES = (
     "AgentObservations",
     "SourceIngestionState",
     "TrainingState",
+    "RateLimitDeferrals",
 )
 
 

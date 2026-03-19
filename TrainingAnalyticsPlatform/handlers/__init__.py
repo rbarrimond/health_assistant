@@ -17,6 +17,7 @@ from .garmin_sync_handler import (
 )
 from .garmin_physiometrics_sync_handler import GarminPhysiometricsSyncHandler
 from .weekly_rollup_presync_handler import WeeklyRollupPreSyncHandler
+from .planning_context_presync_handler import PlanningContextPreSyncHandler
 from .query_handler import QueryHandler
 from .physiometrics_handler import PhysiometricsHandler
 from .withings_handler import WithingsHandler
@@ -38,6 +39,7 @@ __all__ = [
     "GarminSyncConfig",
     "GarminPhysiometricsSyncHandler",
     "WeeklyRollupPreSyncHandler",
+    "PlanningContextPreSyncHandler",
     "QueryHandler",
     "PhysiometricsHandler",
     "WithingsHandler",

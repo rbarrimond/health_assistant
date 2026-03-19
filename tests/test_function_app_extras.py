@@ -350,29 +350,18 @@ class TestWeeklyRollupOperations:
                 }
             ],
         }
-        mock_presync = MagicMock()
-        mock_presync.run.return_value = {
-            "enabled": True,
-            "lookback_days": 8,
-            "status": "success",
-            "message": "Weekly rollup pre-sync completed",
-            "sources": [],
-        }
 
         with _patch_dependency("semantic_layer", mock_semantic):
-            with _patch_dependency("weekly_rollup_pre_sync_service", mock_presync):
-                response = function_app.force_weekly_rollups(req)
+            response = function_app.force_weekly_rollups(req)
 
         assert response.status_code == 200
         body = json.loads(response.get_body())
         assert body["status"] == "success"
         assert len(body["results"]) == 1
-        assert body["pre_sync"]["status"] == "success"
         mock_semantic.compute_and_persist_previous_week_rollups.assert_called_once_with(
             athlete_ids=["rob"],
             weeks=4,
         )
-        mock_presync.run.assert_called_once_with(athlete_id="rob", enabled=True)
 
     def test_force_weekly_rollups_endpoint_all_athletes(self):
         req = MagicMock(spec=func.HttpRequest)
@@ -390,92 +379,17 @@ class TestWeeklyRollupOperations:
                 {"athlete_id": "sam", "status": "partial", "message": "partial", "weeks": []},
             ],
         }
-        mock_presync = MagicMock()
-        mock_presync.run.return_value = {
-            "enabled": True,
-            "lookback_days": 8,
-            "status": "success",
-            "message": "Weekly rollup pre-sync completed",
-            "sources": [],
-        }
 
         with _patch_dependency("semantic_layer", mock_semantic):
-            with _patch_dependency("weekly_rollup_pre_sync_service", mock_presync):
-                response = function_app.force_weekly_rollups(req)
+            response = function_app.force_weekly_rollups(req)
 
         assert response.status_code == 207
         body = json.loads(response.get_body())
         assert body["status"] == "partial"
-        assert body["pre_sync"]["status"] == "success"
         mock_semantic.compute_and_persist_previous_week_rollups.assert_called_once_with(
             athlete_ids=["rob", "sam"],
             weeks=1,
         )
-        mock_presync.run.assert_has_calls(
-            [
-                call(athlete_id="rob", enabled=True),
-                call(athlete_id="sam", enabled=True),
-            ]
-        )
-
-    def test_force_weekly_rollups_endpoint_pre_sync_opt_out(self):
-        req = MagicMock(spec=func.HttpRequest)
-        req.method = "POST"
-        req.get_json.return_value = {"athlete_id": "rob", "pre_sync": False}
-        req.params = {}
-
-        mock_semantic = MagicMock()
-        mock_semantic.compute_and_persist_previous_week_rollups.return_value = {
-            "status": "success",
-            "message": "Weekly rollup persistence completed successfully",
-            "results": [],
-        }
-        mock_presync = MagicMock()
-
-        with _patch_dependency("semantic_layer", mock_semantic):
-            with _patch_dependency("weekly_rollup_pre_sync_service", mock_presync):
-                response = function_app.force_weekly_rollups(req)
-
-        assert response.status_code == 200
-        body = json.loads(response.get_body())
-        assert body["pre_sync"]["status"] == "skipped"
-        mock_presync.run.assert_not_called()
-
-    def test_force_weekly_rollups_endpoint_pre_sync_failure_aborts(self):
-        req = MagicMock(spec=func.HttpRequest)
-        req.method = "POST"
-        req.get_json.return_value = {"athlete_id": "rob"}
-        req.params = {}
-
-        mock_semantic = MagicMock()
-        mock_presync = MagicMock()
-        mock_presync.run.return_value = {
-            "enabled": True,
-            "lookback_days": 8,
-            "status": "failed",
-            "message": "Weekly rollup pre-sync failed; computation aborted",
-            "sources": [
-                {
-                    "source": "garmin_activities",
-                    "status": "failed",
-                    "http_status": 429,
-                    "message": "Rate limited",
-                    "attempts": 3,
-                    "duration_ms": 1200,
-                }
-            ],
-        }
-
-        with _patch_dependency("semantic_layer", mock_semantic):
-            with _patch_dependency("weekly_rollup_pre_sync_service", mock_presync):
-                response = function_app.force_weekly_rollups(req)
-
-        assert response.status_code == 424
-        body = json.loads(response.get_body())
-        assert body["status"] == "failed"
-        assert body["results"] == []
-        assert body["pre_sync"]["status"] == "failed"
-        mock_semantic.compute_and_persist_previous_week_rollups.assert_not_called()
 
     def test_force_weekly_rollups_endpoint_invalid_weeks(self):
         req = MagicMock(spec=func.HttpRequest)
@@ -488,6 +402,162 @@ class TestWeeklyRollupOperations:
         assert response.status_code == 400
         body = json.loads(response.get_body())
         assert "weeks" in body["error"]
+
+
+class TestPlanningContextEndpoint:
+    def test_planning_context_endpoint_calls_presync(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.params = {"athlete_id": "rob", "days": "30"}
+
+        mock_semantic = MagicMock()
+        mock_semantic.query_planning_context = MagicMock(
+            return_value=({"athlete_id": "rob"}, 200)
+        )
+        mock_presync = MagicMock()
+        mock_presync.run.return_value = {
+            "lookback_days": 30,
+            "status": "all_succeeded",
+            "message": "Planning context pre-sync completed successfully",
+            "sources": [],
+        }
+
+        with _patch_dependency("semantic_layer", mock_semantic):
+            with _patch_dependency("planning_context_pre_sync_service", mock_presync):
+                with patch("function_app.QueryHandler") as handler_cls:
+                    mock_handler = MagicMock()
+                    mock_handler.query_planning_context.return_value = (
+                        {"athlete_id": "rob"},
+                        200,
+                    )
+                    handler_cls.return_value = mock_handler
+                    response = function_app.planning_context(req)
+
+        assert response.status_code == 200
+        mock_presync.run.assert_called_once_with(athlete_id="rob", days=30)
+        mock_handler.query_planning_context.assert_called_once_with("rob", 30)
+
+    def test_planning_context_endpoint_continues_on_presync_failure(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.params = {"athlete_id": "rob", "days": "45"}
+
+        mock_presync = MagicMock()
+        mock_presync.run.return_value = {
+            "lookback_days": 45,
+            "status": "failed",
+            "message": "Planning context pre-sync failed for all sources",
+            "sources": [
+                {
+                    "source": "garmin_activities",
+                    "status": "failed",
+                    "http_status": 429,
+                    "message": "Rate limited",
+                    "attempts": 3,
+                    "duration_ms": 1200,
+                }
+            ],
+        }
+
+        with _patch_dependency("planning_context_pre_sync_service", mock_presync):
+            with _patch_dependency("semantic_layer", MagicMock()):
+                with patch("function_app.QueryHandler") as handler_cls:
+                    mock_handler = MagicMock()
+                    mock_handler.query_planning_context.return_value = (
+                        {"athlete_id": "rob", "recent_workouts": []},
+                        200,
+                    )
+                    handler_cls.return_value = mock_handler
+                    response = function_app.planning_context(req)
+
+        # Endpoint must return 200 regardless of pre-sync failure (best-available)
+        assert response.status_code == 200
+        mock_presync.run.assert_called_once_with(athlete_id="rob", days=45)
+        mock_handler.query_planning_context.assert_called_once_with("rob", 45)
+
+
+class TestDeferredRetryQueueProcessing:
+    def test_process_deferred_retry_message_marks_succeeded(self):
+        work_item = MagicMock()
+        work_item.athlete_id = "rob"
+        work_item.operation_id = "op-1"
+        work_item.source = "garmin_activities"
+        work_item.lookback_days = 45
+
+        mock_queue = MagicMock()
+        mock_queue.decode_message.return_value = work_item
+
+        current_state = MagicMock()
+        current_state.etag = "etag-initial"
+        retrying_state = MagicMock()
+        retrying_state.etag = "etag-retrying"
+
+        mock_retry_storage = MagicMock()
+        mock_retry_storage.get_state.return_value = current_state
+        mock_retry_storage.mark_status.side_effect = [retrying_state, MagicMock()]
+
+        mock_storage = MagicMock()
+        mock_storage.retry_deferrals = mock_retry_storage
+
+        with _patch_dependency("deferred_retry_queue", mock_queue):
+            with _patch_dependency("storage", mock_storage):
+                with patch("function_app._execute_deferred_retry_source", return_value=({"message": "ok"}, 200)):
+                    function_app._process_deferred_retry_message("{}")
+
+        assert mock_retry_storage.mark_status.call_count == 2
+        first_call = mock_retry_storage.mark_status.call_args_list[0].kwargs
+        second_call = mock_retry_storage.mark_status.call_args_list[1].kwargs
+        assert first_call["status"] == "retrying"
+        assert second_call["status"] == "succeeded"
+
+    def test_process_deferred_retry_message_marks_deferred_when_deferred_again(self):
+        work_item = MagicMock()
+        work_item.athlete_id = "rob"
+        work_item.operation_id = "op-2"
+        work_item.source = "garmin_activities"
+        work_item.lookback_days = 45
+
+        mock_queue = MagicMock()
+        mock_queue.decode_message.return_value = work_item
+
+        current_state = MagicMock()
+        current_state.etag = "etag-initial"
+        retrying_state = MagicMock()
+        retrying_state.etag = "etag-retrying"
+
+        mock_retry_storage = MagicMock()
+        mock_retry_storage.get_state.return_value = current_state
+        mock_retry_storage.mark_status.side_effect = [retrying_state, MagicMock()]
+
+        mock_storage = MagicMock()
+        mock_storage.retry_deferrals = mock_retry_storage
+
+        decision = MagicMock()
+        decision.deferred = True
+        decision.safe_to_retry_at_utc = "2026-03-19T00:00:00+00:00"
+
+        mock_coordinator = MagicMock()
+        mock_coordinator.maybe_defer.return_value = decision
+
+        with _patch_dependency("deferred_retry_queue", mock_queue):
+            with _patch_dependency("storage", mock_storage):
+                with _patch_dependency("deferred_retry_coordinator", mock_coordinator):
+                    with patch(
+                        "function_app._execute_deferred_retry_source",
+                        return_value=({"error": "rate limited"}, 429, {"Retry-After": "3600"}),
+                    ):
+                        function_app._process_deferred_retry_message("{}")
+
+        assert mock_retry_storage.mark_status.call_count == 2
+        second_call = mock_retry_storage.mark_status.call_args_list[1].kwargs
+        assert second_call["status"] == "deferred"
+
+    def test_queue_trigger_calls_processor(self):
+        msg = MagicMock(spec=func.QueueMessage)
+        msg.get_body.return_value = b'{"operation_id":"op-3"}'
+
+        with patch("function_app._process_deferred_retry_message") as process_mock:
+            function_app.process_deferred_retry(msg)
+
+        process_mock.assert_called_once_with('{"operation_id":"op-3"}')
 
     def test_withings_callback_success(self):
         req = MagicMock(spec=func.HttpRequest)

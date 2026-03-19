@@ -44,7 +44,11 @@ class TestPlanningContextEndpoint:
         """Test endpoint defaults to 'rob' when athlete_id not provided."""
         mock_semantic_layer.get_planning_context.return_value = {"athlete_id": "rob"}
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        mock_presync = MagicMock()
+        mock_presync.run.return_value = {"status": "all_succeeded", "sources": []}
+
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)), \
+             patch.object(FunctionAppDependencies, "planning_context_pre_sync_service", new=PropertyMock(return_value=mock_presync)):
             response = planning_context(mock_request)
 
         assert response.status_code == 200
@@ -64,7 +68,11 @@ class TestPlanningContextEndpoint:
         }
         mock_semantic_layer.get_planning_context.return_value = mock_context
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        mock_presync = MagicMock()
+        mock_presync.run.return_value = {"status": "all_succeeded", "sources": []}
+
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)), \
+             patch.object(FunctionAppDependencies, "planning_context_pre_sync_service", new=PropertyMock(return_value=mock_presync)):
             response = planning_context(mock_request)
 
         assert response.status_code == 200
@@ -78,7 +86,11 @@ class TestPlanningContextEndpoint:
 
         mock_semantic_layer.get_planning_context.return_value = {}
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        mock_presync = MagicMock()
+        mock_presync.run.return_value = {"status": "all_succeeded", "sources": []}
+
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)), \
+             patch.object(FunctionAppDependencies, "planning_context_pre_sync_service", new=PropertyMock(return_value=mock_presync)):
             planning_context(mock_request)
 
         # Should cap at 365

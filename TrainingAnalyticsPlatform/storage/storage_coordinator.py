@@ -6,6 +6,7 @@ from typing import Optional
 from TrainingAnalyticsPlatform.storage.aggregation_storage import AggregationStorage
 from TrainingAnalyticsPlatform.storage.oauth_token_storage import OAuthTokenStorage
 from TrainingAnalyticsPlatform.storage.physiometrics_storage import PhysiometricsStorage
+from TrainingAnalyticsPlatform.storage.retry_deferral_storage import RetryDeferralStorage
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import StorageInfrastructure
 from TrainingAnalyticsPlatform.storage.webhook_dedup_storage import WebhookDedupStorage
 from TrainingAnalyticsPlatform.storage.workout_storage import WorkoutStorage
@@ -31,6 +32,7 @@ class StorageCoordinator:
         self._oauth_tokens = OAuthTokenStorage(self._infrastructure)
         self._webhooks = WebhookDedupStorage(self._infrastructure)
         self._aggregation = AggregationStorage(self._infrastructure)
+        self._retry_deferrals = RetryDeferralStorage(self._infrastructure)
 
     # ---- Properties for typed access to domain storage classes ----
 
@@ -58,6 +60,11 @@ class StorageCoordinator:
     def aggregation(self) -> AggregationStorage:
         """Access training aggregation operations."""
         return self._aggregation
+
+    @property
+    def retry_deferrals(self) -> RetryDeferralStorage:
+        """Access deferred retry state storage operations."""
+        return self._retry_deferrals
 
     # ---- Backward compatibility: expose infrastructure directly for rare cases ----
 

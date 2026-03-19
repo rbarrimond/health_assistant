@@ -56,6 +56,7 @@ GARMIN_PHYSIOMETRICS_SYNC_TIMER_SCHEDULE = os.getenv(
     "0 30 3 * * 1",
 )
 INTERVALS_SYNC_TIMER_SCHEDULE = os.getenv("INTERVALS_SYNC_TIMER_SCHEDULE", "0 0 2 * * 1")
+DEFERRED_RETRY_QUEUE_NAME = os.getenv("DEFERRED_RETRY_QUEUE_NAME", "rate-limit-deferrals")
 
 if "PYTEST_CURRENT_TEST" not in os.environ and os.getenv("SKIP_FUNCTION_APP_WARMUP") != "1":
     dependencies.warmup()
@@ -137,6 +138,178 @@ def _run_weekly_presync_for_athletes(
         "message": "Weekly rollup pre-sync completed",
         "athletes": athlete_results,
     }
+
+
+def _execute_deferred_retry_source(
+    *, source: str, athlete_id: str, lookback_days: int
+) -> tuple[Dict[str, Any], int]:
+    """Replay a deferred source sync operation once due for retry."""
+    if source == "onedrive_workouts":
+        return dependencies.onedrive_service.handle(
+            OneDriveSyncRequest(
+                {
+                    "athlete_id": athlete_id,
+                    "days": lookback_days,
+                    "async": False,
+                },
+                {},
+            )
+        )
+
+    if source == "garmin_activities":
+        return dependencies.garmin_service.handle(
+            GarminSyncRequest(
+                {
+                    "athlete_id": athlete_id,
+                    "lookback_days": lookback_days,
+                    "async": False,
+                },
+                {},
+            )
+        )
+
+    if source == "garmin_physiometrics":
+        return dependencies.garmin_physiometrics_service.handle(
+            athlete_id,
+            lookback_days,
+            force=False,
+        )
+
+    if source == "intervals_physiometrics":
+        intervals_athlete_id = os.getenv("INTERVALS_ATHLETE_ID")
+        if not intervals_athlete_id:
+            return {"error": "INTERVALS_ATHLETE_ID is not configured"}, 424
+        return dependencies.intervals_service.handle(
+            intervals_athlete_id=intervals_athlete_id,
+            athlete_id=athlete_id,
+            lookback_days=lookback_days,
+        )
+
+    return {"error": f"Unsupported deferred retry source: {source}"}, 400
+
+
+def _extract_retry_after_from_response(
+    body: Dict[str, Any],
+    headers: Dict[str, Any],
+) -> str | None:
+    """Extract Retry-After from response headers/body fallback."""
+    for key, value in headers.items():
+        if isinstance(key, str) and key.lower() == "retry-after":
+            return None if value is None else str(value)
+
+    for key in ("retry_after", "retryAfter"):
+        value = body.get(key)
+        if value is not None:
+            return str(value)
+    return None
+
+
+def _normalize_source_response(
+    response: Any,
+) -> tuple[Dict[str, Any], int, Dict[str, Any]]:
+    """Normalize source responses to (body, status, headers)."""
+    if isinstance(response, tuple) and len(response) == 2:
+        body, status_code = response
+        if isinstance(body, dict):
+            return body, int(status_code), {}
+    if isinstance(response, tuple) and len(response) == 3:
+        body, status_code, headers = response
+        if isinstance(body, dict):
+            return body, int(status_code), headers if isinstance(headers, dict) else {}
+    return {"error": "Invalid deferred retry response shape"}, 500, {}
+
+
+def _process_deferred_retry_message(message_body: str) -> None:
+    """Process one deferred retry message and update persisted retry state."""
+    work_item = dependencies.deferred_retry_queue.decode_message(message_body)
+    storage = dependencies.storage.retry_deferrals
+
+    state = storage.get_state(
+        athlete_id=work_item.athlete_id,
+        operation_id=work_item.operation_id,
+    )
+    if state is None:
+        logger.warning(
+            "Deferred retry state not found; message ignored",
+            extra={
+                "athlete_id": work_item.athlete_id,
+                "operation_id": work_item.operation_id,
+                "source": work_item.source,
+            },
+        )
+        return
+
+    in_progress = storage.mark_status(
+        athlete_id=work_item.athlete_id,
+        operation_id=work_item.operation_id,
+        status="retrying",
+        etag=state.etag,
+        increment_attempts=True,
+    )
+
+    source_response = _execute_deferred_retry_source(
+        source=work_item.source,
+        athlete_id=work_item.athlete_id,
+        lookback_days=work_item.lookback_days,
+    )
+    body, status_code, headers = _normalize_source_response(source_response)
+
+    if status_code == 200:
+        storage.mark_status(
+            athlete_id=work_item.athlete_id,
+            operation_id=work_item.operation_id,
+            status="succeeded",
+            etag=in_progress.etag,
+            increment_attempts=False,
+        )
+        logger.info(
+            "Deferred retry replay succeeded",
+            extra={
+                "athlete_id": work_item.athlete_id,
+                "operation_id": work_item.operation_id,
+                "source": work_item.source,
+            },
+        )
+        return
+
+    retry_after_raw = _extract_retry_after_from_response(body, headers)
+    elapsed_sec = 0.0
+    decision = dependencies.deferred_retry_coordinator.maybe_defer(
+        athlete_id=work_item.athlete_id,
+        source=work_item.source,
+        lookback_days=work_item.lookback_days,
+        retry_after_raw=retry_after_raw,
+        elapsed_sec=elapsed_sec,
+    )
+    status = "deferred" if decision.deferred else "failed"
+    storage.mark_status(
+        athlete_id=work_item.athlete_id,
+        operation_id=work_item.operation_id,
+        status=status,
+        etag=in_progress.etag,
+        increment_attempts=False,
+    )
+    logger.warning(
+        "Deferred retry replay did not succeed",
+        extra={
+            "athlete_id": work_item.athlete_id,
+            "operation_id": work_item.operation_id,
+            "source": work_item.source,
+            "http_status": status_code,
+            "deferred_again": decision.deferred,
+            "safe_to_retry_at_utc": decision.safe_to_retry_at_utc,
+        },
+    )
+
+
+@app.queue_trigger(
+    arg_name="msg",
+    queue_name=DEFERRED_RETRY_QUEUE_NAME,
+    connection="AzureWebJobsStorage",
+)
+def process_deferred_retry(msg: func.QueueMessage) -> None:
+    """Process deferred retry work items once they become visible in queue."""
+    _process_deferred_retry_message(msg.get_body().decode("utf-8"))
 
 # ============================================================================
 # FIT File Upload Endpoints
@@ -331,6 +504,18 @@ def planning_context(req: func.HttpRequest) -> func.HttpResponse:
     athlete_id = req.params.get("athlete_id", "rob")
     days = int(req.params.get("days", "45"))
     days = max(1, min(days, 365))
+
+    pre_sync = dependencies.planning_context_pre_sync_service.run(
+        athlete_id=athlete_id, days=days
+    )
+    logger.info(
+        "Planning context JIT pre-sync completed",
+        extra={
+            "athlete_id": athlete_id,
+            "days": days,
+            "pre_sync_status": pre_sync.get("status"),
+        },
+    )
 
     handler = QueryHandler(dependencies.semantic_layer)
     context, status = handler.query_planning_context(athlete_id, days)
@@ -1244,10 +1429,6 @@ def force_weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
     requested_athlete_ids = body.get("athlete_ids")
     athlete_id = body.get("athlete_id") or req.params.get("athlete_id")
     raw_weeks = body.get("weeks", req.params.get("weeks", 1))
-    pre_sync_enabled = _coerce_bool(
-        body.get("pre_sync", req.params.get("pre_sync")),
-        default=True,
-    )
 
     try:
         weeks = int(raw_weeks)
@@ -1268,23 +1449,10 @@ def force_weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
     if not athletes:
         athletes = [os.getenv("DEFAULT_ATHLETE_ID", "rob")]
 
-    pre_sync = _run_weekly_presync_for_athletes(athletes, enabled=pre_sync_enabled)
-    if pre_sync_enabled and pre_sync.get("status") != "success":
-        return json_response(
-            {
-                "status": "failed",
-                "message": "Weekly rollup pre-sync failed; computation aborted",
-                "results": [],
-                "pre_sync": pre_sync,
-            },
-            424,
-        )
-
     result = dependencies.semantic_layer.compute_and_persist_previous_week_rollups(
         athlete_ids=athletes,
         weeks=weeks,
     )
-    result["pre_sync"] = pre_sync
 
     status = 207 if result.get("status") in {"partial", "failed"} else 200
     return json_response(result, status)

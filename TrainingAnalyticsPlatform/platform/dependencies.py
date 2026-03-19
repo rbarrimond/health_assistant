@@ -28,8 +28,15 @@ from TrainingAnalyticsPlatform.handlers.garmin_physiometrics_sync_handler import
 from TrainingAnalyticsPlatform.handlers.weekly_rollup_presync_handler import (
     WeeklyRollupPreSyncHandler,
 )
+from TrainingAnalyticsPlatform.handlers.planning_context_presync_handler import (
+    PlanningContextPreSyncHandler,
+)
+from TrainingAnalyticsPlatform.handlers.deferred_retry_coordinator import (
+    DeferredRetryCoordinator,
+)
 from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
 from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
+from TrainingAnalyticsPlatform.integrations.deferred_retry_queue import DeferredRetryQueue
 from TrainingAnalyticsPlatform.integrations.withings_client import WithingsClient
 from TrainingAnalyticsPlatform.integrations.garmin_client import GarminConnectClient
 from TrainingAnalyticsPlatform.integrations.intervals_client import IntervalsicuClient
@@ -119,6 +126,23 @@ class FunctionAppDependencies:
         return handler
 
     @cached_property
+    def deferred_retry_queue(self) -> DeferredRetryQueue:
+        """Return deferred retry queue adapter."""
+        queue = DeferredRetryQueue()
+        logger.info("Deferred retry queue initialized")
+        return queue
+
+    @cached_property
+    def deferred_retry_coordinator(self) -> DeferredRetryCoordinator:
+        """Return deferred retry coordinator service."""
+        coordinator = DeferredRetryCoordinator.from_env(
+            queue=self.deferred_retry_queue,
+            storage=self.storage.retry_deferrals,
+        )
+        logger.info("Deferred retry coordinator initialized")
+        return coordinator
+
+    @cached_property
     def weekly_rollup_pre_sync_service(self) -> WeeklyRollupPreSyncHandler:
         """Return weekly rollup pre-sync orchestration service."""
         handler = WeeklyRollupPreSyncHandler.from_env(
@@ -126,8 +150,22 @@ class FunctionAppDependencies:
             garmin_service=self.garmin_service,
             garmin_physiometrics_service=self.garmin_physiometrics_service,
             intervals_service=self.intervals_service,
+            deferred_retry_coordinator=self.deferred_retry_coordinator,
         )
         logger.info("Weekly rollup pre-sync service initialized")
+        return handler
+
+    @cached_property
+    def planning_context_pre_sync_service(self) -> PlanningContextPreSyncHandler:
+        """Return planning context pre-sync orchestration service."""
+        handler = PlanningContextPreSyncHandler.from_env(
+            onedrive_service=self.onedrive_service,
+            garmin_service=self.garmin_service,
+            garmin_physiometrics_service=self.garmin_physiometrics_service,
+            intervals_service=self.intervals_service,
+            deferred_retry_coordinator=self.deferred_retry_coordinator,
+        )
+        logger.info("Planning context pre-sync service initialized")
         return handler
 
     def warmup(self) -> None:
