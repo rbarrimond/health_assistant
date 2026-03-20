@@ -409,6 +409,41 @@ def _add_partial_error_details(
     )
 
 
+def _normalize_structured_errors(
+    body: Dict[str, Any],
+    *,
+    status_code: int,
+    endpoint_name: str,
+    correlation: Dict[str, str],
+    request_context: Dict[str, str],
+) -> None:
+    """Normalize structured errors array in place (errors with recoverable/category metadata)."""
+    body["errors"] = [
+        _normalize_error_detail(
+            error_item,
+            status_code=status_code,
+            endpoint_name=endpoint_name,
+            correlation=correlation,
+            request_context=request_context,
+        )
+        for error_item in cast(list[Any], body["errors"])
+    ]
+    _apply_partial_response_context(
+        body,
+        endpoint_name=endpoint_name,
+        correlation=correlation,
+        request_context=request_context,
+    )
+
+
+def _uses_structured_partial_errors(body: Dict[str, Any]) -> bool:
+    """Check if errors array contains structured dicts with recoverable semantic (e.g. Garmin model)."""
+    errors = body.get("errors")
+    if not isinstance(errors, list) or not errors:
+        return False
+    return all(isinstance(item, Mapping) and "recoverable" in item for item in errors)
+
+
 def _maybe_enrich_json_error_response(
     response: func.HttpResponse,
     *,
@@ -445,13 +480,22 @@ def _maybe_enrich_json_error_response(
         )
 
     if has_partial_errors:
-        _add_partial_error_details(
-            body,
-            status_code=int(response.status_code),
-            endpoint_name=endpoint_name,
-            correlation=correlation,
-            request_context=request_context,
-        )
+        if _uses_structured_partial_errors(body):
+            _normalize_structured_errors(
+                body,
+                status_code=int(response.status_code),
+                endpoint_name=endpoint_name,
+                correlation=correlation,
+                request_context=request_context,
+            )
+        else:
+            _add_partial_error_details(
+                body,
+                status_code=int(response.status_code),
+                endpoint_name=endpoint_name,
+                correlation=correlation,
+                request_context=request_context,
+            )
 
     return _rebuild_json_response(response, body, request)
 

@@ -670,7 +670,7 @@ Runs a daily Garmin physiometrics sync using Garmin summary and training-status 
 }
 ```
 
-Successful responses include `count`, `records_fetched`, `records_processed`, `records_skipped`, and `records_failed`. Partial day-level failures return HTTP `207` with accumulated `errors`. Each fetched Garmin daily payload is also archived to the `external-sources` container and tracked in `SourceIngestionState` for replayability. Set `force=true` to bypass stored-date prefiltering and re-fetch all days in the requested range.
+Successful responses include `count`, `records_fetched`, `records_processed`, `records_skipped`, and `records_failed`. Partial day-level results return HTTP `207` with structured `errors` entries that include explicit recoverability semantics (`recoverable=true|false`). Each fetched Garmin daily payload is also archived to the `external-sources` container and tracked in `SourceIngestionState` for replayability. Set `force=true` to bypass stored-date prefiltering and re-fetch all days in the requested range.
 
 ### Garmin Implementation Files
 

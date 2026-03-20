@@ -10,6 +10,14 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-20
 
+### Error Handling Course Correction (Non-Breaking) [application v3.7.0]
+
+- **Changed (non-destructive)**: Garmin physiometrics sync error payload now includes explicit `recoverable` classification in structured error details to improve client retry behavior.
+  - `recoverable=true`: transient failures suitable for retry (upstream service degradation, rate limits)
+  - `recoverable=false`: non-retryable failures (authentication/configuration/internal)
+- **SemVer correction**: prior major-version framing was churn and has been corrected to a minor version bump.
+- **Operational semantics**: HTTP `207` still represents partial completion with errors; HTTP `200` represents clean completion.
+
 ### Workout Lookback Input Contract Hardening [application v3.6.1]
 
 - **Changed (Garmin + OneDrive workout sync request handling)**: explicit `lookback_days=0` (or `days=0` for OneDrive) is now preserved and no longer treated as missing.

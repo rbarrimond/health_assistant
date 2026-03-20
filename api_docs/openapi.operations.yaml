@@ -929,7 +929,8 @@ paths:
         Retrieves daily metrics including cycling and running VO2Max, training load, training effect (aerobic/anaerobic),
         training stress score, ATP probability, recovery time, and lactate threshold heart rate.
         Requires Garmin Connect credentials (EMAIL and PASSWORD stored in Key Vault).
-        Each fetched day is archived to the external-sources container and day-level failures return HTTP 207 with accumulated errors.
+        Each fetched day is archived to the external-sources container.
+        All errors (recoverable and fatal) are returned in unified `errors` array with `recoverable` flag.
       security:
         - FunctionKey: []
       requestBody:
@@ -960,7 +961,7 @@ paths:
                   lookback_days: 14
       responses:
         '200':
-          description: Sync completed with no day-level failures
+          description: Sync completed with no errors
           content:
             application/json:
               schema:
@@ -982,8 +983,9 @@ paths:
                     type: integer
                   errors:
                     type: array
+                    description: Array of error details (empty on 200 response)
                     items:
-                      type: string
+                      $ref: '#/components/schemas/OperationalErrorDetail'
                   correlation_id:
                     type: string
                   operation:
@@ -994,12 +996,8 @@ paths:
                     type: string
                   athlete_id:
                     type: string
-                  error_details:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/OperationalErrorDetail'
         '207':
-          description: Sync completed with partial day-level failures
+          description: Sync completed with partial errors
           content:
             application/json:
               schema:
@@ -1020,8 +1018,9 @@ paths:
                     type: integer
                   errors:
                     type: array
+                    description: Error details with recoverable flag indicating if error can be retried
                     items:
-                      type: string
+                      $ref: '#/components/schemas/OperationalErrorDetail'
                   correlation_id:
                     type: string
                   operation:
@@ -1032,10 +1031,6 @@ paths:
                     type: string
                   athlete_id:
                     type: string
-                  error_details:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/OperationalErrorDetail'
         '400':
           description: Invalid request parameters
           content:
@@ -1145,17 +1140,20 @@ components:
     OperationalErrorDetail:
       type: object
       properties:
-        status:
-          type: string
-          example: error
         error_code:
           type: string
           example: OPERATIONAL_ERROR
-        error:
-          type: string
-          example: "2026-03-03: garmin unavailable"
+        recoverable:
+          type: boolean
+          description: Whether the error is recoverable (true) or fatal (false)
+          example: true
         message:
           type: string
+          example: "2026-03-03: garmin unavailable"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-03-03T00:00:00Z"
         correlation_id:
           type: string
         operation:

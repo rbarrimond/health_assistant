@@ -147,6 +147,8 @@ def test_sync_handler_reports_partial_errors():
     assert status == 207
     assert response["count"] == 0
     assert response["errors"] is not None
+    assert response["errors"][0]["error_code"] == "INTERNAL_SERVER_ERROR"
+    assert response["errors"][0]["recoverable"] is False
     assert response["records_failed"] >= 1
 
 
@@ -372,5 +374,34 @@ def test_handle_returns_401_when_login_fails_and_no_stored_token():
     handler = _make_physiometrics_handler(storage, client)
     response, status = handler.handle("rob", lookback_days=1)
 
-    assert status == 401
-    assert "Authentication failed" in response["error"]
+    assert status == 429
+    assert response["error_code"] == "GARMIN_RATE_LIMITED"
+
+
+def test_sync_handler_short_circuits_on_fatal_garmin_error():
+    storage = Mock()
+    storage.physiometrics = Mock()
+    storage.physiometrics.get_physiometrics_history.return_value = []
+    storage.infrastructure = Mock()
+    storage.infrastructure.get_table_client = Mock(return_value=Mock(query_entities=Mock(return_value=[])))
+
+    client = Mock()
+    client.get_user_summary.side_effect = GarminConnectError("not authenticated")
+    client.dump_tokens.return_value = "token"
+
+    handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
+
+    with patch(
+        "TrainingAnalyticsPlatform.handlers.garmin_physiometrics_sync_handler.datetime"
+    ) as mocked_datetime:
+        mocked_datetime.now.return_value = datetime(2026, 3, 4, tzinfo=timezone.utc)
+        mocked_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+        response, status = handler.handle("rob", lookback_days=2, force=True)
+
+    assert status == 207
+    assert response["records_failed"] == 1
+    assert response["records_fetched"] == 0
+    assert response["errors"] is not None
+    assert response["errors"][0]["error_code"] == "GARMIN_AUTH_ERROR"
+    assert response["errors"][0]["recoverable"] is False
+    assert client.get_user_summary.call_count == 1

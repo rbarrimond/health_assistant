@@ -1154,7 +1154,7 @@ class TestGarminEndpointHandlers:
         assert body["provider"] == "garmin"
         assert body["athlete_id"] == "rob"
 
-    def test_garmin_physiometrics_partial_errors_include_error_details(self):
+    def test_garmin_physiometrics_partial_errors_unified_errors_array(self):
         req = MagicMock(spec=func.HttpRequest)
         req.method = "POST"
         req.get_json.return_value = {
@@ -1180,8 +1180,21 @@ class TestGarminEndpointHandlers:
                 "records_fetched": 0,
                 "records_processed": 0,
                 "records_skipped": 0,
-                "records_failed": 1,
-                "errors": ["2026-03-03: garmin unavailable"],
+                "records_failed": 2,
+                "errors": [
+                    {
+                        "error_code": "GARMIN_UPSTREAM_ERROR",
+                        "recoverable": True,
+                        "message": "2026-03-03: garmin unavailable",
+                        "timestamp": "2026-03-03T00:00:00Z",
+                    },
+                    {
+                        "error_code": "INTERNAL_SERVER_ERROR",
+                        "recoverable": False,
+                        "message": "2026-03-04: unexpected error: service crashed",
+                        "timestamp": "2026-03-04T00:00:00Z",
+                    }
+                ],
             },
             207,
         )
@@ -1196,12 +1209,16 @@ class TestGarminEndpointHandlers:
         assert body["source"] == "garmin"
         assert body["provider"] == "garmin"
         assert body["athlete_id"] == "rob"
-        assert body["errors"] == ["2026-03-03: garmin unavailable"]
-        assert len(body["error_details"]) == 1
-        assert body["error_details"][0]["error"] == "2026-03-03: garmin unavailable"
-        assert body["error_details"][0]["error_code"] == "OPERATIONAL_ERROR"
-        assert body["error_details"][0]["correlation_id"] == "corr-garmin-phys-1"
-        assert body["error_details"][0]["operation"] == "garmin_physiometrics_sync_http"
+        assert "error_details" not in body
+        assert len(body["errors"]) == 2
+        assert body["errors"][0]["error_code"] == "GARMIN_UPSTREAM_ERROR"
+        assert body["errors"][0]["recoverable"] is True
+        assert body["errors"][0]["correlation_id"] == "corr-garmin-phys-1"
+        assert body["errors"][0]["operation"] == "garmin_physiometrics_sync_http"
+        assert body["errors"][1]["error_code"] == "INTERNAL_SERVER_ERROR"
+        assert body["errors"][1]["recoverable"] is False
+        assert body["errors"][1]["correlation_id"] == "corr-garmin-phys-1"
+        assert body["errors"][1]["operation"] == "garmin_physiometrics_sync_http"
 
 
 class TestIntervalsEndpointHandlers:

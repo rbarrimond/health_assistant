@@ -142,7 +142,7 @@ class GarminConnectClient:
             return activities
         except Exception as exc:
             logger.error("Failed to list Garmin activities: %s", exc)
-            raise GarminConnectError("Failed to fetch activity list") from exc
+            raise GarminConnectError(f"Failed to fetch activity list: {exc}") from exc
 
     def dump_tokens(self) -> str:
         """Serialize the current garth session state to a string for later restoration.
@@ -184,7 +184,7 @@ class GarminConnectClient:
             self.client = None
             logger.warning("Failed to restore Garmin session from stored tokens: %s", exc)
             raise GarminConnectError(
-                "Failed to restore Garmin session from stored tokens"
+                f"Failed to restore Garmin session from stored tokens: {exc}"
             ) from exc
 
     def _ensure_authenticated_client(self) -> Garmin:
@@ -203,7 +203,7 @@ class GarminConnectClient:
         except Exception as exc:
             logger.error("Failed to fetch Garmin user summary for %s: %s", date_str, exc)
             raise GarminConnectError(
-                f"Failed to fetch Garmin user summary for {date_str}"
+                f"Failed to fetch Garmin user summary: {exc}"
             ) from exc
 
     def get_training_status(self, date_str: str) -> Dict[str, Any]:
@@ -216,7 +216,7 @@ class GarminConnectClient:
                 "Failed to fetch Garmin training status for %s: %s", date_str, exc
             )
             raise GarminConnectError(
-                f"Failed to fetch Garmin training status for {date_str}"
+                f"Failed to fetch Garmin training status: {exc}"
             ) from exc
 
     def get_training_readiness(
@@ -244,7 +244,7 @@ class GarminConnectClient:
                 "Failed to fetch Garmin training readiness for %s: %s", date_str, exc
             )
             raise GarminConnectError(
-                f"Failed to fetch Garmin training readiness for {date_str}"
+                f"Failed to fetch Garmin training readiness: {exc}"
             ) from exc
 
     def get_morning_training_readiness(self, date_str: str) -> Optional[Dict[str, Any]]:
@@ -262,7 +262,7 @@ class GarminConnectClient:
                 exc,
             )
             raise GarminConnectError(
-                f"Failed to fetch Garmin morning training readiness for {date_str}"
+                f"Failed to fetch Garmin morning training readiness: {exc}"
             ) from exc
 
     def download_activity_fit(self, activity_id: str) -> bytes:

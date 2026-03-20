@@ -71,7 +71,7 @@ class GarminPhysiometricsSyncHandler:
         stored_count = 0
         fetched_count = 0
         skipped_count = 0
-        errors: list[str] = []
+        errors: list[Dict[str, Any]] = []
 
         stored_dates = self._prefetch_stored_dates(
             athlete_id=athlete_id,
@@ -94,16 +94,48 @@ class GarminPhysiometricsSyncHandler:
                 blob_name = self._process_single_day(athlete_id, date_str)
                 fetched_count += 1
                 stored_count += 1
-            except (GarminConnectError, AdapterError, StorageError) as exc:
-                message = f"{date_str}: {exc}"
-                logger.warning("Garmin physiometrics sync error: %s", message)
-                self._record_blob_failure(blob_name, message)
-                errors.append(message)
+            except GarminConnectError as exc:
+                issue = self._build_failure(
+                    date_str=date_str,
+                    error=str(exc),
+                    recoverable=self._is_recoverable_garmin_failure(exc),
+                    **self._classify_garmin_failure(exc),
+                )
+                logger.warning("Garmin physiometrics sync error: %s", issue["message"])
+                self._record_blob_failure(blob_name, str(issue["message"]))
+                errors.append(issue)
+                if self._is_fatal_garmin_error(exc):
+                    logger.error(
+                        "Garmin physiometrics sync aborted due to fatal Garmin error",
+                        extra={
+                            "athlete_id": athlete_id,
+                            "effective_date": date_str,
+                            "error": str(exc),
+                        },
+                    )
+                    break
+            except (AdapterError, StorageError) as exc:
+                issue = self._build_failure(
+                    date_str=date_str,
+                    error=str(exc),
+                    error_code="OPERATIONAL_ERROR",
+                    category=type(exc).__name__,
+                    recoverable=True,
+                )
+                logger.warning("Garmin physiometrics sync error: %s", issue["message"])
+                self._record_blob_failure(blob_name, str(issue["message"]))
+                errors.append(issue)
             except Exception as exc:  # pylint: disable=broad-exception-caught
-                message = f"{date_str}: unexpected error: {exc}"
+                issue = self._build_failure(
+                    date_str=date_str,
+                    error=f"unexpected error: {exc}",
+                    error_code="INTERNAL_SERVER_ERROR",
+                    category=type(exc).__name__,
+                    recoverable=False,
+                )
                 logger.error("Garmin physiometrics sync unexpected error", exc_info=True)
-                self._record_blob_failure(blob_name, message)
-                errors.append(message)
+                self._record_blob_failure(blob_name, str(issue["message"]))
+                errors.append(issue)
 
         failed_count = len(errors)
         status = 207 if failed_count > 0 else 200
@@ -152,6 +184,20 @@ class GarminPhysiometricsSyncHandler:
             self.client.login()
             return None
         except GarminConnectError as exc:
+            if self._is_rate_limited_error(exc):
+                logger.error(
+                    "Garmin login rate limited for physiometrics sync",
+                    extra={
+                        "athlete_id": athlete_id,
+                        "source_system": "garmin",
+                        "error": str(exc),
+                    },
+                    exc_info=True,
+                )
+                return {
+                    "error": str(exc),
+                    "error_code": "GARMIN_RATE_LIMITED",
+                }, 429
             logger.error(
                 "Failed to authenticate with Garmin Connect for physiometrics sync",
                 extra={
@@ -162,7 +208,70 @@ class GarminPhysiometricsSyncHandler:
                 },
                 exc_info=True,
             )
-            return {"error": f"Authentication failed: {exc}"}, 401
+            return {
+                "error": f"Authentication failed: {exc}",
+                "error_code": "GARMIN_AUTH_ERROR",
+            }, 401
+
+    @staticmethod
+    def _is_rate_limited_error(exc: GarminConnectError) -> bool:
+        text = str(exc).lower()
+        return "rate limit" in text or "rate limited" in text or "throttle" in text
+
+    @classmethod
+    def _is_fatal_garmin_error(cls, exc: GarminConnectError) -> bool:
+        text = str(exc).lower()
+        if cls._is_rate_limited_error(exc):
+            return True
+        fatal_markers = (
+            "not authenticated",
+            "authentication failed",
+            "failed to restore garmin session",
+            "invalid garmin credentials",
+            "missing credentials",
+        )
+        return any(marker in text for marker in fatal_markers)
+
+    @classmethod
+    def _classify_garmin_failure(cls, exc: GarminConnectError) -> Dict[str, str]:
+        if cls._is_rate_limited_error(exc):
+            return {
+                "error_code": "GARMIN_RATE_LIMITED",
+                "category": "garmin-auth",
+            }
+        if cls._is_fatal_garmin_error(exc):
+            return {
+                "error_code": "GARMIN_AUTH_ERROR",
+                "category": "garmin-auth",
+            }
+        return {
+            "error_code": "GARMIN_UPSTREAM_ERROR",
+            "category": "garmin-upstream",
+        }
+
+    @classmethod
+    def _is_recoverable_garmin_failure(cls, exc: GarminConnectError) -> bool:
+        return not cls._is_fatal_garmin_error(exc)
+
+    @staticmethod
+    def _build_failure(
+        *,
+        date_str: str,
+        error: str,
+        error_code: str,
+        category: str,
+        recoverable: bool,
+    ) -> Dict[str, Any]:
+        """Build unified error detail object per openapi.operations.yaml contract."""
+        now_utc = datetime.now(timezone.utc)
+        # Format as ISO-8601 with Z suffix: "2026-03-20T10:30:45Z"
+        timestamp = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+        return {
+            "error_code": error_code,
+            "recoverable": recoverable,
+            "message": f"{date_str}: {error}",
+            "timestamp": timestamp,
+        }
 
     def _persist_tokens(self, athlete_id: str) -> None:
         """Persist current Garmin token state for reuse in future invocations."""
