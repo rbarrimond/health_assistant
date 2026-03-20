@@ -33,7 +33,7 @@ class AsyncIngestionQueue:
         queue_name: str = DEFAULT_ASYNC_INGESTION_QUEUE_NAME,
         connection_string: Optional[str] = None,
     ) -> None:
-        queue_client_cls = self._import_queue_client()
+        queue_client_cls, encode_policy_cls, decode_policy_cls = self._import_queue_client()
         resolved_conn = connection_string or os.getenv("AzureWebJobsStorage")
         if not resolved_conn:
             raise ValueError("AzureWebJobsStorage is required for async ingestion queue")
@@ -41,6 +41,8 @@ class AsyncIngestionQueue:
         self._queue_client = queue_client_cls.from_connection_string(
             resolved_conn,
             queue_name,
+            message_encode_policy=encode_policy_cls(),
+            message_decode_policy=decode_policy_cls(),
         )
         self._queue_name = queue_name
 
@@ -76,12 +78,12 @@ class AsyncIngestionQueue:
     def _import_queue_client() -> Any:
         """Import Azure Queue client lazily so non-queue tests can import the module."""
         try:
-            from azure.storage.queue import QueueClient
+            from azure.storage.queue import QueueClient, TextBase64DecodePolicy, TextBase64EncodePolicy
         except ImportError as exc:  # pragma: no cover - environment-specific import guard
             raise StorageError(
                 "azure-storage-queue is required for async ingestion queue support"
             ) from exc
-        return QueueClient
+        return QueueClient, TextBase64EncodePolicy, TextBase64DecodePolicy
 
     @staticmethod
     def _is_queue_already_exists_error(exc: Exception) -> bool:

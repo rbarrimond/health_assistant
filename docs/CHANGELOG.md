@@ -10,6 +10,13 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-19
 
+### Async Queue Encoding + Operation Result Serialization Fixes [application v3.4.5]
+
+- **Fixed (Azure Queue compatibility)**: async ingestion and deferred retry queue adapters now configure explicit `TextBase64EncodePolicy`/`TextBase64DecodePolicy` when enqueuing messages to Azure Queue Storage.
+- **Impact**: queue-triggered Functions now receive/decode payloads correctly instead of failing pre-invocation and rapidly poisoning messages.
+- **Fixed (Azure Table compatibility)**: async ingestion operation `mark_status()` now serializes `result` payloads to JSON strings before Table updates.
+- **Impact**: successful async worker results no longer fail with `Type not supported when sending data to the service: <class 'dict'>`, eliminating retry loops and poison fallback caused by Table serialization errors.
+
 ### Garmin Async Queue Terminal Config Failure Classification [application v3.4.4]
 
 - **Fixed (retry classification correctness)**: `GarminSyncConfig.from_env()` now raises typed `ConfigError` (instead of `ValueError`) when Garmin credentials are missing.

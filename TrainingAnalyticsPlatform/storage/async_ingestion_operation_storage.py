@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -77,7 +78,7 @@ class AsyncIngestionOperationStorage:
             "updated_at_utc": datetime.now(timezone.utc).isoformat(),
         }
         if result is not None:
-            entity["result"] = result
+            entity["result"] = json.dumps(result)
         if error is not None:
             entity["error"] = error
 

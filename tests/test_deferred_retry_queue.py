@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, ClassVar
-from unittest.mock import MagicMock
+from unittest.mock import ANY, MagicMock
 
 import pytest
 
@@ -17,7 +17,12 @@ class _FakeQueueClient:
     create_queue_side_effect: ClassVar[Any | None] = None
 
     @classmethod
-    def from_connection_string(cls, _connection_string: str, _queue_name: str):
+    def from_connection_string(
+        cls,
+        _connection_string: str,
+        _queue_name: str,
+        **_kwargs: Any,
+    ):
         return cls()
 
     def create_queue(self) -> None:
@@ -34,6 +39,14 @@ class _QueueAlreadyExistsError(Exception):
     error_code = "Queue_Already_Exists"
 
 
+class _FakeEncodePolicy:
+    """Test double for queue encode policy."""
+
+
+class _FakeDecodePolicy:
+    """Test double for queue decode policy."""
+
+
 def _make_queue(monkeypatch, *, side_effect: Any = None) -> DeferredRetryQueue:
     """Build a DeferredRetryQueue with the fake client wired in."""
     _FakeQueueClient.create_queue_side_effect = side_effect
@@ -41,7 +54,7 @@ def _make_queue(monkeypatch, *, side_effect: Any = None) -> DeferredRetryQueue:
     monkeypatch.setattr(
         DeferredRetryQueue,
         "_import_queue_client",
-        staticmethod(lambda: _FakeQueueClient),
+        staticmethod(lambda: (_FakeQueueClient, _FakeEncodePolicy, _FakeDecodePolicy)),
     )
     return DeferredRetryQueue(queue_name="rate-limit-deferrals")
 
@@ -56,11 +69,17 @@ class TestDeferredRetryQueueInitialization:
         monkeypatch.setattr(
             DeferredRetryQueue,
             "_import_queue_client",
-            staticmethod(lambda: mock_client_cls),
+            staticmethod(lambda: (mock_client_cls, _FakeEncodePolicy, _FakeDecodePolicy)),
         )
 
         DeferredRetryQueue(queue_name="rate-limit-deferrals")
 
+        mock_client_cls.from_connection_string.assert_called_once_with(
+            "UseDevelopmentStorage=true",
+            "rate-limit-deferrals",
+            message_encode_policy=ANY,
+            message_decode_policy=ANY,
+        )
         mock_client_instance.create_queue.assert_not_called()
 
     def test_constructor_exposes_queue_name(self, monkeypatch):
@@ -72,7 +91,7 @@ class TestDeferredRetryQueueInitialization:
         monkeypatch.setattr(
             DeferredRetryQueue,
             "_import_queue_client",
-            staticmethod(lambda: _FakeQueueClient),
+            staticmethod(lambda: (_FakeQueueClient, _FakeEncodePolicy, _FakeDecodePolicy)),
         )
         with pytest.raises(ValueError, match="AzureWebJobsStorage"):
             DeferredRetryQueue(queue_name="rate-limit-deferrals")
@@ -88,7 +107,7 @@ class TestDeferredRetryQueueBootstrap:
         monkeypatch.setattr(
             DeferredRetryQueue,
             "_import_queue_client",
-            staticmethod(lambda: mock_client_cls),
+            staticmethod(lambda: (mock_client_cls, _FakeEncodePolicy, _FakeDecodePolicy)),
         )
 
         queue = DeferredRetryQueue(queue_name="rate-limit-deferrals")
