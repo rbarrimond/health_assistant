@@ -164,9 +164,12 @@ class GarminConnectClient:
     def restore_from_tokens(self, garth_token: str) -> None:
         """Restore a previous Garmin session from a serialized garth token string.
 
-        Calls login(tokenstore=garth_token) so that the library also fetches the
-        user profile and populates display_name — required for user-scoped API
-        URLs such as usersummary-service.
+        Calls login(tokenstore=garth_token) which is the library's public API for
+        token-based restore. Because garth_token is a base64 string (>512 chars),
+        the library routes through garth.loads() rather than SSO — no username/password
+        exchange, no 429 risk. The library also fetches the user profile to populate
+        display_name, which is required for user-scoped API URL construction
+        (e.g. usersummary-service/usersummary/daily/{display_name}).
 
         Args:
             garth_token: Base64-encoded token string produced by dump_tokens().
