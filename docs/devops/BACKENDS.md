@@ -679,6 +679,7 @@ Successful responses include `count`, `records_fetched`, `records_processed`, `r
 | [garmin_client.py](../../TrainingAnalyticsPlatform/integrations/garmin_client.py) | garminconnect library wrapper |
 | [garmin_sync_handler.py](../../TrainingAnalyticsPlatform/handlers/garmin_sync_handler.py) | Sync orchestration + ingestion handler |
 | [garmin_physiometrics_sync_handler.py](../../TrainingAnalyticsPlatform/handlers/garmin_physiometrics_sync_handler.py) | Garmin physiometrics sync + raw payload archival |
+| [oauth_token_storage.py](../../TrainingAnalyticsPlatform/storage/oauth_token_storage.py) | Garmin token persistence and restore state |
 | [function_app.py](../../function_app.py) | HTTP sync endpoint + daily timer trigger |
 | [table_storage.py](../../TrainingAnalyticsPlatform/storage/table_storage.py) | Ingestion state tracking |
 
@@ -686,15 +687,19 @@ Successful responses include `count`, `records_fetched`, `records_processed`, `r
 
 - Credentials are read from `GARMIN_EMAIL` and `GARMIN_PASSWORD`.
 - In Azure, these should be Key Vault references resolved by the Function App managed identity.
-- No `GarminTokens` table is used by the current runtime Garmin integration.
+- Garmin session state is cached in the `GarminTokens` table per athlete to avoid repeating the full Garmin Connect SSO round-trip on every sync.
+- Each sync first attempts to restore the cached garth session; if the stored token is missing, stale, or invalid, the handlers fall back to credential login.
+- garth may refresh OAuth2 state while requests are in flight, and the updated session is persisted after sync so the next invocation starts from the current token state.
 
 ### Activity Sync Workflow
 
-1. **Fetch Activity List:** Query Garmin Connect for activities within lookback window
-2. **Prefilter by Activity ID:** Check `IngestionState` table by `activityId` and skip terminal states before FIT download (unless `force=true`)
-3. **Download FIT Files:** Get original FIT file for each new activity
-4. **Parse & Store:** Use standard FIT parser → canonical schema → Workouts table
-5. **Track State:** Record ingestion status in `IngestionState` with source metadata
+1. **Restore Session:** Attempt to restore cached Garmin session state from `GarminTokens`; if restoration fails, fall back to `GARMIN_EMAIL` and `GARMIN_PASSWORD` login.
+2. **Fetch Activity List:** Query Garmin Connect for activities within lookback window.
+3. **Prefilter by Activity ID:** Check `IngestionState` table by `activityId` and skip terminal states before FIT download (unless `force=true`).
+4. **Download FIT Files:** Get original FIT file for each new activity.
+5. **Parse & Store:** Use standard FIT parser → canonical schema → Workouts table.
+6. **Track State:** Record ingestion status in `IngestionState` with source metadata.
+7. **Persist Session:** Save the current garth session back to `GarminTokens` so refreshed token state is available to the next sync.
 
 ### Deduplication Strategy
 
@@ -722,6 +727,7 @@ The ingestion handler still performs hash-level deduplication for downloaded FIT
 - Test credentials by logging into Garmin Connect web UI
 - Check Application Insights for detailed error logs
 - Ensure Key Vault reference is working (if using Azure Key Vault)
+- If a cached `GarminTokens` record exists, remember that stale or revoked stored tokens are non-fatal; the handlers fall back to credential login when token restoration fails
 
 **"Failed to list Garmin activities"**:
 
