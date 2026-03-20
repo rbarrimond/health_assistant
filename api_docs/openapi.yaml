@@ -2,17 +2,7 @@ openapi: 3.1.0
 info:
   title: Health Assistant API (Semantic/GPT)
   version: "7.1.1"
-  description: |
-    Deterministic athlete intelligence API consumed by ChatGPT Actions.
-    Provides typed semantic contracts for agent memory, workout intelligence, planning context, physiometrics, and training-state signals.
-
-    Analytics and derived metrics are computed idempotently at read-time from canonical workout and physiometric data using the active athlete configuration.
-
-    This specification documents the current API contract. For release history and breaking-change chronology, see `docs/CHANGELOG.md`.
-    
-    This spec contains GPT-facing endpoints, including preference and observation updates.
-    At conversation start, call /api/agent/context and /api/planning/context to load live preferences, observations, workload, and readiness signals.
-    For broader operational endpoints (config, ingestion, webhooks), see openapi.operations.yaml.
+  description: GPT-facing semantic API for athlete memory, planning context, workouts, physiometrics, and training-state signals. Use this spec for conversational decision support; use openapi.operations.yaml for operational and system endpoints.
 servers:
   - url: https://health.azure.barrimond.net
     description: Azure Functions host
@@ -38,7 +28,7 @@ paths:
     get:
       summary: Get agent memory context (preferences + active observations)
       operationId: getAgentContext
-      description: Primary agent memory endpoint. Call at conversation start to load user preferences and active observations.
+      description: "Returns the assistant’s working memory context: active athlete preferences, active observations, and instruction addendum for response grounding."
       parameters:
         - name: athlete_id
           in: query
@@ -104,7 +94,7 @@ paths:
     post:
       summary: Create new preference
       operationId: createAgentPreference
-      description: Add a new preference item for the agent
+      description: Creates a structured athlete preference used to guide recommendations, prioritization, and response tone.
       requestBody:
         required: true
         content:
@@ -279,16 +269,7 @@ paths:
   /api/planning/context:
     get:
       summary: Get planning context for training decisions
-      description: |
-        Primary planning endpoint for training decisions. Returns recent workouts as lightweight 
-        `WorkoutProjection` objects (v3.2.0+) for efficient batch queries. For full metrics, 
-        drill down via `/api/workouts/{workout_id}`.
-
-        **Read-repair behaviour**: Each call triggers a just-in-time sync of workout and
-        wellness data covering the requested window before returning results. Data already
-        present in storage is never re-ingested (all sources are idempotent). The first
-        call after a data gap may have higher latency; subsequent calls within the same
-        window are fast.
+      description: Returns planning-ready context for short-horizon coaching decisions, including recent workouts, weekly rollups, and readiness-related summary signals.
       operationId: planningContext
       security:
         - FunctionKey: []
@@ -321,10 +302,7 @@ paths:
   /api/workouts:
     get:
       summary: Query workouts with filters
-      description: |
-        List workouts as lightweight `WorkoutProjection` objects (v3.2.0+) for efficient 
-        batch queries without metric computation. For full metrics (HR zones, power zones, efficiency, 
-        duration curves), query `/api/workouts/{workout_id}` which returns `WorkoutDetail`.
+      description: Lists workouts for an athlete and date window as compact projections suitable for sorting, filtering, and batch review.
       operationId: listWorkouts
       security:
         - FunctionKey: []
@@ -375,9 +353,7 @@ paths:
     get:
       summary: Get detailed workout data
       operationId: getWorkout
-      description: |
-        Returns a single-workout deep-dive response with a nested `metrics` object.
-        On internal processing failure, returns `500` with `ErrorResponse`.
+      description: Returns a deep workout record for one session, including identity fields and nested metric families for analysis.
       security:
         - FunctionKey: []
       parameters:
@@ -619,7 +595,7 @@ paths:
     get:
       summary: Get current training state
       operationId: getCurrentTrainingState
-      description: Computes on-demand training state projection from recent workouts and current physiometrics. Includes TSS, training load, recovery metrics, and readiness signals.
+      description: Returns the athlete’s latest training-state snapshot, including current load, recovery, and readiness indicators.
       parameters:
         - name: athlete_id
           in: query
@@ -645,7 +621,7 @@ paths:
     get:
       summary: Get training state time series
       operationId: getTrainingStateHistory
-      description: Computes historical training state projections. Each snapshot reflects training load, recovery, and readiness at that point in time.
+      description: Returns a time series of training-state snapshots across the requested period for trend and trajectory analysis.
       parameters:
         - name: athlete_id
           in: query
@@ -1456,11 +1432,7 @@ components:
                 additionalProperties: true
     PlanningContext:
       type: object
-      description: |
-        Aggregated planning context for training decisions.
-        
-        **Breaking Change in v3.2.0**: `recent_workouts` now returns lightweight `WorkoutProjection` 
-        objects instead of full `WorkoutSummary`. For full metrics, query `/api/workouts/{workout_id}`.
+      description: Aggregated planning contract for coaching decisions, combining recent workouts, rollups, query window metadata, and notable flags.
       properties:
         athlete_id:
           type: string
@@ -1495,19 +1467,7 @@ components:
             $ref: '#/components/schemas/WorkoutProjection'
     WorkoutProjection:
       type: object
-      description: |
-        Lightweight workout projection optimized for efficient batch queries and planning context.
-        
-        Contains identity, session summary, data capability flags, and sport-specific peaks—all extracted directly 
-        from Workouts table + metadata.json without computation. Reduced payload (~40-50% smaller than WorkoutSummary) 
-        enables efficient planning context and list operations.
-        
-        Use for: `/api/workouts?limit=50`, `/api/planning/context` (recent_workouts)
-        
-        For full metrics (HR zones, power zones, efficiency, duration curves, decoupling), query 
-        `/api/workouts/{workout_id}` which returns `WorkoutDetail`.
-        
-        **Breaking Change in v3.2.0**: Replaces `WorkoutSummary` in list/planning endpoints for efficiency.
+      description: Compact per-workout projection for list and planning views, covering session identity, key summary fields, data-availability flags, and headline performance values.
       required:
         - workout_id
         - athlete_id
@@ -1616,11 +1576,7 @@ components:
     WorkoutSummary:
       type: object
       deprecated: true
-      description: |
-        **Deprecated in v3.2.0** — Use `WorkoutProjection` instead.
-        
-        Full workout summary with all queryable fields. (Kept for backward compatibility and reference;
-        replaced by lighter `WorkoutProjection` in `/api/workouts` and `/api/planning/context`.)
+      description: Legacy full workout summary schema kept for compatibility with older consumers.
       properties:
         workout_id:
           type: string
@@ -1720,9 +1676,7 @@ components:
       additionalProperties: true
     WorkoutDetail:
       type: object
-      description: |
-        Single-workout deep-dive response.
-        Returns stable workout identity fields plus nested metrics payload.
+      description: Single-workout detail contract with stable identity fields and a rich nested metrics payload for session-level analysis.
       required:
         - workout_id
         - athlete_id
@@ -1763,8 +1717,7 @@ components:
 
     WorkoutMetricsModel:
       type: object
-      description: |
-        Workout metrics grouped by semantic families.
+      description: Nested workout metrics grouped by semantic families such as session, zones, load, variability, durability, and artifacts.
       required:
         - session
         - samples
@@ -2014,10 +1967,7 @@ components:
                 format: date-time
     ZoneDistribution:
       type: object
-      description: |
-        Time-in-zone distribution computed at read-time from canonical workout records.
-        Zones are calculated using athlete's current physiometric configuration (FTP, LTHR).
-        Aggregates across all workouts in the query window.
+      description: Zone-distribution contract with absolute minutes and percentages by zone across the selected time window.
       properties:
         athlete_id:
           type: string
@@ -2075,10 +2025,7 @@ components:
         - total_minutes
     EfficiencyTrends:
       type: object
-      description: |
-        Aerobic efficiency and decoupling trends computed from canonical workout records.
-        Decoupling measures cardiac drift (HR increase relative to power/pace) indicating aerobic fatigue.
-        Efficiency factor (EF) is normalized power divided by average HR.
+      description: Efficiency trend contract with per-workout decoupling and efficiency samples plus aggregated summary statistics over the selected window.
       properties:
         athlete_id:
           type: string
