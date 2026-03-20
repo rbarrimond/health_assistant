@@ -350,7 +350,9 @@ class OneDriveSyncRequest:
     @property
     def lookback_days(self) -> int | None:
         """Extract and validate lookback days."""
-        days = self.body.get("days") or self.query_params.get("days")
+        days = self.body.get("days")
+        if days is None:
+            days = self.query_params.get("days")
         if days is None:
             return None
         try:
@@ -429,7 +431,13 @@ class OneDriveSyncHandler:
             (response_dict, HTTP status code)
         """
         req = self._extract_request(args, kwargs)
-        lookback_days = req.lookback_days or self._config.lookback_days
+        lookback_days = (
+            req.lookback_days
+            if req.lookback_days is not None
+            else self._config.lookback_days
+        )
+        if lookback_days < 0:
+            return {"error": "lookback_days must be a non-negative integer"}, 400
 
         if req.async_mode:
             return self._handle_async(req.athlete_id, lookback_days)

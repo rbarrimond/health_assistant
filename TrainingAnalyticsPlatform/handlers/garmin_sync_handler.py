@@ -451,7 +451,9 @@ class GarminSyncRequest:
     @property
     def lookback_days(self) -> int | None:
         """Extract and validate lookback days."""
-        lookback_days = self.body.get("lookback_days") or self.query_params.get("lookback_days")
+        lookback_days = self.body.get("lookback_days")
+        if lookback_days is None:
+            lookback_days = self.query_params.get("lookback_days")
         if lookback_days is None:
             return None
         try:
@@ -520,7 +522,13 @@ class GarminSyncHandler:
             (response_dict, HTTP status code)
         """
         req = self._extract_request(args, kwargs)
-        lookback_days = req.lookback_days or self._config.lookback_days
+        lookback_days = (
+            req.lookback_days
+            if req.lookback_days is not None
+            else self._config.lookback_days
+        )
+        if lookback_days < 0:
+            return {"error": "lookback_days must be a non-negative integer"}, 400
 
         if req.async_mode:
             return self._handle_async(req.athlete_id, lookback_days, req.force)
@@ -776,6 +784,25 @@ class GarminSyncHandler:
         queued_at_utc: str,
     ) -> Tuple[Dict, int]:
         """Enqueue async Garmin sync work item."""
+        async_queue = self._async_queue
+        if async_queue is None:
+            logger.error(
+                "Garmin async queue unavailable",
+                extra={
+                    "athlete_id": athlete_id,
+                    "lookback_days": lookback_days,
+                    "force": force,
+                    "operation_id": operation_id,
+                    "source_system": "garmin",
+                },
+            )
+            return {
+                "status": "error",
+                "error": "Async queue is not configured",
+                "operation_id": operation_id,
+                "mode": "async_queue",
+            }, 500
+
         operation_state = AsyncIngestionOperationState.queued(
             athlete_id=athlete_id,
             operation_id=operation_id,
@@ -791,7 +818,7 @@ class GarminSyncHandler:
         )
         try:
             self._storage.async_operations.upsert_state(operation_state)
-            self._async_queue.enqueue(
+            async_queue.enqueue(
                 item=AsyncIngestionWorkItem(
                     operation_id=operation_id,
                     source="garmin",

@@ -237,6 +237,19 @@ class TestGarminSyncRequest:
 
         assert request.lookback_days is None
 
+    def test_lookback_days_preserves_explicit_zero(self):
+        request = GarminSyncRequest({"lookback_days": "0"}, {})
+
+        assert request.lookback_days == 0
+
+    def test_lookback_days_body_takes_precedence_over_query(self):
+        request = GarminSyncRequest(
+            {"lookback_days": "0"},
+            {"lookback_days": "7"},
+        )
+
+        assert request.lookback_days == 0
+
     def test_lookback_days_invalid_value(self):
         request = GarminSyncRequest({"lookback_days": "invalid"}, {})
 
@@ -255,6 +268,50 @@ class TestGarminSyncRequest:
 
 class TestGarminSyncHandler:
     """Tests for Garmin sync response status mapping."""
+
+    def test_handle_returns_400_for_negative_lookback(self):
+        storage = MagicMock()
+        handler = GarminSyncHandler(
+            config=GarminSyncConfig(email="user@example.com", password="x" * 12, lookback_days=30),
+            storage=storage,
+            client=MagicMock(),
+        )
+
+        response, status = handler.handle(
+            GarminSyncRequest(
+                {
+                    "athlete_id": "rob",
+                    "lookback_days": -1,
+                },
+                {},
+            )
+        )
+
+        assert status == 400
+        assert response["error"] == "lookback_days must be a non-negative integer"
+
+    def test_handle_preserves_explicit_zero_lookback(self):
+        storage = MagicMock()
+        handler = GarminSyncHandler(
+            config=GarminSyncConfig(email="user@example.com", password="x" * 12, lookback_days=30),
+            storage=storage,
+            client=MagicMock(),
+        )
+        handler._handle_sync = MagicMock(return_value=({"status": "ok"}, 200))  # type: ignore[method-assign]
+
+        response, status = handler.handle(
+            GarminSyncRequest(
+                {
+                    "athlete_id": "rob",
+                    "lookback_days": 0,
+                },
+                {},
+            )
+        )
+
+        assert status == 200
+        assert response["status"] == "ok"
+        handler._handle_sync.assert_called_once_with("rob", 0, False)
 
     def test_handle_async_thread_returns_operation_metadata(self):
         storage = MagicMock()

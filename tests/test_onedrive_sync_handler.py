@@ -97,6 +97,16 @@ class TestOneDriveSyncRequest:
         req = OneDriveSyncRequest({}, {})
         assert req.lookback_days is None
 
+    def test_lookback_days_preserves_explicit_zero(self):
+        """Test explicit 0 lookback is preserved."""
+        req = OneDriveSyncRequest({"days": "0"}, {})
+        assert req.lookback_days == 0
+
+    def test_lookback_days_body_takes_precedence_over_query(self):
+        """Test body lookback takes precedence over query lookback."""
+        req = OneDriveSyncRequest({"days": "0"}, {"days": "7"})
+        assert req.lookback_days == 0
+
     def test_lookback_days_invalid_value(self):
         """Test lookback_days returns None for invalid values."""
         req = OneDriveSyncRequest({"days": "invalid"}, {})
@@ -152,6 +162,25 @@ class TestOneDriveResetRequest:
 
 class TestOneDriveSyncHandler:
     """Test OneDriveSyncHandler sync execution."""
+
+    def test_handle_sync_returns_400_for_negative_lookback(self, handler):
+        """Test negative lookback returns 400 before sync execution."""
+        req = OneDriveSyncRequest({"athlete_id": "athlete1", "days": "-1"}, {})
+
+        result, status = handler.handle(req)
+
+        assert status == 400
+        assert result["error"] == "lookback_days must be a non-negative integer"
+
+    def test_handle_sync_preserves_explicit_zero_lookback(self, handler):
+        """Test explicit 0 lookback is passed through to sync."""
+        handler.sync = MagicMock(return_value={"files_processed": 1})
+        req = OneDriveSyncRequest({"athlete_id": "athlete1", "days": "0"}, {})
+
+        _, status = handler.handle(req)
+
+        assert status == 200
+        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=0)
 
     def test_handle_sync_success(self, handler):
         """Test successful synchronous sync."""

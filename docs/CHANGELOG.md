@@ -10,6 +10,12 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-20
 
+### Workout Lookback Input Contract Hardening [application v3.6.1]
+
+- **Changed (Garmin + OneDrive workout sync request handling)**: explicit `lookback_days=0` (or `days=0` for OneDrive) is now preserved and no longer treated as missing.
+- **Changed (defaulting behavior)**: config/environment defaults are now applied only when lookback is absent (`null`/missing), not when the caller explicitly sends `0`.
+- **Changed (validation behavior)**: negative lookback values now return HTTP `400` with `lookback_days must be a non-negative integer`.
+
 ### Physiometrics Lookback Offset Semantics [application v3.6.0]
 
 - **Changed (Garmin + Intervals physiometrics sync)**: `lookback_days` now uses offset semantics to remove ambiguous same-day overlap in routine backfills.
