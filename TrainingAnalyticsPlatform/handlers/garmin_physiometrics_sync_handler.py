@@ -53,10 +53,9 @@ class GarminPhysiometricsSyncHandler:
 
         parsed_lookback = self._parse_lookback_days(lookback_days)
         if parsed_lookback is None:
-            return {"error": "lookback_days must be a positive integer"}, 400
+            return {"error": "lookback_days must be a non-negative integer"}, 400
 
-        end_date = datetime.now(timezone.utc).date()
-        start_date = end_date - timedelta(days=parsed_lookback)
+        start_date, end_date = self._resolve_sync_window(parsed_lookback)
 
         logger.info(
             "Syncing Garmin physiometrics for athlete %s from %s to %s",
@@ -234,11 +233,27 @@ class GarminPhysiometricsSyncHandler:
             raw_value = lookback_days
 
         try:
-            return max(1, int(raw_value))
+            return max(0, int(raw_value))
         except (TypeError, ValueError):
             if lookback_days is None:
                 return 7
             return None
+
+    @staticmethod
+    def _resolve_sync_window(lookback_days: int) -> tuple[datetime.date, datetime.date]:
+        """Resolve physiometrics sync date window.
+
+        Semantics:
+        - lookback_days == 0 -> sync today only
+        - lookback_days > 0 -> sync exactly N completed days ending yesterday
+        """
+        today = datetime.now(timezone.utc).date()
+        if lookback_days == 0:
+            return today, today
+
+        end_date = today - timedelta(days=1)
+        start_date = end_date - timedelta(days=lookback_days - 1)
+        return start_date, end_date
 
     def _process_single_day(self, athlete_id: str, date_str: str) -> str:
         """Fetch, archive, parse, and persist one Garmin physiometrics day."""

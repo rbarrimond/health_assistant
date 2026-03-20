@@ -78,9 +78,10 @@ class IntervalsSyncHandler:
                 )
             except ValueError:
                 lookback_days = 30
+        elif lookback_days < 0:
+            return {"error": "lookback_days must be a non-negative integer"}, 400
 
-        end_date = datetime.now(timezone.utc).date()
-        start_date = end_date - timedelta(days=lookback_days)
+        start_date, end_date = self._resolve_sync_window(lookback_days)
 
         logger.info(
             "Syncing Intervals.icu data: fetching with intervals_athlete_id=%s, storing to athlete_id=%s from %s to %s",
@@ -177,6 +178,21 @@ class IntervalsSyncHandler:
             )
             return {"error": str(exc)}, 500
 
+    @staticmethod
+    def _resolve_sync_window(lookback_days: int) -> tuple[datetime.date, datetime.date]:
+        """Resolve physiometrics sync date window.
+
+        Semantics:
+        - lookback_days == 0 -> sync today only
+        - lookback_days > 0 -> sync exactly N completed days ending yesterday
+        """
+        today = datetime.now(timezone.utc).date()
+        if lookback_days == 0:
+            return today, today
+
+        end_date = today - timedelta(days=1)
+        start_date = end_date - timedelta(days=lookback_days - 1)
+        return start_date, end_date
     def _process_wellness_records(
         self, athlete_id: str, wellness_records: Dict[str, Any] | list
     ) -> Tuple[int, list, int]:

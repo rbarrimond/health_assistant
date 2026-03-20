@@ -10,6 +10,15 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-20
 
+### Physiometrics Lookback Offset Semantics [application v3.6.0]
+
+- **Changed (Garmin + Intervals physiometrics sync)**: `lookback_days` now uses offset semantics to remove ambiguous same-day overlap in routine backfills.
+- **Semantics**:
+  - `lookback_days=0` syncs **today** only.
+  - `lookback_days=1` syncs **yesterday** only.
+  - `lookback_days=N` (N > 0) syncs exactly N completed days ending yesterday.
+- **Validation**: physiometrics sync handlers now reject negative `lookback_days` values with HTTP 400.
+
 ### Operational Error Response Context Enrichment [application v3.5.0, operations API v4.4.0]
 
 - **Changed (operational error contract)**: operational HTTP endpoints now add structured troubleshooting context to JSON error responses without changing success payloads.

@@ -96,6 +96,35 @@ def test_sync_handler_validates_lookback_days_type():
     assert "lookback_days" in response["error"]
 
 
+def test_sync_handler_lookback_zero_targets_today_only():
+    storage = Mock()
+    storage.physiometrics = Mock()
+    storage.infrastructure = Mock()
+    storage.infrastructure.upload_external_source_json = Mock(return_value="physiometrics/rob/garmin/daily/blob.json")
+    state_table = Mock()
+    state_table.query_entities.return_value = [{"blob_name": "physiometrics/rob/garmin/daily/blob.json"}]
+    storage.infrastructure.get_table_client = Mock(return_value=state_table)
+
+    client = Mock()
+    client.get_user_summary.return_value = _summary_payload("2026-03-04")
+    client.get_training_status.return_value = _training_status_payload()
+    client.get_training_readiness.return_value = _training_readiness_payload()
+    client.get_morning_training_readiness.return_value = None
+
+    handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
+
+    with patch(
+        "TrainingAnalyticsPlatform.handlers.garmin_physiometrics_sync_handler.datetime"
+    ) as mocked_datetime:
+        mocked_datetime.now.return_value = datetime(2026, 3, 4, tzinfo=timezone.utc)
+        mocked_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+        response, status = handler.handle("rob", lookback_days=0)
+
+    assert status == 200
+    assert response["records_fetched"] == 1
+    client.get_user_summary.assert_called_once_with("2026-03-04")
+
+
 def test_sync_handler_reports_partial_errors():
     storage = Mock()
     storage.physiometrics = Mock()
@@ -174,7 +203,7 @@ def test_sync_handler_skips_dates_already_stored_when_not_forced():
         response, status = handler.handle("rob", lookback_days=1, force=False)
 
     assert status == 200
-    assert response["records_skipped"] == 2
+    assert response["records_skipped"] == 1
     assert response["records_fetched"] == 0
     assert response["count"] == 0
     storage.physiometrics.store_physiometrics.assert_not_called()
@@ -212,8 +241,8 @@ def test_sync_handler_force_true_reprocesses_stored_dates():
 
     assert status == 200
     assert response["records_skipped"] == 0
-    assert response["records_fetched"] == 2
-    assert storage.physiometrics.store_physiometrics.call_count == 2
+    assert response["records_fetched"] == 1
+    assert storage.physiometrics.store_physiometrics.call_count == 1
 
 
 def test_sync_handler_continues_when_prefetch_history_fails():
@@ -244,9 +273,9 @@ def test_sync_handler_continues_when_prefetch_history_fails():
         response, status = handler.handle("rob", lookback_days=1, force=False)
 
     assert status == 200
-    assert response["records_fetched"] == 2
+    assert response["records_fetched"] == 1
     assert response["records_skipped"] == 0
-    assert storage.physiometrics.store_physiometrics.call_count == 2
+    assert storage.physiometrics.store_physiometrics.call_count == 1
 
 
 # ---------------------------------------------------------------------------

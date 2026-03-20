@@ -1,4 +1,5 @@
 """Tests for Intervals.icu sync handler."""
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -164,16 +165,39 @@ class TestIntervalsSyncHandlerHandle:
         """Test handle with custom lookback days."""
         mock_client.get_athlete_wellness.return_value = []
 
-        handler.handle(
-            intervals_athlete_id="i508584", athlete_id="rob", lookback_days=60
-        )
+        with patch(
+            "TrainingAnalyticsPlatform.handlers.intervals_sync_handler.datetime"
+        ) as mocked_datetime:
+            mocked_datetime.now.return_value = datetime(2026, 3, 4, tzinfo=timezone.utc)
+            mocked_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+            handler.handle(
+                intervals_athlete_id="i508584", athlete_id="rob", lookback_days=1
+            )
 
         # Verify client was called with dates matching lookback
         assert mock_client.get_athlete_wellness.called
         call_kwargs = mock_client.get_athlete_wellness.call_args[1]
         assert call_kwargs["athlete_id"] == "i508584"
-        assert "oldest" in call_kwargs
-        assert "newest" in call_kwargs
+        assert call_kwargs["oldest"] == "2026-03-03"
+        assert call_kwargs["newest"] == "2026-03-03"
+
+    def test_handle_with_lookback_zero_targets_today(self, handler, mock_client):
+        """Test lookback_days=0 uses today only."""
+        mock_client.get_athlete_wellness.return_value = []
+
+        with patch(
+            "TrainingAnalyticsPlatform.handlers.intervals_sync_handler.datetime"
+        ) as mocked_datetime:
+            mocked_datetime.now.return_value = datetime(2026, 3, 4, tzinfo=timezone.utc)
+            mocked_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+            handler.handle(
+                intervals_athlete_id="i508584", athlete_id="rob", lookback_days=0
+            )
+
+        call_kwargs = mock_client.get_athlete_wellness.call_args[1]
+        assert call_kwargs["athlete_id"] == "i508584"
+        assert call_kwargs["oldest"] == "2026-03-04"
+        assert call_kwargs["newest"] == "2026-03-04"
 
     def test_handle_api_error(self, handler, mock_client):
         """Test handle when API call fails."""
