@@ -475,80 +475,24 @@ class TestPlanningContextEndpoint:
 
 
 class TestDeferredRetryQueueProcessing:
-    def test_process_deferred_retry_message_marks_succeeded(self):
-        work_item = MagicMock()
-        work_item.athlete_id = "rob"
-        work_item.operation_id = "op-1"
-        work_item.source = "garmin_activities"
-        work_item.lookback_days = 45
+    def test_process_deferred_retry_message_delegates_to_executor(self):
+        mock_executor = MagicMock()
 
-        mock_queue = MagicMock()
-        mock_queue.decode_message.return_value = work_item
+        with _patch_dependency("deferred_retry_executor", mock_executor):
+            function_app._process_deferred_retry_message("{}")
 
-        current_state = MagicMock()
-        current_state.etag = "etag-initial"
-        retrying_state = MagicMock()
-        retrying_state.etag = "etag-retrying"
+        mock_executor.process_message.assert_called_once_with("{}")
 
-        mock_retry_storage = MagicMock()
-        mock_retry_storage.get_state.return_value = current_state
-        mock_retry_storage.mark_status.side_effect = [retrying_state, MagicMock()]
+    def test_process_deferred_retry_message_propagates_executor_failure(self):
+        mock_executor = MagicMock()
+        mock_executor.process_message.side_effect = RuntimeError("boom")
 
-        mock_storage = MagicMock()
-        mock_storage.retry_deferrals = mock_retry_storage
-
-        with _patch_dependency("deferred_retry_queue", mock_queue):
-            with _patch_dependency("storage", mock_storage):
-                with patch("function_app._execute_deferred_retry_source", return_value=({"message": "ok"}, 200)):
-                    function_app._process_deferred_retry_message("{}")
-
-        assert mock_retry_storage.mark_status.call_count == 2
-        first_call = mock_retry_storage.mark_status.call_args_list[0].kwargs
-        second_call = mock_retry_storage.mark_status.call_args_list[1].kwargs
-        assert first_call["status"] == "retrying"
-        assert second_call["status"] == "succeeded"
-
-    def test_process_deferred_retry_message_marks_deferred_when_deferred_again(self):
-        work_item = MagicMock()
-        work_item.athlete_id = "rob"
-        work_item.operation_id = "op-2"
-        work_item.source = "garmin_activities"
-        work_item.lookback_days = 45
-
-        mock_queue = MagicMock()
-        mock_queue.decode_message.return_value = work_item
-
-        current_state = MagicMock()
-        current_state.etag = "etag-initial"
-        retrying_state = MagicMock()
-        retrying_state.etag = "etag-retrying"
-
-        mock_retry_storage = MagicMock()
-        mock_retry_storage.get_state.return_value = current_state
-        mock_retry_storage.mark_status.side_effect = [retrying_state, MagicMock()]
-
-        mock_storage = MagicMock()
-        mock_storage.retry_deferrals = mock_retry_storage
-
-        decision = MagicMock()
-        decision.deferred = True
-        decision.safe_to_retry_at_utc = "2026-03-19T00:00:00+00:00"
-
-        mock_coordinator = MagicMock()
-        mock_coordinator.maybe_defer.return_value = decision
-
-        with _patch_dependency("deferred_retry_queue", mock_queue):
-            with _patch_dependency("storage", mock_storage):
-                with _patch_dependency("deferred_retry_coordinator", mock_coordinator):
-                    with patch(
-                        "function_app._execute_deferred_retry_source",
-                        return_value=({"error": "rate limited"}, 429, {"Retry-After": "3600"}),
-                    ):
-                        function_app._process_deferred_retry_message("{}")
-
-        assert mock_retry_storage.mark_status.call_count == 2
-        second_call = mock_retry_storage.mark_status.call_args_list[1].kwargs
-        assert second_call["status"] == "deferred"
+        with _patch_dependency("deferred_retry_executor", mock_executor):
+            try:
+                function_app._process_deferred_retry_message("{}")
+                assert False, "Expected RuntimeError"
+            except RuntimeError as exc:
+                assert str(exc) == "boom"
 
     def test_queue_trigger_calls_processor(self):
         msg = MagicMock(spec=func.QueueMessage)
@@ -559,20 +503,21 @@ class TestDeferredRetryQueueProcessing:
 
         process_mock.assert_called_once_with('{"operation_id":"op-3"}')
 
+    def test_queue_trigger_propagates_processor_failure_for_host_retry(self):
+        msg = MagicMock(spec=func.QueueMessage)
+        msg.get_body.return_value = b'{"operation_id":"op-3"}'
+
+        with patch(
+            "function_app._process_deferred_retry_message",
+            side_effect=RuntimeError("deferred-processing-failed"),
+        ):
+            with pytest.raises(RuntimeError, match="deferred-processing-failed"):
+                function_app.process_deferred_retry(msg)
+
 
 class TestAsyncIngestionQueueProcessing:
-    def test_process_async_ingestion_message_executes_onedrive_sync(self):
-        mock_onedrive = MagicMock()
-        mock_storage = MagicMock()
-        mock_async_ops = MagicMock()
-        mock_storage.async_operations = mock_async_ops
-        mock_async_ops.get_state.return_value = None
-        mock_onedrive.sync.return_value = {
-            "status": "success",
-            "ingested": 2,
-            "skipped": 1,
-            "failed": 0,
-        }
+    def test_process_async_ingestion_message_delegates_to_executor(self):
+        mock_executor = MagicMock()
         message = {
             "operation_id": "op-async-1",
             "source": "onedrive",
@@ -581,28 +526,14 @@ class TestAsyncIngestionQueueProcessing:
             "queued_at_utc": "2026-03-19T00:00:00+00:00",
         }
 
-        with _patch_dependency("storage", mock_storage):
-            with _patch_dependency("onedrive_service", mock_onedrive):
-                function_app._process_async_ingestion_message(json.dumps(message))
+        with _patch_dependency("async_ingestion_executor", mock_executor):
+            function_app._process_async_ingestion_message(json.dumps(message))
 
-        mock_onedrive.sync.assert_called_once_with(
-            athlete_id="rob",
-            lookback_days=14,
-        )
-        assert mock_async_ops.mark_status.call_count == 2
+        mock_executor.process_message.assert_called_once_with(json.dumps(message))
 
-    def test_process_async_ingestion_message_executes_garmin_sync(self):
-        mock_garmin = MagicMock()
-        mock_storage = MagicMock()
-        mock_async_ops = MagicMock()
-        mock_storage.async_operations = mock_async_ops
-        mock_async_ops.get_state.return_value = None
-        mock_garmin.sync.return_value = {
-            "status": "success",
-            "ingested": 3,
-            "skipped": 0,
-            "failed": 0,
-        }
+    def test_process_async_ingestion_message_propagates_executor_failure(self):
+        mock_executor = MagicMock()
+        mock_executor.process_message.side_effect = RuntimeError("boom")
         message = {
             "operation_id": "op-async-garmin-1",
             "source": "garmin",
@@ -612,23 +543,15 @@ class TestAsyncIngestionQueueProcessing:
             "context": {"force": True},
         }
 
-        with _patch_dependency("storage", mock_storage):
-            with _patch_dependency("garmin_service", mock_garmin):
+        with _patch_dependency("async_ingestion_executor", mock_executor):
+            try:
                 function_app._process_async_ingestion_message(json.dumps(message))
+                assert False, "Expected RuntimeError"
+            except RuntimeError as exc:
+                assert str(exc) == "boom"
 
-        mock_garmin.sync.assert_called_once_with(
-            athlete_id="rob",
-            lookback_days=21,
-            force=True,
-        )
-        assert mock_async_ops.mark_status.call_count == 2
-
-    def test_process_async_ingestion_message_skips_unsupported_source(self):
-        mock_onedrive = MagicMock()
-        mock_storage = MagicMock()
-        mock_async_ops = MagicMock()
-        mock_storage.async_operations = mock_async_ops
-        mock_async_ops.get_state.return_value = None
+    def test_process_async_ingestion_message_delegates_unsupported_source(self):
+        mock_executor = MagicMock()
         message = {
             "operation_id": "op-async-2",
             "source": "polar",
@@ -637,12 +560,10 @@ class TestAsyncIngestionQueueProcessing:
             "queued_at_utc": "2026-03-19T00:00:00+00:00",
         }
 
-        with _patch_dependency("storage", mock_storage):
-            with _patch_dependency("onedrive_service", mock_onedrive):
-                function_app._process_async_ingestion_message(json.dumps(message))
+        with _patch_dependency("async_ingestion_executor", mock_executor):
+            function_app._process_async_ingestion_message(json.dumps(message))
 
-        mock_onedrive.sync.assert_not_called()
-        mock_async_ops.mark_status.assert_called_once()
+        mock_executor.process_message.assert_called_once_with(json.dumps(message))
 
     def test_async_ingestion_queue_trigger_calls_processor(self):
         msg = MagicMock(spec=func.QueueMessage)
@@ -652,6 +573,17 @@ class TestAsyncIngestionQueueProcessing:
             function_app.process_async_ingestion(msg)
 
         process_mock.assert_called_once_with('{"operation_id":"op-async-3"}')
+
+    def test_async_ingestion_queue_trigger_propagates_processor_failure_for_host_retry(self):
+        msg = MagicMock(spec=func.QueueMessage)
+        msg.get_body.return_value = b'{"operation_id":"op-async-3"}'
+
+        with patch(
+            "function_app._process_async_ingestion_message",
+            side_effect=RuntimeError("async-processing-failed"),
+        ):
+            with pytest.raises(RuntimeError, match="async-processing-failed"):
+                function_app.process_async_ingestion(msg)
 
     def test_withings_callback_success(self):
         req = MagicMock(spec=func.HttpRequest)

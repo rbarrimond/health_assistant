@@ -42,32 +42,35 @@ class DeferredRetryQueue:
             resolved_conn,
             queue_name,
         )
+        self._queue_name = queue_name
+
+    def bootstrap(self) -> None:
+        """Create the queue if it does not already exist. Idempotent — safe to call multiple times."""
         try:
             self._queue_client.create_queue()
             logger.info(
-                "Deferred retry queue initialized",
+                "Deferred retry queue bootstrapped",
                 extra={
-                    "queue_name": queue_name,
+                    "queue_name": self._queue_name,
                     "queue_init_status": "created",
                 },
             )
         except Exception as exc:  # pylint: disable=broad-exception-caught
             if self._is_queue_already_exists_error(exc):
                 logger.info(
-                    "Deferred retry queue initialized",
+                    "Deferred retry queue bootstrapped",
                     extra={
-                        "queue_name": queue_name,
+                        "queue_name": self._queue_name,
                         "queue_init_status": "already_exists",
                     },
                 )
             else:
                 logger.error(
-                    "Failed to initialize deferred retry queue",
-                    extra={"queue_name": queue_name},
+                    "Failed to bootstrap deferred retry queue",
+                    extra={"queue_name": self._queue_name},
                     exc_info=True,
                 )
-                raise StorageError("Failed to initialize deferred retry queue") from exc
-        self._queue_name = queue_name
+                raise StorageError("Failed to bootstrap deferred retry queue") from exc
 
     @staticmethod
     def _import_queue_client() -> Any:

@@ -2,6 +2,7 @@
 
 # pylint: disable=protected-access
 
+import pytest
 from unittest.mock import MagicMock
 
 from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import (
@@ -12,6 +13,7 @@ from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import (
 )
 from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 from TrainingAnalyticsPlatform.platform.exceptions import WorkoutIdCalculationError
+from TrainingAnalyticsPlatform.platform.exceptions import ConfigError
 from TrainingAnalyticsPlatform.integrations.garmin_client import GarminConnectError
 
 
@@ -95,6 +97,24 @@ class TestGarminSyncIngestionHandler:
         )
 
         assert workout_id is None
+
+
+class TestGarminSyncConfig:
+    def test_from_env_raises_config_error_when_credentials_missing(self, monkeypatch):
+        monkeypatch.delenv("GARMIN_EMAIL", raising=False)
+        monkeypatch.delenv("GARMIN_PASSWORD", raising=False)
+
+        with pytest.raises(ConfigError, match="Missing Garmin credentials"):
+            GarminSyncConfig.from_env()
+
+    def test_from_env_defaults_lookback_to_30_when_invalid(self, monkeypatch):
+        monkeypatch.setenv("GARMIN_EMAIL", "user@example.com")
+        monkeypatch.setenv("GARMIN_PASSWORD", "secret")
+        monkeypatch.setenv("GARMIN_SYNC_LOOKBACK_DAYS", "not-a-number")
+
+        config = GarminSyncConfig.from_env()
+
+        assert config.lookback_days == 30
 
     def test_find_near_duplicate_workout_handles_invalid_start(self):
         storage = MagicMock()

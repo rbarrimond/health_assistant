@@ -35,10 +35,28 @@ from TrainingAnalyticsPlatform.handlers.planning_context_presync_handler import 
 from TrainingAnalyticsPlatform.handlers.deferred_retry_coordinator import (
     DeferredRetryCoordinator,
 )
+from TrainingAnalyticsPlatform.handlers.async_ingestion_lifecycle_service import (
+    AsyncIngestionLifecycleService,
+)
+from TrainingAnalyticsPlatform.handlers.deferred_retry_lifecycle_service import (
+    DeferredRetryLifecycleService,
+)
+from TrainingAnalyticsPlatform.handlers.async_ingestion_operation_executor import (
+    AsyncIngestionOperationExecutor,
+)
+from TrainingAnalyticsPlatform.handlers.deferred_retry_operation_executor import (
+    DeferredRetryOperationExecutor,
+)
+from TrainingAnalyticsPlatform.handlers.source_handler_registry import (
+    AsyncIngestionSourceHandler,
+    DeferredRetrySourceHandler,
+    SourceHandlerRegistry,
+)
 from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
 from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
 from TrainingAnalyticsPlatform.integrations.async_ingestion_queue import AsyncIngestionQueue
 from TrainingAnalyticsPlatform.integrations.deferred_retry_queue import DeferredRetryQueue
+from TrainingAnalyticsPlatform.platform.exceptions import StorageError
 from TrainingAnalyticsPlatform.integrations.withings_client import WithingsClient
 from TrainingAnalyticsPlatform.integrations.garmin_client import GarminConnectClient
 from TrainingAnalyticsPlatform.integrations.intervals_client import IntervalsicuClient
@@ -172,6 +190,101 @@ class FunctionAppDependencies:
         logger.info("Deferred retry coordinator initialized")
         return coordinator
 
+    @cached_property
+    def async_ingestion_lifecycle(self) -> AsyncIngestionLifecycleService:
+        """Return lifecycle service for async ingestion operation transitions."""
+        return AsyncIngestionLifecycleService(storage=self.storage.async_operations)
+
+    @cached_property
+    def deferred_retry_lifecycle(self) -> DeferredRetryLifecycleService:
+        """Return lifecycle service for deferred retry operation transitions."""
+        return DeferredRetryLifecycleService(storage=self.storage.retry_deferrals)
+
+    @cached_property
+    def async_ingestion_executor(self) -> AsyncIngestionOperationExecutor:
+        """Return async ingestion queue operation executor."""
+        return AsyncIngestionOperationExecutor(
+            lifecycle=self.async_ingestion_lifecycle,
+            source_registry=self.async_ingestion_source_registry,
+        )
+
+    @cached_property
+    def deferred_retry_executor(self) -> DeferredRetryOperationExecutor:
+        """Return deferred retry queue operation executor."""
+        return DeferredRetryOperationExecutor(
+            queue=self.deferred_retry_queue,
+            lifecycle=self.deferred_retry_lifecycle,
+            coordinator=self.deferred_retry_coordinator,
+            source_registry=self.deferred_retry_source_registry,
+        )
+
+    @cached_property
+    def async_ingestion_source_registry(self) -> SourceHandlerRegistry[AsyncIngestionSourceHandler]:
+        """Return source registry for async ingestion queue execution."""
+        return SourceHandlerRegistry(
+            handlers={
+                "onedrive": lambda athlete_id, lookback_days, _force: self.onedrive_service.sync(
+                    athlete_id=athlete_id,
+                    lookback_days=lookback_days,
+                ),
+                "garmin": lambda athlete_id, lookback_days, force: self.garmin_service.sync(
+                    athlete_id=athlete_id,
+                    lookback_days=lookback_days,
+                    force=force,
+                ),
+            }
+        )
+
+    @cached_property
+    def deferred_retry_source_registry(self) -> SourceHandlerRegistry[DeferredRetrySourceHandler]:
+        """Return source registry for deferred retry queue execution."""
+        return SourceHandlerRegistry(
+            handlers={
+                "onedrive_workouts": lambda athlete_id, lookback_days: self.onedrive_service.handle(
+                    OneDriveSyncRequest(
+                        {
+                            "athlete_id": athlete_id,
+                            "days": lookback_days,
+                            "async": False,
+                        },
+                        {},
+                    )
+                ),
+                "garmin_activities": lambda athlete_id, lookback_days: self.garmin_service.handle(
+                    GarminSyncRequest(
+                        {
+                            "athlete_id": athlete_id,
+                            "lookback_days": lookback_days,
+                            "async": False,
+                        },
+                        {},
+                    )
+                ),
+                "garmin_physiometrics": lambda athlete_id, lookback_days: self.garmin_physiometrics_service.handle(
+                    athlete_id,
+                    lookback_days,
+                    force=False,
+                ),
+                "intervals_physiometrics": self._execute_intervals_physiometrics_retry,
+            }
+        )
+
+    def _execute_intervals_physiometrics_retry(
+        self,
+        athlete_id: str,
+        lookback_days: int,
+    ) -> tuple[Dict[str, Any], int]:
+        """Execute deferred retry source for intervals physiometrics."""
+        intervals_athlete_id = os.getenv("INTERVALS_ATHLETE_ID")
+        if not intervals_athlete_id:
+            return {"error": "INTERVALS_ATHLETE_ID is not configured"}, 424
+
+        return self.intervals_service.handle(
+            intervals_athlete_id=intervals_athlete_id,
+            athlete_id=athlete_id,
+            lookback_days=lookback_days,
+        )
+
     @staticmethod
     def _is_deferred_retry_enabled() -> bool:
         """Return whether deferred retry queue integration is enabled."""
@@ -235,6 +348,17 @@ class FunctionAppDependencies:
             _ = self.semantic_layer
         except (ValueError, AzureError, OSError) as exc:
             logger.warning("Deferred initialization: %s", exc)
+
+        for queue in (
+            self.onedrive_async_queue,
+            self.garmin_async_queue,
+            self.deferred_retry_queue,
+        ):
+            if queue is not None:
+                try:
+                    queue.bootstrap()
+                except StorageError as exc:
+                    logger.warning("Queue bootstrap deferred to runtime: %s", exc)
 
 
 dependencies = FunctionAppDependencies()

@@ -19,6 +19,7 @@ from TrainingAnalyticsPlatform.integrations.garmin_client import (
 )
 from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_bytes_hash
 from TrainingAnalyticsPlatform.platform.exceptions import (
+    ConfigError,
     DeviceFilteredError,
     FitParsingError,
     HealthAssistantError,
@@ -53,7 +54,7 @@ class GarminSyncConfig:
         password = os.getenv(GARMIN_PASSWORD)
 
         if not email or not password:
-            raise ValueError(
+            raise ConfigError(
                 "Missing Garmin credentials. Set GARMIN_EMAIL and GARMIN_PASSWORD."
             )
 

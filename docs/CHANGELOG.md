@@ -10,6 +10,17 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-19
 
+### Garmin Async Queue Terminal Config Failure Classification [application v3.4.4]
+
+- **Fixed (retry classification correctness)**: `GarminSyncConfig.from_env()` now raises typed `ConfigError` (instead of `ValueError`) when Garmin credentials are missing.
+- **Impact**: async ingestion executor now classifies missing Garmin credentials as terminal configuration failure, marks operation `failed`, and acknowledges the message without repeated host retries/poison churn.
+
+### Async Ingestion Hybrid Retry Classification [application v3.4.3]
+
+- **Changed (worker retry policy)**: `AsyncIngestionOperationExecutor` now classifies failures into terminal vs retryable categories.
+- **Changed (terminal handling)**: deterministic domain/data failures are persisted as `failed` and acknowledged without host-level rethrow.
+- **Unchanged (transient handling)**: storage/external/transient failures still rethrow after failure persistence, preserving Azure Queue retry and poison-queue fallback behavior.
+
 ### Async Operation ETag Capture Fix [application v3.4.2]
 
 - **Fixed (correctness)**: `AsyncIngestionOperationState.from_entity()` now reads ETag from `entity.metadata["etag"]` (Azure Data Tables SDK metadata location) instead of entity payload keys.
