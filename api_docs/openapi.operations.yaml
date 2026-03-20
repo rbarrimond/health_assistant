@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Operations)
-  version: "4.3.0"
+  version: "4.4.0"
   description: |
     Operational and administrative API for ingestion, configuration, integrations, and plugin assets.
     Complements the semantic GPT-facing specification with platform control-plane and runtime support endpoints.
@@ -754,6 +754,10 @@ paths:
                     type: array
                     items:
                       type: string
+                  error_details:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OperationalErrorDetail'
                   items:
                     type: array
                     items:
@@ -833,6 +837,20 @@ paths:
                     type: array
                     items:
                       type: string
+                  correlation_id:
+                    type: string
+                  operation:
+                    type: string
+                  source:
+                    type: string
+                  provider:
+                    type: string
+                  athlete_id:
+                    type: string
+                  error_details:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OperationalErrorDetail'
         '207':
           description: Sync completed with partial record-level failures
           content:
@@ -858,6 +876,20 @@ paths:
                     type: array
                     items:
                       type: string
+                  correlation_id:
+                    type: string
+                  operation:
+                    type: string
+                  source:
+                    type: string
+                  provider:
+                    type: string
+                  athlete_id:
+                    type: string
+                  error_details:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OperationalErrorDetail'
         '400':
           description: Invalid request parameters
           content:
@@ -948,6 +980,20 @@ paths:
                     type: array
                     items:
                       type: string
+                  correlation_id:
+                    type: string
+                  operation:
+                    type: string
+                  source:
+                    type: string
+                  provider:
+                    type: string
+                  athlete_id:
+                    type: string
+                  error_details:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OperationalErrorDetail'
         '207':
           description: Sync completed with partial day-level failures
           content:
@@ -972,6 +1018,20 @@ paths:
                     type: array
                     items:
                       type: string
+                  correlation_id:
+                    type: string
+                  operation:
+                    type: string
+                  source:
+                    type: string
+                  provider:
+                    type: string
+                  athlete_id:
+                    type: string
+                  error_details:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OperationalErrorDetail'
         '400':
           description: Invalid request parameters
           content:
@@ -1043,9 +1103,67 @@ components:
     ErrorResponse:
       type: object
       properties:
+        status:
+          type: string
+          example: error
+        error_code:
+          type: string
+          example: INTERNAL_SERVER_ERROR
         error:
           type: string
           example: athlete_id required
+        message:
+          type: string
+          description: Optional legacy alias for the primary error message.
+        correlation_id:
+          type: string
+          description: Request correlation identifier mirrored from response headers for troubleshooting.
+        operation:
+          type: string
+          description: Internal operation name for the endpoint that produced the error.
+        source:
+          type: string
+          description: Source system associated with the failed operation when available.
+        provider:
+          type: string
+          description: External provider associated with the failed operation when available.
+        athlete_id:
+          type: string
+          description: Athlete identifier associated with the failed request when available.
+        resource_id:
+          type: string
+          description: Resource identifier associated with the failed request when available.
+        error_details:
+          type: array
+          description: Per-error detail records for partial-success operational responses.
+          items:
+            $ref: '#/components/schemas/OperationalErrorDetail'
+    OperationalErrorDetail:
+      type: object
+      properties:
+        status:
+          type: string
+          example: error
+        error_code:
+          type: string
+          example: OPERATIONAL_ERROR
+        error:
+          type: string
+          example: "2026-03-03: garmin unavailable"
+        message:
+          type: string
+        correlation_id:
+          type: string
+        operation:
+          type: string
+        source:
+          type: string
+        provider:
+          type: string
+        athlete_id:
+          type: string
+        resource_id:
+          type: string
     ForceWeeklyRollupsRequest:
       type: object
       properties:

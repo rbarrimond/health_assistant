@@ -8,6 +8,15 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-20
+
+### Operational Error Response Context Enrichment [application v3.5.0, operations API v4.4.0]
+
+- **Changed (operational error contract)**: operational HTTP endpoints now add structured troubleshooting context to JSON error responses without changing success payloads.
+- **Added (error metadata)**: JSON error responses now include additive fields such as `error_code`, `correlation_id`, `operation`, and source/provider or domain identifiers like `athlete_id` and `resource_id` when available.
+- **Added (partial failure detail)**: operational partial-success responses that already expose an `errors` array now also emit `error_details` with per-error contextual metadata for faster diagnosis.
+- **Updated (operations spec)**: `api_docs/openapi.operations.yaml` now documents the enriched operational error response fields and partial-failure detail records.
+
 ## 2026-03-19
 
 ### Async Queue Encoding + Operation Result Serialization Fixes [application v3.4.5]

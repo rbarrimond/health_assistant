@@ -222,10 +222,23 @@ class TestPhysiometricsEndpointHandlers:
     def test_update_physiometrics_invalid_payload(self):
         req = MagicMock(spec=func.HttpRequest)
         req.get_json.return_value = {"athlete_id": "rob"}
+        req.get_body.return_value = json.dumps({"athlete_id": "rob"}).encode("utf-8")
+        req.headers = {
+            "Content-Type": "application/json",
+            "x-correlation-id": "corr-update-1",
+        }
+        req.params = {}
+        req.route_params = {}
 
         response = function_app.update_physiometrics(req)
 
         assert response.status_code == 400
+        body = json.loads(response.get_body())
+        assert body["error_code"] == "BAD_REQUEST"
+        assert body["correlation_id"] == "corr-update-1"
+        assert body["operation"] == "update_physiometrics"
+        assert body["athlete_id"] == "rob"
+        assert "Either 'metric'+'value' or 'metrics' dict required" in body["error"]
 
 
 class TestWithingsEndpointHandlers:
@@ -1008,6 +1021,91 @@ class TestGarminEndpointHandlers:
         body = json.loads(response.get_body())
         assert body["lookback_days"] == 60
         mock_handler.handle.assert_called_once()
+
+    def test_garmin_sync_error_response_includes_operational_context(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {
+            "athlete_id": "rob",
+            "lookback_days": 14,
+            "async": False,
+        }
+        req.get_body.return_value = json.dumps({
+            "athlete_id": "rob",
+            "lookback_days": 14,
+            "async": False,
+        }).encode("utf-8")
+        req.headers = {
+            "Content-Type": "application/json",
+            "x-correlation-id": "corr-garmin-1",
+        }
+        req.params = {}
+        req.route_params = {}
+
+        mock_handler = MagicMock()
+        mock_handler.handle.return_value = ({"error": "Garmin API unavailable"}, 500)
+
+        with _patch_dependency("garmin_service", mock_handler):
+            response = function_app.garmin_sync_http(req)
+
+        assert response.status_code == 500
+        body = json.loads(response.get_body())
+        assert body["error"] == "Garmin API unavailable"
+        assert body["error_code"] == "INTERNAL_SERVER_ERROR"
+        assert body["correlation_id"] == "corr-garmin-1"
+        assert body["operation"] == "garmin_sync_http"
+        assert body["source"] == "garmin"
+        assert body["provider"] == "garmin"
+        assert body["athlete_id"] == "rob"
+
+    def test_garmin_physiometrics_partial_errors_include_error_details(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {
+            "athlete_id": "rob",
+            "lookback_days": 1,
+        }
+        req.get_body.return_value = json.dumps({
+            "athlete_id": "rob",
+            "lookback_days": 1,
+        }).encode("utf-8")
+        req.headers = {
+            "Content-Type": "application/json",
+            "x-correlation-id": "corr-garmin-phys-1",
+        }
+        req.params = {}
+        req.route_params = {}
+
+        mock_handler = MagicMock()
+        mock_handler.handle.return_value = (
+            {
+                "message": "Synced 0 Garmin physiometrics records",
+                "count": 0,
+                "records_fetched": 0,
+                "records_processed": 0,
+                "records_skipped": 0,
+                "records_failed": 1,
+                "errors": ["2026-03-03: garmin unavailable"],
+            },
+            207,
+        )
+
+        with _patch_dependency("garmin_physiometrics_service", mock_handler):
+            response = function_app.garmin_physiometrics_sync_http(req)
+
+        assert response.status_code == 207
+        body = json.loads(response.get_body())
+        assert body["correlation_id"] == "corr-garmin-phys-1"
+        assert body["operation"] == "garmin_physiometrics_sync_http"
+        assert body["source"] == "garmin"
+        assert body["provider"] == "garmin"
+        assert body["athlete_id"] == "rob"
+        assert body["errors"] == ["2026-03-03: garmin unavailable"]
+        assert len(body["error_details"]) == 1
+        assert body["error_details"][0]["error"] == "2026-03-03: garmin unavailable"
+        assert body["error_details"][0]["error_code"] == "OPERATIONAL_ERROR"
+        assert body["error_details"][0]["correlation_id"] == "corr-garmin-phys-1"
+        assert body["error_details"][0]["operation"] == "garmin_physiometrics_sync_http"
 
 
 class TestIntervalsEndpointHandlers:
