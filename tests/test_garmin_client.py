@@ -110,25 +110,18 @@ def test_dump_tokens_returns_garth_dumps_result():
     fake_garth.dumps.assert_called_once()
 
 
-def test_restore_from_tokens_loads_garth_state_without_login():
-    """restore_from_tokens must set self.client without calling login()."""
+def test_restore_from_tokens_calls_login_with_tokenstore():
+    """restore_from_tokens must call login(tokenstore=...) to populate display_name."""
     stored_token = "base64encodedtoken=="
 
-    class FakeGarth:
-        def __init__(self):
-            self.loads_calls: list[str] = []
-
-        def loads(self, token: str) -> None:
-            self.loads_calls.append(token)
-
     class FakeGarmin:
-        login_called = False
+        login_kwargs: dict = {}
 
         def __init__(self):
-            self.garth = FakeGarth()
+            self.display_name = "rob"
 
         def login(self, *args, **kwargs):
-            FakeGarmin.login_called = True
+            FakeGarmin.login_kwargs = kwargs
 
     gc = GarminConnectClient(email="user@example.com", password="x" * 12)
 
@@ -139,19 +132,18 @@ def test_restore_from_tokens_loads_garth_state_without_login():
         gc.restore_from_tokens(stored_token)
 
     assert gc.client is not None
-    assert cast(Any, gc.client).garth.loads_calls == [stored_token]
-    assert not FakeGarmin.login_called
+    assert FakeGarmin.login_kwargs == {"tokenstore": stored_token}
 
 
 def test_restore_from_tokens_raises_and_clears_client_on_failure():
-    """If garth.loads() raises, restore_from_tokens must raise GarminConnectError."""
+    """If login(tokenstore=...) raises, restore_from_tokens must raise GarminConnectError."""
 
     class BrokenGarmin:
         def __init__(self):
-            self.garth = BrokenGarth()
+            # No garth attribute needed; login raises before it would be used.
+            pass
 
-    class BrokenGarth:
-        def loads(self, token: str) -> None:
+        def login(self, *args, **kwargs):
             raise ValueError("invalid token data")
 
     gc = GarminConnectClient(email="user@example.com", password="x" * 12)

@@ -164,8 +164,9 @@ class GarminConnectClient:
     def restore_from_tokens(self, garth_token: str) -> None:
         """Restore a previous Garmin session from a serialized garth token string.
 
-        No SSO login is performed; garth will auto-refresh the OAuth2 token from
-        the stored OAuth1 token when required.
+        Calls login(tokenstore=garth_token) so that the library also fetches the
+        user profile and populates display_name — required for user-scoped API
+        URLs such as usersummary-service.
 
         Args:
             garth_token: Base64-encoded token string produced by dump_tokens().
@@ -177,7 +178,7 @@ class GarminConnectClient:
             raise GarminConnectError(DEPENDENCY_NOT_INSTALLED_ERROR)
         try:
             candidate_client = GarminImpl()
-            candidate_client.garth.loads(garth_token)
+            candidate_client.login(tokenstore=garth_token)
             self.client = candidate_client
             logger.info("Restored Garmin session from stored tokens")
         except Exception as exc:
