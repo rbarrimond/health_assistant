@@ -265,6 +265,22 @@ class TestGarminSyncRequest:
 
         assert request.force is False
 
+    def test_request_id_from_body(self):
+        request = GarminSyncRequest({"request_id": "req-123"}, {})
+
+        assert request.request_id == "req-123"
+
+    def test_correlation_id_from_query(self):
+        request = GarminSyncRequest({}, {"correlation_id": "corr-456"})
+
+        assert request.correlation_id == "corr-456"
+
+    def test_request_and_correlation_id_none_when_missing(self):
+        request = GarminSyncRequest({}, {})
+
+        assert request.request_id is None
+        assert request.correlation_id is None
+
 
 class TestGarminSyncHandler:
     """Tests for Garmin sync response status mapping."""
@@ -375,6 +391,40 @@ class TestGarminSyncHandler:
         assert enqueued_item.athlete_id == "rob"
         assert enqueued_item.lookback_days == 7
         assert enqueued_item.context["force"] is True
+
+    def test_handle_async_queue_propagates_trace_ids(self):
+        storage = MagicMock()
+        async_queue = MagicMock()
+        handler = GarminSyncHandler(
+            config=GarminSyncConfig(email="user@example.com", password="x" * 12, lookback_days=30),
+            storage=storage,
+            client=MagicMock(),
+            async_queue=async_queue,
+        )
+        handler.sync = MagicMock(return_value={"status": "success"})  # type: ignore[method-assign]
+
+        response, status = handler.handle(
+            GarminSyncRequest(
+                {
+                    "athlete_id": "rob",
+                    "lookback_days": 7,
+                    "force": True,
+                    "async": True,
+                    "request_id": "req-async-1",
+                    "correlation_id": "corr-async-1",
+                },
+                {},
+            )
+        )
+
+        assert status == 202
+        assert response["status"] == "queued"
+        enqueued_item = async_queue.enqueue.call_args.kwargs["item"]
+        assert enqueued_item.request_id == "req-async-1"
+        assert enqueued_item.correlation_id == "corr-async-1"
+        upserted_state = storage.async_operations.upsert_state.call_args.args[0]
+        assert upserted_state.request_id == "req-async-1"
+        assert upserted_state.correlation_id == "corr-async-1"
 
     def test_sync_skips_previously_seen_activity_ids_without_download(self):
         storage = MagicMock()

@@ -475,6 +475,24 @@ class GarminSyncRequest:
             force_flag = self.query_params.get("force")
         return self._to_bool(force_flag)
 
+    @property
+    def request_id(self) -> str | None:
+        """Extract request identifier from body or query params when present."""
+        request_id = self.body.get("request_id") or self.query_params.get("request_id")
+        if request_id is None:
+            return None
+        normalized = str(request_id).strip()
+        return normalized or None
+
+    @property
+    def correlation_id(self) -> str | None:
+        """Extract correlation identifier from body or query params when present."""
+        correlation_id = self.body.get("correlation_id") or self.query_params.get("correlation_id")
+        if correlation_id is None:
+            return None
+        normalized = str(correlation_id).strip()
+        return normalized or None
+
     @staticmethod
     def _to_bool(raw_value: object) -> bool:
         """Convert common bool-like values to bool."""
@@ -531,7 +549,13 @@ class GarminSyncHandler:
             return {"error": "lookback_days must be a non-negative integer"}, 400
 
         if req.async_mode:
-            return self._handle_async(req.athlete_id, lookback_days, req.force)
+            return self._handle_async(
+                req.athlete_id,
+                lookback_days,
+                req.force,
+                request_id=req.request_id,
+                correlation_id=req.correlation_id,
+            )
 
         return self._handle_sync(req.athlete_id, lookback_days, req.force)
 
@@ -751,6 +775,9 @@ class GarminSyncHandler:
         athlete_id: str,
         lookback_days: int,
         force: bool = False,
+        *,
+        request_id: str | None = None,
+        correlation_id: str | None = None,
     ) -> Tuple[Dict, int]:
         """Queue asynchronous sync."""
 
@@ -764,6 +791,8 @@ class GarminSyncHandler:
                 force=force,
                 operation_id=operation_id,
                 queued_at_utc=queued_at_utc,
+                request_id=request_id,
+                correlation_id=correlation_id,
             )
 
         return self._handle_async_thread(
@@ -772,6 +801,8 @@ class GarminSyncHandler:
             force=force,
             operation_id=operation_id,
             queued_at_utc=queued_at_utc,
+            request_id=request_id,
+            correlation_id=correlation_id,
         )
 
     def _handle_async_queue(
@@ -782,6 +813,8 @@ class GarminSyncHandler:
         force: bool,
         operation_id: str,
         queued_at_utc: str,
+        request_id: str | None,
+        correlation_id: str | None,
     ) -> Tuple[Dict, int]:
         """Enqueue async Garmin sync work item."""
         async_queue = self._async_queue
@@ -810,6 +843,8 @@ class GarminSyncHandler:
             lookback_days=lookback_days,
             mode="async_queue",
             queued_at_utc=queued_at_utc,
+            request_id=request_id,
+            correlation_id=correlation_id,
             context={
                 "source_system": "garmin",
                 "mode": "async",
@@ -825,6 +860,8 @@ class GarminSyncHandler:
                     athlete_id=athlete_id,
                     lookback_days=lookback_days,
                     queued_at_utc=queued_at_utc,
+                    request_id=request_id,
+                    correlation_id=correlation_id,
                     context={
                         "source_system": "garmin",
                         "mode": "async",
@@ -871,6 +908,8 @@ class GarminSyncHandler:
         force: bool,
         operation_id: str,
         queued_at_utc: str,
+        request_id: str | None,
+        correlation_id: str | None,
     ) -> Tuple[Dict, int]:
         """Run async Garmin sync via in-process daemon thread (fallback mode)."""
 
@@ -881,6 +920,8 @@ class GarminSyncHandler:
             lookback_days=lookback_days,
             mode="async_thread",
             queued_at_utc=queued_at_utc,
+            request_id=request_id,
+            correlation_id=correlation_id,
             context={
                 "source_system": "garmin",
                 "mode": "async",

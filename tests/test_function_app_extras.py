@@ -744,6 +744,43 @@ class TestAsyncOperationStatusEndpoint:
         body = json.loads(response.get_body())
         assert body["operation_id"] == "op-1"
         assert body["status"] == "succeeded"
+        assert "error" not in body
+        assert "error_code" not in body
+
+    def test_get_async_operation_status_failed_includes_error_metadata(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.params = {"athlete_id": "rob", "operation_id": "op-failed"}
+
+        mock_state = MagicMock()
+        mock_state.athlete_id = "rob"
+        mock_state.row_key = "op-failed"
+        mock_state.source = "garmin"
+        mock_state.lookback_days = 30
+        mock_state.status = "failed"
+        mock_state.mode = "async_queue"
+        mock_state.queued_at_utc = "2026-03-19T00:00:00+00:00"
+        mock_state.created_at_utc = "2026-03-19T00:00:01+00:00"
+        mock_state.updated_at_utc = "2026-03-19T00:01:00+00:00"
+        mock_state.request_id = "req-1"
+        mock_state.correlation_id = "corr-1"
+        mock_state.context = {"source_system": "garmin"}
+        mock_state.result = {"failed": 1}
+        mock_state.error = "Sync execution failed"
+
+        mock_storage = MagicMock()
+        mock_async_ops = MagicMock()
+        mock_storage.async_operations = mock_async_ops
+        mock_async_ops.get_state.return_value = mock_state
+
+        with _patch_dependency("storage", mock_storage):
+            response = function_app.get_async_operation_status(req)
+
+        assert response.status_code == 200
+        body = json.loads(response.get_body())
+        assert body["operation_id"] == "op-failed"
+        assert body["status"] == "failed"
+        assert body["error"] == "Sync execution failed"
+        assert body["error_code"] == "OPERATIONAL_ERROR"
 
     def test_ingest_fit_payload_success(self):
         payload = {
@@ -836,6 +873,7 @@ class TestOneDriveHelpersAndEndpoints:
         req.get_json.return_value = {"days": 7,
                                      "athlete_id": "rob", "async": False}
         req.params = {}
+        req.headers = {}
 
         mock_handler = MagicMock()
         mock_handler.handle.return_value = ({"status": "success"}, 200)
@@ -853,6 +891,7 @@ class TestOneDriveHelpersAndEndpoints:
         req.method = "POST"
         req.get_json.return_value = {"days": 7, "athlete_id": "rob"}
         req.params = {}
+        req.headers = {}
 
         mock_handler = MagicMock()
         mock_handler.handle.return_value = ({"status": "success"}, 200)
@@ -870,9 +909,35 @@ class TestOneDriveHelpersAndEndpoints:
         req.method = "POST"
         req.get_json.return_value = {"days": 7, "athlete_id": "rob"}
         req.params = {"async": "true"}
+        req.headers = {}
 
         mock_handler = MagicMock()
         mock_handler.handle.return_value = ({"status": "queued"}, 202)
+
+        with _patch_dependency("onedrive_service", mock_handler):
+            response = function_app.onedrive_sync_http(req)
+
+        assert response.status_code == 202
+        mock_handler.handle.assert_called_once()
+
+    def test_onedrive_sync_http_propagates_trace_ids_to_request(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {"days": 7, "athlete_id": "rob", "async": True}
+        req.params = {}
+        req.headers = {
+            "x-correlation-id": "corr-od-1",
+            "x-request-id": "req-od-1",
+        }
+
+        mock_handler = MagicMock()
+
+        def _handle(sync_req):
+            assert sync_req.correlation_id == "corr-od-1"
+            assert sync_req.request_id == "req-od-1"
+            return {"status": "queued"}, 202
+
+        mock_handler.handle.side_effect = _handle
 
         with _patch_dependency("onedrive_service", mock_handler):
             response = function_app.onedrive_sync_http(req)
@@ -979,6 +1044,7 @@ class TestGarminEndpointHandlers:
             "async": False,
         }
         req.params = {}
+        req.headers = {}
 
         mock_handler = MagicMock()
 
@@ -1003,6 +1069,7 @@ class TestGarminEndpointHandlers:
         req.method = "POST"
         req.get_json.return_value = {"athlete_id": "rob"}
         req.params = {"lookback_days": "60", "async": "false"}
+        req.headers = {}
 
         mock_handler = MagicMock()
 
@@ -1020,6 +1087,35 @@ class TestGarminEndpointHandlers:
         assert response.status_code == 200
         body = json.loads(response.get_body())
         assert body["lookback_days"] == 60
+        mock_handler.handle.assert_called_once()
+
+    def test_garmin_sync_http_propagates_trace_ids_to_request(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {
+            "athlete_id": "rob",
+            "lookback_days": 14,
+            "async": True,
+        }
+        req.params = {}
+        req.headers = {
+            "x-correlation-id": "corr-garmin-2",
+            "x-request-id": "req-garmin-2",
+        }
+
+        mock_handler = MagicMock()
+
+        def _handle(sync_req):
+            assert sync_req.correlation_id == "corr-garmin-2"
+            assert sync_req.request_id == "req-garmin-2"
+            return {"status": "queued"}, 202
+
+        mock_handler.handle.side_effect = _handle
+
+        with _patch_dependency("garmin_service", mock_handler):
+            response = function_app.garmin_sync_http(req)
+
+        assert response.status_code == 202
         mock_handler.handle.assert_called_once()
 
     def test_garmin_sync_error_response_includes_operational_context(self):

@@ -247,6 +247,10 @@ paths:
                     type:
                       - string
                       - 'null'
+                    description: Present only when operation status is failed.
+                  error_code:
+                    type: string
+                    description: Present only when operation status is failed.
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':

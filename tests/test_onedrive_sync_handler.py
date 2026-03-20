@@ -134,6 +134,19 @@ class TestOneDriveSyncRequest:
             req = OneDriveSyncRequest({"async": value}, {})
             assert req.async_mode is False, f"Failed for async={value}"
 
+    def test_request_id_from_body(self):
+        req = OneDriveSyncRequest({"request_id": "req-123"}, {})
+        assert req.request_id == "req-123"
+
+    def test_correlation_id_from_query(self):
+        req = OneDriveSyncRequest({}, {"correlation_id": "corr-456"})
+        assert req.correlation_id == "corr-456"
+
+    def test_request_and_correlation_id_none_when_missing(self):
+        req = OneDriveSyncRequest({}, {})
+        assert req.request_id is None
+        assert req.correlation_id is None
+
 
 class TestOneDriveResetRequest:
     """Test OneDriveResetRequest parsing."""
@@ -359,6 +372,39 @@ class TestOneDriveSyncHandler:
         async_queue.enqueue.assert_called_once()
         storage.async_operations.upsert_state.assert_called_once()
         handler.sync.assert_not_called()
+
+    def test_handle_async_queue_propagates_trace_ids(self):
+        async_queue = MagicMock()
+        storage = MagicMock()
+        handler = OneDriveSyncHandler(
+            _config(lookback_days=30),
+            storage,
+            client=MagicMock(),
+            ingestion_handler=MagicMock(),
+            async_queue=async_queue,
+        )
+        req = OneDriveSyncRequest(
+            {
+                "athlete_id": "athlete1",
+                "days": "10",
+                "async": "true",
+                "request_id": "req-async-1",
+                "correlation_id": "corr-async-1",
+            },
+            {},
+        )
+
+        result, status = handler.handle(req)
+
+        assert status == 202
+        assert result["status"] == "queued"
+        async_queue.enqueue.assert_called_once()
+        enqueued_item = async_queue.enqueue.call_args.kwargs["item"]
+        assert enqueued_item.request_id == "req-async-1"
+        assert enqueued_item.correlation_id == "corr-async-1"
+        upserted_state = storage.async_operations.upsert_state.call_args.args[0]
+        assert upserted_state.request_id == "req-async-1"
+        assert upserted_state.correlation_id == "corr-async-1"
 
     def test_handle_reset_single_success(self, handler):
         handler._storage.oauth_tokens.reset_onedrive_delta_state.return_value = True

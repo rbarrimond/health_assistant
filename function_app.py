@@ -29,7 +29,11 @@ from TrainingAnalyticsPlatform.storage.backup_exporter import BackupExporter
 from TrainingAnalyticsPlatform.platform.dependencies import dependencies
 from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.platform.logging_setup import setup_logging
-from TrainingAnalyticsPlatform.platform.http_utils import json_response, public_base_url
+from TrainingAnalyticsPlatform.platform.http_utils import (
+    extract_correlation_context,
+    json_response,
+    public_base_url,
+)
 from TrainingAnalyticsPlatform.handlers import (
     FitPayloadIngestionHandler,
     OneDriveSyncRequest,
@@ -93,6 +97,19 @@ def _coerce_bool(value: Any, default: bool) -> bool:
         if lowered in {"false", "0", "no", "n"}:
             return False
     return default
+
+
+def _extract_request_id(req: func.HttpRequest) -> str | None:
+    """Extract request identifier from inbound headers when present."""
+    request_id = (
+        req.headers.get("x-request-id")
+        or req.headers.get("x-ms-client-request-id")
+        or req.headers.get("x-ms-request-id")
+    )
+    if request_id is None:
+        return None
+    normalized = request_id.strip()
+    return normalized or None
 
 
 def _run_weekly_presync_for_athletes(
@@ -199,25 +216,27 @@ def get_async_operation_status(req: func.HttpRequest) -> func.HttpResponse:
             404,
         )
 
-    return json_response(
-        {
-            "athlete_id": state.athlete_id,
-            "operation_id": state.row_key,
-            "source": state.source,
-            "lookback_days": state.lookback_days,
-            "status": state.status,
-            "mode": state.mode,
-            "queued_at_utc": state.queued_at_utc,
-            "created_at_utc": state.created_at_utc,
-            "updated_at_utc": state.updated_at_utc,
-            "request_id": state.request_id,
-            "correlation_id": state.correlation_id,
-            "context": state.context,
-            "result": state.result,
-            "error": state.error,
-        },
-        200,
-    )
+    response_body: Dict[str, Any] = {
+        "athlete_id": state.athlete_id,
+        "operation_id": state.row_key,
+        "source": state.source,
+        "lookback_days": state.lookback_days,
+        "status": state.status,
+        "mode": state.mode,
+        "queued_at_utc": state.queued_at_utc,
+        "created_at_utc": state.created_at_utc,
+        "updated_at_utc": state.updated_at_utc,
+        "request_id": state.request_id,
+        "correlation_id": state.correlation_id,
+        "context": state.context,
+        "result": state.result,
+    }
+    if state.error is not None:
+        response_body["error"] = state.error
+    if state.status == "failed":
+        response_body["error_code"] = "OPERATIONAL_ERROR"
+
+    return json_response(response_body, 200)
 
 # ============================================================================
 # FIT File Upload Endpoints
@@ -318,7 +337,14 @@ def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     except ValueError:
         body = {}
 
-    sync_req = OneDriveSyncRequest(body, dict(req.params))
+    body_dict = body if isinstance(body, dict) else {}
+    correlation = extract_correlation_context(req)
+    request_id = _extract_request_id(req)
+    body_dict.setdefault("correlation_id", correlation["correlation_id"])
+    if request_id is not None:
+        body_dict.setdefault("request_id", request_id)
+
+    sync_req = OneDriveSyncRequest(body_dict, dict(req.params))
     handler = dependencies.onedrive_service
     response, status = handler.handle(sync_req)
 
@@ -1002,7 +1028,14 @@ def garmin_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     except ValueError:
         body = {}
 
-    sync_req = GarminSyncRequest(body, dict(req.params))
+    body_dict = body if isinstance(body, dict) else {}
+    correlation = extract_correlation_context(req)
+    request_id = _extract_request_id(req)
+    body_dict.setdefault("correlation_id", correlation["correlation_id"])
+    if request_id is not None:
+        body_dict.setdefault("request_id", request_id)
+
+    sync_req = GarminSyncRequest(body_dict, dict(req.params))
     handler = dependencies.garmin_service
     response, status = handler.handle(sync_req)
 

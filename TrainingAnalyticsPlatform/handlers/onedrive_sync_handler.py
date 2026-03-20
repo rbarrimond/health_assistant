@@ -368,6 +368,24 @@ class OneDriveSyncRequest:
             return False
         return str(async_param).lower() in {"1", "true", "yes", "y"}
 
+    @property
+    def request_id(self) -> str | None:
+        """Extract request identifier from body or query params when present."""
+        request_id = self.body.get("request_id") or self.query_params.get("request_id")
+        if request_id is None:
+            return None
+        normalized = str(request_id).strip()
+        return normalized or None
+
+    @property
+    def correlation_id(self) -> str | None:
+        """Extract correlation identifier from body or query params when present."""
+        correlation_id = self.body.get("correlation_id") or self.query_params.get("correlation_id")
+        if correlation_id is None:
+            return None
+        normalized = str(correlation_id).strip()
+        return normalized or None
+
 
 class OneDriveResetRequest:
     """Encapsulates OneDrive delta reset request parsing."""
@@ -440,7 +458,12 @@ class OneDriveSyncHandler:
             return {"error": "lookback_days must be a non-negative integer"}, 400
 
         if req.async_mode:
-            return self._handle_async(req.athlete_id, lookback_days)
+            return self._handle_async(
+                req.athlete_id,
+                lookback_days,
+                request_id=req.request_id,
+                correlation_id=req.correlation_id,
+            )
 
         return self._handle_sync(req.athlete_id, lookback_days)
 
@@ -598,7 +621,14 @@ class OneDriveSyncHandler:
             )
             return {"error": str(exc)}, 500
 
-    def _handle_async(self, athlete_id: str, lookback_days: int) -> Tuple[Dict, int]:
+    def _handle_async(
+        self,
+        athlete_id: str,
+        lookback_days: int,
+        *,
+        request_id: str | None = None,
+        correlation_id: str | None = None,
+    ) -> Tuple[Dict, int]:
         """Queue asynchronous sync."""
         operation_id = str(uuid.uuid4())
         queued_at_utc = datetime.now(timezone.utc).isoformat()
@@ -609,6 +639,8 @@ class OneDriveSyncHandler:
                 lookback_days=lookback_days,
                 operation_id=operation_id,
                 queued_at_utc=queued_at_utc,
+                request_id=request_id,
+                correlation_id=correlation_id,
             )
 
         return self._handle_async_thread(
@@ -616,6 +648,8 @@ class OneDriveSyncHandler:
             lookback_days=lookback_days,
             operation_id=operation_id,
             queued_at_utc=queued_at_utc,
+            request_id=request_id,
+            correlation_id=correlation_id,
         )
 
     def _handle_async_queue(
@@ -625,8 +659,28 @@ class OneDriveSyncHandler:
         lookback_days: int,
         operation_id: str,
         queued_at_utc: str,
+        request_id: str | None,
+        correlation_id: str | None,
     ) -> Tuple[Dict, int]:
         """Enqueue async OneDrive sync work item."""
+        async_queue = self._async_queue
+        if async_queue is None:
+            logger.error(
+                "OneDrive async queue unavailable",
+                extra={
+                    "athlete_id": athlete_id,
+                    "lookback_days": lookback_days,
+                    "operation_id": operation_id,
+                    "source_system": "onedrive",
+                },
+            )
+            return {
+                "status": "error",
+                "error": "Async queue is not configured",
+                "operation_id": operation_id,
+                "mode": "async_queue",
+            }, 500
+
         operation_state = AsyncIngestionOperationState.queued(
             athlete_id=athlete_id,
             operation_id=operation_id,
@@ -634,18 +688,22 @@ class OneDriveSyncHandler:
             lookback_days=lookback_days,
             mode="async_queue",
             queued_at_utc=queued_at_utc,
+            request_id=request_id,
+            correlation_id=correlation_id,
             context={"source_system": "onedrive", "mode": "async"},
         )
 
         try:
             self._storage.async_operations.upsert_state(operation_state)
-            self._async_queue.enqueue(
+            async_queue.enqueue(
                 item=AsyncIngestionWorkItem(
                     operation_id=operation_id,
                     source="onedrive",
                     athlete_id=athlete_id,
                     lookback_days=lookback_days,
                     queued_at_utc=queued_at_utc,
+                    request_id=request_id,
+                    correlation_id=correlation_id,
                     context={
                         "source_system": "onedrive",
                         "mode": "async",
@@ -688,6 +746,8 @@ class OneDriveSyncHandler:
         lookback_days: int,
         operation_id: str,
         queued_at_utc: str,
+        request_id: str | None,
+        correlation_id: str | None,
     ) -> Tuple[Dict, int]:
         """Run async OneDrive sync via in-process daemon thread (fallback mode)."""
 
@@ -698,6 +758,8 @@ class OneDriveSyncHandler:
             lookback_days=lookback_days,
             mode="async_thread",
             queued_at_utc=queued_at_utc,
+            request_id=request_id,
+            correlation_id=correlation_id,
             context={"source_system": "onedrive", "mode": "async"},
         )
         self._storage.async_operations.upsert_state(operation_state)
