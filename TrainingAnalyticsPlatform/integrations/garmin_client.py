@@ -103,6 +103,11 @@ class GarminConnectClient:
             },
         )
 
+    @property
+    def rate_limited_until(self) -> Optional[datetime]:
+        """Expiry time of the current in-process rate-limit cooldown, or None."""
+        return self._rate_limited_until
+
     def _enforce_rate_limit_cooldown(self) -> None:
         if self._rate_limited_until is None:
             return
@@ -263,6 +268,12 @@ class GarminConnectClient:
         try to resume from a previous session via token restore; if that fails (or
         if no token is available), perform a full credential-based login.
 
+        If a session is already established in this process (``self.client`` is not
+        ``None``), the call is a no-op: garth refreshes the OAuth2 access token
+        transparently on each API call, so re-authenticating every invocation only
+        adds unnecessary round-trips to Garmin's auth endpoint and raises the risk
+        of 429 throttling in multi-instance deployments.
+
         Args:
             stored_token: Base64 garth token string produced by ``dump_tokens()``,
                 or ``None`` to skip token restore and go straight to login.
@@ -271,6 +282,9 @@ class GarminConnectClient:
             GarminConnectError: If both token restore (when attempted) and fresh
                 login fail.
         """
+        if self.client is not None:
+            logger.debug("Garmin session already active in this process; skipping re-authentication")
+            return
         if stored_token:
             try:
                 self.restore_from_tokens(stored_token)

@@ -46,6 +46,7 @@ def _training_readiness_payload() -> dict:
 
 def test_sync_handler_stores_combined_metrics():
     storage = Mock()
+    storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
     storage.physiometrics = Mock()
     storage.infrastructure = Mock()
     storage.infrastructure.upload_external_source_json = Mock(return_value="physiometrics/rob/garmin/daily/blob.json")
@@ -98,6 +99,7 @@ def test_sync_handler_validates_lookback_days_type():
 
 def test_sync_handler_lookback_zero_targets_today_only():
     storage = Mock()
+    storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
     storage.physiometrics = Mock()
     storage.infrastructure = Mock()
     storage.infrastructure.upload_external_source_json = Mock(return_value="physiometrics/rob/garmin/daily/blob.json")
@@ -127,6 +129,7 @@ def test_sync_handler_lookback_zero_targets_today_only():
 
 def test_sync_handler_reports_partial_errors():
     storage = Mock()
+    storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
     storage.physiometrics = Mock()
     storage.infrastructure = Mock()
     storage.infrastructure.upload_external_source_json = Mock(return_value="physiometrics/rob/garmin/daily/blob.json")
@@ -154,6 +157,7 @@ def test_sync_handler_reports_partial_errors():
 
 def test_sync_handler_tolerates_readiness_endpoint_failures():
     storage = Mock()
+    storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
     storage.physiometrics = Mock()
     storage.infrastructure = Mock()
     storage.infrastructure.upload_external_source_json = Mock(return_value="physiometrics/rob/garmin/daily/blob.json")
@@ -181,6 +185,7 @@ def test_sync_handler_tolerates_readiness_endpoint_failures():
 
 def test_sync_handler_skips_dates_already_stored_when_not_forced():
     storage = Mock()
+    storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
     storage.physiometrics = Mock()
     storage.physiometrics.get_physiometrics_history.return_value = [
         {"effective_date": "2026-03-03"},
@@ -213,6 +218,7 @@ def test_sync_handler_skips_dates_already_stored_when_not_forced():
 
 def test_sync_handler_force_true_reprocesses_stored_dates():
     storage = Mock()
+    storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
     storage.physiometrics = Mock()
     storage.physiometrics.get_physiometrics_history.return_value = [
         {"effective_date": "2026-03-03"},
@@ -249,6 +255,7 @@ def test_sync_handler_force_true_reprocesses_stored_dates():
 
 def test_sync_handler_continues_when_prefetch_history_fails():
     storage = Mock()
+    storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
     storage.physiometrics = Mock()
     storage.physiometrics.get_physiometrics_history.side_effect = RuntimeError("table read failed")
     storage.infrastructure = Mock()
@@ -285,6 +292,7 @@ def test_sync_handler_continues_when_prefetch_history_fails():
 # ---------------------------------------------------------------------------
 
 def _make_physiometrics_handler(storage: Mock, client: Mock) -> GarminPhysiometricsSyncHandler:
+    storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
     return GarminPhysiometricsSyncHandler(storage=storage, client=client)
 
 
@@ -379,6 +387,7 @@ def test_handle_returns_429_when_authenticate_raises_rate_limited():
 
 def test_sync_handler_short_circuits_on_fatal_garmin_error():
     storage = Mock()
+    storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
     storage.physiometrics = Mock()
     storage.physiometrics.get_physiometrics_history.return_value = []
     storage.infrastructure = Mock()

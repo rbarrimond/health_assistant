@@ -572,42 +572,25 @@ class GarminSyncHandler:
         text = str(exc).lower()
         return "rate limit" in text or "rate limited" in text or "throttle" in text
 
-    def sync(self, *, athlete_id: str, lookback_days: int, force: bool = False) -> Dict:
-        """Sync Garmin activities and ingest FIT files."""
-        # Try to restore session from stored tokens; fall back to full SSO login
-        stored_token: Optional[str] = None
+    def _persist_rate_limit_cooldown(self, athlete_id: str) -> None:
+        """Write the in-process rate-limit expiry to Table Storage for cross-process coordination."""
+        blocked_until = self._client.rate_limited_until
+        if blocked_until is None:
+            return
         try:
-            stored_token = self._storage.oauth_tokens.get_garmin_tokens(athlete_id)
+            self._storage.oauth_tokens.set_garmin_rate_limit_blocked_until(athlete_id, blocked_until)
         except StorageError:
-            logger.error(
-                "Failed to retrieve stored Garmin tokens; will attempt fresh login",
-                extra={
-                    "athlete_id": athlete_id,
-                    "source_system": "garmin",
-                },
+            logger.warning(
+                "Failed to persist Garmin rate-limit cooldown to storage",
+                extra={"athlete_id": athlete_id, "source_system": "garmin"},
             )
 
-        try:
-            self._client.authenticate(stored_token)
-        except (GarminConnectRateLimitError, GarminConnectError) as exc:
-            if self._is_rate_limited_error(exc):
-                logger.error(
-                    "Garmin authentication rate limited",
-                    extra={
-                        "athlete_id": athlete_id,
-                        "source_system": "garmin",
-                        "error_type": "GarminConnectError",
-                        "error": str(exc),
-                    },
-                    exc_info=True,
-                )
-                return {
-                    "status": "error",
-                    "message": f"Authentication failed: {exc}",
-                    "error_code": "GARMIN_RATE_LIMITED",
-                }
+    def _handle_auth_error(self, athlete_id: str, exc: Exception) -> Dict:
+        """Build an error response for a Garmin auth failure, persisting rate-limit state if needed."""
+        if self._is_rate_limited_error(exc):
+            self._persist_rate_limit_cooldown(athlete_id)
             logger.error(
-                "Failed to authenticate with Garmin Connect",
+                "Garmin authentication rate limited",
                 extra={
                     "athlete_id": athlete_id,
                     "source_system": "garmin",
@@ -619,9 +602,74 @@ class GarminSyncHandler:
             return {
                 "status": "error",
                 "message": f"Authentication failed: {exc}",
-                "error_code": "GARMIN_AUTH_ERROR",
+                "error_code": "GARMIN_RATE_LIMITED",
             }
-        
+        logger.error(
+            "Failed to authenticate with Garmin Connect",
+            extra={
+                "athlete_id": athlete_id,
+                "source_system": "garmin",
+                "error_type": "GarminConnectError",
+                "error": str(exc),
+            },
+            exc_info=True,
+        )
+        return {
+            "status": "error",
+            "message": f"Authentication failed: {exc}",
+            "error_code": "GARMIN_AUTH_ERROR",
+        }
+
+    def _authenticate(self, athlete_id: str) -> Optional[Dict]:
+        """Authenticate with Garmin, checking and persisting cross-process rate-limit state.
+
+        Returns an error dict if the caller should abort, or None on success.
+        """
+        try:
+            blocked_until = self._storage.oauth_tokens.get_garmin_rate_limit_blocked_until(athlete_id)
+            if blocked_until is not None:
+                logger.warning(
+                    "Garmin auth rate-limited (cross-process cooldown active)",
+                    extra={
+                        "athlete_id": athlete_id,
+                        "source_system": "garmin",
+                        "blocked_until_utc": blocked_until.isoformat(),
+                    },
+                )
+                return {
+                    "status": "error",
+                    "message": f"Authentication rate-limited until {blocked_until.isoformat()}",
+                    "error_code": "GARMIN_RATE_LIMITED",
+                }
+        except StorageError:
+            # Best-effort: proceed and let the auth attempt surface any live rate limit.
+            logger.warning(
+                "Could not read Garmin rate-limit cooldown from storage; proceeding with auth",
+                extra={"athlete_id": athlete_id, "source_system": "garmin"},
+            )
+
+        stored_token: Optional[str] = None
+        try:
+            stored_token = self._storage.oauth_tokens.get_garmin_tokens(athlete_id)
+        except StorageError:
+            logger.error(
+                "Failed to retrieve stored Garmin tokens; will attempt fresh login",
+                extra={"athlete_id": athlete_id, "source_system": "garmin"},
+            )
+
+        try:
+            self._client.authenticate(stored_token)
+        except (GarminConnectRateLimitError, GarminConnectError) as exc:
+            return self._handle_auth_error(athlete_id, exc)
+
+        return None
+
+    def sync(self, *, athlete_id: str, lookback_days: int, force: bool = False) -> Dict:
+        """Sync Garmin activities and ingest FIT files."""
+        auth_error = self._authenticate(athlete_id)
+        if auth_error is not None:
+            return auth_error
+
         # Calculate cutoff date
         cutoff = datetime.now() - timedelta(days=lookback_days)
 

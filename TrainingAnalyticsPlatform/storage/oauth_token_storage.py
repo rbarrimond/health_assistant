@@ -480,3 +480,77 @@ class OAuthTokenStorage:
                 exc_info=True,
             )
             raise StorageError("Failed to retrieve Garmin tokens") from e
+
+    def set_garmin_rate_limit_blocked_until(
+        self,
+        athlete_id: str,
+        blocked_until_utc: datetime,
+    ) -> None:
+        """Persist Garmin auth rate-limit cooldown end time to the GarminTokens table.
+
+        Uses a merge upsert so the garth_token column is left untouched.
+        """
+        entity = {
+            "PartitionKey": athlete_id,
+            "RowKey": "garmin",
+            "rate_limit_blocked_until_utc": blocked_until_utc.isoformat(),
+            "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            table_client = self.infra.get_table_client("GarminTokens")
+            table_client.upsert_entity(entity)
+            logger.info(
+                "Persisted Garmin auth rate-limit cooldown",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "blocked_until_utc": blocked_until_utc.isoformat(),
+                },
+            )
+        except HttpResponseError as e:
+            logger.error(
+                "Error persisting Garmin rate-limit cooldown",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            raise StorageError("Failed to persist Garmin rate-limit cooldown") from e
+
+    def get_garmin_rate_limit_blocked_until(
+        self,
+        athlete_id: str,
+    ) -> Optional[datetime]:
+        """Return the persisted Garmin rate-limit cooldown end time, or None.
+
+        Returns None if no cooldown row exists or the stored timestamp has already
+        passed (expired cooldowns are treated as absent).
+        """
+        try:
+            table_client = self.infra.get_table_client("GarminTokens")
+            query = f"PartitionKey eq '{athlete_id}' and RowKey eq 'garmin'"
+            entities = list(table_client.query_entities(query, top=1))
+            if not entities:
+                return None
+            raw = entities[0].get("rate_limit_blocked_until_utc")
+            if not raw:
+                return None
+            blocked_until = datetime.fromisoformat(str(raw))
+            if datetime.now(timezone.utc) >= blocked_until:
+                return None
+            return blocked_until
+        except HttpResponseError as e:
+            logger.error(
+                "Error retrieving Garmin rate-limit cooldown",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "error_type": "HttpResponseError",
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            raise StorageError("Failed to retrieve Garmin rate-limit cooldown") from e

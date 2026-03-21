@@ -170,11 +170,48 @@ class GarminPhysiometricsSyncHandler:
             self._record_blob_failure(blob_name, str(issue["message"]))
             return False, issue, False
 
+    def _persist_rate_limit_cooldown(self, athlete_id: str) -> None:
+        """Write the in-process rate-limit expiry to Table Storage for cross-process coordination."""
+        blocked_until = self.client.rate_limited_until
+        if blocked_until is None:
+            return
+        try:
+            self.storage.oauth_tokens.set_garmin_rate_limit_blocked_until(athlete_id, blocked_until)
+        except StorageError:
+            logger.warning(
+                "Failed to persist Garmin rate-limit cooldown to storage",
+                extra={"athlete_id": athlete_id, "source_system": "garmin"},
+            )
+
     def _authenticate_client(self, athlete_id: str) -> Optional[Tuple[Dict[str, Any], int]]:
         """Authenticate Garmin client using stored token when possible.
 
         Returns an HTTP response tuple when authentication fails, else None.
+        Checks and persists a shared cross-process rate-limit cooldown via Table Storage.
         """
+        # Guard: honour any cross-process rate-limit cooldown before hitting Garmin.
+        try:
+            blocked_until = self.storage.oauth_tokens.get_garmin_rate_limit_blocked_until(athlete_id)
+            if blocked_until is not None:
+                logger.warning(
+                    "Garmin auth rate-limited (cross-process cooldown active)",
+                    extra={
+                        "athlete_id": athlete_id,
+                        "source_system": "garmin",
+                        "blocked_until_utc": blocked_until.isoformat(),
+                    },
+                )
+                return {
+                    "error": f"Authentication rate-limited until {blocked_until.isoformat()}",
+                    "error_code": "GARMIN_RATE_LIMITED",
+                }, 429
+        except StorageError:
+            # Best-effort: proceed and let the auth attempt surface any live rate limit.
+            logger.warning(
+                "Could not read Garmin rate-limit cooldown from storage; proceeding with auth",
+                extra={"athlete_id": athlete_id, "source_system": "garmin"},
+            )
+
         stored_token: Optional[str] = None
         try:
             stored_token = self.storage.oauth_tokens.get_garmin_tokens(athlete_id)
@@ -189,6 +226,7 @@ class GarminPhysiometricsSyncHandler:
             return None
         except GarminConnectError as exc:
             if self._is_rate_limited_error(exc):
+                self._persist_rate_limit_cooldown(athlete_id)
                 logger.error(
                     "Garmin login rate limited for physiometrics sync",
                     extra={

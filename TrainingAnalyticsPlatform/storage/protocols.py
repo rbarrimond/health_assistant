@@ -1,5 +1,6 @@
 """Storage protocol abstractions for typed interfaces."""
 
+from datetime import datetime
 from typing import Dict, Optional, Protocol
 
 import pandas as pd
@@ -244,6 +245,21 @@ class OAuthTokenStorageProtocol(Protocol):
 
     def get_garmin_tokens(self, athlete_id: str) -> Optional[str]:
         """Retrieve the serialized garth token string for an athlete."""
+        ...
+
+    def set_garmin_rate_limit_blocked_until(
+        self,
+        athlete_id: str,
+        blocked_until_utc: datetime,
+    ) -> None:
+        """Persist Garmin auth rate-limit cooldown end time."""
+        ...
+
+    def get_garmin_rate_limit_blocked_until(
+        self,
+        athlete_id: str,
+    ) -> Optional[datetime]:
+        """Return persisted rate-limit cooldown end time, or None if not active."""
         ...
 
 

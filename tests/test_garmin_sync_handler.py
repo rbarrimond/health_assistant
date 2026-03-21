@@ -428,6 +428,7 @@ class TestGarminSyncHandler:
 
     def test_sync_skips_previously_seen_activity_ids_without_download(self):
         storage = MagicMock()
+        storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
         storage.workouts = MagicMock()
         storage.workouts.get_ingestion_state.side_effect = [
             {"status": "ingested"},
@@ -465,6 +466,7 @@ class TestGarminSyncHandler:
 
     def test_sync_force_true_bypasses_seen_id_skip(self):
         storage = MagicMock()
+        storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
         storage.workouts = MagicMock()
         storage.workouts.get_ingestion_state.return_value = {"status": "ingested"}
 
@@ -559,6 +561,7 @@ class TestGarminSyncHandlerTokenLifecycle:
         config = GarminSyncConfig(
             email="user@example.com", password="x" * 12, lookback_days=7
         )
+        storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
         return GarminSyncHandler(config=config, storage=storage, client=client)
 
     def test_sync_restores_session_from_stored_token_and_skips_login(self):
