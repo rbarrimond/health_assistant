@@ -2,6 +2,9 @@
 
 Version: 4.0.0
 
+> **Document role:** Operational procedure only. This file defines API call ordering and usage flow.
+> Behavior, safety, and interpretation authority live in [INSTRUCTIONS.md](./INSTRUCTIONS.md).
+
 This guide defines how a custom GPT should use the Health Assistant Semantic Access Layer.
 It is the operational companion to:
 
