@@ -113,7 +113,7 @@ def test_dump_tokens_returns_garth_dumps_result():
 
 def test_restore_from_tokens_calls_login_with_tokenstore():
     """restore_from_tokens must call login(tokenstore=...) to populate display_name."""
-    stored_token = "base64encodedtoken=="
+    stored_token = "YWJjZA=="
 
     class FakeGarmin:
         login_kwargs: dict = {}
@@ -158,6 +158,53 @@ def test_restore_from_tokens_raises_and_clears_client_on_failure():
             gc.restore_from_tokens("bad-token")
 
     assert gc.client is None
+
+
+def test_restore_from_tokens_rejects_malformed_base64_before_library_login():
+    class FakeGarmin:
+        login_called = False
+
+        def __init__(self):
+            pass
+
+        def login(self, *args, **kwargs):
+            FakeGarmin.login_called = True
+
+    gc = GarminConnectClient(email="user@example.com", password="x" * 12)
+
+    with patch(
+        "TrainingAnalyticsPlatform.integrations.garmin_client.GarminImpl",
+        FakeGarmin,
+    ):
+        with pytest.raises(GarminConnectError, match="invalid base64"):
+            gc.restore_from_tokens("a" * 2709)
+
+    assert FakeGarmin.login_called is False
+    assert gc.client is None
+
+
+def test_restore_from_tokens_normalizes_whitespace_and_padding():
+    valid_token_without_padding = "YWJjZA"
+    input_token = f"  {valid_token_without_padding}\n"
+
+    class FakeGarmin:
+        login_kwargs: dict = {}
+
+        def __init__(self):
+            pass
+
+        def login(self, *args, **kwargs):
+            FakeGarmin.login_kwargs = kwargs
+
+    gc = GarminConnectClient(email="user@example.com", password="x" * 12)
+
+    with patch(
+        "TrainingAnalyticsPlatform.integrations.garmin_client.GarminImpl",
+        FakeGarmin,
+    ):
+        gc.restore_from_tokens(input_token)
+
+    assert FakeGarmin.login_kwargs == {"tokenstore": "YWJjZA=="}
 
 
 # ---------------------------------------------------------------------------

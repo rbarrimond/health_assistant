@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+from base64 import b64decode
+from binascii import Error as BinasciiError
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, cast
 
@@ -223,6 +226,36 @@ class GarminConnectClient:
             logger.error("Failed to serialize Garmin tokens: %s", exc)
             raise GarminConnectError("Failed to serialize Garmin tokens") from exc
 
+    @staticmethod
+    def _normalize_stored_token(garth_token: str) -> str:
+        """Normalize persisted token strings before handing them to garminconnect."""
+        token = garth_token.strip()
+        if not token:
+            raise GarminConnectError("Stored Garmin token is empty")
+
+        if (token.startswith("b'") and token.endswith("'")) or (
+            token.startswith('b"') and token.endswith('"')
+        ):
+            token = token[2:-1]
+        elif (token.startswith("'") and token.endswith("'")) or (
+            token.startswith('"') and token.endswith('"')
+        ):
+            token = token[1:-1]
+
+        token = re.sub(r"\s+", "", token)
+        token_base = token.rstrip("=")
+        remainder = len(token_base) % 4
+        if remainder == 1:
+            raise GarminConnectError("Stored Garmin token is invalid base64")
+        token = token_base + ("=" * (4 - remainder) if remainder else "")
+
+        try:
+            b64decode(token, validate=True)
+        except BinasciiError as exc:
+            raise GarminConnectError("Stored Garmin token is invalid base64") from exc
+
+        return token
+
     def restore_from_tokens(self, garth_token: str) -> None:
         """Restore a previous Garmin session from a serialized garth token string.
 
@@ -243,8 +276,9 @@ class GarminConnectClient:
             raise GarminConnectError(DEPENDENCY_NOT_INSTALLED_ERROR)
         self._enforce_rate_limit_cooldown()
         try:
+            normalized_token = self._normalize_stored_token(garth_token)
             candidate_client = GarminImpl()
-            candidate_client.login(tokenstore=garth_token)
+            candidate_client.login(tokenstore=normalized_token)
             self.client = candidate_client
             self._rate_limited_until = None
             logger.info("Restored Garmin session from stored tokens")
