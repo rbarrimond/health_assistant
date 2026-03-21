@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, ClassVar
-from unittest.mock import ANY, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -62,31 +62,26 @@ def _make_queue(monkeypatch, *, side_effect: Any = None) -> DeferredRetryQueue:
 class TestDeferredRetryQueueInitialization:
     def test_constructor_does_not_call_create_queue(self, monkeypatch):
         """Constructor must be pure wiring — no I/O side effects."""
+        importer = MagicMock()
         mock_client_cls = MagicMock()
-        mock_client_instance = mock_client_cls.from_connection_string.return_value
+        importer.return_value = (mock_client_cls, _FakeEncodePolicy, _FakeDecodePolicy)
 
-        monkeypatch.setenv("AzureWebJobsStorage", "UseDevelopmentStorage=true")
         monkeypatch.setattr(
             DeferredRetryQueue,
             "_import_queue_client",
-            staticmethod(lambda: (mock_client_cls, _FakeEncodePolicy, _FakeDecodePolicy)),
+            staticmethod(importer),
         )
 
         DeferredRetryQueue(queue_name="rate-limit-deferrals")
 
-        mock_client_cls.from_connection_string.assert_called_once_with(
-            "UseDevelopmentStorage=true",
-            "rate-limit-deferrals",
-            message_encode_policy=ANY,
-            message_decode_policy=ANY,
-        )
-        mock_client_instance.create_queue.assert_not_called()
+        importer.assert_not_called()
+        mock_client_cls.from_connection_string.assert_not_called()
 
     def test_constructor_exposes_queue_name(self, monkeypatch):
         queue = _make_queue(monkeypatch)
         assert queue.queue_name == "rate-limit-deferrals"
 
-    def test_constructor_raises_when_connection_string_missing(self, monkeypatch):
+    def test_bootstrap_raises_when_connection_string_missing(self, monkeypatch):
         monkeypatch.delenv("AzureWebJobsStorage", raising=False)
         monkeypatch.setattr(
             DeferredRetryQueue,
@@ -94,7 +89,7 @@ class TestDeferredRetryQueueInitialization:
             staticmethod(lambda: (_FakeQueueClient, _FakeEncodePolicy, _FakeDecodePolicy)),
         )
         with pytest.raises(ValueError, match="AzureWebJobsStorage"):
-            DeferredRetryQueue(queue_name="rate-limit-deferrals")
+            DeferredRetryQueue(queue_name="rate-limit-deferrals").bootstrap()
 
 
 class TestDeferredRetryQueueBootstrap:

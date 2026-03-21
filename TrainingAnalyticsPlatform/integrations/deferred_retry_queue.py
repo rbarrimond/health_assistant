@@ -33,23 +33,32 @@ class DeferredRetryQueue:
         queue_name: str = DEFAULT_DEFERRED_RETRY_QUEUE_NAME,
         connection_string: Optional[str] = None,
     ) -> None:
+        self._queue_name = queue_name
+        self._connection_string = connection_string
+        self._queue_client = None
+
+    def _get_queue_client(self) -> Any:
+        if self._queue_client is not None:
+            return self._queue_client
+
         queue_client_cls, encode_policy_cls, decode_policy_cls = self._import_queue_client()
-        resolved_conn = connection_string or os.getenv("AzureWebJobsStorage")
+        resolved_conn = self._connection_string or os.getenv("AzureWebJobsStorage")
         if not resolved_conn:
             raise ValueError("AzureWebJobsStorage is required for deferred retry queue")
 
         self._queue_client = queue_client_cls.from_connection_string(
             resolved_conn,
-            queue_name,
+            self._queue_name,
             message_encode_policy=encode_policy_cls(),
             message_decode_policy=decode_policy_cls(),
         )
-        self._queue_name = queue_name
+        return self._queue_client
 
     def bootstrap(self) -> None:
         """Create the queue if it does not already exist. Idempotent — safe to call multiple times."""
+        queue_client = self._get_queue_client()
         try:
-            self._queue_client.create_queue()
+            queue_client.create_queue()
             logger.info(
                 "Deferred retry queue bootstrapped",
                 extra={
@@ -115,9 +124,10 @@ class DeferredRetryQueue:
         visibility_timeout: int,
     ) -> QueueEnqueueResult:
         """Enqueue deferred retry work to become visible at a future time."""
+        queue_client = self._get_queue_client()
         payload = item.model_dump_json()
         try:
-            response = self._queue_client.send_message(
+            response = queue_client.send_message(
                 payload,
                 visibility_timeout=max(0, int(visibility_timeout)),
             )
