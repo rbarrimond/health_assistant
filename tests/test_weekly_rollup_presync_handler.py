@@ -194,3 +194,27 @@ class TestWeeklyRollupPreSyncHandler:
         assert onedrive.handle.call_count == 1
         assert result["sources"][0]["deferred"] is True
         assert result["sources"][0]["deferred_operation_id"] == "op-123"
+
+    def test_sleep_with_backoff_uses_equal_jitter(self):
+        handler = WeeklyRollupPreSyncHandler(
+            onedrive_service=MagicMock(),
+            garmin_service=MagicMock(),
+            garmin_physiometrics_service=MagicMock(),
+            intervals_service=MagicMock(),
+            intervals_athlete_id="i508584",
+            retry_max_attempts=2,
+            retry_base_delay_sec=2.0,
+        )
+
+        with patch(
+            "TrainingAnalyticsPlatform.handlers.presync_core.random.random",
+            return_value=0.5,
+        ), patch("TrainingAnalyticsPlatform.handlers.presync_core.time.sleep") as sleep_mock:
+            handler._sleep_with_backoff(
+                source="garmin_activities",
+                attempt=3,
+                logger=MagicMock(),
+                retry_log_message="retry",
+            )
+
+        sleep_mock.assert_called_once_with(6.0)

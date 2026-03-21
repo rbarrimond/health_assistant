@@ -14,6 +14,18 @@ from TrainingAnalyticsPlatform.integrations.garmin_client import (
 )
 
 
+def test_parse_rate_limit_cooldown_seconds_defaults_to_3600(monkeypatch):
+    monkeypatch.delenv("GARMIN_AUTH_RATE_LIMIT_COOLDOWN_SECONDS", raising=False)
+
+    assert GarminConnectClient._parse_rate_limit_cooldown_seconds() == 3600
+
+
+def test_parse_rate_limit_cooldown_seconds_invalid_value_falls_back_to_3600(monkeypatch):
+    monkeypatch.setenv("GARMIN_AUTH_RATE_LIMIT_COOLDOWN_SECONDS", "invalid")
+
+    assert GarminConnectClient._parse_rate_limit_cooldown_seconds() == 3600
+
+
 def test_login_assigns_client_only_after_successful_authentication():
     email = "user@example.com"
     test_secret = "x" * 12
@@ -164,9 +176,6 @@ def test_restore_from_tokens_rejects_malformed_base64_before_library_login():
     class FakeGarmin:
         login_called = False
 
-        def __init__(self):
-            pass
-
         def login(self, *args, **kwargs):
             FakeGarmin.login_called = True
 
@@ -189,9 +198,6 @@ def test_restore_from_tokens_normalizes_whitespace_and_padding():
 
     class FakeGarmin:
         login_kwargs: dict = {}
-
-        def __init__(self):
-            pass
 
         def login(self, *args, **kwargs):
             FakeGarmin.login_kwargs = kwargs

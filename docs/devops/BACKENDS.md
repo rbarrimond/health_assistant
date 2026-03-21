@@ -588,11 +588,18 @@ Set these in your Function App configuration:
 GARMIN_EMAIL=<garmin-account-email>
 GARMIN_PASSWORD=<garmin-account-password>
 GARMIN_SYNC_LOOKBACK_DAYS=30  # Optional, defaults to 30 days
+GARMIN_ACTIVITY_REQUEST_DELAY_SEC=1.0  # Optional, delay between successful per-activity FIT ingestions
+GARMIN_AUTH_RATE_LIMIT_COOLDOWN_SECONDS=3600  # Optional, auth cooldown after Garmin 429s
 GARMIN_SYNC_TIMER_SCHEDULE=0 0 3 * * 1  # Optional weekly safety-net schedule
 GARMIN_PHYSIOMETRICS_SYNC_TIMER_SCHEDULE=0 30 3 * * 1  # Optional weekly safety-net schedule
 ```
 
 In Azure deployments, store `GARMIN_EMAIL` and `GARMIN_PASSWORD` in Key Vault and use Key Vault references in app settings.
+
+Operational notes:
+
+- `GARMIN_ACTIVITY_REQUEST_DELAY_SEC` defaults to `1.0` second to avoid back-to-back FIT downloads during large backfills.
+- `GARMIN_AUTH_RATE_LIMIT_COOLDOWN_SECONDS` defaults to `3600` seconds (1 hour) so repeated auth attempts do not immediately hammer Garmin after a 429.
 
 #### 2. Run Sync
 
@@ -613,6 +620,7 @@ Automatic sync (Timer):
 - `GARMIN_SYNC_TIMER_SCHEDULE` controls activity sync cadence
 - `GARMIN_PHYSIOMETRICS_SYNC_TIMER_SCHEDULE` controls physiometrics sync cadence
 - Uses `GARMIN_SYNC_LOOKBACK_DAYS` by default (30 days)
+- Applies `GARMIN_ACTIVITY_REQUEST_DELAY_SEC` between successful per-activity ingestions during long sync runs
 - Downloads and parses FIT files for new activities
 
 ### Garmin API Endpoints

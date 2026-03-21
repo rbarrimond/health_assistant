@@ -3,7 +3,7 @@
 # pylint: disable=protected-access
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import (
     GarminSyncConfig,
@@ -115,6 +115,15 @@ class TestGarminSyncConfig:
         config = GarminSyncConfig.from_env()
 
         assert config.lookback_days == 30
+
+    def test_from_env_reads_activity_request_delay(self, monkeypatch):
+        monkeypatch.setenv("GARMIN_EMAIL", "user@example.com")
+        monkeypatch.setenv("GARMIN_PASSWORD", "secret")
+        monkeypatch.setenv("GARMIN_ACTIVITY_REQUEST_DELAY_SEC", "1.5")
+
+        config = GarminSyncConfig.from_env()
+
+        assert config.activity_request_delay_sec == pytest.approx(1.5)
 
     def test_find_near_duplicate_workout_handles_invalid_start(self):
         storage = MagicMock()
@@ -497,6 +506,43 @@ class TestGarminSyncHandler:
         assert results["skipped_by_id"] == 0
         assert ingestion_handler.handle.call_count == 2
         storage.workouts.get_ingestion_state.assert_not_called()
+
+    def test_sync_applies_delay_between_successful_ingestions(self):
+        storage = MagicMock()
+        storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
+        storage.workouts = MagicMock()
+        storage.workouts.get_ingestion_state.return_value = None
+
+        client = MagicMock()
+        client.list_activities.return_value = [
+            _build_activity("a1", "2026-02-20T10:00:00+00:00", 3600),
+            _build_activity("a2", "2026-02-20T11:00:00+00:00", 3500),
+        ]
+
+        ingestion_handler = MagicMock()
+        ingestion_handler.handle.side_effect = [
+            ({"status": "success", "workout_id": "w1"}, 200),
+            ({"status": "success", "workout_id": "w2"}, 200),
+        ]
+
+        handler = GarminSyncHandler(
+            config=GarminSyncConfig(
+                email="user@example.com",
+                password="x" * 12,
+                lookback_days=30,
+                activity_request_delay_sec=0.25,
+            ),
+            storage=storage,
+            client=client,
+            ingestion_handler=ingestion_handler,
+        )
+
+        with patch("TrainingAnalyticsPlatform.handlers.garmin_sync_handler.time.sleep") as sleep_mock:
+            results = handler.sync(athlete_id="rob", lookback_days=30)
+
+        assert results["status"] == "success"
+        assert results["ingested"] == 2
+        sleep_mock.assert_called_once_with(0.25)
 
     def test_handle_sync_returns_429_for_rate_limited_authentication_failures(self):
         storage = MagicMock()

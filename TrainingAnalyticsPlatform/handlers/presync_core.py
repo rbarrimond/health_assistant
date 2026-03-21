@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -291,7 +292,8 @@ class PreSyncExecutionMixin:
         retry_log_message: str,
     ) -> None:
         """Sleep with exponential backoff between retries."""
-        delay = self._retry_base_delay_sec * (2 ** (attempt - 1))
+        base_delay = self._retry_base_delay_sec * (2 ** (attempt - 1))
+        delay = (base_delay / 2.0) + (random.random() * (base_delay / 2.0))
         logger.info(
             retry_log_message,
             extra={

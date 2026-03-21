@@ -10,6 +10,12 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-21
 
+### Garmin Rate-Limit Conservatism Tightening [application v3.8.1]
+
+- **Changed**: Garmin auth cooldown default increased from `900` seconds to `3600` seconds after auth-level throttling to better align with observed 429 block durations.
+- **Changed**: pre-sync retry sleep now uses equal-jitter exponential backoff rather than deterministic exponential delays, reducing synchronized retries across instances.
+- **Added**: Garmin activity sync now supports `GARMIN_ACTIVITY_REQUEST_DELAY_SEC` (default `1.0`) to pace successful per-activity FIT ingestions during large backfills.
+
 ### Garmin Auth Consolidation — Single Entry Point [application v3.8.0]
 
 - **Added**: `GarminConnectClient.authenticate(stored_token)` — a single method that encapsulates the token-restore-then-fallback-login pattern, mirroring the `init_api()` pattern from the garminconnect library's own example. Tries `restore_from_tokens(stored_token)` first; if that raises `GarminConnectError` (or no token is provided), falls back to a full credential-based `login()`.

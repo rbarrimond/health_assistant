@@ -76,11 +76,11 @@ class GarminConnectClient:
 
     @staticmethod
     def _parse_rate_limit_cooldown_seconds() -> int:
-        raw = os.getenv(GARMIN_AUTH_RATE_LIMIT_COOLDOWN_SECONDS, "900")
+        raw = os.getenv(GARMIN_AUTH_RATE_LIMIT_COOLDOWN_SECONDS, "3600")
         try:
             return max(60, int(raw))
         except ValueError:
-            return 900
+            return 3600
 
     @staticmethod
     def _is_rate_limited_exception(exc: Exception) -> bool:

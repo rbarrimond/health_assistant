@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -38,6 +39,7 @@ logger = logging.getLogger(__name__)
 GARMIN_SYNC_LOOKBACK_DAYS = "GARMIN_SYNC_LOOKBACK_DAYS"
 GARMIN_EMAIL = "GARMIN_EMAIL"
 GARMIN_PASSWORD = "GARMIN_PASSWORD"
+GARMIN_ACTIVITY_REQUEST_DELAY_SEC = "GARMIN_ACTIVITY_REQUEST_DELAY_SEC"
 
 
 @dataclass(frozen=True)
@@ -47,6 +49,7 @@ class GarminSyncConfig:
     email: str
     password: str
     lookback_days: int
+    activity_request_delay_sec: float = 1.0
 
     @classmethod
     def from_env(cls) -> "GarminSyncConfig":
@@ -66,10 +69,19 @@ class GarminSyncConfig:
         except ValueError:
             lookback_days = 30
 
+        try:
+            activity_request_delay_sec = max(
+                0.0,
+                float(os.getenv(GARMIN_ACTIVITY_REQUEST_DELAY_SEC, "1.0")),
+            )
+        except ValueError:
+            activity_request_delay_sec = 1.0
+
         return cls(
             email=email,
             password=password,
             lookback_days=lookback_days,
+            activity_request_delay_sec=activity_request_delay_sec,
         )
 
 
@@ -529,6 +541,7 @@ class GarminSyncHandler:
             self._client,
         )
         self._async_queue = async_queue
+        self._activity_request_delay_sec = config.activity_request_delay_sec
 
     def handle(self, *args, **kwargs) -> Tuple[Dict, int]:
         """
@@ -717,7 +730,7 @@ class GarminSyncHandler:
             "items": [],
         }
 
-        for activity in activities:
+        for index, activity in enumerate(activities):
             activity_id = str(activity.get("activityId", ""))
             if not force and activity_id and self._was_activity_previously_processed(
                 athlete_id,
@@ -750,6 +763,12 @@ class GarminSyncHandler:
                     activity=activity,
                 )
                 self._record_ingest_result(results, activity, body, status_code)
+                if (
+                    index < len(activities) - 1
+                    and body.get("status") == "success"
+                    and self._activity_request_delay_sec > 0
+                ):
+                    time.sleep(self._activity_request_delay_sec)
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 logger.error(
                     "Failed to ingest Garmin activity",
