@@ -63,7 +63,14 @@ INTERVALS_SYNC_TIMER_SCHEDULE = os.getenv("INTERVALS_SYNC_TIMER_SCHEDULE", "0 0 
 DEFERRED_RETRY_QUEUE_NAME = os.getenv("DEFERRED_RETRY_QUEUE_NAME", "rate-limit-deferrals")
 ONEDRIVE_ASYNC_QUEUE_NAME = os.getenv("ONEDRIVE_ASYNC_QUEUE_NAME", "async-ingestion")
 
-if "PYTEST_CURRENT_TEST" not in os.environ and os.getenv("SKIP_FUNCTION_APP_WARMUP") != "1":
+def _should_run_startup_warmup() -> bool:
+    return (
+        os.getenv("SKIP_FUNCTION_APP_WARMUP") != "1"
+        and bool(os.getenv("FUNCTIONS_WORKER_RUNTIME"))
+    )
+
+
+if _should_run_startup_warmup():
     dependencies.warmup()
 
 # ============================================================================

@@ -9,6 +9,7 @@ import os
 from unittest.mock import MagicMock, PropertyMock, call, patch
 
 import azure.functions as func
+import pytest
 
 import function_app
 from config.constants import ENV_PUBLIC_BASE_URL
@@ -38,6 +39,26 @@ class TestPublicBaseUrlHelper:
         req = MagicMock(spec=func.HttpRequest)
         req.url = "https://api.example.com/some/path?x=1"
         assert function_app.public_base_url(req) == "https://api.example.com"
+
+
+class TestWarmupGate:
+    def test_warmup_disabled_without_functions_runtime(self, monkeypatch):
+        monkeypatch.delenv("FUNCTIONS_WORKER_RUNTIME", raising=False)
+        monkeypatch.delenv("SKIP_FUNCTION_APP_WARMUP", raising=False)
+
+        assert function_app._should_run_startup_warmup() is False
+
+    def test_warmup_enabled_with_functions_runtime(self, monkeypatch):
+        monkeypatch.setenv("FUNCTIONS_WORKER_RUNTIME", "python")
+        monkeypatch.delenv("SKIP_FUNCTION_APP_WARMUP", raising=False)
+
+        assert function_app._should_run_startup_warmup() is True
+
+    def test_warmup_disabled_by_skip_flag(self, monkeypatch):
+        monkeypatch.setenv("FUNCTIONS_WORKER_RUNTIME", "python")
+        monkeypatch.setenv("SKIP_FUNCTION_APP_WARMUP", "1")
+
+        assert function_app._should_run_startup_warmup() is False
 
 
 class TestDocsAssetEndpoints:
