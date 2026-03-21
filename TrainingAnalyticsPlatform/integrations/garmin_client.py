@@ -37,7 +37,10 @@ except ImportError:  # pragma: no cover - optional dependency in test/runtime va
     GarminImpl = None  # type: ignore[assignment]
 
 from TrainingAnalyticsPlatform.ingestion.fit_file_preprocessor import FitFilePreprocessor
-from TrainingAnalyticsPlatform.platform.exceptions import PreprocessingError
+from TrainingAnalyticsPlatform.platform.exceptions import (
+    GarminConnectRateLimitError,
+    PreprocessingError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +48,7 @@ NOT_AUTHENTICATED_ERROR = "Not authenticated. Call login() first."
 DEPENDENCY_NOT_INSTALLED_ERROR = (
     "garminconnect dependency is not installed in this environment."
 )
+GARMIN_AUTH_RATE_LIMIT_COOLDOWN_SECONDS = "GARMIN_AUTH_RATE_LIMIT_COOLDOWN_SECONDS"
 
 
 class GarminConnectError(RuntimeError):
@@ -64,6 +68,50 @@ class GarminConnectClient:
         self.email = email or os.getenv("GARMIN_EMAIL")
         self.password = password or os.getenv("GARMIN_PASSWORD")
         self.client: Optional[Garmin] = None  # type: ignore[name-defined]
+        self._rate_limited_until: Optional[datetime] = None
+        self._rate_limit_cooldown_seconds = self._parse_rate_limit_cooldown_seconds()
+
+    @staticmethod
+    def _parse_rate_limit_cooldown_seconds() -> int:
+        raw = os.getenv(GARMIN_AUTH_RATE_LIMIT_COOLDOWN_SECONDS, "900")
+        try:
+            return max(60, int(raw))
+        except ValueError:
+            return 900
+
+    @staticmethod
+    def _is_rate_limited_exception(exc: Exception) -> bool:
+        text = str(exc).lower()
+        return (
+            isinstance(exc, GarminConnectTooManyRequestsError)
+            or "429" in text
+            or "rate limit" in text
+            or "rate limited" in text
+            or "too many requests" in text
+            or "throttle" in text
+        )
+
+    def _mark_rate_limited(self) -> None:
+        self._rate_limited_until = datetime.now(timezone.utc) + timedelta(
+            seconds=self._rate_limit_cooldown_seconds
+        )
+        logger.warning(
+            "Garmin auth rate limit cooldown activated",
+            extra={
+                "cooldown_seconds": self._rate_limit_cooldown_seconds,
+                "rate_limited_until": self._rate_limited_until.isoformat(),
+            },
+        )
+
+    def _enforce_rate_limit_cooldown(self) -> None:
+        if self._rate_limited_until is None:
+            return
+        if datetime.now(timezone.utc) < self._rate_limited_until:
+            raise GarminConnectRateLimitError(
+                "Garmin Connect auth temporarily rate limited; "
+                f"retry after {self._rate_limited_until.isoformat()}"
+            )
+        self._rate_limited_until = None
 
     def login(self) -> None:
         """Authenticate with Garmin Connect using credentials.
@@ -77,11 +125,13 @@ class GarminConnectClient:
             )
         if GarminImpl is None:
             raise GarminConnectError(DEPENDENCY_NOT_INSTALLED_ERROR)
+        self._enforce_rate_limit_cooldown()
 
         try:
             candidate_client = GarminImpl(self.email, self.password)
             candidate_client.login()
             self.client = candidate_client
+            self._rate_limited_until = None
             logger.info("Successfully authenticated with Garmin Connect")
         except GarminConnectAuthenticationError as exc:
             self.client = None
@@ -89,8 +139,9 @@ class GarminConnectClient:
             raise GarminConnectError("Authentication failed - check credentials") from exc
         except GarminConnectTooManyRequestsError as exc:
             self.client = None
+            self._mark_rate_limited()
             logger.error("Garmin login throttled: %s", exc)
-            raise GarminConnectError(
+            raise GarminConnectRateLimitError(
                 "Garmin Connect rate limited this login attempt"
             ) from exc
         except GarminConnectConnectionError as exc:
@@ -99,6 +150,12 @@ class GarminConnectClient:
             raise GarminConnectError("Connection to Garmin Connect failed") from exc
         except Exception as exc:
             self.client = None
+            if self._is_rate_limited_exception(exc):
+                self._mark_rate_limited()
+                logger.error("Garmin login throttled: %s", exc)
+                raise GarminConnectRateLimitError(
+                    "Garmin Connect rate limited this login attempt"
+                ) from exc
             logger.error("Unexpected error during Garmin login: %s", exc)
             raise GarminConnectError("Failed to authenticate with Garmin Connect") from exc
 
@@ -179,13 +236,21 @@ class GarminConnectClient:
         """
         if GarminImpl is None:
             raise GarminConnectError(DEPENDENCY_NOT_INSTALLED_ERROR)
+        self._enforce_rate_limit_cooldown()
         try:
             candidate_client = GarminImpl()
             candidate_client.login(tokenstore=garth_token)
             self.client = candidate_client
+            self._rate_limited_until = None
             logger.info("Restored Garmin session from stored tokens")
         except Exception as exc:
             self.client = None
+            if self._is_rate_limited_exception(exc):
+                self._mark_rate_limited()
+                logger.warning("Garmin token restore throttled: %s", exc)
+                raise GarminConnectRateLimitError(
+                    "Garmin Connect rate limited this token restore attempt"
+                ) from exc
             logger.warning("Failed to restore Garmin session from stored tokens: %s", exc)
             raise GarminConnectError(
                 f"Failed to restore Garmin session from stored tokens: {exc}"
@@ -210,6 +275,9 @@ class GarminConnectClient:
             try:
                 self.restore_from_tokens(stored_token)
                 return
+            except GarminConnectRateLimitError:
+                logger.warning("Stored Garmin token restore rate limited; skipping fresh login")
+                raise
             except GarminConnectError:
                 logger.warning("Stored Garmin tokens invalid; falling back to fresh login")
         self.login()

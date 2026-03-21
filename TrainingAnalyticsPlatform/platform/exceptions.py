@@ -100,6 +100,13 @@ class ExternalServiceError(HealthAssistantError):
     status_code = 502
 
 
+class GarminConnectRateLimitError(ExternalServiceError):
+    """Raised when Garmin Connect throttles authentication flows."""
+
+    error_code = "GARMIN_RATE_LIMITED"
+    status_code = 429
+
+
 class WorkoutTypeResolutionError(HealthAssistantError):
     """Raised when Apple workout type resolution fails unexpectedly."""
 

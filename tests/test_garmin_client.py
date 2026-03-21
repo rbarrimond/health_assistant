@@ -9,6 +9,7 @@ import pytest
 from TrainingAnalyticsPlatform.integrations.garmin_client import (
     GarminConnectClient,
     GarminConnectError,
+    GarminConnectRateLimitError,
     GarminConnectTooManyRequestsError,
 )
 
@@ -57,7 +58,7 @@ def test_login_clears_cached_client_after_rate_limit_failure():
         "TrainingAnalyticsPlatform.integrations.garmin_client.GarminImpl",
         ThrottledGarmin,
     ):
-        with pytest.raises(GarminConnectError) as exc_info:
+        with pytest.raises(GarminConnectRateLimitError) as exc_info:
             client.login()
 
     assert str(exc_info.value) == "Garmin Connect rate limited this login attempt"
@@ -238,3 +239,50 @@ def test_authenticate_propagates_login_error():
 
     with pytest.raises(GarminConnectError, match="rate limited"):
         gc.authenticate(None)
+
+
+def test_authenticate_does_not_fallback_to_login_when_token_restore_rate_limited():
+    """authenticate() should not hammer login when token restore is rate limited."""
+    gc = GarminConnectClient(email="user@example.com", password="x" * 12)
+
+    login_calls: list[None] = []
+
+    def fake_restore(token: str) -> None:
+        raise GarminConnectRateLimitError("Garmin Connect rate limited this token restore attempt")
+
+    def fake_login() -> None:
+        login_calls.append(None)
+
+    gc.restore_from_tokens = fake_restore  # type: ignore[method-assign]
+    gc.login = fake_login  # type: ignore[method-assign]
+
+    with pytest.raises(GarminConnectRateLimitError, match="rate limited"):
+        gc.authenticate("stale-token==")
+
+    assert login_calls == []
+
+
+def test_login_respects_cooldown_after_rate_limit():
+    """A second immediate login attempt should fail fast during cooldown."""
+    email = "user@example.com"
+    test_secret = "x" * 12
+
+    class ThrottledGarmin:
+        def __init__(self, email, password):
+            self.email = email
+            self.password = password
+
+        def login(self):
+            raise GarminConnectTooManyRequestsError("Rate limit exceeded")
+
+    client = GarminConnectClient(email=email, password=test_secret)
+
+    with patch(
+        "TrainingAnalyticsPlatform.integrations.garmin_client.GarminImpl",
+        ThrottledGarmin,
+    ):
+        with pytest.raises(GarminConnectRateLimitError, match="rate limited"):
+            client.login()
+
+        with pytest.raises(GarminConnectRateLimitError, match="temporarily rate limited"):
+            client.login()

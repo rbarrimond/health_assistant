@@ -22,6 +22,7 @@ from TrainingAnalyticsPlatform.platform.exceptions import (
     ConfigError,
     DeviceFilteredError,
     FitParsingError,
+    GarminConnectRateLimitError,
     HealthAssistantError,
     IngestionIdResolutionError,
     StorageError,
@@ -564,6 +565,13 @@ class GarminSyncHandler:
         """Expose current sync configuration."""
         return self._config
 
+    @staticmethod
+    def _is_rate_limited_error(exc: Exception) -> bool:
+        if isinstance(exc, GarminConnectRateLimitError):
+            return True
+        text = str(exc).lower()
+        return "rate limit" in text or "rate limited" in text or "throttle" in text
+
     def sync(self, *, athlete_id: str, lookback_days: int, force: bool = False) -> Dict:
         """Sync Garmin activities and ingest FIT files."""
         # Try to restore session from stored tokens; fall back to full SSO login
@@ -581,7 +589,23 @@ class GarminSyncHandler:
 
         try:
             self._client.authenticate(stored_token)
-        except GarminConnectError as exc:
+        except (GarminConnectRateLimitError, GarminConnectError) as exc:
+            if self._is_rate_limited_error(exc):
+                logger.error(
+                    "Garmin authentication rate limited",
+                    extra={
+                        "athlete_id": athlete_id,
+                        "source_system": "garmin",
+                        "error_type": "GarminConnectError",
+                        "error": str(exc),
+                    },
+                    exc_info=True,
+                )
+                return {
+                    "status": "error",
+                    "message": f"Authentication failed: {exc}",
+                    "error_code": "GARMIN_RATE_LIMITED",
+                }
             logger.error(
                 "Failed to authenticate with Garmin Connect",
                 extra={
@@ -595,6 +619,7 @@ class GarminSyncHandler:
             return {
                 "status": "error",
                 "message": f"Authentication failed: {exc}",
+                "error_code": "GARMIN_AUTH_ERROR",
             }
         
         # Calculate cutoff date
@@ -723,6 +748,8 @@ class GarminSyncHandler:
                 force=force,
             )
             if results.get("status") == "error":
+                if results.get("error_code") == "GARMIN_RATE_LIMITED":
+                    return results, 429
                 message = str(results.get("message", ""))
                 if message.startswith("Authentication failed:"):
                     return results, 401

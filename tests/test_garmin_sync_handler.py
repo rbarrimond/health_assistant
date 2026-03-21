@@ -496,7 +496,7 @@ class TestGarminSyncHandler:
         assert ingestion_handler.handle.call_count == 2
         storage.workouts.get_ingestion_state.assert_not_called()
 
-    def test_handle_sync_returns_401_for_authentication_failures(self):
+    def test_handle_sync_returns_429_for_rate_limited_authentication_failures(self):
         storage = MagicMock()
         handler = GarminSyncHandler(
             config=GarminSyncConfig(email="user@example.com", password="x" * 12, lookback_days=30),
@@ -506,6 +506,25 @@ class TestGarminSyncHandler:
         handler.sync = MagicMock(return_value={  # type: ignore[method-assign]
             "status": "error",
             "message": "Authentication failed: Garmin Connect rate limited this login attempt",
+            "error_code": "GARMIN_RATE_LIMITED",
+        })
+
+        body, status = handler._handle_sync("rob", 30)  # pylint: disable=protected-access
+
+        assert status == 429
+        assert body["status"] == "error"
+
+    def test_handle_sync_returns_401_for_non_throttle_authentication_failures(self):
+        storage = MagicMock()
+        handler = GarminSyncHandler(
+            config=GarminSyncConfig(email="user@example.com", password="x" * 12, lookback_days=30),
+            storage=storage,
+            client=MagicMock(),
+        )
+        handler.sync = MagicMock(return_value={  # type: ignore[method-assign]
+            "status": "error",
+            "message": "Authentication failed: Authentication failed - check credentials",
+            "error_code": "GARMIN_AUTH_ERROR",
         })
 
         body, status = handler._handle_sync("rob", 30)  # pylint: disable=protected-access
