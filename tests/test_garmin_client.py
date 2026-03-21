@@ -157,3 +157,84 @@ def test_restore_from_tokens_raises_and_clears_client_on_failure():
             gc.restore_from_tokens("bad-token")
 
     assert gc.client is None
+
+
+# ---------------------------------------------------------------------------
+# authenticate()
+# ---------------------------------------------------------------------------
+
+def test_authenticate_restores_session_when_token_provided():
+    """authenticate() should call restore_from_tokens and return without login."""
+    gc = GarminConnectClient(email="user@example.com", password="x" * 12)
+
+    restore_calls: list[str] = []
+    login_calls: list[None] = []
+
+    def fake_restore(token: str) -> None:
+        restore_calls.append(token)
+
+    def fake_login() -> None:
+        login_calls.append(None)
+
+    gc.restore_from_tokens = fake_restore  # type: ignore[method-assign]
+    gc.login = fake_login  # type: ignore[method-assign]
+
+    gc.authenticate("stored-token==")
+
+    assert restore_calls == ["stored-token=="]
+    assert login_calls == []
+
+
+def test_authenticate_falls_back_to_login_when_token_restore_fails():
+    """authenticate() should fall through to login() when restore raises."""
+    gc = GarminConnectClient(email="user@example.com", password="x" * 12)
+
+    login_calls: list[None] = []
+
+    def fake_restore(token: str) -> None:
+        raise GarminConnectError("token expired")
+
+    def fake_login() -> None:
+        login_calls.append(None)
+
+    gc.restore_from_tokens = fake_restore  # type: ignore[method-assign]
+    gc.login = fake_login  # type: ignore[method-assign]
+
+    gc.authenticate("stale-token==")
+
+    assert login_calls == [None]
+
+
+def test_authenticate_calls_login_directly_when_no_token():
+    """authenticate(None) should skip restore entirely and call login()."""
+    gc = GarminConnectClient(email="user@example.com", password="x" * 12)
+
+    restore_calls: list[str] = []
+    login_calls: list[None] = []
+
+    def fake_restore(token: str) -> None:
+        restore_calls.append(token)
+
+    def fake_login() -> None:
+        login_calls.append(None)
+
+    gc.restore_from_tokens = fake_restore  # type: ignore[method-assign]
+    gc.login = fake_login  # type: ignore[method-assign]
+
+    gc.authenticate(None)
+
+    assert restore_calls == []
+    assert login_calls == [None]
+
+
+def test_authenticate_propagates_login_error():
+    """If login() raises, authenticate() must propagate the GarminConnectError."""
+    gc = GarminConnectClient(email="user@example.com", password="x" * 12)
+
+    def fake_login() -> None:
+        raise GarminConnectError("Garmin Connect rate limited this login attempt")
+
+    gc.login = fake_login  # type: ignore[method-assign]
+
+    with pytest.raises(GarminConnectError, match="rate limited"):
+        gc.authenticate(None)

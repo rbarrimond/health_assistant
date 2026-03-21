@@ -552,8 +552,7 @@ class TestGarminSyncHandlerTokenLifecycle:
         handler = self._make_handler(storage, client)
         result = handler.sync(athlete_id="rob", lookback_days=7)
 
-        client.restore_from_tokens.assert_called_once_with("stored-garth-token")
-        client.login.assert_not_called()
+        client.authenticate.assert_called_once_with("stored-garth-token")
         storage.oauth_tokens.store_garmin_tokens.assert_called_once_with(
             "rob", "refreshed-garth-token"
         )
@@ -569,8 +568,7 @@ class TestGarminSyncHandlerTokenLifecycle:
         handler = self._make_handler(storage, client)
         result = handler.sync(athlete_id="rob", lookback_days=7)
 
-        client.restore_from_tokens.assert_not_called()
-        client.login.assert_called_once()
+        client.authenticate.assert_called_once_with(None)
         storage.oauth_tokens.store_garmin_tokens.assert_called_once_with(
             "rob", "fresh-garth-token"
         )
@@ -580,15 +578,16 @@ class TestGarminSyncHandlerTokenLifecycle:
         storage = MagicMock()
         storage.oauth_tokens.get_garmin_tokens.return_value = "expired-token"
         client = MagicMock()
-        client.restore_from_tokens.side_effect = GarminConnectError("token expired")
         client.list_activities.return_value = []
         client.dump_tokens.return_value = "fresh-garth-token"
 
         handler = self._make_handler(storage, client)
         result = handler.sync(athlete_id="rob", lookback_days=7)
 
-        client.restore_from_tokens.assert_called_once_with("expired-token")
-        client.login.assert_called_once()
+        # Handler passes the stored token to authenticate(); the fallback logic
+        # (restore → login) is the responsibility of GarminConnectClient.authenticate()
+        # and is covered by test_garmin_client.py.
+        client.authenticate.assert_called_once_with("expired-token")
         storage.oauth_tokens.store_garmin_tokens.assert_called_once_with(
             "rob", "fresh-garth-token"
         )

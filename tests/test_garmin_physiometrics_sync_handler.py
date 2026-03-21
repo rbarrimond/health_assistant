@@ -305,8 +305,7 @@ def test_handle_restores_session_from_stored_token_and_skips_login():
     handler = _make_physiometrics_handler(storage, client)
     _, status = handler.handle("rob", lookback_days=1)
 
-    client.restore_from_tokens.assert_called_once_with("stored-garth-token")
-    client.login.assert_not_called()
+    client.authenticate.assert_called_once_with("stored-garth-token")
     storage.oauth_tokens.store_garmin_tokens.assert_called_with(
         "rob", "refreshed-garth-token"
     )
@@ -330,8 +329,7 @@ def test_handle_falls_back_to_login_when_no_stored_token():
     handler = _make_physiometrics_handler(storage, client)
     _, status = handler.handle("rob", lookback_days=1)
 
-    client.restore_from_tokens.assert_not_called()
-    client.login.assert_called_once()
+    client.authenticate.assert_called_once_with(None)
     storage.oauth_tokens.store_garmin_tokens.assert_called_with(
         "rob", "fresh-garth-token"
     )
@@ -346,7 +344,6 @@ def test_handle_falls_back_to_login_on_stale_token():
     storage.oauth_tokens.get_garmin_tokens.return_value = "expired-token"
 
     client = Mock()
-    client.restore_from_tokens.side_effect = GarminConnectError("token expired")
     client.get_user_summary.return_value = _summary_payload("2026-03-03")
     client.get_training_status.return_value = _training_status_payload()
     client.get_training_readiness.return_value = None
@@ -356,20 +353,22 @@ def test_handle_falls_back_to_login_on_stale_token():
     handler = _make_physiometrics_handler(storage, client)
     _, status = handler.handle("rob", lookback_days=1)
 
-    client.restore_from_tokens.assert_called_once_with("expired-token")
-    client.login.assert_called_once()
+    # Handler passes the stored token to authenticate(); the fallback logic
+    # (restore → login) is the responsibility of GarminConnectClient.authenticate()
+    # and is covered by test_garmin_client.py.
+    client.authenticate.assert_called_once_with("expired-token")
     storage.oauth_tokens.store_garmin_tokens.assert_called_with(
         "rob", "fresh-garth-token"
     )
     assert status == 200
 
 
-def test_handle_returns_401_when_login_fails_and_no_stored_token():
+def test_handle_returns_429_when_authenticate_raises_rate_limited():
     storage = Mock()
     storage.oauth_tokens.get_garmin_tokens.return_value = None
 
     client = Mock()
-    client.login.side_effect = GarminConnectError("rate limited")
+    client.authenticate.side_effect = GarminConnectError("rate limited")
 
     handler = _make_physiometrics_handler(storage, client)
     response, status = handler.handle("rob", lookback_days=1)

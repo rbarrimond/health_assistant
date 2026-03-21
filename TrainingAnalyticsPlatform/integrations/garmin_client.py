@@ -191,6 +191,29 @@ class GarminConnectClient:
                 f"Failed to restore Garmin session from stored tokens: {exc}"
             ) from exc
 
+    def authenticate(self, stored_token: Optional[str] = None) -> None:
+        """Authenticate using stored token if provided, falling back to fresh login.
+
+        Mirrors the ``init_api()`` pattern from the garminconnect library example:
+        try to resume from a previous session via token restore; if that fails (or
+        if no token is available), perform a full credential-based login.
+
+        Args:
+            stored_token: Base64 garth token string produced by ``dump_tokens()``,
+                or ``None`` to skip token restore and go straight to login.
+
+        Raises:
+            GarminConnectError: If both token restore (when attempted) and fresh
+                login fail.
+        """
+        if stored_token:
+            try:
+                self.restore_from_tokens(stored_token)
+                return
+            except GarminConnectError:
+                logger.warning("Stored Garmin tokens invalid; falling back to fresh login")
+        self.login()
+
     def _ensure_authenticated_client(self) -> Garmin:
         """Return authenticated Garmin client, logging in lazily if needed."""
         if self.client is None:

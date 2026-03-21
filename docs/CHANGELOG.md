@@ -8,6 +8,16 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-21
+
+### Garmin Auth Consolidation — Single Entry Point [application v3.8.0]
+
+- **Added**: `GarminConnectClient.authenticate(stored_token)` — a single method that encapsulates the token-restore-then-fallback-login pattern, mirroring the `init_api()` pattern from the garminconnect library's own example. Tries `restore_from_tokens(stored_token)` first; if that raises `GarminConnectError` (or no token is provided), falls back to a full credential-based `login()`.
+- **Changed**: `GarminPhysiometricsSyncHandler._authenticate_client()` now calls `self.client.authenticate(stored_token)` rather than duplicating restore/fallback logic inline.
+- **Changed**: `GarminSyncHandler.sync()` auth block replaced with a single `self._client.authenticate(stored_token)` call.
+- **Removed (internal)**: the duplicated restore→fallback pattern that existed independently in both handlers.
+- **Tests**: four new unit tests for `authenticate()` in `test_garmin_client.py` covering restore success, restore failure fallback, no-token path, and login error propagation. Handler tests updated to assert at the `authenticate()` boundary.
+
 ## 2026-03-20
 
 ### Error Handling Course Correction (Non-Breaking) [application v3.7.0]

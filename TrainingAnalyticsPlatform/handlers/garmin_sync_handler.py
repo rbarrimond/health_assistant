@@ -579,38 +579,23 @@ class GarminSyncHandler:
                 },
             )
 
-        if stored_token:
-            try:
-                self._client.restore_from_tokens(stored_token)
-                logger.info(
-                    "Garmin session restored from stored tokens",
-                    extra={"athlete_id": athlete_id, "source_system": "garmin"},
-                )
-            except GarminConnectError:
-                logger.warning(
-                    "Stored Garmin tokens invalid; falling back to fresh login",
-                    extra={"athlete_id": athlete_id, "source_system": "garmin"},
-                )
-                stored_token = None
-
-        if not stored_token:
-            try:
-                self._client.login()
-            except GarminConnectError as exc:
-                logger.error(
-                    "Failed to authenticate with Garmin Connect",
-                    extra={
-                        "athlete_id": athlete_id,
-                        "source_system": "garmin",
-                        "error_type": "GarminConnectError",
-                        "error": str(exc),
-                    },
-                    exc_info=True,
-                )
-                return {
-                    "status": "error",
-                    "message": f"Authentication failed: {exc}",
-                }
+        try:
+            self._client.authenticate(stored_token)
+        except GarminConnectError as exc:
+            logger.error(
+                "Failed to authenticate with Garmin Connect",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "error_type": "GarminConnectError",
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
+            return {
+                "status": "error",
+                "message": f"Authentication failed: {exc}",
+            }
         
         # Calculate cutoff date
         cutoff = datetime.now() - timedelta(days=lookback_days)

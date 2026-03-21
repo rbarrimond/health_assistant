@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple, Union
 
 from TrainingAnalyticsPlatform.ingestion.wellness_adapters import (
@@ -89,53 +89,14 @@ class GarminPhysiometricsSyncHandler:
                     extra={"athlete_id": athlete_id, "effective_date": date_str},
                 )
                 continue
-            blob_name: Optional[str] = None
-            try:
-                blob_name = self._process_single_day(athlete_id, date_str)
+            success, error, abort = self._ingest_date(athlete_id, date_str)
+            if success:
                 fetched_count += 1
                 stored_count += 1
-            except GarminConnectError as exc:
-                issue = self._build_failure(
-                    date_str=date_str,
-                    error=str(exc),
-                    recoverable=self._is_recoverable_garmin_failure(exc),
-                    **self._classify_garmin_failure(exc),
-                )
-                logger.warning("Garmin physiometrics sync error: %s", issue["message"])
-                self._record_blob_failure(blob_name, str(issue["message"]))
-                errors.append(issue)
-                if self._is_fatal_garmin_error(exc):
-                    logger.error(
-                        "Garmin physiometrics sync aborted due to fatal Garmin error",
-                        extra={
-                            "athlete_id": athlete_id,
-                            "effective_date": date_str,
-                            "error": str(exc),
-                        },
-                    )
-                    break
-            except (AdapterError, StorageError) as exc:
-                issue = self._build_failure(
-                    date_str=date_str,
-                    error=str(exc),
-                    error_code="OPERATIONAL_ERROR",
-                    category=type(exc).__name__,
-                    recoverable=True,
-                )
-                logger.warning("Garmin physiometrics sync error: %s", issue["message"])
-                self._record_blob_failure(blob_name, str(issue["message"]))
-                errors.append(issue)
-            except Exception as exc:  # pylint: disable=broad-exception-caught
-                issue = self._build_failure(
-                    date_str=date_str,
-                    error=f"unexpected error: {exc}",
-                    error_code="INTERNAL_SERVER_ERROR",
-                    category=type(exc).__name__,
-                    recoverable=False,
-                )
-                logger.error("Garmin physiometrics sync unexpected error", exc_info=True)
-                self._record_blob_failure(blob_name, str(issue["message"]))
-                errors.append(issue)
+            if error is not None:
+                errors.append(error)
+            if abort:
+                break
 
         failed_count = len(errors)
         status = 207 if failed_count > 0 else 200
@@ -149,8 +110,65 @@ class GarminPhysiometricsSyncHandler:
             "records_processed": stored_count,
             "records_skipped": skipped_count,
             "records_failed": failed_count,
-            "errors": errors if errors else None,
+            "errors": errors or None,
         }, status
+
+    def _ingest_date(
+        self, athlete_id: str, date_str: str
+    ) -> tuple[bool, Optional[Dict[str, Any]], bool]:
+        """Attempt to fetch and store one day of physiometrics.
+
+        Returns:
+            success: True when the record was stored successfully.
+            error: Failure dict when an error occurred, else None.
+            abort: True when the sync loop should terminate immediately.
+        """
+        blob_name: Optional[str] = None
+        try:
+            blob_name = self._process_single_day(athlete_id, date_str)
+            return True, None, False
+        except GarminConnectError as exc:
+            issue = self._build_failure(
+                date_str=date_str,
+                error=str(exc),
+                recoverable=self._is_recoverable_garmin_failure(exc),
+                **self._classify_garmin_failure(exc),
+            )
+            logger.warning("Garmin physiometrics sync error: %s", issue["message"])
+            self._record_blob_failure(blob_name, str(issue["message"]))
+            if self._is_fatal_garmin_error(exc):
+                logger.error(
+                    "Garmin physiometrics sync aborted due to fatal Garmin error",
+                    extra={
+                        "athlete_id": athlete_id,
+                        "effective_date": date_str,
+                        "error": str(exc),
+                    },
+                )
+                return False, issue, True
+            return False, issue, False
+        except (AdapterError, StorageError) as exc:
+            issue = self._build_failure(
+                date_str=date_str,
+                error=str(exc),
+                error_code="OPERATIONAL_ERROR",
+                category=type(exc).__name__,
+                recoverable=True,
+            )
+            logger.warning("Garmin physiometrics sync error: %s", issue["message"])
+            self._record_blob_failure(blob_name, str(issue["message"]))
+            return False, issue, False
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            issue = self._build_failure(
+                date_str=date_str,
+                error=f"unexpected error: {exc}",
+                error_code="INTERNAL_SERVER_ERROR",
+                category=type(exc).__name__,
+                recoverable=False,
+            )
+            logger.error("Garmin physiometrics sync unexpected error", exc_info=True)
+            self._record_blob_failure(blob_name, str(issue["message"]))
+            return False, issue, False
 
     def _authenticate_client(self, athlete_id: str) -> Optional[Tuple[Dict[str, Any], int]]:
         """Authenticate Garmin client using stored token when possible.
@@ -166,22 +184,8 @@ class GarminPhysiometricsSyncHandler:
                 extra={"athlete_id": athlete_id, "source_system": "garmin"},
             )
 
-        if stored_token:
-            try:
-                self.client.restore_from_tokens(stored_token)
-                logger.info(
-                    "Garmin session restored from stored tokens",
-                    extra={"athlete_id": athlete_id, "source_system": "garmin"},
-                )
-                return None
-            except GarminConnectError:
-                logger.warning(
-                    "Stored Garmin tokens invalid; falling back to fresh login",
-                    extra={"athlete_id": athlete_id, "source_system": "garmin"},
-                )
-
         try:
-            self.client.login()
+            self.client.authenticate(stored_token)
             return None
         except GarminConnectError as exc:
             if self._is_rate_limited_error(exc):
@@ -349,7 +353,7 @@ class GarminPhysiometricsSyncHandler:
             return None
 
     @staticmethod
-    def _resolve_sync_window(lookback_days: int) -> tuple[datetime.date, datetime.date]:
+    def _resolve_sync_window(lookback_days: int) -> tuple[date, date]:
         """Resolve physiometrics sync date window.
 
         Semantics:
@@ -425,7 +429,7 @@ class GarminPhysiometricsSyncHandler:
         try:
             training_readiness = self.client.get_training_readiness(date_str)
         except GarminConnectError:
-            logger.info(
+            logger.warning(
                 "Garmin training readiness unavailable for date",
                 extra={"effective_date": date_str},
                 exc_info=True,
@@ -434,7 +438,7 @@ class GarminPhysiometricsSyncHandler:
         try:
             morning_training_readiness = self.client.get_morning_training_readiness(date_str)
         except GarminConnectError:
-            logger.info(
+            logger.warning(
                 "Garmin morning training readiness unavailable for date",
                 extra={"effective_date": date_str},
                 exc_info=True,
@@ -511,7 +515,7 @@ class GarminPhysiometricsSyncHandler:
         )
 
     @staticmethod
-    def _iter_dates(start_date, end_date):
+    def _iter_dates(start_date: date, end_date: date):
         """Yield each date in the inclusive range [start_date, end_date]."""
         current = start_date
         while current <= end_date:
