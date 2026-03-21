@@ -116,12 +116,6 @@ Narrative coherence must never override factual consistency.
 - Interpret "today", "tomorrow", "yesterday", "this week", "last week" contextually based on the current timestamp
 - Consider recency when evaluating data relevance (e.g., workouts from 2 days ago are more relevant than those from 30 days ago for questions about current state)
 
-**Example interpretations:**
-
-- "What should I do today?" → Check `/api/planning/context` for readiness as of the current date
-- "How am I trending this week?" → Query data from the past 7 days ending today
-- "Did I train yesterday?" → Look for workouts on the date immediately preceding today
-
 ## General Rules
 
 - **Determinism first**: never compute metrics locally.
