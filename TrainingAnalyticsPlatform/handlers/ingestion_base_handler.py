@@ -13,6 +13,7 @@ from TrainingAnalyticsPlatform.platform.exceptions import (
 )
 from TrainingAnalyticsPlatform.ingestion.code_mappings import (
     GARMIN_API_ALLOWED_MANUFACTURERS,
+    normalize_manufacturer_to_code,
 )
 from TrainingAnalyticsPlatform.ingestion.device_classifier import FitDevice
 from TrainingAnalyticsPlatform.ingestion.fit_models import create_fit_model
@@ -266,6 +267,8 @@ class FitIngestionBaseHandler(ABC):
         # Enrich source_info with device classification for logging/tracking
         source_info["device_source_type"] = device_source_type
         source_info["is_healthkit_synced"] = is_healthkit_synced
+        source_info["device_manufacturer_code"] = device_manufacturer_code
+        source_info["device_product_code"] = device_product_code
 
         # Log device classification for monitoring
         logger.info(
@@ -306,6 +309,11 @@ class FitIngestionBaseHandler(ABC):
             )
 
         if handler_name == "GarminSyncIngestionHandler":
+            self._validate_garmin_cached_manufacturer_equivalence(
+                athlete_id,
+                source_info,
+                device_manufacturer_code=device_manufacturer_code,
+            )
             if device_manufacturer_code not in GARMIN_API_ALLOWED_MANUFACTURERS:
                 reason = "manufacturer_not_allowed"
                 allowed = sorted(GARMIN_API_ALLOWED_MANUFACTURERS)
@@ -326,6 +334,68 @@ class FitIngestionBaseHandler(ABC):
                     manufacturer_code=device_manufacturer_code,
                     reason=reason,
                 )
+
+    def _validate_garmin_cached_manufacturer_equivalence(
+        self,
+        athlete_id: str,
+        source_info: Dict[str, Any],
+        *,
+        device_manufacturer_code: Optional[int],
+    ) -> None:
+        """Compare cached Garmin list manufacturer with FIT file manufacturer."""
+        cached_manufacturer = source_info.get("source_manufacturer")
+        cached_manufacturer_code = source_info.get("source_manufacturer_code")
+        if cached_manufacturer_code is None:
+            cached_manufacturer_code = normalize_manufacturer_to_code(cached_manufacturer)
+            if cached_manufacturer_code is not None:
+                source_info["source_manufacturer_code"] = cached_manufacturer_code
+
+        if cached_manufacturer_code is None or device_manufacturer_code is None:
+            logger.debug(
+                "Garmin manufacturer equivalence unavailable",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": source_info.get("source_system"),
+                    "ingestion_id": source_info.get("ingestion_id"),
+                    "source_item_id": source_info.get("source_item_id"),
+                    "source_manufacturer": cached_manufacturer,
+                    "source_manufacturer_code": cached_manufacturer_code,
+                    "fit_manufacturer_code": device_manufacturer_code,
+                },
+            )
+            return
+
+        if cached_manufacturer_code == device_manufacturer_code:
+            logger.debug(
+                "Garmin manufacturer equivalence confirmed",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": source_info.get("source_system"),
+                    "ingestion_id": source_info.get("ingestion_id"),
+                    "source_item_id": source_info.get("source_item_id"),
+                    "source_activity_name": source_info.get("source_activity_name"),
+                    "source_manufacturer": cached_manufacturer,
+                    "source_manufacturer_code": cached_manufacturer_code,
+                    "fit_manufacturer_code": device_manufacturer_code,
+                    "source_device_id": source_info.get("source_device_id"),
+                },
+            )
+            return
+
+        logger.warning(
+            "Garmin manufacturer equivalence mismatch",
+            extra={
+                "athlete_id": athlete_id,
+                "source_system": source_info.get("source_system"),
+                "ingestion_id": source_info.get("ingestion_id"),
+                "source_item_id": source_info.get("source_item_id"),
+                "source_activity_name": source_info.get("source_activity_name"),
+                "source_manufacturer": cached_manufacturer,
+                "source_manufacturer_code": cached_manufacturer_code,
+                "fit_manufacturer_code": device_manufacturer_code,
+                "source_device_id": source_info.get("source_device_id"),
+            },
+        )
 
     def _record_filtered_ingestion(
         self,

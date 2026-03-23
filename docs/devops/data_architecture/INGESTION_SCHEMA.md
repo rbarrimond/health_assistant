@@ -117,7 +117,7 @@ Each concrete model enforces source-specific device filtration during ingestion:
     - `device_model` matching `r"iphone\d+,\d+"` (e.g., iPhone17,1, iPhone14,2)
   - **Example filtered**: `device_name="RunGap"` + `device_model="iPhone17,1"` → rejected (not Apple Watch)
   - **Example filtered**: `device_name="Garmin Forerunner 955"` → rejected (not Apple Watch)
-- **GarminFitModel**: Accepts only `manufacturer_code ∈ {1=Garmin, 263=Zwift}`
+- **GarminFitModel**: Accepts only `manufacturer_code ∈ {1=Garmin, 260=Zwift}`
 - **PayloadFitModel**: No filtration (user-controlled uploads)
 
 **See**: [Workout Ingestion Architecture](../../devops/BACKENDS.md#workout-ingestion-architecture) for complete filtration rationale and cross-source deduplication strategy.

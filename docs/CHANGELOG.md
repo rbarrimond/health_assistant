@@ -10,6 +10,26 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-23
 
+### Garmin Pre-Download Manufacturer Pre-Filter [application v3.9.5, ingestion v15.4.0]
+
+- **Added**: pre-download manufacturer pre-filter in `GarminSyncIngestionHandler.handle()` — if the cached Garmin list `source_manufacturer_code` is non-None and not in `GARMIN_API_ALLOWED_MANUFACTURERS`, the activity is rejected and recorded as `filtered` before the FIT file download is attempted, saving unnecessary bandwidth and parsing work.
+- **Scope**: only activates when the cached code is confidently resolved (non-None); activities with an absent or unresolvable manufacturer fall through to the existing post-parse FIT-based filter, preserving the existing behavior for those cases.
+
+### Garmin Manufacturer Equivalence Validation [application v3.9.4]
+
+- **Added**: shared manufacturer normalization helper so Garmin list payloads and FIT `file_id.manufacturer` resolve through the same canonical code-mapping path.
+- **Added**: Garmin activity contract now exposes cached list-side `manufacturer`, normalized `source_manufacturer_code`, and `deviceId` for downstream validation and future prefilter work.
+- **Added**: non-blocking Garmin ingestion validation that logs mismatches between cached list manufacturer code and FIT manufacturer code while preserving FIT-derived allowlist enforcement.
+- **Added**: storage audit script `scripts/validate_garmin_manufacturer_equivalence.py` to measure normalized-code equivalence over indexed Garmin activities already ingested.
+- **Fixed**: stale Zwift documentation references updated from manufacturer code `263` to the actual allowlisted FIT code `260`.
+
+### Garmin Normalization Drift Warnings [application v3.9.3]
+
+- **Added**: non-fatal normalization drift reporting methods in `GarminActivityContract` for missing required core fields, unknown activity types, and unmapped interesting payload fields.
+- **Changed**: Garmin sync ingestion now emits structured warning logs for normalization drift while continuing ingestion (no fail-fast behavior introduced).
+- **Added**: regression coverage for drift-reporting helpers to preserve constitutional observability guarantees.
+- **Preserved**: ingestion idempotency, FIT retrieval/parsing workflow, and workout persistence semantics remain unchanged.
+
 ### Garmin Typed Activity Normalization Contract [application v3.9.2]
 
 - **Added**: typed Garmin activity-list normalization contract in `TrainingAnalyticsPlatform/integrations/garmin_activity_contract.py` with explicit core/common/type-specific alias tiers.

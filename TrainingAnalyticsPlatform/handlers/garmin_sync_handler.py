@@ -21,6 +21,7 @@ from TrainingAnalyticsPlatform.integrations.garmin_client import (
 )
 from TrainingAnalyticsPlatform.integrations.garmin_activity_contract import GarminActivityContract
 from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_bytes_hash
+from TrainingAnalyticsPlatform.ingestion.code_mappings import GARMIN_API_ALLOWED_MANUFACTURERS
 from TrainingAnalyticsPlatform.platform.exceptions import (
     ConfigError,
     DeviceFilteredError,
@@ -147,13 +148,90 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
             },
         )
 
+        missing_core_fields = activity_contract.missing_required_core_fields()
+        if missing_core_fields:
+            logger.warning(
+                "Garmin normalization missing required core fields",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "activity_id": activity_id or None,
+                    "activity_type": activity_contract.activity_type_key,
+                    "missing_core_fields": list(missing_core_fields),
+                },
+            )
+
+        if activity_contract.has_unknown_activity_type():
+            logger.warning(
+                "Garmin normalization encountered unknown activity type",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "activity_id": activity_id or None,
+                    "activity_type": activity_contract.activity_type_key,
+                },
+            )
+
+        unknown_interesting_fields = activity_contract.unknown_interesting_fields(limit=5)
+        if unknown_interesting_fields:
+            logger.warning(
+                "Garmin normalization found unmapped interesting payload fields",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "activity_id": activity_id or None,
+                    "activity_type": activity_contract.activity_type_key,
+                    "unmapped_interesting_fields": list(unknown_interesting_fields),
+                },
+            )
+
         try:
             # Build source info for ingestion tracking
             source_info = self._build_source_info(activity)
             source_info["ingestion_id"] = self._resolve_ingestion_id(source_info)
 
+            # Pre-download manufacturer pre-filter (uses cached Garmin list metadata)
+            cached_manufacturer_code = source_info.get("source_manufacturer_code")
+            if (
+                cached_manufacturer_code is not None
+                and cached_manufacturer_code not in GARMIN_API_ALLOWED_MANUFACTURERS
+            ):
+                reason = "manufacturer_not_allowed"
+                allowed = sorted(GARMIN_API_ALLOWED_MANUFACTURERS)
+                message = (
+                    f"Filtered Garmin activity pre-download: cached manufacturer_code "
+                    f"{cached_manufacturer_code} not in allowlist {allowed}"
+                )
+                self._record_filtered_ingestion(
+                    athlete_id,
+                    source_info,
+                    filter_message=message,
+                    reason=reason,
+                )
+                raise DeviceFilteredError(
+                    message,
+                    device_name=source_info.get("source_manufacturer"),
+                    manufacturer_code=cached_manufacturer_code,
+                    reason=reason,
+                )
+
             # Download FIT file
             fit_bytes = self._client.download_activity_fit(activity_id)
+        except DeviceFilteredError as exc:
+            logger.info(
+                "Garmin activity pre-filtered by cached manufacturer code — FIT download skipped",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "activity_id": activity_id,
+                    "manufacturer_code": exc.manufacturer_code,
+                    "reason": exc.reason,
+                },
+            )
+            return exc.to_response(
+                extra={"activity_id": activity_id},
+                include_message_alias=True,
+            )
         except GarminConnectError as exc:
             logger.error(
                 "Failed to download FIT for Garmin activity",

@@ -60,3 +60,51 @@ def test_contract_adds_cycling_power_fields_when_present() -> None:
     assert metadata["source_activity_type"] == "virtual_ride"
     assert metadata["source_average_power_watts"] == 208
     assert metadata["source_normalized_power_watts"] == 224
+
+
+def test_contract_reports_missing_required_core_fields() -> None:
+    contract = GarminActivityContract(
+        {
+            "activityId": 456,
+            "startTimeGMT": "2026-02-20T10:00:00+00:00",
+        }
+    )
+
+    missing = contract.missing_required_core_fields()
+    assert "activity_type_key" in missing
+    assert "duration_sec" in missing
+    assert "distance_meters" in missing
+
+
+def test_contract_reports_unknown_activity_type() -> None:
+    contract = GarminActivityContract(
+        {
+            "activityId": 789,
+            "activityType": {"typeKey": "paddle_boarding"},
+            "startTimeGMT": "2026-02-20T10:00:00+00:00",
+            "duration": 2400,
+            "distance": 6000,
+        }
+    )
+
+    assert contract.has_unknown_activity_type() is True
+
+
+def test_contract_reports_unknown_interesting_fields() -> None:
+    contract = GarminActivityContract(
+        {
+            "activityId": 1001,
+            "activityType": {"typeKey": "walking"},
+            "startTimeGMT": "2026-02-20T10:00:00+00:00",
+            "duration": 1800,
+            "distance": 2500,
+            "newPowerMetric": 321,
+            "mysteryCadenceSignal": 88,
+            "irrelevantField": "value",
+        }
+    )
+
+    unknown = contract.unknown_interesting_fields(limit=5)
+    assert "newPowerMetric" in unknown
+    assert "mysteryCadenceSignal" in unknown
+    assert "irrelevantField" not in unknown

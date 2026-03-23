@@ -862,7 +862,7 @@ The system ingests workouts from **three independent pathways** with **no fallba
 | Source | Device Class | Ingestion Path | Filtration Rule |
 | --- | --- | --- | --- |
 | **Apple Watch** | Wearable | HealthFit → OneDrive → OneDrive handler | Accept only Apple Watch (`device_name` OR `device_model` contains `"watch"`) |
-| **Garmin/Zwift** | Cycling computer / Platform | Garmin Connect API → Garmin handler | Accept only `manufacturer ∈ {1=Garmin, 263=Zwift}` |
+| **Garmin/Zwift** | Cycling computer / Platform | Garmin Connect API → Garmin handler | Accept only `manufacturer ∈ {1=Garmin, 260=Zwift}` |
 | **Manual Upload** | Any | HTTP payload → Payload handler | No filtration |
 
 **Key Principle**: Each pathway processes **only actual device recordings**. No complex cross-source deduplication logic exists.
@@ -887,7 +887,7 @@ Zwift app → RunGap sync → HealthKit → HealthFit export → OneDrive
 ✅ Path B (ACCEPTED):
 Zwift app → Garmin Connect sync → Garmin API
                                   ↓
-                     manufacturer_code=263 (Zwift)
+                     manufacturer_code=260 (Zwift)
                      ACCEPTED by Garmin handler
 ```
 
@@ -1028,7 +1028,7 @@ RunGap is a **workout sync app**, not a workout source:
 **Garmin handler filtration rule:**
 
 ```python
-ALLOWED_MANUFACTURERS = {1, 263}  # Garmin=1, Zwift=263
+ALLOWED_MANUFACTURERS = {1, 260}  # Garmin=1, Zwift=260
 ```
 
 **Rationale:**
@@ -1042,7 +1042,7 @@ ALLOWED_MANUFACTURERS = {1, 263}  # Garmin=1, Zwift=263
 ```text
 ✅ ACCEPTED:
 - Garmin Edge 1050 → Garmin API (manufacturer_code=1)
-- Zwift indoor session → Garmin API (manufacturer_code=263)
+- Zwift indoor session → Garmin API (manufacturer_code=260)
 
 ❌ REJECTED:
 - Wahoo ELEMNT → RunGap → Garmin Connect (manufacturer_code=32)

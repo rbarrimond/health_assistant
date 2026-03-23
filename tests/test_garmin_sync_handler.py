@@ -332,6 +332,60 @@ class TestGarminSyncConfig:
         assert status == 422
         assert body["error_code"] == "FIT_PARSING_FAILED"
 
+    def test_handle_pre_filters_disallowed_manufacturer_before_fit_download(self):
+        storage = MagicMock()
+        storage.workouts = MagicMock()
+        client = MagicMock()
+        handler = GarminSyncIngestionHandler(storage=storage, client=client)
+
+        # Inject source_info with a clearly disallowed manufacturer code (255 = development)
+        handler._build_source_info = MagicMock(return_value={  # type: ignore[attr-defined]
+            "source_system": "Garmin",
+            "source_item_id": "a1",
+            "source_file_name": "a1.fit",
+            "source_file_path": "/garmin/a1.fit",
+            "source_manufacturer": "DEVELOPMENT",
+            "source_manufacturer_code": 255,
+        })
+
+        body, status = handler.handle(
+            athlete_id="rob",
+            activity=_build_activity("a1", "2026-02-20T10:00:00+00:00", 3600),
+        )
+
+        assert status == 400
+        assert body["status"] == "filtered"
+        assert body["error_code"] == "DEVICE_FILTERED"
+        assert body["manufacturer_code"] == 255
+        client.download_activity_fit.assert_not_called()
+        storage.workouts.record_ingestion_state.assert_called_once()
+
+    def test_handle_allowlisted_manufacturer_proceeds_to_fit_download(self):
+        storage = MagicMock()
+        storage.workouts = MagicMock()
+        client = MagicMock()
+        client.download_activity_fit.return_value = b"fit-bytes"
+        handler = GarminSyncIngestionHandler(storage=storage, client=client)
+
+        # Inject source_info with an allowlisted manufacturer code (1 = Garmin)
+        handler._build_source_info = MagicMock(return_value={  # type: ignore[attr-defined]
+            "source_system": "Garmin",
+            "source_item_id": "a1",
+            "source_file_name": "a1.fit",
+            "source_file_path": "/garmin/a1.fit",
+            "source_manufacturer": "GARMIN",
+            "source_manufacturer_code": 1,
+        })
+        handler._skip_if_unchanged = MagicMock(return_value=(True, "workout-1"))  # type: ignore[attr-defined]
+
+        body, status = handler.handle(
+            athlete_id="rob",
+            activity=_build_activity("a1", "2026-02-20T10:00:00+00:00", 3600),
+        )
+
+        assert status == 200
+        client.download_activity_fit.assert_called_once_with("a1")
+
 
 class TestGarminSyncRequest:
     """Tests for Garmin sync request parsing."""

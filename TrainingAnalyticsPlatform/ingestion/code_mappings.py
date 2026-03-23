@@ -13,6 +13,8 @@ References:
 - Apple device internal IDs: https://gist.github.com/adamawolf/3048717
 """
 
+from typing import Any
+
 # FIT Manufacturer Codes (manufacturer field in file_id message)
 # Reference: fitdecode profile.py - 'manufacturer' FieldType
 MANUFACTURER_CODES = {
@@ -516,7 +518,29 @@ def get_manufacturer_code(name: str) -> int:
     Returns:
         FIT manufacturer code or 255 (development) if not found
     """
-    return MANUFACTURER_NAME_TO_CODE.get(name.lower(), 255)
+    resolved = normalize_manufacturer_to_code(name)
+    return 255 if resolved is None else resolved
+
+
+def normalize_manufacturer_to_code(value: Any) -> int | None:
+    """Normalize manufacturer representations to a FIT manufacturer code."""
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+
+    raw_code = getattr(value, "value", None)
+    if isinstance(raw_code, int):
+        return raw_code
+
+    raw_name = value if isinstance(value, str) else getattr(value, "name", None)
+    if not isinstance(raw_name, str):
+        return None
+
+    normalized_name = raw_name.strip().lower().replace("-", "_").replace(" ", "_")
+    if not normalized_name:
+        return None
+    return MANUFACTURER_NAME_TO_CODE.get(normalized_name)
 
 
 def get_garmin_product_name(code: int) -> str:
