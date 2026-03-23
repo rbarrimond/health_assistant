@@ -7,6 +7,7 @@ Usage:
 Optional environment variables:
   ATHLETE_ID: Override athlete id (defaults to DEFAULT_ATHLETE_ID or "rob")
   GARMIN_PROBE_LIST: Set to "0" to skip list_activities call
+    GARMIN_PROBE_SHOW_SECRETS: Set to "1" to print full token values
 """
 
 from __future__ import annotations
@@ -14,7 +15,9 @@ from __future__ import annotations
 import json
 import os
 import sys
+from base64 import b64decode
 from pathlib import Path
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -30,7 +33,7 @@ from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordin
 
 
 def _load_local_settings() -> None:
-    settings_path = Path("local.settings.json")
+    settings_path = REPO_ROOT / "local.settings.json"
     if not settings_path.exists():
         return
 
@@ -44,11 +47,55 @@ def _load_local_settings() -> None:
             os.environ[key] = value
 
 
+def _mask_secret(value: str, *, keep_prefix: int = 8, keep_suffix: int = 6) -> str:
+    if len(value) <= keep_prefix + keep_suffix:
+        return "<redacted>"
+    return f"{value[:keep_prefix]}...{value[-keep_suffix:]}"
+
+
+def _redact_decoded_payload(payload: Any, *, show_secrets: bool) -> Any:
+    if show_secrets:
+        return payload
+
+    secret_keys = {
+        "oauth_token",
+        "oauth_token_secret",
+        "access_token",
+        "refresh_token",
+        "token",
+        "secret",
+        "jwt",
+    }
+
+    if isinstance(payload, dict):
+        redacted: dict[str, Any] = {}
+        for key, value in payload.items():
+            key_lower = key.lower()
+            if isinstance(value, str) and any(secret_key in key_lower for secret_key in secret_keys):
+                redacted[key] = _mask_secret(value)
+            else:
+                redacted[key] = _redact_decoded_payload(value, show_secrets=show_secrets)
+        return redacted
+
+    if isinstance(payload, list):
+        return [_redact_decoded_payload(item, show_secrets=show_secrets) for item in payload]
+
+    return payload
+
+
+def _decode_stored_token(garth_token: str) -> Any:
+    normalized = GarminConnectClient._normalize_stored_token(garth_token)
+    decoded = b64decode(normalized)
+    decoded_text = decoded.decode("utf-8")
+    return json.loads(decoded_text)
+
+
 def main() -> int:
     _load_local_settings()
 
     athlete_id = os.getenv("ATHLETE_ID") or os.getenv("DEFAULT_ATHLETE_ID", "rob")
     should_list = os.getenv("GARMIN_PROBE_LIST", "1") != "0"
+    show_secrets = os.getenv("GARMIN_PROBE_SHOW_SECRETS", "0") == "1"
 
     print(f"athlete_id={athlete_id}")
 
@@ -63,6 +110,13 @@ def main() -> int:
     print(f"token_present={bool(stored_token)}")
     if stored_token:
         print(f"token_length={len(stored_token)}")
+        try:
+            decoded_payload = _decode_stored_token(stored_token)
+            safe_payload = _redact_decoded_payload(decoded_payload, show_secrets=show_secrets)
+            print("decoded_token_json=")
+            print(json.dumps(safe_payload, indent=2, sort_keys=True))
+        except Exception as exc:
+            print(f"decoded_token_json=error:{type(exc).__name__}:{exc}")
 
     client = GarminConnectClient()
     original_restore = client.restore_from_tokens
