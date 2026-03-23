@@ -108,3 +108,72 @@ def test_contract_reports_unknown_interesting_fields() -> None:
     assert "newPowerMetric" in unknown
     assert "mysteryCadenceSignal" in unknown
     assert "irrelevantField" not in unknown
+
+
+def test_contract_extracts_training_cycling_and_environmental_enrichment_fields() -> None:
+    contract = GarminActivityContract(
+        {
+            "activityId": 2002,
+            "activityType": {"typeKey": "cycling"},
+            "startTimeGMT": "2026-03-22T10:00:00+00:00",
+            "duration": 3600,
+            "distance": 42000,
+            "activityTrainingLoad": 252.5,
+            "aerobicTrainingEffect": 5.0,
+            "anaerobicTrainingEffect": 2.1,
+            "trainingEffectLabel": "VO2MAX",
+            "aerobicTrainingEffectMessage": "OVERREACHING_17",
+            "anaerobicTrainingEffectMessage": "MAINTAINING_ANAEROBIC_BASE_1",
+            "vO2MaxValue": 42.0,
+            "averageBikingCadenceInRevPerMinute": 86.0,
+            "maxBikingCadenceInRevPerMinute": 99.0,
+            "avgLeftBalance": 46.07,
+            "averageRunningCadenceInStepsPerMinute": 66.0,
+            "maxRunningCadenceInStepsPerMinute": 82.0,
+            "avgRespirationRate": 32.22,
+            "maxRespirationRate": 39.58,
+            "minRespirationRate": 21.26,
+            "maxTemperature": 23.0,
+            "minTemperature": 21.0,
+        }
+    )
+
+    metadata = contract.to_source_metadata_fields()
+
+    assert metadata["source_activity_training_load"] == 252.5
+    assert metadata["source_aerobic_training_effect"] == 5.0
+    assert metadata["source_anaerobic_training_effect"] == 2.1
+    assert metadata["source_training_effect_label"] == "VO2MAX"
+    assert metadata["source_aerobic_training_effect_message"] == "OVERREACHING_17"
+    assert metadata["source_anaerobic_training_effect_message"] == "MAINTAINING_ANAEROBIC_BASE_1"
+    assert metadata["source_vo2max_value"] == 42.0
+    assert metadata["source_avg_biking_cadence_rpm"] == 86.0
+    assert metadata["source_max_biking_cadence_rpm"] == 99.0
+    assert metadata["source_avg_left_balance_pct"] == 46.07
+    assert metadata["source_avg_running_cadence_spm"] == 66.0
+    assert metadata["source_max_running_cadence_spm"] == 82.0
+    assert metadata["source_avg_respiration_rate_brpm"] == 32.22
+    assert metadata["source_max_respiration_rate_brpm"] == 39.58
+    assert metadata["source_min_respiration_rate_brpm"] == 21.26
+    assert metadata["source_max_temperature_c"] == 23.0
+    assert metadata["source_min_temperature_c"] == 21.0
+
+
+def test_contract_does_not_report_new_enrichment_keys_as_unknown_drift() -> None:
+    contract = GarminActivityContract(
+        {
+            "activityId": 2003,
+            "activityType": {"typeKey": "cycling"},
+            "startTimeGMT": "2026-03-22T10:00:00+00:00",
+            "duration": 1200,
+            "distance": 10000,
+            "activityTrainingLoad": 100.0,
+            "avgRespirationRate": 20.1,
+            "maxTemperature": 26.0,
+        }
+    )
+
+    unknown = contract.unknown_interesting_fields(limit=10)
+    assert "activityTrainingLoad" not in unknown
+    assert "avgRespirationRate" not in unknown
+    assert "maxTemperature" not in unknown

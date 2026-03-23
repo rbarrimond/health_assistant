@@ -1565,7 +1565,49 @@ class BaseFitModel(BaseModel, ABC):
             "commute_flag": None,
             "race_flag": None,
             "structured_flag": None,
+            "garmin_activity_training_load": self._metadata_dict.get("source_activity_training_load"),
+            "garmin_aerobic_training_effect": self._metadata_dict.get("source_aerobic_training_effect"),
+            "garmin_anaerobic_training_effect": self._metadata_dict.get("source_anaerobic_training_effect"),
+            "garmin_training_effect_label": self._metadata_dict.get("source_training_effect_label"),
+            "garmin_aerobic_training_effect_message": self._metadata_dict.get("source_aerobic_training_effect_message"),
+            "garmin_anaerobic_training_effect_message": self._metadata_dict.get("source_anaerobic_training_effect_message"),
+            "garmin_vo2max_value": self._metadata_dict.get("source_vo2max_value"),
+            "garmin_avg_biking_cadence_rpm": self._metadata_dict.get("source_avg_biking_cadence_rpm"),
+            "garmin_max_biking_cadence_rpm": self._metadata_dict.get("source_max_biking_cadence_rpm"),
+            "garmin_avg_left_balance_pct": self._metadata_dict.get("source_avg_left_balance_pct"),
+            "garmin_avg_running_cadence_spm": self._metadata_dict.get("source_avg_running_cadence_spm"),
+            "garmin_max_running_cadence_spm": self._metadata_dict.get("source_max_running_cadence_spm"),
+            "garmin_avg_respiration_rate_brpm": self._metadata_dict.get("source_avg_respiration_rate_brpm"),
+            "garmin_max_respiration_rate_brpm": self._metadata_dict.get("source_max_respiration_rate_brpm"),
+            "garmin_min_respiration_rate_brpm": self._metadata_dict.get("source_min_respiration_rate_brpm"),
+            "garmin_max_temperature_c": self._metadata_dict.get("source_max_temperature_c"),
+            "garmin_min_temperature_c": self._metadata_dict.get("source_min_temperature_c"),
         }
+
+        if any(
+            enrichment.get(field_name) is not None
+            for field_name in (
+                "garmin_activity_training_load",
+                "garmin_aerobic_training_effect",
+                "garmin_anaerobic_training_effect",
+                "garmin_training_effect_label",
+                "garmin_aerobic_training_effect_message",
+                "garmin_anaerobic_training_effect_message",
+                "garmin_vo2max_value",
+                "garmin_avg_biking_cadence_rpm",
+                "garmin_max_biking_cadence_rpm",
+                "garmin_avg_left_balance_pct",
+                "garmin_avg_running_cadence_spm",
+                "garmin_max_running_cadence_spm",
+                "garmin_avg_respiration_rate_brpm",
+                "garmin_max_respiration_rate_brpm",
+                "garmin_min_respiration_rate_brpm",
+                "garmin_max_temperature_c",
+                "garmin_min_temperature_c",
+            )
+        ):
+            enrichment["garmin_enrichment_source"] = "activity_list"
+            enrichment["garmin_enrichment_scope"] = "activity"
 
         # Build zone 8 (partial): Provenance fields derived from source metadata
         # Handler will merge ingestion context fields (version/id/timestamp/environment).

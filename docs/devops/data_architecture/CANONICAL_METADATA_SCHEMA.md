@@ -1,7 +1,7 @@
 # Canonical Metadata Schema (metadata.json)
 
-**Version**: 2.3.0  
-**Effective**: 2026-03-02  
+**Version**: 2.4.0  
+**Effective**: 2026-03-23  
 **Status**: Active
 
 ---
@@ -29,7 +29,7 @@ This document specifies the structure of **metadata.json** blobs stored in Azure
 
 ```json
 {
-  "metadata_schema_version": "2.3.0",
+  "metadata_schema_version": "2.4.0",
   "identity": {
     "start_time_utc": "ISO8601 timestamp",
     "sport": "string (cycling, running, swimming, etc.)",
@@ -79,7 +79,26 @@ This document specifies the structure of **metadata.json** blobs stored in Azure
     "virtual_platform": "string or null (e.g., 'Zwift', 'TrainerRoad', 'Garmin')",
     "commute_flag": "boolean or null, whether workout was commuting",
     "race_flag": "boolean or null, whether workout was racing/event",
-    "structured_flag": "boolean or null, whether workout was structured/coached"
+    "structured_flag": "boolean or null, whether workout was structured/coached",
+    "garmin_activity_training_load": "number or null, Garmin activity-list activityTrainingLoad",
+    "garmin_aerobic_training_effect": "number or null, Garmin activity-list aerobicTrainingEffect",
+    "garmin_anaerobic_training_effect": "number or null, Garmin activity-list anaerobicTrainingEffect",
+    "garmin_training_effect_label": "string or null, Garmin activity-list trainingEffectLabel",
+    "garmin_aerobic_training_effect_message": "string or null, Garmin activity-list aerobicTrainingEffectMessage",
+    "garmin_anaerobic_training_effect_message": "string or null, Garmin activity-list anaerobicTrainingEffectMessage",
+    "garmin_vo2max_value": "number or null, Garmin activity-list vO2MaxValue",
+    "garmin_avg_biking_cadence_rpm": "number or null, Garmin activity-list averageBikingCadenceInRevPerMinute",
+    "garmin_max_biking_cadence_rpm": "number or null, Garmin activity-list maxBikingCadenceInRevPerMinute",
+    "garmin_avg_left_balance_pct": "number or null, Garmin activity-list avgLeftBalance",
+    "garmin_avg_running_cadence_spm": "number or null, Garmin activity-list averageRunningCadenceInStepsPerMinute",
+    "garmin_max_running_cadence_spm": "number or null, Garmin activity-list maxRunningCadenceInStepsPerMinute",
+    "garmin_avg_respiration_rate_brpm": "number or null, Garmin activity-list avgRespirationRate",
+    "garmin_max_respiration_rate_brpm": "number or null, Garmin activity-list maxRespirationRate",
+    "garmin_min_respiration_rate_brpm": "number or null, Garmin activity-list minRespirationRate",
+    "garmin_max_temperature_c": "number or null, Garmin activity-list maxTemperature",
+    "garmin_min_temperature_c": "number or null, Garmin activity-list minTemperature",
+    "garmin_enrichment_source": "string or null, provenance marker ('activity_list' when Garmin list-derived fields are present)",
+    "garmin_enrichment_scope": "string or null, provenance marker ('activity' for activity-scoped Garmin list fields)"
   },
   "llm_analysis": {
     "version": "string (version of LLM analysis model)",
@@ -170,6 +189,10 @@ All fields immutable after ingestion.
 - **workout_name**: User-assigned name or inferred label. For HealthFit, canonical inference uses `<day part> <apple workout type>`.
 - **virtual_platform**: Software platform used (Zwift, TrainerRoad, etc.), inferred or explicit.
 - **{commute,race,structured}_flag**: Contextual flags. Nullable to distinguish "not set" from "false".
+- **garmin_* training/cadence/environment fields**: Optional activity-scoped Garmin list payload values promoted into enrichment when present.
+- **garmin_enrichment_source / garmin_enrichment_scope**: Provenance markers indicating Garmin list-derived enrichment fields and activity-level scope.
+
+Boundary rule: daily training state/load focus ownership remains in physiometrics flows and is not modeled in workout `enrichment`.
 
 Mutable — may be updated by enrichment pipeline.
 
@@ -193,7 +216,13 @@ Mutable — may be updated by enrichment pipeline.
 
 ## Versioning
 
-**current_version**: 2.3.0
+**current_version**: 2.4.0
+
+**Migration from 2.3.0 → 2.4.0**:
+
+- Added optional Garmin list-derived workout enrichment fields for activity-level training load/effect, VO2max, cadence, left-balance, respiration, and temperature.
+- Added provenance markers `enrichment.garmin_enrichment_source` and `enrichment.garmin_enrichment_scope` for Garmin list-derived enrichment values.
+- Preserved physiometrics ownership boundary for daily training state/load focus fields (no workout enrichment overlap).
 
 **Migration from 2.2.0 → 2.3.0**:
 
@@ -276,7 +305,7 @@ Mutable — may be updated by enrichment pipeline.
 
 ```json
 {
-  "metadata_schema_version": "2.3.0",
+  "metadata_schema_version": "2.4.0",
   "identity": {
     "start_time_utc": "2025-12-04T01:45:18+00:00",
     "sport": "cycling",

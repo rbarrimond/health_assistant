@@ -682,6 +682,98 @@ class TestSessionTimeMathSemantics:
         assert model.local_tz_offset == "UTC-05:00"
 
 
+class TestGarminCanonicalEnrichment:
+    """Garmin list-derived enrichment promotion behavior in canonical metadata."""
+
+    def test_build_canonical_metadata_maps_garmin_list_fields_into_enrichment(self) -> None:
+        model = GarminFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={  # type: ignore[call-arg]
+                "source_activity_name": "Hard Ride",
+                "source_activity_training_load": 252.5,
+                "source_aerobic_training_effect": 5.0,
+                "source_anaerobic_training_effect": 2.1,
+                "source_training_effect_label": "VO2MAX",
+                "source_aerobic_training_effect_message": "OVERREACHING_17",
+                "source_anaerobic_training_effect_message": "MAINTAINING_ANAEROBIC_BASE_1",
+                "source_vo2max_value": 42.0,
+                "source_avg_biking_cadence_rpm": 86.0,
+                "source_max_biking_cadence_rpm": 99.0,
+                "source_avg_left_balance_pct": 46.07,
+                "source_avg_running_cadence_spm": 66.0,
+                "source_max_running_cadence_spm": 82.0,
+                "source_avg_respiration_rate_brpm": 32.22,
+                "source_max_respiration_rate_brpm": 39.58,
+                "source_min_respiration_rate_brpm": 21.26,
+                "source_max_temperature_c": 23.0,
+                "source_min_temperature_c": 21.0,
+            },
+        )
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "sport": "cycling",
+                    "timestamp": datetime(2026, 2, 23, 7, 45, 0, tzinfo=timezone.utc),
+                    "total_elapsed_time": 3600,
+                    "total_timer_time": 3500,
+                    "total_distance": 42000,
+                }
+            ),
+        )
+
+        metadata = model.build_canonical_metadata()
+        enrichment = metadata["enrichment"]
+
+        assert enrichment["garmin_activity_training_load"] == pytest.approx(252.5)
+        assert enrichment["garmin_aerobic_training_effect"] == pytest.approx(5.0)
+        assert enrichment["garmin_anaerobic_training_effect"] == pytest.approx(2.1)
+        assert enrichment["garmin_training_effect_label"] == "VO2MAX"
+        assert enrichment["garmin_aerobic_training_effect_message"] == "OVERREACHING_17"
+        assert enrichment["garmin_anaerobic_training_effect_message"] == "MAINTAINING_ANAEROBIC_BASE_1"
+        assert enrichment["garmin_vo2max_value"] == pytest.approx(42.0)
+        assert enrichment["garmin_avg_biking_cadence_rpm"] == pytest.approx(86.0)
+        assert enrichment["garmin_max_biking_cadence_rpm"] == pytest.approx(99.0)
+        assert enrichment["garmin_avg_left_balance_pct"] == pytest.approx(46.07)
+        assert enrichment["garmin_avg_running_cadence_spm"] == pytest.approx(66.0)
+        assert enrichment["garmin_max_running_cadence_spm"] == pytest.approx(82.0)
+        assert enrichment["garmin_avg_respiration_rate_brpm"] == pytest.approx(32.22)
+        assert enrichment["garmin_max_respiration_rate_brpm"] == pytest.approx(39.58)
+        assert enrichment["garmin_min_respiration_rate_brpm"] == pytest.approx(21.26)
+        assert enrichment["garmin_max_temperature_c"] == pytest.approx(23.0)
+        assert enrichment["garmin_min_temperature_c"] == pytest.approx(21.0)
+        assert enrichment["garmin_enrichment_source"] == "activity_list"
+        assert enrichment["garmin_enrichment_scope"] == "activity"
+        assert "training_status" not in enrichment
+        assert "load_focus" not in enrichment
+
+    def test_build_canonical_metadata_omits_garmin_markers_without_list_fields(self) -> None:
+        model = GarminFitModel(
+            file_bytes=b"fit",  # type: ignore[call-arg]
+            source_metadata={"source_activity_name": "No Enrichment Ride"},  # type: ignore[call-arg]
+        )
+        model._session_msg = cast(
+            Any,
+            _MessageStub(
+                {
+                    "sport": "cycling",
+                    "timestamp": datetime(2026, 2, 23, 7, 45, 0, tzinfo=timezone.utc),
+                    "total_elapsed_time": 1800,
+                    "total_timer_time": 1750,
+                    "total_distance": 20000,
+                }
+            ),
+        )
+
+        metadata = model.build_canonical_metadata()
+        enrichment = metadata["enrichment"]
+
+        assert "garmin_activity_training_load" not in enrichment
+        assert "garmin_vo2max_value" not in enrichment
+        assert "garmin_enrichment_source" not in enrichment
+        assert "garmin_enrichment_scope" not in enrichment
+
+
 class TestCanonicalMetadataDistanceFallback:
     """Distance derivation fallback behavior for canonical metadata identity zone."""
 

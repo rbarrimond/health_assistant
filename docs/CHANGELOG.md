@@ -10,6 +10,13 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-23
 
+### Canonical Garmin Workout Enrichment Promotion [application v3.9.6, ingestion v15.5.0]
+
+- **Added**: Garmin list-derived activity-scoped enrichment promotion into canonical metadata `enrichment` zone for training load/effect, VO2max, cycling cadence, running cadence, left-balance, respiration, and temperature fields when present in Garmin activity-list payloads.
+- **Added**: explicit provenance markers in enrichment for promoted Garmin list fields: `garmin_enrichment_source="activity_list"` and `garmin_enrichment_scope="activity"`.
+- **Preserved**: physiometrics ownership boundaries for daily training state/load focus remain unchanged (no overlap introduced with workout ingestion metadata).
+- **Preserved**: FIT ingestion, duplicate detection, and source filtration workflow are unchanged.
+
 ### Garmin Pre-Download Manufacturer Pre-Filter [application v3.9.5, ingestion v15.4.0]
 
 - **Added**: pre-download manufacturer pre-filter in `GarminSyncIngestionHandler.handle()` — if the cached Garmin list `source_manufacturer_code` is non-None and not in `GARMIN_API_ALLOWED_MANUFACTURERS`, the activity is rejected and recorded as `filtered` before the FIT file download is attempted, saving unnecessary bandwidth and parsing work.
