@@ -14,6 +14,7 @@ from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import (
 from TrainingAnalyticsPlatform.platform.exceptions import FitParsingError
 from TrainingAnalyticsPlatform.platform.exceptions import WorkoutIdCalculationError
 from TrainingAnalyticsPlatform.platform.exceptions import ConfigError
+from TrainingAnalyticsPlatform.platform.exceptions import StorageError
 from TrainingAnalyticsPlatform.integrations.garmin_client import GarminConnectError
 
 
@@ -685,3 +686,95 @@ class TestGarminSyncHandlerTokenLifecycle:
             "rob", "fresh-garth-token"
         )
         assert result["status"] == "success"
+
+
+class TestGarminSyncHandlerCacheFirstSelection:
+    """Cache-first activity selection behavior (Phase 3)."""
+
+    def test_sync_merges_recent_and_cached_candidates_by_activity_id(self):
+        storage = MagicMock()
+        storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
+        storage.oauth_tokens.get_garmin_tokens.return_value = None
+        storage.workouts.get_ingestion_state.return_value = None
+        storage.garmin_activity_index.query_activity_payloads_by_lookback.return_value = [
+            _build_activity("a2", "2026-02-20T11:00:00+00:00", 3500),
+            _build_activity("a3", "2026-02-20T12:00:00+00:00", 3400),
+        ]
+        storage.garmin_activity_index.get_indexed_day_coverage.return_value = {
+            "2026-02-20"
+        }
+
+        client = MagicMock()
+        client.list_activities.return_value = [
+            _build_activity("a1", "2026-02-20T10:00:00+00:00", 3600),
+            _build_activity("a2", "2026-02-20T11:00:00+00:00", 3500),
+        ]
+        client.dump_tokens.return_value = "new-token"
+
+        ingestion_handler = MagicMock()
+        ingestion_handler.handle.side_effect = [
+            ({"status": "success", "workout_id": "w1"}, 200),
+            ({"status": "success", "workout_id": "w2"}, 200),
+            ({"status": "success", "workout_id": "w3"}, 200),
+        ]
+
+        handler = GarminSyncHandler(
+            config=GarminSyncConfig(
+                email="user@example.com",
+                password="x" * 12,
+                lookback_days=30,
+                activity_index_rolling_window_days=3,
+            ),
+            storage=storage,
+            client=client,
+            ingestion_handler=ingestion_handler,
+        )
+
+        result = handler.sync(athlete_id="rob", lookback_days=1)
+
+        assert result["status"] == "success"
+        assert result["found"] == 3
+        assert result["ingested"] == 3
+        assert result["list_calls_made"] == 1
+        assert storage.garmin_activity_index.upsert_activity_payload.call_count >= 2
+
+    def test_sync_falls_back_to_direct_listing_when_index_query_fails(self):
+        storage = MagicMock()
+        storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
+        storage.oauth_tokens.get_garmin_tokens.return_value = None
+        storage.workouts.get_ingestion_state.return_value = None
+        storage.garmin_activity_index.query_activity_payloads_by_lookback.side_effect = (
+            StorageError("index unavailable")
+        )
+
+        client = MagicMock()
+        client.list_activities.side_effect = [
+            [_build_activity("a1", "2026-02-20T10:00:00+00:00", 3600)],
+            [_build_activity("a1", "2026-02-20T10:00:00+00:00", 3600), _build_activity("a2", "2026-02-20T11:00:00+00:00", 3500)],
+        ]
+        client.dump_tokens.return_value = "new-token"
+
+        ingestion_handler = MagicMock()
+        ingestion_handler.handle.side_effect = [
+            ({"status": "success", "workout_id": "w1"}, 200),
+            ({"status": "success", "workout_id": "w2"}, 200),
+        ]
+
+        handler = GarminSyncHandler(
+            config=GarminSyncConfig(
+                email="user@example.com",
+                password="x" * 12,
+                lookback_days=30,
+                activity_index_rolling_window_days=3,
+            ),
+            storage=storage,
+            client=client,
+            ingestion_handler=ingestion_handler,
+        )
+
+        result = handler.sync(athlete_id="rob", lookback_days=30)
+
+        assert result["status"] == "success"
+        assert result["found"] == 2
+        assert result["list_calls_made"] == 2
+

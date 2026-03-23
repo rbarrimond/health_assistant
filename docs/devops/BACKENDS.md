@@ -707,7 +707,9 @@ Successful responses include `count`, `records_fetched`, `records_processed`, `r
 ### Activity Sync Workflow
 
 1. **Restore Session:** Attempt to restore cached Garmin session state from `GarminTokens`; if restoration fails, fall back to `GARMIN_EMAIL` and `GARMIN_PASSWORD` login.
-2. **Fetch Activity List:** Query Garmin Connect for activities within lookback window.
+2. **Fetch Activity Candidates (Cache-First):** Query a bounded recent Garmin list window and merge with cached indexed payloads from `GarminActivityIndex` for the requested lookback.
+  If older-day cache coverage is missing, perform a one-time expanded list bootstrap for uncovered days and persist refreshed index rows.
+  If index reads fail, fallback to direct list-only selection for the current sync invocation.
 3. **Prefilter by Activity ID:** Check `IngestionState` table by `activityId` and skip terminal states before FIT download (unless `force=true`).
 4. **Download FIT Files:** Get original FIT file for each new activity.
 5. **Parse & Store:** Use standard FIT parser → canonical schema → Workouts table.

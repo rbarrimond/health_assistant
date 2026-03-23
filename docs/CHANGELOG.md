@@ -24,6 +24,13 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - **Changed**: `StorageCoordinator` now exposes `garmin_activity_index` to provide a first-class access path for Garmin index operations.
 - **Scope**: cache-first sync orchestration behavior remains unchanged in Phase 2; this phase is storage-layer wiring only.
 
+### Garmin Cache-First Candidate Selection (Phase 3) [application v3.9.0]
+
+- **Changed**: Garmin sync candidate selection now uses a cache-first merge of (a) bounded rolling list-window results and (b) indexed lookback payloads from `GarminActivityIndex`.
+- **Added**: one-time bootstrap fallback for cache gaps in older lookback windows (expanded list call for uncovered range, then persisted index refresh).
+- **Added**: resilient fallback path to direct Garmin list calls when index reads fail, preserving sync continuity.
+- **Preserved**: ingestion idempotency and prefilter-by-activity-id semantics remain unchanged.
+
 ### Garmin Library Stewardship Preflight [application v3.8.2]
 
 - **Changed**: upgraded minimum Garmin dependency from `garminconnect>=0.2.38` to `garminconnect>=0.2.40` in both `pyproject.toml` and `requirements.txt`.

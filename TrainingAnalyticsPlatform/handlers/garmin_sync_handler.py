@@ -8,9 +8,10 @@ import os
 import threading
 import time
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from TrainingAnalyticsPlatform.models.async_ingestion import AsyncIngestionWorkItem
 from TrainingAnalyticsPlatform.models.async_operation import AsyncIngestionOperationState
@@ -42,6 +43,7 @@ GARMIN_PASSWORD = "GARMIN_PASSWORD"
 GARMIN_ACTIVITY_REQUEST_DELAY_SEC = "GARMIN_ACTIVITY_REQUEST_DELAY_SEC"
 GARMIN_ACTIVITY_INDEX_ROLLING_WINDOW_DAYS = "GARMIN_ACTIVITY_INDEX_ROLLING_WINDOW_DAYS"
 GARMIN_ACTIVITY_INDEX_FRESHNESS_HOURS = "GARMIN_ACTIVITY_INDEX_FRESHNESS_HOURS"
+UTC_OFFSET_SUFFIX = "+00:00"
 
 
 @dataclass(frozen=True)
@@ -368,7 +370,7 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
         if not start_time:
             return None
         try:
-            return datetime.fromisoformat(str(start_time).replace("Z", "+00:00")).astimezone(timezone.utc)
+            return datetime.fromisoformat(str(start_time).replace("Z", UTC_OFFSET_SUFFIX)).astimezone(timezone.utc)
         except ValueError:
             return None
 
@@ -439,7 +441,7 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
             return None
         try:
             return datetime.fromisoformat(
-                str(existing_start).replace("Z", "+00:00")
+                str(existing_start).replace("Z", UTC_OFFSET_SUFFIX)
             ).astimezone(timezone.utc)
         except ValueError:
             return None
@@ -705,12 +707,15 @@ class GarminSyncHandler:
         if auth_error is not None:
             return auth_error
 
-        # Calculate cutoff date
+        lookback_days = max(0, int(lookback_days))
         cutoff = datetime.now() - timedelta(days=lookback_days)
 
-        # List activities
         try:
-            activities = self._client.list_activities(start_date=cutoff)
+            activities, candidate_selection_meta = self._select_candidate_activities(
+                athlete_id=athlete_id,
+                lookback_days=lookback_days,
+                cutoff=cutoff,
+            )
         except GarminConnectError as exc:
             logger.error(
                 "Failed to list Garmin activities",
@@ -729,13 +734,17 @@ class GarminSyncHandler:
             }
 
         logger.info(
-            "Found Garmin activities within lookback window",
+            "Prepared Garmin sync activity candidates",
             extra={
                 "athlete_id": athlete_id,
                 "source_system": "garmin",
                 "found_count": len(activities),
                 "lookback_days": lookback_days,
                 "cutoff_date": cutoff.date().isoformat(),
+                "list_window_days_used": candidate_selection_meta["list_window_days_used"],
+                "list_calls_made": candidate_selection_meta["list_calls_made"],
+                "cache_hit_count": candidate_selection_meta["cache_hit_count"],
+                "cache_miss_days": candidate_selection_meta["cache_miss_days"],
             },
         )
 
@@ -750,6 +759,10 @@ class GarminSyncHandler:
             "failed": 0,
             "errors": [],
             "items": [],
+            "list_window_days_used": candidate_selection_meta["list_window_days_used"],
+            "list_calls_made": candidate_selection_meta["list_calls_made"],
+            "cache_hit_count": candidate_selection_meta["cache_hit_count"],
+            "cache_miss_days": candidate_selection_meta["cache_miss_days"],
         }
 
         for index, activity in enumerate(activities):
@@ -827,6 +840,157 @@ class GarminSyncHandler:
             )
 
         return results
+
+    def _select_candidate_activities(
+        self,
+        *,
+        athlete_id: str,
+        lookback_days: int,
+        cutoff: datetime,
+    ) -> Tuple[List[Dict], Dict[str, int]]:
+        """Select Garmin sync candidates using cache-first strategy with fallback."""
+        now_utc = datetime.now(timezone.utc)
+        rolling_window_days = min(
+            self._config.activity_index_rolling_window_days,
+            lookback_days,
+        )
+        recent_start = datetime.now() - timedelta(days=rolling_window_days)
+        list_calls_made = 0
+
+        recent_activities = self._client.list_activities(start_date=recent_start)
+        list_calls_made += 1
+        self._persist_index_payloads(athlete_id=athlete_id, activities=recent_activities)
+
+        index_storage = self._storage.garmin_activity_index
+        try:
+            cached_activities = index_storage.query_activity_payloads_by_lookback(
+                athlete_id=athlete_id,
+                lookback_days=max(1, lookback_days),
+                now_utc=now_utc,
+            )
+            if not isinstance(cached_activities, list):
+                cached_activities = []
+
+            indexed_coverage = index_storage.get_indexed_day_coverage(
+                athlete_id=athlete_id,
+                lookback_days=max(1, lookback_days),
+                now_utc=now_utc,
+            )
+            if not isinstance(indexed_coverage, set):
+                indexed_coverage = set()
+
+            missing_cache_days = self._compute_missing_cache_days(
+                lookback_days=lookback_days,
+                rolling_window_days=rolling_window_days,
+                indexed_days=indexed_coverage,
+                now_utc=now_utc,
+            )
+
+            if missing_cache_days:
+                bootstrap_activities = self._client.list_activities(start_date=cutoff)
+                list_calls_made += 1
+                self._persist_index_payloads(
+                    athlete_id=athlete_id,
+                    activities=bootstrap_activities,
+                )
+                cached_activities = index_storage.query_activity_payloads_by_lookback(
+                    athlete_id=athlete_id,
+                    lookback_days=max(1, lookback_days),
+                    now_utc=now_utc,
+                )
+                if not isinstance(cached_activities, list):
+                    cached_activities = []
+
+            merged = self._merge_candidate_activities(
+                recent_activities,
+                cached_activities,
+            )
+            meta = {
+                "list_window_days_used": rolling_window_days,
+                "list_calls_made": list_calls_made,
+                "cache_hit_count": len(cached_activities),
+                "cache_miss_days": len(missing_cache_days),
+            }
+            return merged, meta
+        except StorageError:
+            logger.warning(
+                "Garmin activity index unavailable; falling back to direct list-only selection",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "lookback_days": lookback_days,
+                },
+                exc_info=True,
+            )
+            direct_activities = self._client.list_activities(start_date=cutoff)
+            list_calls_made += 1
+            merged = self._merge_candidate_activities(
+                recent_activities,
+                direct_activities,
+            )
+            meta = {
+                "list_window_days_used": rolling_window_days,
+                "list_calls_made": list_calls_made,
+                "cache_hit_count": 0,
+                "cache_miss_days": 0,
+            }
+            return merged, meta
+
+    def _persist_index_payloads(self, *, athlete_id: str, activities: Iterable[Dict]) -> None:
+        """Best-effort upsert of Garmin list payloads into activity index."""
+        for activity in activities:
+            try:
+                self._storage.garmin_activity_index.upsert_activity_payload(
+                    athlete_id=athlete_id,
+                    activity_payload=activity,
+                )
+            except StorageError:
+                logger.warning(
+                    "Failed to persist Garmin activity payload into index",
+                    extra={
+                        "athlete_id": athlete_id,
+                        "source_system": "garmin",
+                        "activity_id": activity.get("activityId"),
+                    },
+                    exc_info=True,
+                )
+
+    @staticmethod
+    def _compute_missing_cache_days(
+        *,
+        lookback_days: int,
+        rolling_window_days: int,
+        indexed_days: Set[str],
+        now_utc: datetime,
+    ) -> Set[str]:
+        """Return missing older-window UTC days not covered by cached index rows."""
+        if lookback_days <= rolling_window_days:
+            return set()
+
+        older_end = (now_utc - timedelta(days=rolling_window_days)).date()
+        older_start = (now_utc - timedelta(days=lookback_days)).date()
+
+        expected_days: Set[str] = set()
+        current = older_start
+        while current <= older_end:
+            expected_days.add(current.isoformat())
+            current += timedelta(days=1)
+
+        return expected_days - indexed_days
+
+    @staticmethod
+    def _merge_candidate_activities(
+        primary: List[Dict],
+        secondary: List[Dict],
+    ) -> List[Dict]:
+        """Merge activity candidates by activityId while preserving prefilter semantics."""
+        merged: Dict[str, Dict] = {}
+        for activity in [*primary, *secondary]:
+            activity_id = activity.get("activityId")
+            if activity_id is None:
+                continue
+            merged[str(activity_id)] = activity
+        return list(merged.values())
 
     def _handle_sync(self, athlete_id: str, lookback_days: int, force: bool = False) -> Tuple[Dict, int]:
         """Execute synchronous sync."""
