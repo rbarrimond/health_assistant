@@ -8,6 +8,14 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-22
+
+### Garmin Library Stewardship Preflight [application v3.8.2]
+
+- **Changed**: upgraded minimum Garmin dependency from `garminconnect>=0.2.38` to `garminconnect>=0.2.40` in both `pyproject.toml` and `requirements.txt`.
+- **Rationale**: aligns with project library-stewardship policy before cache-first activity index work, ensuring we rely on current upstream auth/token handling behavior rather than local reimplementation.
+- **Validated**: Garmin-focused regression suites pass after the dependency-floor update (`test_garmin_client.py`, `test_garmin_sync_handler.py`, `test_garmin_physiometrics_sync_handler.py`, `test_garmin_training_state_adapter.py`).
+
 ## 2026-03-21
 
 ### Garmin Rate-Limit Conservatism Tightening [application v3.8.1]

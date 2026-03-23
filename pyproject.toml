@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "health-assistant"
-version = "3.8.0"
+version = "3.8.2"
 description = "FIT file parser for Azure Functions"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -22,7 +22,7 @@ dependencies = [
     "pyarrow>=14.0.0",
     "pydantic>=2.6.0",
     "requests>=2.31.0",
-    "garminconnect>=0.2.38",
+    "garminconnect>=0.2.40",
 ]
 
 [project.optional-dependencies]
