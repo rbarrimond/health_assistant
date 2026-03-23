@@ -19,6 +19,7 @@ from TrainingAnalyticsPlatform.integrations.garmin_client import (
     GarminConnectClient,
     GarminConnectError,
 )
+from TrainingAnalyticsPlatform.integrations.garmin_activity_contract import GarminActivityContract
 from TrainingAnalyticsPlatform.handlers.ingestion_hashing import compute_bytes_hash
 from TrainingAnalyticsPlatform.platform.exceptions import (
     ConfigError,
@@ -130,10 +131,11 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
         """
         athlete_id = kwargs["athlete_id"]
         activity = kwargs["activity"]
+        activity_contract = GarminActivityContract(activity)
         source_info: Optional[Dict] = None
 
-        activity_id = str(activity.get("activityId"))
-        activity_name = activity.get("activityName", "Unknown")
+        activity_id = activity_contract.activity_id
+        activity_name = activity_contract.activity_name or "Unknown"
 
         logger.info(
             "Processing Garmin activity",
@@ -310,19 +312,16 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
 
     def _build_source_info(self, activity: Dict) -> Dict:
         """Build source info metadata for ingestion state tracking."""
-        activity_id = str(activity.get("activityId"))
-        return {
+        activity_contract = GarminActivityContract(activity)
+        activity_id = activity_contract.activity_id
+        source_info = {
             "source_system": "Garmin",
             "source_file_name": f"{activity_id}.fit",
             "source_file_path": f"/garmin/{activity_id}.fit",
             "source_item_id": activity_id,
-            "source_activity_name": activity.get("activityName"),
-            "source_activity_type": activity.get("activityType", {}).get("typeKey"),
-            "source_start_time_utc": activity.get("startTimeGMT"),
-            "source_start_time_local": activity.get("startTimeLocal"),
-            "source_duration_sec": activity.get("duration"),
-            "source_distance_meters": activity.get("distance"),
         }
+        source_info.update(activity_contract.to_source_metadata_fields())
+        return source_info
 
     @staticmethod
     def _resolve_ingestion_id(source_info: Dict) -> str:
@@ -366,7 +365,7 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
 
     def _parse_activity_start_time(self, activity: Dict) -> Optional[datetime]:
         """Parse and validate activity start time."""
-        start_time = activity.get("startTimeGMT")
+        start_time = GarminActivityContract(activity).start_time_utc
         if not start_time:
             return None
         try:
@@ -376,11 +375,7 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
 
     def _parse_activity_duration(self, activity: Dict) -> Optional[float]:
         """Parse and validate activity duration."""
-        duration = activity.get("duration")
-        try:
-            return float(duration) if duration is not None else None
-        except (TypeError, ValueError):
-            return None
+        return GarminActivityContract(activity).duration_sec
 
     def _get_search_partitions(self, athlete_id: str, start_dt: datetime) -> set:
         """Generate partition keys to search (current month ±1 day)."""

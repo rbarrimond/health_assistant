@@ -39,6 +39,29 @@ def _build_activity(
 class TestGarminSyncIngestionHandler:
     """Targeted duplicate detection tests for Garmin ingestion."""
 
+    def test_handle_uses_normalized_alias_activity_id_for_download(self):
+        storage = MagicMock()
+        storage.workouts = MagicMock()
+        client = MagicMock()
+        client.download_activity_fit.return_value = b"fit-bytes"
+        handler = GarminSyncIngestionHandler(storage=storage, client=client)
+        handler._skip_if_unchanged = MagicMock(return_value=(True, "workout-1"))  # type: ignore[attr-defined]
+
+        body, status = handler.handle(
+            athlete_id="rob",
+            activity={
+                "activity_id": "alias-42",
+                "activity_name": "Alias Activity",
+                "activityTypeDTO": {"typeKey": "walking"},
+                "startTimeGmt": "2026-02-20T10:00:00+00:00",
+                "durationInSeconds": 1800,
+            },
+        )
+
+        assert status == 200
+        assert body["status"] == "skipped"
+        client.download_activity_fit.assert_called_once_with("alias-42")
+
     def test_build_source_info_includes_local_and_utc_start_times(self):
         storage = MagicMock()
         handler = GarminSyncIngestionHandler(storage=storage, client=MagicMock())
@@ -54,6 +77,36 @@ class TestGarminSyncIngestionHandler:
 
         assert source_info["source_start_time_utc"] == "2026-02-20T10:00:00+00:00"
         assert source_info["source_start_time_local"] == "2026-02-20T06:00:00"
+
+    def test_build_source_info_uses_alias_fields_when_primary_keys_missing(self):
+        storage = MagicMock()
+        handler = GarminSyncIngestionHandler(storage=storage, client=MagicMock())
+
+        source_info = handler._build_source_info(  # pylint: disable=protected-access
+            {
+                "activity_id": "alias-1",
+                "activity_name": "Alias Activity",
+                "activityTypeDTO": {"typeKey": "virtual_ride"},
+                "startTimeGmt": "2026-02-20T10:00:00+00:00",
+                "startTimeGmtLocal": "2026-02-20T06:00:00",
+                "durationInSeconds": 3599,
+                "distanceMeters": 24500,
+                "avgHR": 142,
+                "maximumHR": 179,
+                "calories": 610,
+            }
+        )
+
+        assert source_info["source_item_id"] == "alias-1"
+        assert source_info["source_activity_name"] == "Alias Activity"
+        assert source_info["source_activity_type"] == "virtual_ride"
+        assert source_info["source_start_time_utc"] == "2026-02-20T10:00:00+00:00"
+        assert source_info["source_start_time_local"] == "2026-02-20T06:00:00"
+        assert source_info["source_duration_sec"] == 3599
+        assert source_info["source_distance_meters"] == 24500
+        assert source_info["source_average_hr_bpm"] == 142
+        assert source_info["source_max_hr_bpm"] == 179
+        assert source_info["source_calories"] == 610
 
     def test_find_near_duplicate_workout_matches_by_time_and_duration(self):
         storage = MagicMock()
@@ -98,6 +151,32 @@ class TestGarminSyncIngestionHandler:
         )
 
         assert workout_id is None
+
+    def test_find_near_duplicate_workout_accepts_time_and_duration_aliases(self):
+        storage = MagicMock()
+        storage.infrastructure = MagicMock()
+        table_client = MagicMock()
+        storage.infrastructure.get_table_client.return_value = table_client
+        table_client.query_entities.return_value = [
+            {
+                "athlete_id": "rob",
+                "workout_id": "existing-123",
+                "start_time_utc": "2026-02-20T10:00:30+00:00",
+                "duration_sec": 3605,
+            }
+        ]
+        handler = GarminSyncIngestionHandler(storage=storage, client=MagicMock())
+
+        workout_id = handler._find_near_duplicate_workout(  # pylint: disable=protected-access
+            "rob",
+            {
+                "activityId": "a1",
+                "startTimeGmt": "2026-02-20T10:00:00+00:00",
+                "durationInSeconds": 3600,
+            },
+        )
+
+        assert workout_id == "existing-123"
 
 
 class TestGarminSyncConfig:

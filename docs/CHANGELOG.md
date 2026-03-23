@@ -8,6 +8,22 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-03-23
+
+### Garmin Typed Activity Normalization Contract [application v3.9.2]
+
+- **Added**: typed Garmin activity-list normalization contract in `TrainingAnalyticsPlatform/integrations/garmin_activity_contract.py` with explicit core/common/type-specific alias tiers.
+- **Changed**: Garmin sync ingestion handler now resolves source metadata through the shared typed contract rather than embedded ad-hoc alias maps.
+- **Added**: type-specific optional metadata extraction for observed polymorphic activity families (e.g., walking steps/cadence, cycling power metrics, strength total reps) as additive source metadata.
+- **Preserved**: ingestion idempotency key behavior and workout persistence semantics remain unchanged.
+
+### Garmin List Payload Alias Normalization [application v3.9.1]
+
+- **Changed**: Garmin sync source metadata extraction now resolves known list payload aliases for core fields (activity id/name/type, UTC/local start time, duration, distance) to tolerate observed schema polymorphism across activity types.
+- **Added**: source metadata now captures optional list-derived activity metrics when available (`source_average_hr_bpm`, `source_max_hr_bpm`, `source_calories`) without affecting ingestion idempotency keys.
+- **Changed**: near-duplicate detection parsing now uses normalized start-time and duration aliases, improving duplicate checks when Garmin list payloads expose alternate field names.
+- **Scope**: this release hardens ingestion metadata parsing only; FIT download, parsing, and workout storage semantics remain unchanged.
+
 ## 2026-03-22
 
 ### Garmin Activity Index Contract (Phase 1) [application v3.9.0]
