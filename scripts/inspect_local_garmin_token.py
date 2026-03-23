@@ -9,6 +9,7 @@ Optional environment variables:
   GARMIN_PROBE_LIST: Set to "0" to skip list_activities call
     GARMIN_PROBE_SHOW_SECRETS: Set to "1" to print full token values
     GARMIN_PROBE_STORAGE_MODE: "runtime" (default) or "remote"
+    GARMIN_PROBE_REFRESH_TOKEN: Set to "1" to persist refreshed Garmin token
 """
 
 from __future__ import annotations
@@ -65,6 +66,12 @@ def _resolve_storage_connection_string(settings: dict[str, Any]) -> tuple[Option
             )
         return remote_connection, "remote"
 
+    values = settings.get("Values")
+    if isinstance(values, dict):
+        runtime_connection = values.get("AzureWebJobsStorage")
+        if isinstance(runtime_connection, str) and runtime_connection.strip():
+            return runtime_connection, "runtime"
+
     return os.getenv("AzureWebJobsStorage"), "runtime"
 
 
@@ -117,10 +124,12 @@ def main() -> int:
     athlete_id = os.getenv("ATHLETE_ID") or os.getenv("DEFAULT_ATHLETE_ID", "rob")
     should_list = os.getenv("GARMIN_PROBE_LIST", "1") != "0"
     show_secrets = os.getenv("GARMIN_PROBE_SHOW_SECRETS", "0") == "1"
+    should_refresh_token = os.getenv("GARMIN_PROBE_REFRESH_TOKEN", "0") == "1"
     storage_connection_string, storage_mode = _resolve_storage_connection_string(settings)
 
     print(f"athlete_id={athlete_id}")
     print(f"storage_mode={storage_mode}")
+    print(f"refresh_token_mode={should_refresh_token}")
 
     storage = StorageCoordinator(connection_string=storage_connection_string)
 
@@ -176,19 +185,29 @@ def main() -> int:
     print(f"restore_succeeded={state['restore_succeeded']}")
     print(f"login_called={state['login_called']}")
 
+    is_authenticated = client.client is not None
+
     if not should_list:
         print("list_activities=skipped:disabled")
-        return 0
-
-    if client.client is None:
+    elif not is_authenticated:
         print("list_activities=skipped:not_authenticated")
-        return 0
+    else:
+        try:
+            activities = client.list_activities()
+            print(f"list_activities=success count={len(activities)}")
+        except Exception as exc:
+            print(f"list_activities=error:{type(exc).__name__}:{exc}")
 
-    try:
-        activities = client.list_activities()
-        print(f"list_activities=success count={len(activities)}")
-    except Exception as exc:
-        print(f"list_activities=error:{type(exc).__name__}:{exc}")
+    if should_refresh_token and is_authenticated:
+        try:
+            refreshed_token = client.dump_tokens()
+            storage.oauth_tokens.store_garmin_tokens(athlete_id, refreshed_token)
+            print("token_refresh=stored")
+            print(f"token_refresh_length={len(refreshed_token)}")
+        except (GarminConnectError, StorageError) as exc:
+            print(f"token_refresh=error:{type(exc).__name__}:{exc}")
+    elif should_refresh_token:
+        print("token_refresh=skipped:not_authenticated")
 
     return 0
 
