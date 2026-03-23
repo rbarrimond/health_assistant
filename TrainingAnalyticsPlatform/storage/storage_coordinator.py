@@ -5,6 +5,7 @@ from typing import Optional
 
 from TrainingAnalyticsPlatform.storage.aggregation_storage import AggregationStorage
 from TrainingAnalyticsPlatform.storage.async_ingestion_operation_storage import AsyncIngestionOperationStorage
+from TrainingAnalyticsPlatform.storage.garmin_activity_index_storage import GarminActivityIndexStorage
 from TrainingAnalyticsPlatform.storage.oauth_token_storage import OAuthTokenStorage
 from TrainingAnalyticsPlatform.storage.physiometrics_storage import PhysiometricsStorage
 from TrainingAnalyticsPlatform.storage.retry_deferral_storage import RetryDeferralStorage
@@ -35,6 +36,7 @@ class StorageCoordinator:
         self._aggregation = AggregationStorage(self._infrastructure)
         self._retry_deferrals = RetryDeferralStorage(self._infrastructure)
         self._async_operations = AsyncIngestionOperationStorage(self._infrastructure)
+        self._garmin_activity_index = GarminActivityIndexStorage(self._infrastructure)
 
     # ---- Properties for typed access to domain storage classes ----
 
@@ -72,6 +74,11 @@ class StorageCoordinator:
     def async_operations(self) -> AsyncIngestionOperationStorage:
         """Access async ingestion operation state storage operations."""
         return self._async_operations
+
+    @property
+    def garmin_activity_index(self) -> GarminActivityIndexStorage:
+        """Access Garmin activity index storage operations."""
+        return self._garmin_activity_index
 
     # ---- Backward compatibility: expose infrastructure directly for rare cases ----
 

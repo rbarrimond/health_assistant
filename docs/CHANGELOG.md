@@ -18,6 +18,12 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - **Added**: configuration knobs `GARMIN_ACTIVITY_INDEX_ROLLING_WINDOW_DAYS` (default `3`) and `GARMIN_ACTIVITY_INDEX_FRESHNESS_HOURS` (default `24`) to prepare cache-first orchestration.
 - **Scope**: Phase 1 is contract + schema only; no intentional Garmin sync candidate-selection behavior change yet.
 
+### Garmin Activity Index Storage Layer (Phase 2) [application v3.9.0]
+
+- **Added**: dedicated `GarminActivityIndexStorage` module with typed operations for index row upsert, lookback-window payload queries, latest indexed timestamp lookup, and indexed day-coverage inspection.
+- **Changed**: `StorageCoordinator` now exposes `garmin_activity_index` to provide a first-class access path for Garmin index operations.
+- **Scope**: cache-first sync orchestration behavior remains unchanged in Phase 2; this phase is storage-layer wiring only.
+
 ### Garmin Library Stewardship Preflight [application v3.8.2]
 
 - **Changed**: upgraded minimum Garmin dependency from `garminconnect>=0.2.38` to `garminconnect>=0.2.40` in both `pyproject.toml` and `requirements.txt`.

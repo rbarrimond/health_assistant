@@ -691,6 +691,7 @@ Successful responses include `count`, `records_fetched`, `records_processed`, `r
 | [garmin_client.py](../../TrainingAnalyticsPlatform/integrations/garmin_client.py) | garminconnect library wrapper |
 | [garmin_sync_handler.py](../../TrainingAnalyticsPlatform/handlers/garmin_sync_handler.py) | Sync orchestration + ingestion handler |
 | [garmin_physiometrics_sync_handler.py](../../TrainingAnalyticsPlatform/handlers/garmin_physiometrics_sync_handler.py) | Garmin physiometrics sync + raw payload archival |
+| [garmin_activity_index_storage.py](../../TrainingAnalyticsPlatform/storage/garmin_activity_index_storage.py) | Garmin list-payload index storage CRUD + lookback query helpers |
 | [oauth_token_storage.py](../../TrainingAnalyticsPlatform/storage/oauth_token_storage.py) | Garmin token persistence and restore state |
 | [function_app.py](../../function_app.py) | HTTP sync endpoint + daily timer trigger |
 | [table_storage.py](../../TrainingAnalyticsPlatform/storage/table_storage.py) | Ingestion state tracking |
