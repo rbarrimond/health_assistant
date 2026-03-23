@@ -616,17 +616,20 @@ health_assistant/
    {
      "IsEncrypted": false,
      "Values": {
-       "AzureWebJobsStorage": "DefaultEndpointsProtocol=https;AccountName=<your_account>;AccountKey=<your_key>;EndpointSuffix=core.windows.net",
+       "AzureWebJobsStorage": "UseDevelopmentStorage=true",
        "FUNCTIONS_WORKER_RUNTIME": "python",
        "DEFAULT_ATHLETE_ID": "rob",
        "DEFAULT_FTP": "250",
        "DEFAULT_MAX_HR": "190",
        "HR_ZONE_BASIS": "HRmax"
+     },
+     "ConnectionStrings": {
+       "AzureWebJobsStorageRemote": "DefaultEndpointsProtocol=https;AccountName=<your_account>;AccountKey=<your_key>;EndpointSuffix=core.windows.net"
      }
    }
    ```
 
-   **Note**: `local.settings.json` is in `.gitignore` and should never be committed.
+   **Note**: `local.settings.json` is in `.gitignore` and should never be committed. The local Functions runtime reads `Values`, while ad hoc scripts may explicitly opt into `ConnectionStrings` when they need remote storage access.
 
 5. **Configure physiometrics** (optional, for custom zones):
 
