@@ -31,6 +31,12 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - **Added**: resilient fallback path to direct Garmin list calls when index reads fail, preserving sync continuity.
 - **Preserved**: ingestion idempotency and prefilter-by-activity-id semantics remain unchanged.
 
+### Pre-Sync Operational Safety + Metadata (Phase 4) [application v3.9.0]
+
+- **Added**: Garmin-specific execution metadata passthrough in pre-sync source results (`list_window_days_used`, `list_calls_made`, `cache_hit_count`, `cache_miss_days`).
+- **Changed**: deferred retry gating for Garmin pre-sync now evaluates only outbound Garmin failure signals (rate limiting/auth/list-call failures), avoiding defer decisions tied to non-outbound internal cache operations.
+- **Preserved**: weekly pre-sync fail-fast and planning pre-sync best-available semantics.
+
 ### Garmin Library Stewardship Preflight [application v3.8.2]
 
 - **Changed**: upgraded minimum Garmin dependency from `garminconnect>=0.2.38` to `garminconnect>=0.2.40` in both `pyproject.toml` and `requirements.txt`.

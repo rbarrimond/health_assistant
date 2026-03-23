@@ -737,6 +737,15 @@ Phase 1 introduces a dedicated `GarminActivityIndex` table contract for persiste
 
 Phase 1 defines and provisions this contract only; sync candidate-selection behavior remains unchanged until Phase 2 cache-first wiring.
 
+Pre-sync handlers surface Garmin execution metadata in source-level summaries for planning and weekly orchestration:
+
+- `list_window_days_used`
+- `list_calls_made`
+- `cache_hit_count`
+- `cache_miss_days`
+
+This metadata is intended for observability and call-volume verification; it does not alter ingestion-state semantics.
+
 ### Deduplication Strategy
 
 Activities are identified by:

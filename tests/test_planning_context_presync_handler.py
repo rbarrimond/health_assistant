@@ -42,6 +42,36 @@ class TestPlanningContextPreSyncHandlerAllSucceeded:
         assert len(result["sources"]) == 4
         assert all(s["status"] == "success" for s in result["sources"])
 
+    def test_garmin_source_result_includes_cache_execution_metadata(self):
+        handler = _make_handler()
+
+        onedrive_response = ({"status": "ok", "message": "synced"}, 200)
+        garmin_response = (
+            {
+                "status": "success",
+                "message": "synced",
+                "list_window_days_used": 3,
+                "list_calls_made": 1,
+                "cache_hit_count": 22,
+                "cache_miss_days": 0,
+            },
+            200,
+        )
+        handler._onedrive_service.handle.return_value = onedrive_response
+        handler._garmin_service.handle.return_value = garmin_response
+        handler._garmin_physiometrics_service.handle.return_value = onedrive_response
+        handler._intervals_service.handle.return_value = onedrive_response
+
+        result = handler.run(athlete_id="rob", days=30)
+
+        garmin_result = next(
+            source for source in result["sources"] if source["source"] == "garmin_activities"
+        )
+        assert garmin_result["list_window_days_used"] == 3
+        assert garmin_result["list_calls_made"] == 1
+        assert garmin_result["cache_hit_count"] == 22
+        assert garmin_result["cache_miss_days"] == 0
+
 
 class TestPlanningContextPreSyncHandlerPartialSuccess:
     def test_one_source_fails_continues_others(self):

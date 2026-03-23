@@ -28,7 +28,16 @@ class TestWeeklyRollupPreSyncHandler:
         onedrive.handle.return_value = ({"message": "ok"}, 200)
 
         garmin = MagicMock()
-        garmin.handle.return_value = ({"message": "ok"}, 200)
+        garmin.handle.return_value = (
+            {
+                "message": "ok",
+                "list_window_days_used": 3,
+                "list_calls_made": 1,
+                "cache_hit_count": 12,
+                "cache_miss_days": 0,
+            },
+            200,
+        )
 
         garmin_physiometrics = MagicMock()
         garmin_physiometrics.handle.return_value = ({"message": "ok"}, 200)
@@ -50,6 +59,13 @@ class TestWeeklyRollupPreSyncHandler:
         assert result["status"] == "success"
         assert len(result["sources"]) == 4
         assert intervals.handle.call_args.kwargs["lookback_days"] == 8
+        garmin_result = next(
+            source for source in result["sources"] if source["source"] == "garmin_activities"
+        )
+        assert garmin_result["list_window_days_used"] == 3
+        assert garmin_result["list_calls_made"] == 1
+        assert garmin_result["cache_hit_count"] == 12
+        assert garmin_result["cache_miss_days"] == 0
 
     def test_fail_fast_stops_after_first_failure(self):
         onedrive = MagicMock()

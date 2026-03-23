@@ -12,6 +12,12 @@ from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import GarminSyncReq
 from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import OneDriveSyncRequest
 
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+GARMIN_PRESYNC_METADATA_KEYS = (
+    "list_window_days_used",
+    "list_calls_made",
+    "cache_hit_count",
+    "cache_miss_days",
+)
 PreSyncResponse = (
     tuple[Dict[str, Any], int]
     | tuple[Dict[str, Any], int, Dict[str, Any]]
@@ -116,6 +122,10 @@ class PreSyncExecutionMixin:
                 last_status_code = status_code
                 last_message = self._extract_message(body)
                 last_retry_after = self._extract_retry_after(headers, body)
+                source_metadata = self._extract_source_metadata(
+                    body=body,
+                    source=operation.source,
+                )
 
                 if status_code == 200:
                     return self._build_result(
@@ -126,6 +136,7 @@ class PreSyncExecutionMixin:
                         attempts,
                         start,
                         retry_after=last_retry_after,
+                        source_metadata=source_metadata,
                     )
 
                 retryable = status_code in RETRYABLE_STATUS_CODES
@@ -133,6 +144,8 @@ class PreSyncExecutionMixin:
                     operation=operation,
                     retry_after_raw=last_retry_after,
                     started_at=start,
+                    status_code=status_code,
+                    body=body,
                 )
                 if decision:
                     return self._build_result(
@@ -146,6 +159,7 @@ class PreSyncExecutionMixin:
                         deferred=True,
                         safe_to_retry_at_utc=decision.get("safe_to_retry_at_utc"),
                         deferred_operation_id=decision.get("operation_id"),
+                        source_metadata=source_metadata,
                     )
                 if retryable and attempts < self._retry_max_attempts:
                     self._sleep_with_backoff(
@@ -164,6 +178,7 @@ class PreSyncExecutionMixin:
                     attempts,
                     start,
                     retry_after=last_retry_after,
+                    source_metadata=source_metadata,
                 )
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 last_message = str(exc)
@@ -214,10 +229,19 @@ class PreSyncExecutionMixin:
         operation: PreSyncOperation,
         retry_after_raw: str | None,
         started_at: float,
+        status_code: int,
+        body: Dict[str, Any],
     ) -> dict[str, Any] | None:
         """Evaluate timeout-risk deferral decision via optional coordinator."""
         coordinator = getattr(self, "_deferred_retry_coordinator", None)
         if coordinator is None:
+            return None
+
+        if not self._is_defer_eligible(
+            source=operation.source,
+            status_code=status_code,
+            body=body,
+        ):
             return None
 
         elapsed_sec = max(0.0, time.monotonic() - started_at)
@@ -236,6 +260,47 @@ class PreSyncExecutionMixin:
             "safe_to_retry_at_utc": decision.safe_to_retry_at_utc,
             "retry_after": decision.retry_after_raw,
         }
+
+    @staticmethod
+    def _is_defer_eligible(
+        *,
+        source: str,
+        status_code: int,
+        body: Dict[str, Any],
+    ) -> bool:
+        """Return True when timeout-risk deferral should be evaluated."""
+        if source != "garmin_activities":
+            return status_code in RETRYABLE_STATUS_CODES
+
+        if status_code == 429:
+            return True
+
+        if not isinstance(body, dict):
+            return False
+
+        error_code = str(body.get("error_code", "")).strip().upper()
+        if error_code in {"GARMIN_RATE_LIMITED", "GARMIN_AUTH_ERROR"}:
+            return True
+
+        message = str(body.get("message") or body.get("error") or "").lower()
+        return "failed to list activities" in message
+
+    @staticmethod
+    def _extract_source_metadata(
+        *,
+        body: Dict[str, Any],
+        source: str,
+    ) -> Dict[str, Any]:
+        """Extract source-specific execution metadata for result payloads."""
+        if source != "garmin_activities" or not isinstance(body, dict):
+            return {}
+
+        metadata: Dict[str, Any] = {}
+        for key in GARMIN_PRESYNC_METADATA_KEYS:
+            value = body.get(key)
+            if value is not None:
+                metadata[key] = value
+        return metadata
 
     @staticmethod
     def _normalize_response(response: PreSyncResponse) -> tuple[Dict[str, Any], int, Dict[str, Any]]:
@@ -353,6 +418,7 @@ class PreSyncExecutionMixin:
         deferred: bool = False,
         safe_to_retry_at_utc: str | None = None,
         deferred_operation_id: str | None = None,
+        source_metadata: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         """Build source-level result payload."""
         duration_ms = int((time.monotonic() - started_at) * 1000)
@@ -372,6 +438,8 @@ class PreSyncExecutionMixin:
             result["safe_to_retry_at_utc"] = safe_to_retry_at_utc
         if deferred_operation_id is not None:
             result["deferred_operation_id"] = deferred_operation_id
+        if source_metadata:
+            result.update(source_metadata)
         return result
 
 
