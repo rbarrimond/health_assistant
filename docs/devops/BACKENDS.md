@@ -735,7 +735,7 @@ Phase 1 introduces a dedicated `GarminActivityIndex` table contract for persiste
 - `payload_schema_version`
 - `raw_activity_payload_json` (exact list payload serialized to JSON)
 
-Phase 1 defines and provisions this contract only; sync candidate-selection behavior remains unchanged until Phase 2 cache-first wiring.
+The index contract is now actively used by cache-first Garmin candidate selection (bounded rolling list window + indexed lookback merge with bootstrap fallback).
 
 Pre-sync handlers surface Garmin execution metadata in source-level summaries for planning and weekly orchestration:
 
