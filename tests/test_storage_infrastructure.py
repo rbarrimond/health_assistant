@@ -39,6 +39,11 @@ def test_get_table_client_recreates_missing_managed_table_before_access() -> Non
     assert table_client is expected_client
 
 
+def test_garmin_activity_index_table_is_managed() -> None:
+    """Garmin activity index table should be part of managed table bootstrap set."""
+    assert "GarminActivityIndex" in MANAGED_TABLE_NAMES
+
+
 def test_get_table_client_skips_recreate_for_unmanaged_table() -> None:
     """Unknown table names should not be implicitly created by the infrastructure."""
     infrastructure = StorageInfrastructure.__new__(StorageInfrastructure)

@@ -125,6 +125,31 @@ class TestGarminSyncConfig:
 
         assert config.activity_request_delay_sec == pytest.approx(1.5)
 
+    def test_from_env_reads_activity_index_window_and_freshness(self, monkeypatch):
+        monkeypatch.setenv("GARMIN_EMAIL", "user@example.com")
+        monkeypatch.setenv("GARMIN_PASSWORD", "secret")
+        monkeypatch.setenv("GARMIN_ACTIVITY_INDEX_ROLLING_WINDOW_DAYS", "2")
+        monkeypatch.setenv("GARMIN_ACTIVITY_INDEX_FRESHNESS_HOURS", "12")
+
+        config = GarminSyncConfig.from_env()
+
+        assert config.activity_index_rolling_window_days == 2
+        assert config.activity_index_freshness_hours == 12
+
+    def test_from_env_defaults_activity_index_window_and_freshness_on_invalid(
+        self,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("GARMIN_EMAIL", "user@example.com")
+        monkeypatch.setenv("GARMIN_PASSWORD", "secret")
+        monkeypatch.setenv("GARMIN_ACTIVITY_INDEX_ROLLING_WINDOW_DAYS", "invalid")
+        monkeypatch.setenv("GARMIN_ACTIVITY_INDEX_FRESHNESS_HOURS", "invalid")
+
+        config = GarminSyncConfig.from_env()
+
+        assert config.activity_index_rolling_window_days == 3
+        assert config.activity_index_freshness_hours == 24
+
     def test_find_near_duplicate_workout_handles_invalid_start(self):
         storage = MagicMock()
         handler = GarminSyncIngestionHandler(storage=storage, client=MagicMock())

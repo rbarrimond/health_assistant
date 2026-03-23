@@ -10,6 +10,14 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-22
 
+### Garmin Activity Index Contract (Phase 1) [application v3.9.0]
+
+- **Added**: dedicated managed Azure Table `GarminActivityIndex` for persisted Garmin activity-list index rows.
+- **Added**: canonical persisted entity contract for exact Garmin list payload storage with required control fields: `activity_id`, `source_start_time_utc`, `last_listed_at_utc`, `payload_schema_version`.
+- **Added**: explicit key strategy for athlete/time-range queries: `PartitionKey=athlete_id`, `RowKey=YYYYMMDDTHHMMSSZ|activity_id`.
+- **Added**: configuration knobs `GARMIN_ACTIVITY_INDEX_ROLLING_WINDOW_DAYS` (default `3`) and `GARMIN_ACTIVITY_INDEX_FRESHNESS_HOURS` (default `24`) to prepare cache-first orchestration.
+- **Scope**: Phase 1 is contract + schema only; no intentional Garmin sync candidate-selection behavior change yet.
+
 ### Garmin Library Stewardship Preflight [application v3.8.2]
 
 - **Changed**: upgraded minimum Garmin dependency from `garminconnect>=0.2.38` to `garminconnect>=0.2.40` in both `pyproject.toml` and `requirements.txt`.

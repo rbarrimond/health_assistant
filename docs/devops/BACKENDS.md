@@ -590,6 +590,8 @@ GARMIN_PASSWORD=<garmin-account-password>
 GARMIN_SYNC_LOOKBACK_DAYS=30  # Optional, defaults to 30 days
 GARMIN_ACTIVITY_REQUEST_DELAY_SEC=1.0  # Optional, delay between successful per-activity FIT ingestions
 GARMIN_AUTH_RATE_LIMIT_COOLDOWN_SECONDS=3600  # Optional, auth cooldown after Garmin 429s
+GARMIN_ACTIVITY_INDEX_ROLLING_WINDOW_DAYS=3  # Optional, bounded rolling list window target
+GARMIN_ACTIVITY_INDEX_FRESHNESS_HOURS=24  # Optional, freshness horizon for indexed list payloads
 GARMIN_SYNC_TIMER_SCHEDULE=0 0 3 * * 1  # Optional weekly safety-net schedule
 GARMIN_PHYSIOMETRICS_SYNC_TIMER_SCHEDULE=0 30 3 * * 1  # Optional weekly safety-net schedule
 ```
@@ -600,6 +602,8 @@ Operational notes:
 
 - `GARMIN_ACTIVITY_REQUEST_DELAY_SEC` defaults to `1.0` second to avoid back-to-back FIT downloads during large backfills.
 - `GARMIN_AUTH_RATE_LIMIT_COOLDOWN_SECONDS` defaults to `3600` seconds (1 hour) so repeated auth attempts do not immediately hammer Garmin after a 429.
+- `GARMIN_ACTIVITY_INDEX_ROLLING_WINDOW_DAYS` defaults to `3` and defines the bounded rolling list window used by cache-first Garmin sync planning.
+- `GARMIN_ACTIVITY_INDEX_FRESHNESS_HOURS` defaults to `24` and defines the target staleness horizon for indexed Garmin activity list payloads.
 
 #### 2. Run Sync
 
@@ -709,6 +713,27 @@ Successful responses include `count`, `records_fetched`, `records_processed`, `r
 6. **Track State:** Record ingestion status in `IngestionState` with source metadata.
 7. **Persist Session:** Save the current garth session back to `GarminTokens` so refreshed token state is available to the next sync.
 
+### Garmin Activity Index Table (Phase 1 Contract)
+
+Phase 1 introduces a dedicated `GarminActivityIndex` table contract for persisted Garmin list payloads. This stores exact raw list response payloads plus control metadata required for cache-first orchestration in later phases.
+
+**Table:** `GarminActivityIndex`
+
+**Key strategy:**
+
+- `PartitionKey`: `athlete_id`
+- `RowKey`: `YYYYMMDDTHHMMSSZ|{activity_id}` (UTC time-ordered for athlete range scans)
+
+**Required persisted fields:**
+
+- `activity_id`
+- `source_start_time_utc`
+- `last_listed_at_utc`
+- `payload_schema_version`
+- `raw_activity_payload_json` (exact list payload serialized to JSON)
+
+Phase 1 defines and provisions this contract only; sync candidate-selection behavior remains unchanged until Phase 2 cache-first wiring.
+
 ### Deduplication Strategy
 
 Activities are identified by:
@@ -807,7 +832,7 @@ except Exception as exc:
 | --- | --- | --- |
 | **Trigger** | Configurable safety-net timer (weekly default) | Configurable safety-net timer (weekly default) |
 | **Authentication** | Email/Password | OAuth (Microsoft Graph) |
-| **Library** | garminconnect (v0.2.38) | microsoft-graph |
+| **Library** | garminconnect (v0.2.40+) | microsoft-graph |
 | **File Format** | FIT (direct API) | FIT/FIT.gz (files) |
 | **Deduplication** | Activity ID + hash | Item ID + hash |
 | **Lookback** | 30 days default | 30 days default |

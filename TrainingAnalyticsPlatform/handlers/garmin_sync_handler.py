@@ -40,6 +40,8 @@ GARMIN_SYNC_LOOKBACK_DAYS = "GARMIN_SYNC_LOOKBACK_DAYS"
 GARMIN_EMAIL = "GARMIN_EMAIL"
 GARMIN_PASSWORD = "GARMIN_PASSWORD"
 GARMIN_ACTIVITY_REQUEST_DELAY_SEC = "GARMIN_ACTIVITY_REQUEST_DELAY_SEC"
+GARMIN_ACTIVITY_INDEX_ROLLING_WINDOW_DAYS = "GARMIN_ACTIVITY_INDEX_ROLLING_WINDOW_DAYS"
+GARMIN_ACTIVITY_INDEX_FRESHNESS_HOURS = "GARMIN_ACTIVITY_INDEX_FRESHNESS_HOURS"
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,8 @@ class GarminSyncConfig:
     password: str
     lookback_days: int
     activity_request_delay_sec: float = 1.0
+    activity_index_rolling_window_days: int = 3
+    activity_index_freshness_hours: int = 24
 
     @classmethod
     def from_env(cls) -> "GarminSyncConfig":
@@ -77,11 +81,29 @@ class GarminSyncConfig:
         except ValueError:
             activity_request_delay_sec = 1.0
 
+        try:
+            activity_index_rolling_window_days = max(
+                1,
+                int(os.getenv(GARMIN_ACTIVITY_INDEX_ROLLING_WINDOW_DAYS, "3")),
+            )
+        except ValueError:
+            activity_index_rolling_window_days = 3
+
+        try:
+            activity_index_freshness_hours = max(
+                1,
+                int(os.getenv(GARMIN_ACTIVITY_INDEX_FRESHNESS_HOURS, "24")),
+            )
+        except ValueError:
+            activity_index_freshness_hours = 24
+
         return cls(
             email=email,
             password=password,
             lookback_days=lookback_days,
             activity_request_delay_sec=activity_request_delay_sec,
+            activity_index_rolling_window_days=activity_index_rolling_window_days,
+            activity_index_freshness_hours=activity_index_freshness_hours,
         )
 
 

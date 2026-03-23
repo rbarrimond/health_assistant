@@ -42,6 +42,7 @@ MANAGED_TABLE_NAMES = (
     "TrainingState",
     "RateLimitDeferrals",
     "AsyncIngestionOperations",
+    "GarminActivityIndex",
 )
 
 

@@ -11,7 +11,14 @@ from pathlib import Path
 from azure.data.tables import TableServiceClient
 from azure.core.exceptions import AzureError
 
-TABLES = ["Workouts", "WorkoutLaps", "WeeklyRollups", "IngestionState", "Physiometrics"]
+TABLES = [
+    "Workouts",
+    "WorkoutLaps",
+    "WeeklyRollups",
+    "IngestionState",
+    "Physiometrics",
+    "GarminActivityIndex",
+]
 
 
 def get_connection_string() -> str:
