@@ -193,7 +193,7 @@ class TestOneDriveSyncHandler:
         _, status = handler.handle(req)
 
         assert status == 200
-        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=0)
+        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=0, force=False)
 
     def test_handle_sync_success(self, handler):
         """Test successful synchronous sync."""
@@ -208,7 +208,7 @@ class TestOneDriveSyncHandler:
         # Assert
         assert status == 200
         assert result == expected_result
-        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=14)
+        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=14, force=False)
 
     def test_handle_sync_uses_default_lookback_days(self):
         """Test sync uses default lookback days from config."""
@@ -227,7 +227,7 @@ class TestOneDriveSyncHandler:
 
         # Assert
         assert status == 200
-        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=45)
+        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=45, force=False)
 
     def test_handle_sync_validation_error(self, handler):
         """Test sync returns 400 for validation errors."""
@@ -300,7 +300,7 @@ class TestOneDriveSyncHandler:
         time.sleep(0.1)
 
         # Verify service.sync was called in background
-        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=7)
+        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=7, force=False)
 
     def test_handle_async_exception_logged(self, handler):
         """Test async sync exceptions are logged but don't affect response."""
@@ -345,7 +345,7 @@ class TestOneDriveSyncHandler:
         # Wait for background thread
         time.sleep(0.1)
 
-        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=60)
+        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=60, force=False)
 
     def test_handle_async_queues_when_async_queue_configured(self):
         """Test async mode enqueues OneDrive work item when queue integration is provided."""
@@ -670,7 +670,7 @@ class TestOneDriveIngestionIdentity:
 
         # Assert
         assert status == 200
-        handler.sync.assert_called_once_with(athlete_id="athlete2", lookback_days=28)
+        handler.sync.assert_called_once_with(athlete_id="athlete2", lookback_days=28, force=False)
 
     def test_handle_sync_body_overrides_query(self, handler):
         """Test body parameters override query parameters."""
@@ -685,7 +685,7 @@ class TestOneDriveIngestionIdentity:
         _, _ = handler.handle(req)
 
         # Assert
-        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=14)
+        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=14, force=False)
 
     def test_handle_sync_none_body(self, handler):
         """Test handler works with None body."""
@@ -698,7 +698,7 @@ class TestOneDriveIngestionIdentity:
 
         # Assert
         assert status == 200
-        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=30)
+        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=30, force=False)
 
     def test_handle_sync_none_query_params(self, handler):
         """Test handler works with None query params."""
@@ -711,7 +711,7 @@ class TestOneDriveIngestionIdentity:
 
         # Assert
         assert status == 200
-        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=30)
+        handler.sync.assert_called_once_with(athlete_id="athlete1", lookback_days=30, force=False)
 
 
 class TestSyncStatus:
