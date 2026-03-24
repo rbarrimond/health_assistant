@@ -99,6 +99,34 @@ def test_list_activities_uses_date_range_api():
     assert fake.calls[0][0] == "2026-03-01"
 
 
+def test_list_activities_raises_rate_limit_error_on_too_many_requests():
+    class ThrottledGarmin:
+        def get_activities_by_date(self, startdate: str, enddate: str):
+            raise GarminConnectTooManyRequestsError("Rate limit exceeded")
+
+    client = GarminConnectClient(email="user@example.com", password="x" * 12)
+    client.client = cast(Any, ThrottledGarmin())
+
+    with pytest.raises(GarminConnectRateLimitError, match="rate limited"):
+        client.list_activities()
+
+    assert client.rate_limited_until is not None
+
+
+def test_list_activities_raises_rate_limit_error_on_429_in_message():
+    class ThrottledGarmin:
+        def get_activities_by_date(self, startdate: str, enddate: str):
+            raise RuntimeError("429 Client Error: Too Many Requests for url: https://connectapi.garmin.com/oauth-service/oauth/exchange/user/2.0")
+
+    client = GarminConnectClient(email="user@example.com", password="x" * 12)
+    client.client = cast(Any, ThrottledGarmin())
+
+    with pytest.raises(GarminConnectRateLimitError, match="rate limited"):
+        client.list_activities()
+
+    assert client.rate_limited_until is not None
+
+
 def test_dump_tokens_raises_when_client_not_authenticated():
     client = GarminConnectClient(email="user@example.com", password="x" * 12)
     assert client.client is None

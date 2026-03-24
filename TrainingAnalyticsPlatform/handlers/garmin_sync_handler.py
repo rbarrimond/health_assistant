@@ -792,14 +792,32 @@ class GarminSyncHandler:
                 lookback_days=lookback_days,
                 cutoff=cutoff,
             )
-        except GarminConnectError as exc:
+        except (GarminConnectRateLimitError, GarminConnectError) as exc:
+            if self._is_rate_limited_error(exc):
+                self._persist_rate_limit_cooldown(athlete_id)
+                logger.error(
+                    "Garmin activity list rate limited",
+                    extra={
+                        "athlete_id": athlete_id,
+                        "source_system": "garmin",
+                        "lookback_days": lookback_days,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                    exc_info=True,
+                )
+                return {
+                    "status": "error",
+                    "message": f"Failed to list activities: {exc}",
+                    "error_code": "GARMIN_RATE_LIMITED",
+                }
             logger.error(
                 "Failed to list Garmin activities",
                 extra={
                     "athlete_id": athlete_id,
                     "source_system": "garmin",
                     "lookback_days": lookback_days,
-                    "error_type": "GarminConnectError",
+                    "error_type": type(exc).__name__,
                     "error": str(exc),
                 },
                 exc_info=True,

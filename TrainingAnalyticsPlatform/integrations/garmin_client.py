@@ -206,6 +206,12 @@ class GarminConnectClient:
 
             return activities
         except Exception as exc:
+            if self._is_rate_limited_exception(exc):
+                self._mark_rate_limited()
+                logger.error("Garmin activity list throttled: %s", exc)
+                raise GarminConnectRateLimitError(
+                    "Garmin Connect rate limited the activity list request"
+                ) from exc
             logger.error("Failed to list Garmin activities: %s", exc)
             raise GarminConnectError(f"Failed to fetch activity list: {exc}") from exc
 

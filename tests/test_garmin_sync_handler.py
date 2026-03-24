@@ -16,6 +16,7 @@ from TrainingAnalyticsPlatform.platform.exceptions import WorkoutIdCalculationEr
 from TrainingAnalyticsPlatform.platform.exceptions import ConfigError
 from TrainingAnalyticsPlatform.platform.exceptions import StorageError
 from TrainingAnalyticsPlatform.integrations.garmin_client import GarminConnectError
+from TrainingAnalyticsPlatform.integrations.garmin_client import GarminConnectRateLimitError
 
 
 def _build_activity(
@@ -812,6 +813,51 @@ class TestGarminSyncHandler:
 
         assert status == 500
         assert body["status"] == "error"
+
+    def test_handle_sync_returns_429_when_list_activities_is_rate_limited(self):
+        storage = MagicMock()
+        storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
+        client = MagicMock()
+        client.rate_limited_until = None
+        client.list_activities.side_effect = GarminConnectRateLimitError(
+            "Garmin Connect rate limited the activity list request"
+        )
+        handler = GarminSyncHandler(
+            config=GarminSyncConfig(email="user@example.com", password="x" * 12, lookback_days=30),
+            storage=storage,
+            client=client,
+        )
+
+        body, status = handler._handle_sync("rob", 30)  # pylint: disable=protected-access
+
+        assert status == 429
+        assert body["status"] == "error"
+        assert body.get("error_code") == "GARMIN_RATE_LIMITED"
+
+    def test_sync_persists_rate_limit_cooldown_when_list_activities_rate_limited(self):
+        from datetime import timezone
+        storage = MagicMock()
+        storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
+        storage.oauth_tokens.get_garmin_tokens.return_value = None
+        blocked_until = MagicMock()
+        client = MagicMock()
+        client.rate_limited_until = blocked_until
+        client.list_activities.side_effect = GarminConnectRateLimitError(
+            "Garmin Connect rate limited the activity list request"
+        )
+        handler = GarminSyncHandler(
+            config=GarminSyncConfig(email="user@example.com", password="x" * 12, lookback_days=7),
+            storage=storage,
+            client=client,
+        )
+
+        result = handler.sync(athlete_id="rob", lookback_days=7)
+
+        assert result["status"] == "error"
+        assert result.get("error_code") == "GARMIN_RATE_LIMITED"
+        storage.oauth_tokens.set_garmin_rate_limit_blocked_until.assert_called_once_with(
+            "rob", blocked_until
+        )
 
 
 class TestGarminSyncHandlerTokenLifecycle:
