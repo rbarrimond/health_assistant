@@ -28,6 +28,7 @@ import logging
 import os
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -38,6 +39,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from TrainingAnalyticsPlatform.integrations.garmin_activity_contract import GarminActivityContract  # noqa: E402
+from TrainingAnalyticsPlatform.integrations.garmin_client import GarminConnectClient, GarminConnectError  # noqa: E402
 from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -165,6 +167,156 @@ def _load_index_payload(
     return payload if isinstance(payload, dict) else None
 
 
+def _load_source_item_id_from_state(
+    *,
+    storage: StorageCoordinator,
+    athlete_id: str,
+    ingestion_id: str,
+) -> Optional[str]:
+    ingestion_state_table = storage.infrastructure.get_table_client("IngestionState")
+    try:
+        state_entity = ingestion_state_table.get_entity(
+            partition_key=athlete_id,
+            row_key=ingestion_id,
+        )
+    except (ResourceNotFoundError, HttpResponseError):
+        return None
+
+    return _string_or_none(state_entity.get("source_item_id"))
+
+
+def _build_garmin_api_payload_map(
+    *,
+    storage: StorageCoordinator,
+    athlete_id: str,
+    lookback_days: int,
+) -> Dict[str, Dict[str, Any]]:
+    stored_token = storage.oauth_tokens.get_garmin_tokens(athlete_id)
+    if not stored_token:
+        logger.warning(
+            "Garmin API fallback enabled but no stored token found",
+            extra={"athlete_id": athlete_id},
+        )
+        return {}
+
+    client = GarminConnectClient()
+    try:
+        client.authenticate(stored_token)
+    except GarminConnectError as exc:
+        logger.warning(
+            "Garmin API fallback authentication failed: %s",
+            exc,
+            extra={"athlete_id": athlete_id},
+        )
+        return {}
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, lookback_days))
+    try:
+        activities = client.list_activities(start_date=cutoff)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.warning(
+            "Garmin API fallback list_activities failed: %s",
+            exc,
+            extra={"athlete_id": athlete_id},
+        )
+        return {}
+
+    payload_map: Dict[str, Dict[str, Any]] = {}
+    for activity in activities:
+        if not isinstance(activity, dict):
+            continue
+        activity_id = _string_or_none(activity.get("activityId"))
+        if not activity_id:
+            continue
+        payload_map[activity_id] = activity
+
+    logger.info(
+        "Garmin API fallback cache built athlete_id=%s lookback_days=%d activities=%d",
+        athlete_id,
+        lookback_days,
+        len(payload_map),
+    )
+    return payload_map
+
+
+def _resolve_activity_id_for_index(
+    *,
+    storage: StorageCoordinator,
+    athlete_id: str,
+    ingestion_id: str,
+) -> tuple[Optional[str], bool]:
+    """Resolve Garmin activity id used for index lookup.
+
+    Primary key is ingestion_id (current Garmin contract).
+    Fallback is IngestionState.source_item_id for historical rows where
+    ingestion_id keying may differ from activity id.
+    """
+    if _load_index_payload(
+        storage=storage,
+        athlete_id=athlete_id,
+        activity_id=ingestion_id,
+    ) is not None:
+        return ingestion_id, False
+
+    ingestion_state_table = storage.infrastructure.get_table_client("IngestionState")
+    try:
+        state_entity = ingestion_state_table.get_entity(
+            partition_key=athlete_id,
+            row_key=ingestion_id,
+        )
+    except (ResourceNotFoundError, HttpResponseError):
+        return None, False
+
+    source_item_id = _string_or_none(state_entity.get("source_item_id"))
+    if not source_item_id:
+        return None, False
+
+    if _load_index_payload(
+        storage=storage,
+        athlete_id=athlete_id,
+        activity_id=source_item_id,
+    ) is not None:
+        return source_item_id, True
+
+    return None, False
+
+
+def _metadata_blob_candidates(entity: Dict[str, Any], ingestion_id: str) -> list[str]:
+    candidates: list[str] = [f"{ingestion_id}/metadata.json"]
+
+    workout_id = _string_or_none(entity.get("workout_id"))
+    if workout_id:
+        candidates.append(f"{workout_id}/metadata.json")
+
+    canonical_records_blob = _string_or_none(entity.get("canonical_records_blob"))
+    if canonical_records_blob and "/" in canonical_records_blob:
+        prefix = canonical_records_blob.rsplit("/", 1)[0]
+        if prefix:
+            candidates.append(f"{prefix}/metadata.json")
+
+    deduped: list[str] = []
+    for name in candidates:
+        if name not in deduped:
+            deduped.append(name)
+    return deduped
+
+
+def _load_metadata_with_fallback(
+    *,
+    storage: StorageCoordinator,
+    ingestion_id: str,
+    entity: Dict[str, Any],
+) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
+    for blob_name in _metadata_blob_candidates(entity, ingestion_id):
+        try:
+            metadata = storage.infrastructure.load_json_blob(blob_name)
+        except (ResourceNotFoundError, HttpResponseError, ValueError):
+            continue
+        if isinstance(metadata, dict):
+            return metadata, blob_name
+    return None, None
+
+
 def _compute_enrichment_updates(activity_payload: Dict[str, Any]) -> Dict[str, Any]:
     contract = GarminActivityContract(activity_payload)
     source_metadata = contract.to_source_metadata_fields()
@@ -209,6 +361,10 @@ class BackfillCounters:
     skipped_missing_metadata: int = 0
     skipped_no_enrichment_signal: int = 0
     skipped_unchanged: int = 0
+    matched_via_source_item_id: int = 0
+    updated_via_metadata_path_fallback: int = 0
+    matched_via_garmin_api: int = 0
+    index_seeded_from_garmin_api: int = 0
 
 
 def _parse_args() -> argparse.Namespace:
@@ -234,6 +390,22 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Storage mode override (otherwise GARMIN_PROBE_STORAGE_MODE or runtime)",
     )
+    parser.add_argument(
+        "--garmin-api-fallback",
+        action="store_true",
+        help="Fallback to Garmin API list_activities for rows missing index payload",
+    )
+    parser.add_argument(
+        "--lookback-days",
+        type=int,
+        default=365,
+        help="Garmin API fallback lookback window in days (default: 365)",
+    )
+    parser.add_argument(
+        "--seed-index-from-api",
+        action="store_true",
+        help="When Garmin API fallback resolves missing payloads, upsert them into GarminActivityIndex",
+    )
     return parser.parse_args()
 
 
@@ -244,6 +416,9 @@ def backfill_metadata_enrichment(
     limit: Optional[int],
     connection_string: Optional[str],
     storage_mode: Optional[str],
+    garmin_api_fallback: bool,
+    lookback_days: int,
+    seed_index_from_api: bool,
 ) -> None:
     settings = _load_local_settings()
     resolved_connection = connection_string
@@ -269,6 +444,18 @@ def backfill_metadata_enrichment(
         entities = workouts_table.query_entities(query_filter=query_filter)
 
     counters = BackfillCounters()
+    garmin_api_payload_map: Dict[str, Dict[str, Any]] = {}
+    if garmin_api_fallback:
+        if athlete_id:
+            garmin_api_payload_map = _build_garmin_api_payload_map(
+                storage=storage,
+                athlete_id=athlete_id,
+                lookback_days=lookback_days,
+            )
+        else:
+            logger.warning(
+                "Garmin API fallback requires --athlete-id for token scoping; disabling fallback for this run"
+            )
 
     logger.info(
         "Starting Garmin metadata enrichment backfill apply=%s storage_mode=%s athlete_id=%s limit=%s",
@@ -293,11 +480,56 @@ def backfill_metadata_enrichment(
 
         counters.candidates += 1
 
-        payload = _load_index_payload(
+        resolved_activity_id, used_source_item_fallback = _resolve_activity_id_for_index(
             storage=storage,
             athlete_id=entity_athlete_id,
-            activity_id=ingestion_id,
+            ingestion_id=ingestion_id,
         )
+        source_item_id = _load_source_item_id_from_state(
+            storage=storage,
+            athlete_id=entity_athlete_id,
+            ingestion_id=ingestion_id,
+        )
+        if used_source_item_fallback:
+            counters.matched_via_source_item_id += 1
+
+        payload = None
+        if resolved_activity_id:
+            payload = _load_index_payload(
+                storage=storage,
+                athlete_id=entity_athlete_id,
+                activity_id=resolved_activity_id,
+            )
+        if payload is None and garmin_api_payload_map:
+            for candidate_activity_id in (
+                resolved_activity_id,
+                source_item_id,
+                ingestion_id,
+            ):
+                if not candidate_activity_id:
+                    continue
+                payload = garmin_api_payload_map.get(candidate_activity_id)
+                if payload is not None:
+                    counters.matched_via_garmin_api += 1
+                    resolved_activity_id = candidate_activity_id
+                    if seed_index_from_api and apply:
+                        try:
+                            storage.garmin_activity_index.upsert_activity_payload(
+                                athlete_id=entity_athlete_id,
+                                activity_payload=payload,
+                            )
+                            counters.index_seeded_from_garmin_api += 1
+                        except Exception as exc:  # pylint: disable=broad-exception-caught
+                            logger.warning(
+                                "Failed seeding GarminActivityIndex from API fallback: %s",
+                                exc,
+                                extra={
+                                    "athlete_id": entity_athlete_id,
+                                    "ingestion_id": ingestion_id,
+                                    "activity_id": candidate_activity_id,
+                                },
+                            )
+                    break
         if payload is None:
             counters.skipped_missing_index_payload += 1
             continue
@@ -307,13 +539,12 @@ def backfill_metadata_enrichment(
             counters.skipped_no_enrichment_signal += 1
             continue
 
-        try:
-            metadata = storage.workouts.load_metadata_json(ingestion_id)
-        except (ResourceNotFoundError, HttpResponseError, ValueError):
-            counters.skipped_missing_metadata += 1
-            continue
-
-        if not isinstance(metadata, dict):
+        metadata, metadata_blob_name = _load_metadata_with_fallback(
+            storage=storage,
+            ingestion_id=ingestion_id,
+            entity=entity,
+        )
+        if metadata is None or metadata_blob_name is None:
             counters.skipped_missing_metadata += 1
             continue
 
@@ -323,14 +554,18 @@ def backfill_metadata_enrichment(
             continue
 
         if apply:
-            storage.workouts.store_canonical_metadata_blob(ingestion_id, merged_metadata)
+            storage.infrastructure.upload_json_blob(metadata_blob_name, merged_metadata)
 
         counters.updated += 1
+        if metadata_blob_name != f"{ingestion_id}/metadata.json":
+            counters.updated_via_metadata_path_fallback += 1
         logger.info(
-            "%s athlete_id=%s ingestion_id=%s updated_fields=%s",
+            "%s athlete_id=%s ingestion_id=%s activity_id=%s metadata_blob=%s updated_fields=%s",
             "APPLY" if apply else "DRY-RUN",
             entity_athlete_id,
             ingestion_id,
+            resolved_activity_id,
+            metadata_blob_name,
             sorted(updates.keys()),
         )
 
@@ -342,7 +577,9 @@ def backfill_metadata_enrichment(
         "Backfill complete apply=%s scanned=%d candidates=%d updated=%d "
         "skipped_missing_ingestion=%d skipped_missing_athlete=%d "
         "skipped_missing_index_payload=%d skipped_missing_metadata=%d "
-        "skipped_no_enrichment_signal=%d skipped_unchanged=%d",
+        "skipped_no_enrichment_signal=%d skipped_unchanged=%d "
+        "matched_via_source_item_id=%d matched_via_garmin_api=%d "
+        "index_seeded_from_garmin_api=%d updated_via_metadata_path_fallback=%d",
         apply,
         counters.scanned,
         counters.candidates,
@@ -353,6 +590,10 @@ def backfill_metadata_enrichment(
         counters.skipped_missing_metadata,
         counters.skipped_no_enrichment_signal,
         counters.skipped_unchanged,
+        counters.matched_via_source_item_id,
+        counters.matched_via_garmin_api,
+        counters.index_seeded_from_garmin_api,
+        counters.updated_via_metadata_path_fallback,
     )
 
 
@@ -371,6 +612,9 @@ def main() -> int:
             limit=args.limit,
             connection_string=args.connection_string,
             storage_mode=args.storage_mode,
+            garmin_api_fallback=args.garmin_api_fallback,
+            lookback_days=args.lookback_days,
+            seed_index_from_api=args.seed_index_from_api,
         )
     except ValueError as exc:
         logger.error("Configuration error: %s", exc)
