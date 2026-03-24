@@ -10,6 +10,13 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-23
 
+### Garmin Force Re-Ingestion Semantics Alignment [application v3.10.0, ingestion v15.6.0, operations API v4.5.0]
+
+- **Changed (force contract)**: `POST /api/garmin/sync` with `force=true` now bypasses both activity-id prefilter skipping and unchanged-content skip gating during FIT ingestion, ensuring forced activities continue through parse/store.
+- **Changed (persisted semantics)**: successful forced reprocessing now writes a fresh `ingested_at_utc` in `IngestionState` because ingestion no longer short-circuits on unchanged-content when force is enabled.
+- **Updated (operations contract docs)**: `api_docs/openapi.operations.yaml` updated to describe force behavior as bypassing both activity-id prefilter and unchanged-content skip checks.
+- **Updated (backend docs)**: `docs/devops/BACKENDS.md` now documents forced skip-bypass behavior and `ingested_at_utc` refresh semantics for successful forced re-ingestion.
+
 ### Canonical Metadata Schema Version Emission Alignment [application v3.9.7, ingestion v15.5.1]
 
 - **Fixed**: canonical `metadata.json` now explicitly emits top-level `metadata_schema_version` from canonical schema constant (`2.4.0`) in `build_canonical_metadata()`.

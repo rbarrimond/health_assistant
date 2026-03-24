@@ -67,6 +67,23 @@ def test_ingestion_base_does_not_skip_when_unchanged() -> None:
     storage.workouts.record_ingestion_state.assert_not_called()
 
 
+def test_ingestion_base_force_bypasses_unchanged_check() -> None:
+    """Test force bypasses unchanged record skipping."""
+    storage = Mock()
+    storage.workouts = Mock()
+
+    handler = _TestIngestionHandler(storage)
+    skipped, workout_id = handler._skip_if_unchanged(
+        "rob",
+        {"source_file_name": "file.fit"},
+        force=True,
+    )
+
+    assert skipped is False
+    assert workout_id is None
+    storage.workouts.get_ingestion_context.assert_not_called()
+
+
 def test_ingestion_base_parse_and_store_records_ingestion_state() -> None:
     """Test parsing and storing records."""
     storage = Mock()

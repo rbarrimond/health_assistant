@@ -280,6 +280,33 @@ class TestGarminSyncConfig:
         assert body["workout_id"] == "workout-1"
         storage.workouts.record_ingestion_state.assert_not_called()
 
+    def test_handle_force_true_bypasses_unchanged_skip(self):
+        storage = MagicMock()
+        storage.workouts = MagicMock()
+        context = MagicMock()
+        context.should_skip.return_value = True
+        context.existing_state = {"workout_id": "existing-workout"}
+        context.ingestion_key = "a1"
+        storage.workouts.get_ingestion_context.return_value = context
+
+        client = MagicMock()
+        client.download_activity_fit.return_value = b"fit-bytes"
+
+        handler = GarminSyncIngestionHandler(storage=storage, client=client)
+        handler._find_near_duplicate_workout = MagicMock(return_value=None)  # type: ignore[attr-defined]
+        handler._parse_and_store = MagicMock(return_value=({}, "new-workout"))  # type: ignore[attr-defined]
+
+        body, status = handler.handle(
+            athlete_id="rob",
+            activity=_build_activity("a1", "2026-02-20T10:00:00+00:00", 3600),
+            force=True,
+        )
+
+        assert status == 200
+        assert body["status"] == "success"
+        assert body["workout_id"] == "new-workout"
+        handler._parse_and_store.assert_called_once()
+
     def test_handle_returns_error_code_on_workout_id_failure(self):
         storage = MagicMock()
         storage.workouts = MagicMock()
@@ -664,6 +691,8 @@ class TestGarminSyncHandler:
         assert results["ingested"] == 2
         assert results["skipped_by_id"] == 0
         assert ingestion_handler.handle.call_count == 2
+        for call in ingestion_handler.handle.call_args_list:
+            assert call.kwargs["force"] is True
         storage.workouts.get_ingestion_state.assert_not_called()
 
     def test_sync_applies_delay_between_successful_ingestions(self):

@@ -616,7 +616,7 @@ curl -X POST "https://<FUNCTION_APP>.azurewebsites.net/api/garmin/sync?code=<FUN
 ```
 
 By default the endpoint runs synchronously and returns a 200 response. Set `async=true` to queue background execution and return 202.
-Set `force=true` to bypass activity-id prefiltering and reprocess listed activities.
+Set `force=true` to bypass activity-id prefiltering and unchanged-content skip checks so listed activities are reprocessed.
 
 Automatic sync (Timer):
 
@@ -712,8 +712,8 @@ Successful responses include `count`, `records_fetched`, `records_processed`, `r
   If index reads fail, fallback to direct list-only selection for the current sync invocation.
 3. **Prefilter by Activity ID:** Check `IngestionState` table by `activityId` and skip terminal states before FIT download (unless `force=true`).
 4. **Download FIT Files:** Get original FIT file for each new activity.
-5. **Parse & Store:** Use standard FIT parser → canonical schema → Workouts table.
-6. **Track State:** Record ingestion status in `IngestionState` with source metadata.
+5. **Parse & Store:** Use standard FIT parser → canonical schema → Workouts table (forced sync bypasses unchanged-content skip and continues through parse/store).
+6. **Track State:** Record ingestion status in `IngestionState` with source metadata (forced successful reprocessing writes a fresh `ingested_at_utc`).
 7. **Persist Session:** Save the current garth session back to `GarminTokens` so refreshed token state is available to the next sync.
 
 ### Garmin Activity Index Table (Phase 1 Contract)
@@ -758,6 +758,7 @@ The sync orchestration checks `IngestionState` before FIT download using `source
 
 - Skip activity when existing status is terminal (`ingested`, `skipped`, `skipped_duplicate`, `filtered`) and `force=false`
 - Include skip telemetry via `skipped_by_id` and item status `skipped_seen_id`
+- `force=true` bypasses both activity-id prefilter skip and unchanged FIT-content skip, so successful forced reprocessing updates `ingested_at_utc`
 
 The ingestion handler still performs hash-level deduplication for downloaded FIT payloads:
 

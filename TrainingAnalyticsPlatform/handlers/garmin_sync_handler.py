@@ -129,9 +129,11 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
         Required kwargs:
             athlete_id: Athlete identifier
             activity: Raw activity dict from Garmin Connect API
+            force: Whether to bypass unchanged-content skip checks
         """
         athlete_id = kwargs["athlete_id"]
         activity = kwargs["activity"]
+        force = bool(kwargs.get("force", False))
         activity_contract = GarminActivityContract(activity)
         source_info: Optional[Dict] = None
 
@@ -285,6 +287,7 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
             source_info,
             ingestion_key=context.ingestion_key,
             existing_state=context.existing_state,
+            force=force,
         )
         if skipped:
             workout_id = (
@@ -869,6 +872,7 @@ class GarminSyncHandler:
                 body, status_code = self._ingestion_handler.handle(
                     athlete_id=athlete_id,
                     activity=activity,
+                    force=force,
                 )
                 self._record_ingest_result(results, activity, body, status_code)
                 if (

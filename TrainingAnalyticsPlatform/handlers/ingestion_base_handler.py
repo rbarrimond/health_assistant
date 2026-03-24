@@ -41,7 +41,11 @@ class FitIngestionBaseHandler(ABC):
         *,
         ingestion_key: Optional[str] = None,
         existing_state: Optional[Dict[str, Any]] = None,
+        force: bool = False,
     ) -> Tuple[bool, Optional[str]]:
+        if force:
+            return False, None
+
         context = self.storage.workouts.get_ingestion_context(
             athlete_id,
             source_info,
@@ -76,6 +80,7 @@ class FitIngestionBaseHandler(ABC):
         file_path: Optional[str] = None,  # pylint: disable=unused-argument
         ingestion_key: Optional[str] = None,
         existing_state: Optional[Dict[str, Any]] = None,
+        force: bool = False,
     ) -> Tuple[Dict[str, Any], int]:
         # Derived handlers normalize input then call this to run shared ingestion.
         """Ingest a FIT file already available as bytes."""
@@ -90,6 +95,7 @@ class FitIngestionBaseHandler(ABC):
             source_info,
             ingestion_key=ingestion_key or ingestion_id,
             existing_state=existing_state,
+            force=force,
         )
         if skipped:
             return {"status": "skipped", "workout_id": workout_id}, 200

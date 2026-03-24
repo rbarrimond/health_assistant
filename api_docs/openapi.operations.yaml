@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Operations)
-  version: "4.4.0"
+  version: "4.5.0"
   description: |
     Operational and administrative API for ingestion, configuration, integrations, and plugin assets.
     Complements the semantic GPT-facing specification with platform control-plane and runtime support endpoints.
@@ -705,7 +705,7 @@ paths:
                   description: Queue sync as background task (default false)
                 force:
                   type: boolean
-                  description: When true, bypass activity-id prefilter and force reprocessing of listed activities
+                  description: When true, bypass activity-id prefilter and unchanged-content skip checks, forcing listed activities through reprocessing
       responses:
         '202':
           description: Sync queued (async mode)
