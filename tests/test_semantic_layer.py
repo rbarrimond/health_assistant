@@ -912,6 +912,150 @@ class TestTrainingStateQueries:
 
         assert result is None
 
+    def test_resolve_training_state_physiometrics_as_of_uses_intervals_for_hrv_and_garmin_fields(
+        self, semantic_layer, mock_storage
+    ):
+        """Training-state physiometrics should merge as-of rows by source-specific ownership."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+        mock_table_client.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-03-18|garmin",
+                "effective_date": "2026-03-18",
+                "data_source": "garmin",
+                "updated_at_utc": "2026-03-18T07:00:00+00:00",
+                "readiness_score": 79.0,
+                "training_status_label": "PRODUCTIVE_2",
+                "training_load": 376.0,
+                "recovery_time_minutes": 360,
+                "load_focus_low_aerobic_pct": 30.0,
+                "load_focus_high_aerobic_pct": 55.0,
+                "load_focus_anaerobic_pct": 15.0,
+            },
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-03-18|intervals",
+                "effective_date": "2026-03-18",
+                "data_source": "intervals",
+                "updated_at_utc": "2026-03-18T09:00:00+00:00",
+                "hrv_ln_rmssd": 3.95,
+            },
+        ]
+
+        result = semantic_layer._resolve_training_state_physiometrics_as_of(
+            "rob",
+            "2026-03-18",
+        )
+
+        assert result["hrv_ln_rmssd"] == pytest.approx(3.95)
+        assert result["readiness_score"] == pytest.approx(79.0)
+        assert result["training_status_label"] == "PRODUCTIVE_2"
+        assert result["training_load"] == pytest.approx(376.0)
+        assert result["recovery_time_minutes"] == 360
+
+    def test_resolve_training_state_physiometrics_as_of_ignores_future_rows(
+        self, semantic_layer, mock_storage
+    ):
+        """Training-state physiometrics should only use rows effective on or before the target date."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+        mock_table_client.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-03-18|garmin",
+                "effective_date": "2026-03-18",
+                "data_source": "garmin",
+                "updated_at_utc": "2026-03-18T07:00:00+00:00",
+                "training_load": 310.0,
+            },
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-03-19|intervals",
+                "effective_date": "2026-03-19",
+                "data_source": "intervals",
+                "updated_at_utc": "2026-03-19T07:00:00+00:00",
+                "hrv_ln_rmssd": 4.1,
+            },
+        ]
+
+        result = semantic_layer._resolve_training_state_physiometrics_as_of(
+            "rob",
+            "2026-03-18",
+        )
+
+        assert result["training_load"] == pytest.approx(310.0)
+        assert "hrv_ln_rmssd" not in result
+
+    def test_compute_training_state_for_date_uses_as_of_source_merge(
+        self, semantic_layer, mock_storage
+    ):
+        """Training-state computation should combine workout load with as-of physiometrics ownership."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+
+        with patch.object(
+            semantic_layer,
+            "_compute_rolling_tss",
+            return_value=(140.0, 280.0),
+        ), patch.object(
+            semantic_layer,
+            "_resolve_training_state_physiometrics_as_of",
+            return_value={
+                "hrv_ln_rmssd": 4.0,
+                "readiness_score": 82.0,
+                "training_status_label": "MAINTAINING_2",
+                "training_load": 325.0,
+                "recovery_time_minutes": 300,
+                "load_focus_low_aerobic_pct": 32.0,
+                "load_focus_high_aerobic_pct": 50.0,
+                "load_focus_anaerobic_pct": 18.0,
+            },
+        ):
+            snapshot = semantic_layer._compute_training_state_for_date(
+                "rob",
+                datetime(2026, 3, 18, tzinfo=timezone.utc).date(),
+            )
+
+        assert snapshot.readiness_score == pytest.approx(37.5)
+        assert snapshot.garmin_readiness_score == pytest.approx(82.0)
+        assert snapshot.garmin_training_status == "MAINTAINING_2"
+        assert snapshot.garmin_training_load == pytest.approx(325.0)
+        assert snapshot.garmin_recovery_time_hours == pytest.approx(5.0)
+        assert snapshot.garmin_load_focus_low_aerobic_pct == pytest.approx(32.0)
+        assert snapshot.garmin_load_focus_high_aerobic_pct == pytest.approx(50.0)
+        assert snapshot.garmin_load_focus_anaerobic_pct == pytest.approx(18.0)
+
+    def test_compute_training_state_for_date_keeps_garmin_readiness_when_intervals_hrv_missing(
+        self, semantic_layer, mock_storage
+    ):
+        """Composite readiness should stay null when Intervals HRV is absent as of the target date."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+
+        with patch.object(
+            semantic_layer,
+            "_compute_rolling_tss",
+            return_value=(140.0, 280.0),
+        ), patch.object(
+            semantic_layer,
+            "_resolve_training_state_physiometrics_as_of",
+            return_value={
+                "readiness_score": 78.0,
+                "training_status_label": "PRODUCTIVE_2",
+                "training_load": 300.0,
+                "recovery_time_minutes": 240,
+            },
+        ):
+            snapshot = semantic_layer._compute_training_state_for_date(
+                "rob",
+                datetime(2026, 3, 18, tzinfo=timezone.utc).date(),
+            )
+
+        assert snapshot.readiness_score is None
+        assert snapshot.garmin_readiness_score == pytest.approx(78.0)
+        assert snapshot.garmin_training_status == "PRODUCTIVE_2"
+
 
 class TestWeeklyRollupQueries:
     """Tests for weekly rollup normalization and filtering."""

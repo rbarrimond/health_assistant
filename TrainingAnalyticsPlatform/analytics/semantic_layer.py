@@ -143,6 +143,17 @@ PHYSIOMETRICS_SOURCE_PRECEDENCE = {
     "load_focus_anaerobic_pct": ["garmin"],
 }
 
+TRAINING_STATE_PHYSIOMETRICS_SOURCES = {
+    "hrv_ln_rmssd": ["intervals"],
+    "readiness_score": ["garmin"],
+    "training_load": ["garmin"],
+    "recovery_time_minutes": ["garmin"],
+    "training_status_label": ["garmin"],
+    "load_focus_low_aerobic_pct": ["garmin"],
+    "load_focus_high_aerobic_pct": ["garmin"],
+    "load_focus_anaerobic_pct": ["garmin"],
+}
+
 PHYSIOMETRICS_CANONICAL_SECTIONS = {
     "heart_rate": ["lthr_bpm", "hr_max_bpm", "resting_hr_bpm", "hrv_ln_rmssd", "hrv_sdnn_ms"],
     "power": ["ftp_watts"],
@@ -3069,7 +3080,11 @@ class SemanticLayer:
             if rows
         }
 
-    def _get_source_rows_by_source(self, athlete_id: str) -> Dict[str, List[Dict[str, Any]]]:
+    def _get_source_rows_by_source(
+        self,
+        athlete_id: str,
+        target_date: Optional[str] = None,
+    ) -> Dict[str, List[Dict[str, Any]]]:
         """Get physiometrics rows grouped by source, sorted newest-first."""
         table_client = self.storage.infrastructure.get_table_client("Physiometrics")
         rows = list(table_client.query_entities(f"PartitionKey eq '{athlete_id}'"))
@@ -3077,6 +3092,9 @@ class SemanticLayer:
         rows_by_source: Dict[str, List[Dict[str, Any]]] = {}
 
         for row in rows:
+            effective_date = row.get("effective_date") or ""
+            if target_date and effective_date and effective_date > target_date:
+                continue
             for source in self._canonical_sources_from_row(row):
                 if source not in tracked_sources:
                     continue
@@ -3386,18 +3404,25 @@ class SemanticLayer:
             athlete_id, date, workouts_table
         )
         training_load = self._compute_training_load_components(tss_7d, tss_28d)
-        latest_physio = self._load_latest_physiometrics_snapshot(
+        training_state_physiometrics = self._resolve_training_state_physiometrics_as_of(
             athlete_id, date.isoformat()
         )
-        hrv_ln = latest_physio.hrv_ln_rmssd if latest_physio else None
-        garmin_readiness = latest_physio.readiness_score if latest_physio else None
-        # Extract new Garmin fields for pass-through
-        training_status_label = latest_physio.training_status_label if latest_physio else None
-        load_focus_low_aerobic_pct = latest_physio.load_focus_low_aerobic_pct if latest_physio else None
-        load_focus_high_aerobic_pct = latest_physio.load_focus_high_aerobic_pct if latest_physio else None
-        load_focus_anaerobic_pct = latest_physio.load_focus_anaerobic_pct if latest_physio else None
-        garmin_training_load = latest_physio.training_load if latest_physio else None
-        recovery_time_minutes = latest_physio.recovery_time_minutes if latest_physio else None
+        hrv_ln = training_state_physiometrics.get("hrv_ln_rmssd")
+        garmin_readiness = training_state_physiometrics.get("readiness_score")
+        training_status_label = training_state_physiometrics.get("training_status_label")
+        load_focus_low_aerobic_pct = training_state_physiometrics.get(
+            "load_focus_low_aerobic_pct"
+        )
+        load_focus_high_aerobic_pct = training_state_physiometrics.get(
+            "load_focus_high_aerobic_pct"
+        )
+        load_focus_anaerobic_pct = training_state_physiometrics.get(
+            "load_focus_anaerobic_pct"
+        )
+        garmin_training_load = training_state_physiometrics.get("training_load")
+        recovery_time_minutes = training_state_physiometrics.get(
+            "recovery_time_minutes"
+        )
         composite_readiness = self._compute_composite_readiness(
             hrv_ln,
             training_load["fatigue_index"],
@@ -3444,6 +3469,29 @@ class SemanticLayer:
             "ats": cts_7d,
             "fatigue_index": fatigue_index,
         }
+
+    def _resolve_training_state_physiometrics_as_of(
+        self,
+        athlete_id: str,
+        target_date: str,
+    ) -> Dict[str, Any]:
+        """Resolve as-of physiometrics inputs needed by training-state projections."""
+        source_rows_by_source = self._get_source_rows_by_source(
+            athlete_id,
+            target_date=target_date,
+        )
+        resolved: Dict[str, Any] = {}
+
+        for metric_name, sources in TRAINING_STATE_PHYSIOMETRICS_SOURCES.items():
+            metric_value, _ = self._resolve_metric_from_sources(
+                metric_name,
+                sources,
+                source_rows_by_source,
+            )
+            if metric_value is not None:
+                resolved[metric_name] = metric_value
+
+        return resolved
 
     def _load_latest_physiometrics_snapshot(
         self,

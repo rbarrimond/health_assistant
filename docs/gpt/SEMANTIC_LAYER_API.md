@@ -57,6 +57,14 @@ GET /api/planning/context?athlete_id=rob&days=45
 - ✓ Weeks: max 52
 - ✓ Summary-first (time series on demand only)
 
+### Training-State Resolution
+
+- `GET /api/training-state/current` and `GET /api/training-state/history` compute training state on demand.
+- Workload metrics (`cts_rolling_7d`, `cts_rolling_28d`, `ats_rolling`, `fatigue_index`) come from workouts.
+- Physiometrics inputs are resolved **as of the requested effective date** using source ownership, not by taking whichever physiometrics row synced last.
+- Composite `readiness_score` only uses HRV recovery input from Intervals-derived physiometrics when present.
+- `garmin_readiness_score`, `garmin_training_status`, `garmin_training_load`, `garmin_recovery_time_hours`, and Garmin load-focus percentages are Garmin-native passthroughs.
+
 ---
 
 ## Philosophy
