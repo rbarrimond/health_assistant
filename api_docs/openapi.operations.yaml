@@ -716,7 +716,7 @@ paths:
                   description: Queue sync as background task (default false)
                 force:
                   type: boolean
-                  description: When true, bypass activity-id prefilter and unchanged-content skip checks, forcing listed activities through reprocessing
+                  description: When true, bypass activity-id prefilter, unchanged-content skip, and near-duplicate suppression checks, forcing listed activities through reprocessing
       responses:
         '202':
           description: Sync queued (async mode)

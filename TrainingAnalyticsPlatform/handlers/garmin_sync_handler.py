@@ -313,7 +313,7 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
             }, 200
 
         duplicate_workout_id = self._find_near_duplicate_workout(athlete_id, activity)
-        if duplicate_workout_id:
+        if duplicate_workout_id and not force:
             self.storage.workouts.record_ingestion_state(
                 athlete_id,
                 source_info,

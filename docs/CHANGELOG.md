@@ -10,6 +10,12 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-23
 
+### Garmin Force Duplicate-Bypass Alignment [application v3.12.0, ingestion v15.8.0, operations API v4.6.1]
+
+- **Changed (force contract)**: `POST /api/garmin/sync` with `force=true` now bypasses near-duplicate suppression (`skipped_duplicate`) in addition to activity-id prefilter and unchanged-content skip checks.
+- **Changed (ingestion behavior)**: forced Garmin activities that previously short-circuited as `skipped_duplicate` now continue to parse/store, enabling artifact refresh during explicit force reprocessing.
+- **Updated (operations contract docs)**: Garmin force description in `api_docs/openapi.operations.yaml` now explicitly includes near-duplicate suppression bypass.
+
 ### Sync Endpoint Force Parity Alignment [application v3.11.0, ingestion v15.7.0, operations API v4.6.0]
 
 - **Changed (force contract)**: `POST /api/garmin/sync` with `force=true` now bypasses both activity-id prefilter skipping and unchanged-content skip gating during FIT ingestion, ensuring forced activities continue through parse/store.
