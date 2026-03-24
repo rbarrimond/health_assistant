@@ -165,6 +165,33 @@ class TestWarmupQueueBootstrap:
         mock_garmin.bootstrap.assert_called_once()
         mock_deferred.bootstrap.assert_called_once()
 
+
+class TestAsyncQueueNameResolution:
+    """Verify async ingestion queue adapters use the trigger-configured queue name."""
+
+    def _patch_dep(self, attr, value):
+        return patch.object(FunctionAppDependencies, attr, new=PropertyMock(return_value=value))
+
+    def test_onedrive_async_queue_uses_configured_queue_name(self, monkeypatch):
+        monkeypatch.setenv("ONEDRIVE_ASYNC_QUEUE_ENABLED", "true")
+        monkeypatch.setenv("ONEDRIVE_ASYNC_QUEUE_NAME", "custom-async-q")
+
+        deps = FunctionAppDependencies()
+        queue = deps.onedrive_async_queue
+
+        assert queue is not None
+        assert queue.queue_name == "custom-async-q"
+
+    def test_garmin_async_queue_uses_configured_queue_name(self, monkeypatch):
+        monkeypatch.setenv("GARMIN_ASYNC_QUEUE_ENABLED", "true")
+        monkeypatch.setenv("ONEDRIVE_ASYNC_QUEUE_NAME", "custom-async-q")
+
+        deps = FunctionAppDependencies()
+        queue = deps.garmin_async_queue
+
+        assert queue is not None
+        assert queue.queue_name == "custom-async-q"
+
     def test_warmup_skips_bootstrap_for_disabled_async_queues(self, monkeypatch):
         """warmup() skips None queue adapters (disabled by config)."""
         from TrainingAnalyticsPlatform.integrations.deferred_retry_queue import DeferredRetryQueue

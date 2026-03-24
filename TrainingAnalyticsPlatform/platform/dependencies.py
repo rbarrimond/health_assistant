@@ -54,7 +54,10 @@ from TrainingAnalyticsPlatform.handlers.source_handler_registry import (
 )
 from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
 from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
-from TrainingAnalyticsPlatform.integrations.async_ingestion_queue import AsyncIngestionQueue
+from TrainingAnalyticsPlatform.integrations.async_ingestion_queue import (
+    AsyncIngestionQueue,
+    DEFAULT_ASYNC_INGESTION_QUEUE_NAME,
+)
 from TrainingAnalyticsPlatform.integrations.deferred_retry_queue import DeferredRetryQueue
 from TrainingAnalyticsPlatform.platform.exceptions import StorageError
 from TrainingAnalyticsPlatform.integrations.withings_client import WithingsClient
@@ -99,7 +102,7 @@ class FunctionAppDependencies:
             logger.info("OneDrive async queue disabled by configuration")
             return None
 
-        queue = AsyncIngestionQueue()
+        queue = AsyncIngestionQueue(queue_name=self._resolve_async_ingestion_queue_name())
         logger.info("OneDrive async queue initialized")
         return queue
 
@@ -139,7 +142,7 @@ class FunctionAppDependencies:
             logger.info("Garmin async queue disabled by configuration")
             return None
 
-        queue = AsyncIngestionQueue()
+        queue = AsyncIngestionQueue(queue_name=self._resolve_async_ingestion_queue_name())
         logger.info("Garmin async queue initialized")
         return queue
 
@@ -315,6 +318,14 @@ class FunctionAppDependencies:
             "yes",
             "on",
         }
+
+    @staticmethod
+    def _resolve_async_ingestion_queue_name() -> str:
+        """Resolve queue name shared by async ingestion producers and worker trigger."""
+        return os.getenv(
+            "ONEDRIVE_ASYNC_QUEUE_NAME",
+            DEFAULT_ASYNC_INGESTION_QUEUE_NAME,
+        )
 
     @cached_property
     def weekly_rollup_pre_sync_service(self) -> WeeklyRollupPreSyncHandler:
