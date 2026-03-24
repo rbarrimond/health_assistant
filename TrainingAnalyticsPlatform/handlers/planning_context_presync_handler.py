@@ -17,6 +17,12 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_RETRY_MAX_ATTEMPTS = 3
 DEFAULT_RETRY_BASE_DELAY_SEC = 1.0
+ENV_PLANNING_PRESYNC_GARMIN_ACTIVITIES_ENABLED = (
+    "PLANNING_PRESYNC_GARMIN_ACTIVITIES_ENABLED"
+)
+ENV_PLANNING_PRESYNC_GARMIN_PHYSIOMETRICS_ENABLED = (
+    "PLANNING_PRESYNC_GARMIN_PHYSIOMETRICS_ENABLED"
+)
 
 
 class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
@@ -39,6 +45,8 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
         garmin_physiometrics_service: Any,
         intervals_service: Any,
         intervals_athlete_id: Optional[str],
+        planning_presync_garmin_activities_enabled: bool = False,
+        planning_presync_garmin_physiometrics_enabled: bool = False,
         deferred_retry_coordinator: Optional[Any] = None,
         retry_max_attempts: int = DEFAULT_RETRY_MAX_ATTEMPTS,
         retry_base_delay_sec: float = DEFAULT_RETRY_BASE_DELAY_SEC,
@@ -48,9 +56,20 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
         self._garmin_physiometrics_service = garmin_physiometrics_service
         self._intervals_service = intervals_service
         self._intervals_athlete_id = intervals_athlete_id
+        self._planning_presync_garmin_activities_enabled = (
+            planning_presync_garmin_activities_enabled
+        )
+        self._planning_presync_garmin_physiometrics_enabled = (
+            planning_presync_garmin_physiometrics_enabled
+        )
         self._deferred_retry_coordinator = deferred_retry_coordinator
         self._retry_max_attempts = max(1, int(retry_max_attempts))
         self._retry_base_delay_sec = max(0.1, float(retry_base_delay_sec))
+
+    @staticmethod
+    def _parse_bool_env(value: str) -> bool:
+        """Parse a conventional environment boolean string."""
+        return value.lower() in {"1", "true", "yes", "on"}
 
     @classmethod
     def from_env(
@@ -69,6 +88,18 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
             garmin_physiometrics_service=garmin_physiometrics_service,
             intervals_service=intervals_service,
             intervals_athlete_id=os.getenv("INTERVALS_ATHLETE_ID"),
+            planning_presync_garmin_activities_enabled=cls._parse_bool_env(
+                os.getenv(
+                    ENV_PLANNING_PRESYNC_GARMIN_ACTIVITIES_ENABLED,
+                    "false",
+                )
+            ),
+            planning_presync_garmin_physiometrics_enabled=cls._parse_bool_env(
+                os.getenv(
+                    ENV_PLANNING_PRESYNC_GARMIN_PHYSIOMETRICS_ENABLED,
+                    "false",
+                )
+            ),
             deferred_retry_coordinator=deferred_retry_coordinator,
             retry_max_attempts=int(
                 os.getenv(
@@ -132,7 +163,7 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
         self, athlete_id: str, lookback_days: int
     ) -> list[PreSyncOperation]:
         """Build ordered source sync operations for the given window."""
-        return build_presync_operations(
+        operations = build_presync_operations(
             athlete_id=athlete_id,
             lookback_days=lookback_days,
             onedrive_service=self._onedrive_service,
@@ -143,6 +174,42 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
                 lookback_days=lookback_days,
             ),
         )
+
+        filtered_operations: list[PreSyncOperation] = []
+        for operation in operations:
+            if (
+                operation.source == "garmin_activities"
+                and not self._planning_presync_garmin_activities_enabled
+            ):
+                logger.info(
+                    "Planning context pre-sync source skipped by configuration",
+                    extra={
+                        "source": operation.source,
+                        "athlete_id": athlete_id,
+                        "lookback_days": lookback_days,
+                        "reason": "config_disabled",
+                    },
+                )
+                continue
+
+            if (
+                operation.source == "garmin_physiometrics"
+                and not self._planning_presync_garmin_physiometrics_enabled
+            ):
+                logger.info(
+                    "Planning context pre-sync source skipped by configuration",
+                    extra={
+                        "source": operation.source,
+                        "athlete_id": athlete_id,
+                        "lookback_days": lookback_days,
+                        "reason": "config_disabled",
+                    },
+                )
+                continue
+
+            filtered_operations.append(operation)
+
+        return filtered_operations
 
     def _run_intervals_sync(
         self, *, athlete_id: str, lookback_days: int

@@ -18,6 +18,8 @@ def _make_handler(**overrides) -> PlanningContextPreSyncHandler:
         "garmin_physiometrics_service": MagicMock(),
         "intervals_service": MagicMock(),
         "intervals_athlete_id": "athlete123",
+        "planning_presync_garmin_activities_enabled": True,
+        "planning_presync_garmin_physiometrics_enabled": True,
         "retry_max_attempts": 1,
         "retry_base_delay_sec": 0.01,
     }
@@ -159,6 +161,29 @@ class TestPlanningContextPreSyncHandlerAllFailed:
         assert all(s["status"] == "failed" for s in result["sources"])
 
 
+class TestPlanningContextPreSyncHandlerGarminSourcesDisabled:
+    def test_disabled_garmin_sources_are_not_executed(self):
+        handler = _make_handler(
+            planning_presync_garmin_activities_enabled=False,
+            planning_presync_garmin_physiometrics_enabled=False,
+        )
+
+        success_response = ({"status": "ok", "message": "synced"}, 200)
+        handler._onedrive_service.handle.return_value = success_response
+        handler._intervals_service.handle.return_value = success_response
+
+        result = handler.run(athlete_id="rob", days=21)
+
+        assert result["status"] == "all_succeeded"
+        assert len(result["sources"]) == 2
+        assert {source["source"] for source in result["sources"]} == {
+            "onedrive_workouts",
+            "intervals_physiometrics",
+        }
+        handler._garmin_service.handle.assert_not_called()
+        handler._garmin_physiometrics_service.handle.assert_not_called()
+
+
 class TestPlanningContextPreSyncHandlerIntervalsMissing:
     def test_missing_intervals_athlete_id_produces_failed_source_not_exception(self):
         handler = _make_handler(intervals_athlete_id=None)
@@ -183,6 +208,8 @@ class TestPlanningContextPreSyncHandlerFromEnv:
     def test_from_env_reads_retry_settings(self, monkeypatch):
         monkeypatch.setenv("PLANNING_PRESYNC_RETRY_MAX_ATTEMPTS", "5")
         monkeypatch.setenv("PLANNING_PRESYNC_RETRY_BASE_DELAY_SEC", "2.0")
+        monkeypatch.setenv("PLANNING_PRESYNC_GARMIN_ACTIVITIES_ENABLED", "true")
+        monkeypatch.setenv("PLANNING_PRESYNC_GARMIN_PHYSIOMETRICS_ENABLED", "yes")
         monkeypatch.setenv("INTERVALS_ATHLETE_ID", "envathlete")
 
         handler = PlanningContextPreSyncHandler.from_env(
@@ -195,3 +222,19 @@ class TestPlanningContextPreSyncHandlerFromEnv:
         assert handler._retry_max_attempts == 5
         assert handler._retry_base_delay_sec == pytest.approx(2.0)
         assert handler._intervals_athlete_id == "envathlete"
+        assert handler._planning_presync_garmin_activities_enabled is True
+        assert handler._planning_presync_garmin_physiometrics_enabled is True
+
+    def test_from_env_defaults_garmin_sources_to_disabled(self, monkeypatch):
+        monkeypatch.delenv("PLANNING_PRESYNC_GARMIN_ACTIVITIES_ENABLED", raising=False)
+        monkeypatch.delenv("PLANNING_PRESYNC_GARMIN_PHYSIOMETRICS_ENABLED", raising=False)
+
+        handler = PlanningContextPreSyncHandler.from_env(
+            onedrive_service=MagicMock(),
+            garmin_service=MagicMock(),
+            garmin_physiometrics_service=MagicMock(),
+            intervals_service=MagicMock(),
+        )
+
+        assert handler._planning_presync_garmin_activities_enabled is False
+        assert handler._planning_presync_garmin_physiometrics_enabled is False

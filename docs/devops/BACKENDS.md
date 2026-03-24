@@ -604,6 +604,8 @@ GARMIN_ACTIVITY_INDEX_ROLLING_WINDOW_DAYS=3  # Optional, bounded rolling list wi
 GARMIN_ACTIVITY_INDEX_FRESHNESS_HOURS=24  # Optional, freshness horizon for indexed list payloads
 GARMIN_SYNC_TIMER_SCHEDULE=0 0 3 * * 1  # Optional weekly safety-net schedule
 GARMIN_PHYSIOMETRICS_SYNC_TIMER_SCHEDULE=0 30 3 * * 1  # Optional weekly safety-net schedule
+PLANNING_PRESYNC_GARMIN_ACTIVITIES_ENABLED=false  # Optional: include Garmin activity sync in /api/planning/context pre-sync
+PLANNING_PRESYNC_GARMIN_PHYSIOMETRICS_ENABLED=false  # Optional: include Garmin physiometrics sync in /api/planning/context pre-sync
 ```
 
 In Azure deployments, store `GARMIN_EMAIL` and `GARMIN_PASSWORD` in Key Vault and use Key Vault references in app settings.
@@ -614,6 +616,8 @@ Operational notes:
 - `GARMIN_AUTH_RATE_LIMIT_COOLDOWN_SECONDS` defaults to `3600` seconds (1 hour) so repeated auth attempts do not immediately hammer Garmin after a 429.
 - `GARMIN_ACTIVITY_INDEX_ROLLING_WINDOW_DAYS` defaults to `3` and defines the bounded rolling list window used by cache-first Garmin sync planning.
 - `GARMIN_ACTIVITY_INDEX_FRESHNESS_HOURS` defaults to `24` and defines the target staleness horizon for indexed Garmin activity list payloads.
+- `PLANNING_PRESYNC_GARMIN_ACTIVITIES_ENABLED` defaults to `false`; when `false`, `GET /api/planning/context` does not execute Garmin activity pre-sync.
+- `PLANNING_PRESYNC_GARMIN_PHYSIOMETRICS_ENABLED` defaults to `false`; when `false`, `GET /api/planning/context` does not execute Garmin physiometrics pre-sync.
 
 #### 2. Run Sync
 

@@ -10,6 +10,13 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-23
 
+### Planning Context Garmin Pre-Sync Suppression [application v3.12.1]
+
+- **Added (config)**: `PLANNING_PRESYNC_GARMIN_ACTIVITIES_ENABLED` and `PLANNING_PRESYNC_GARMIN_PHYSIOMETRICS_ENABLED` environment variables to independently control Garmin source participation during `GET /api/planning/context` pre-sync.
+- **Changed (planning hydration behavior)**: planning-context pre-sync now supports intentionally skipping Garmin sources by configuration while preserving best-available endpoint semantics.
+- **Changed (observability)**: planning pre-sync now emits structured skip logs with `reason=config_disabled` when Garmin sources are intentionally excluded.
+- **Preserved**: Garmin timer-triggered sync endpoints, weekly rollup pre-sync behavior, and persisted workout/physiometrics storage semantics remain unchanged.
+
 ### Garmin Force Duplicate-Bypass Alignment [application v3.12.0, ingestion v15.8.0, operations API v4.6.1]
 
 - **Changed (force contract)**: `POST /api/garmin/sync` with `force=true` now bypasses near-duplicate suppression (`skipped_duplicate`) in addition to activity-id prefilter and unchanged-content skip checks.
