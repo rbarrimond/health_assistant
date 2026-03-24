@@ -47,7 +47,9 @@ from .apple_workout_types import (APPLE_WORKOUT_TYPES, INDOOR_CYCLE,
 from .code_mappings import (MANUFACTURER_CODES, MANUFACTURER_NAME_TO_CODE,
                             get_apple_product_name, get_apple_watch_model,
                             get_favero_product_name, get_garmin_product_name)
-from .constants import LAPS_SCHEMA_VERSION, METADATA_SCHEMA_VERSION
+from .constants import (CANONICAL_METADATA_SCHEMA_VERSION,
+                        LAPS_SCHEMA_VERSION,
+                        METADATA_MESSAGES_SCHEMA_VERSION)
 from .fit_analyzer import FitStructureAnalyzer
 from .timezone_utils import (format_utc_offset, iana_from_offset,
                              infer_timezone_from_activity,
@@ -1627,6 +1629,7 @@ class BaseFitModel(BaseModel, ABC):
         
         # Combine zones (provenance added by handler)
         return {
+            "metadata_schema_version": CANONICAL_METADATA_SCHEMA_VERSION,
             "identity": {k: v for k, v in identity.items() if v is not None},
             "capabilities": capabilities,
             "session": {k: v for k, v in session.items() if v is not None},
@@ -1813,7 +1816,7 @@ class BaseFitModel(BaseModel, ABC):
         }
         
         return {
-            "metadata_schema_version": METADATA_SCHEMA_VERSION,
+            "metadata_schema_version": METADATA_MESSAGES_SCHEMA_VERSION,
             "extracted_at_utc": datetime.now(timezone.utc).isoformat(),
             "raw_fit_messages": raw_fit_messages,
             "llm_enrichment": llm_enrichment,

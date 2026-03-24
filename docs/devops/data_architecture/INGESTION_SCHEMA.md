@@ -64,9 +64,10 @@ All ingestion-related schema/code version constants must be documented here.
 
 | Version | Current value | Code source | Purpose |
 | --- | --- | --- | --- |
-| `INGEST_VERSION` | `v15.5.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
+| `INGEST_VERSION` | `v15.5.1` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Ingestion code version persisted to `IngestionState.ingest_version`. |
 | `CANONICAL_SCHEMA_VERSION` | `2.0.3` | `TrainingAnalyticsPlatform/storage/table_storage.py` | Canonical parquet schema version persisted to `Workouts.canonical_schema_version`. |
-| `METADATA_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `metadata.json` as `metadata_schema_version`. |
+| `CANONICAL_METADATA_SCHEMA_VERSION` | `2.4.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in canonical `metadata.json` as top-level `metadata_schema_version`. |
+| `METADATA_MESSAGES_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in raw FIT metadata-messages artifact (`build_metadata_messages`). |
 | `LAPS_SCHEMA_VERSION` | `1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `laps.json` as `schema_version`. |
 | `FIT_ANALYSIS_VERSION` | `v1.0.0` | `TrainingAnalyticsPlatform/ingestion/constants.py` | Version emitted in `fit_analysis.json` as `analysis_version`. |
 

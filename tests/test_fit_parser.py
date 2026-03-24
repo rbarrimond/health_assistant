@@ -725,6 +725,7 @@ class TestGarminCanonicalEnrichment:
         metadata = model.build_canonical_metadata()
         enrichment = metadata["enrichment"]
 
+        assert metadata["metadata_schema_version"] == "2.4.0"
         assert enrichment["garmin_activity_training_load"] == pytest.approx(252.5)
         assert enrichment["garmin_aerobic_training_effect"] == pytest.approx(5.0)
         assert enrichment["garmin_anaerobic_training_effect"] == pytest.approx(2.1)

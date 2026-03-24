@@ -10,6 +10,12 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-23
 
+### Canonical Metadata Schema Version Emission Alignment [application v3.9.7, ingestion v15.5.1]
+
+- **Fixed**: canonical `metadata.json` now explicitly emits top-level `metadata_schema_version` from canonical schema constant (`2.4.0`) in `build_canonical_metadata()`.
+- **Changed**: split schema constants into `CANONICAL_METADATA_SCHEMA_VERSION` (canonical metadata blob contract) and `METADATA_MESSAGES_SCHEMA_VERSION` (raw FIT metadata-messages artifact) to remove ambiguity.
+- **Preserved**: canonical enrichment payload semantics are unchanged; this patch aligns runtime metadata version signaling with documented contract.
+
 ### Canonical Garmin Workout Enrichment Promotion [application v3.9.6, ingestion v15.5.0]
 
 - **Added**: Garmin list-derived activity-scoped enrichment promotion into canonical metadata `enrichment` zone for training load/effect, VO2max, cycling cadence, running cadence, left-balance, respiration, and temperature fields when present in Garmin activity-list payloads.
