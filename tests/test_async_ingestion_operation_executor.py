@@ -94,6 +94,44 @@ class TestAsyncIngestionOperationExecutor:
 
         garmin_handler.assert_called_once_with("rob", 30, True)
 
+    def test_process_message_sends_force_for_onedrive(self):
+        lifecycle = MagicMock()
+        existing_state = MagicMock()
+        existing_state.etag = "etag-2-onedrive"
+        lifecycle.get_or_initialize.return_value = existing_state
+
+        onedrive_handler = MagicMock()
+        onedrive_handler.return_value = {
+            "status": "success",
+            "found": 10,
+            "ingested": 4,
+            "skipped": 6,
+            "failed": 0,
+        }
+        registry = SourceHandlerRegistry(
+            handlers={
+                "onedrive": onedrive_handler,
+            }
+        )
+
+        executor = AsyncIngestionOperationExecutor(
+            lifecycle=lifecycle,
+            source_registry=registry,
+        )
+
+        message = {
+            "operation_id": "op-2-onedrive",
+            "source": "onedrive",
+            "athlete_id": "rob",
+            "lookback_days": 30,
+            "queued_at_utc": "2026-03-19T00:00:00+00:00",
+            "context": {"force": True},
+        }
+
+        executor.process_message(json.dumps(message))
+
+        onedrive_handler.assert_called_once_with("rob", 30, True)
+
     def test_process_message_marks_failed_and_raises(self):
         lifecycle = MagicMock()
         existing_state = MagicMock()

@@ -14,6 +14,7 @@ from TrainingAnalyticsPlatform.handlers import onedrive_sync_handler
 from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import (
     OneDriveSyncConfig,
     OneDriveSyncHandler,
+    OneDriveSyncRequest,
 )
 
 
@@ -314,3 +315,36 @@ def test_sync_force_true_uses_full_rescan_and_bypasses_delta_token():
     assert client.list_files_delta.call_args.kwargs["delta_link"] is None
     ingestion_handler.handle.assert_called_once()
     assert ingestion_handler.handle.call_args.kwargs["force"] is True
+
+
+def test_handle_async_queue_propagates_force_context():
+    storage = MagicMock()
+    storage.async_operations = MagicMock()
+    async_queue = MagicMock()
+    handler = OneDriveSyncHandler(
+        _config(),
+        storage,
+        client=MagicMock(),
+        ingestion_handler=MagicMock(),
+        async_queue=async_queue,
+    )
+    req = OneDriveSyncRequest(
+        {
+            "athlete_id": "rob",
+            "lookback_days": 14,
+            "async": True,
+            "force": True,
+        },
+        {},
+    )
+
+    result, status = handler.handle(req=req)
+
+    assert status == 202
+    assert result["status"] == "queued"
+    assert result["force"] is True
+    async_queue.enqueue.assert_called_once()
+    enqueued_item = async_queue.enqueue.call_args.kwargs["item"]
+    assert enqueued_item.context["force"] is True
+    state = storage.async_operations.upsert_state.call_args.args[0]
+    assert state.context["force"] is True
