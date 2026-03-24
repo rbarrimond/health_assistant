@@ -103,7 +103,7 @@ def test_sync_handler_executes_sync_mode():
     assert status == 200
     assert response["status"] == "success"
     assert response["synced"] == 5
-    handler.sync.assert_called_once_with(athlete_id="rob", lookback_days=7)
+    handler.sync.assert_called_once_with(athlete_id="rob", lookback_days=7, force=False)
 
 
 def test_sync_handler_executes_async_mode():
