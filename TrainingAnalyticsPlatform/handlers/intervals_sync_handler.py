@@ -50,6 +50,7 @@ class IntervalsSyncHandler:
         intervals_athlete_id: str,
         athlete_id: str,
         lookback_days: Optional[int] = None,
+        force: bool = False,
     ) -> Tuple[Dict[str, Any], int]:
         """
         Fetch and store physiometrics from Intervals.icu.
@@ -58,6 +59,7 @@ class IntervalsSyncHandler:
             intervals_athlete_id: Athlete identifier in Intervals.icu (for API URL)
             athlete_id: Athlete identifier for storage partition
             lookback_days: How many days back to fetch (default from env or 30)
+            force: Reserved parity flag for sync endpoint contract
 
         Returns:
             Tuple of (response_dict, http_status_code)
@@ -118,6 +120,7 @@ class IntervalsSyncHandler:
                 return {
                     "message": "No measurements found",
                     "count": 0,
+                    "force": force,
                     "records_fetched": 0,
                     "records_processed": 0,
                     "records_failed": 0,
@@ -143,6 +146,7 @@ class IntervalsSyncHandler:
             return {
                 "message": f"Synced {stored_count} wellness records",
                 "count": stored_count,
+                "force": force,
                 "records_fetched": fetched_count,
                 "records_processed": stored_count,
                 "records_failed": failed_count,

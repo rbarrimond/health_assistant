@@ -76,10 +76,11 @@ Manual sync (HTTP):
 ```bash
 curl -X POST "https://<FUNCTION_APP>.azurewebsites.net/api/onedrive/sync?code=<FUNCTION_KEY>" \
   -H "Content-Type: application/json" \
-  -d '{"days": 30, "athlete_id": "rob", "async": true}'
+  -d '{"lookback_days": 30, "athlete_id": "rob", "async": true, "force": false}'
 ```
 
 By default the endpoint runs asynchronously and returns a 202 digest. Set `async=false` to block and wait for results.
+Set `force=true` to bypass incremental delta-cursor mode for that run and reprocess files even when content is unchanged.
 
 Automatic sync (Timer):
 
@@ -87,6 +88,7 @@ Automatic sync (Timer):
 - Controlled by `ONEDRIVE_SYNC_TIMER_SCHEDULE`
 - Uses Microsoft Graph delta query with persisted delta token state
 - Uses `ONEDRIVE_SYNC_LOOKBACK_DAYS` by default
+- Supports one-shot force mode (`force=true`) to run a full re-scan for the lookback window
 
 Lookback filtering uses the workout date parsed from the filename (YYYY-MM-DD) when available. If no date is found, it falls back to OneDrive `lastModifiedDateTime`.
 
@@ -133,9 +135,10 @@ HTTP-triggered OneDrive sync.
 
 ```json
 {
-  "days": 30,
+  "lookback_days": 30,
   "athlete_id": "rob",
-  "async": true
+  "async": true,
+  "force": false
 }
 ```
 
@@ -145,7 +148,8 @@ HTTP-triggered OneDrive sync.
 {
   "status": "queued",
   "athlete_id": "rob",
-  "lookback_days": 30
+  "lookback_days": 30,
+  "force": false
 }
 ```
 
@@ -154,10 +158,16 @@ HTTP-triggered OneDrive sync.
 ```json
 {
   "status": "success",
-  "athlete_id": "rob",
-  "file_count": 5,
-  "workout_count": 5,
-  "error_count": 0
+  "lookback_days": 30,
+  "folder_path": "/Apps/HealthFit",
+  "sync_mode": "incremental",
+  "force": false,
+  "found": 5,
+  "ingested": 5,
+  "skipped": 0,
+  "failed": 0,
+  "errors": [],
+  "items": []
 }
 ```
 

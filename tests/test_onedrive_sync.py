@@ -270,3 +270,47 @@ def test_sync_skips_when_no_tokens():
 
     with pytest.raises(ValueError):
         handler.sync(athlete_id="rob", lookback_days=30)
+
+
+def test_sync_force_true_uses_full_rescan_and_bypasses_delta_token():
+    storage = MagicMock()
+    storage.oauth_tokens = MagicMock()
+    future = datetime.now(timezone.utc) + timedelta(hours=2)
+    tokens = {
+        "access_token": "access",
+        "refresh_token": "refresh",
+        "expires_at_utc": future.isoformat(),
+        "drive_id": "drive-id",
+        "delta_token": "delta-link-1",
+    }
+    storage.oauth_tokens.get_onedrive_tokens.return_value = tokens
+
+    client = MagicMock()
+    ingestion_handler = MagicMock()
+    ingestion_handler.handle.return_value = ({"status": "success"}, 200)
+
+    handler = OneDriveSyncHandler(
+        _config(),
+        storage,
+        client=client,
+        ingestion_handler=ingestion_handler,
+    )
+
+    client.list_files_delta = MagicMock(return_value=([{
+        "id": "file-id",
+        "name": "test.fit",
+        "size": 10,
+        "eTag": "etag",
+        "parentReference": {"path": "/drive/root:/Apps/HealthFit", "driveId": "drive-id"},
+    }], "delta-link-2"))
+
+    result = handler.sync(athlete_id="rob", lookback_days=30, force=True)
+
+    assert result["status"] == "success"
+    assert result["sync_mode"] == "force_full"
+    assert result["force"] is True
+    assert result["ingested"] == 1
+    client.list_files_delta.assert_called_once()
+    assert client.list_files_delta.call_args.kwargs["delta_link"] is None
+    ingestion_handler.handle.assert_called_once()
+    assert ingestion_handler.handle.call_args.kwargs["force"] is True

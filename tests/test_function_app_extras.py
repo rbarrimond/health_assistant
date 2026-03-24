@@ -941,6 +941,27 @@ class TestOneDriveHelpersAndEndpoints:
         assert response.status_code == 202
         mock_handler.handle.assert_called_once()
 
+    def test_onedrive_sync_http_force_query_param(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {"days": 7, "athlete_id": "rob"}
+        req.params = {"force": "true"}
+        req.headers = {}
+
+        mock_handler = MagicMock()
+
+        def _handle(sync_req):
+            assert sync_req.force is True
+            return {"status": "success"}, 200
+
+        mock_handler.handle.side_effect = _handle
+
+        with _patch_dependency("onedrive_service", mock_handler):
+            response = function_app.onedrive_sync_http(req)
+
+        assert response.status_code == 200
+        mock_handler.handle.assert_called_once()
+
     def test_onedrive_sync_http_propagates_trace_ids_to_request(self):
         req = MagicMock(spec=func.HttpRequest)
         req.method = "POST"
@@ -1378,6 +1399,25 @@ class TestIntervalsEndpointHandlers:
         assert call_kwargs["intervals_athlete_id"] == "i508584"
         assert call_kwargs["athlete_id"] == "rob"
         assert call_kwargs["lookback_days"] == 60
+
+    def test_intervals_sync_forwards_force_flag(self, monkeypatch):
+        monkeypatch.setenv("INTERVALS_ATHLETE_ID", "i508584")
+        monkeypatch.setenv("DEFAULT_ATHLETE_ID", "rob")
+
+        req = MagicMock(spec=func.HttpRequest)
+        req.method = "POST"
+        req.get_json.return_value = {"force": True}
+        req.params = {}
+
+        mock_handler = MagicMock()
+        mock_handler.handle.return_value = ({"count": 20}, 200)
+
+        with _patch_dependency("intervals_service", mock_handler):
+            response = function_app.intervals_sync_http(req)
+
+        assert response.status_code == 200
+        call_kwargs = mock_handler.handle.call_args[1]
+        assert call_kwargs["force"] is True
 
 
 class TestIntervalsTimerHandlers:

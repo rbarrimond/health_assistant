@@ -108,11 +108,13 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
             access_token: OneDrive OAuth access token
             item: OneDrive item dict
             drive_id: Optional OneDrive drive ID fallback
+            force: Whether to bypass unchanged-content skip checks
         """
         athlete_id = kwargs["athlete_id"]
         access_token = kwargs["access_token"]
         item = kwargs["item"]
         drive_id = kwargs.get("drive_id")
+        force = bool(kwargs.get("force", False))
         source_info: Optional[Dict] = None
 
         try:
@@ -121,6 +123,7 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
                 access_token=access_token,
                 item=item,
                 drive_id=drive_id,
+                force=force,
             )
             return response
         except Exception as exc:  # pylint: disable=broad-exception-caught
@@ -133,6 +136,7 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
         access_token: str,
         item: Dict,
         drive_id: str | None,
+        force: bool,
     ) -> tuple[Dict, tuple[Dict, int]]:
         item_meta = self._extract_item_metadata(item, drive_id)
         source_info = self._build_source_info(item, item_meta)
@@ -143,7 +147,7 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
             source_info,
             ingestion_key=source_info["ingestion_id"],
         )
-        if isinstance(context, IngestionContext) and context.should_skip():
+        if isinstance(context, IngestionContext) and not force and context.should_skip():
             response = self._build_skip_response(athlete_id, source_info, context)
             return source_info, response
 
@@ -350,7 +354,11 @@ class OneDriveSyncRequest:
     @property
     def lookback_days(self) -> int | None:
         """Extract and validate lookback days."""
-        days = self.body.get("days")
+        days = self.body.get("lookback_days")
+        if days is None:
+            days = self.query_params.get("lookback_days")
+        if days is None:
+            days = self.body.get("days")
         if days is None:
             days = self.query_params.get("days")
         if days is None:
@@ -366,7 +374,15 @@ class OneDriveSyncRequest:
         async_param = self.body.get("async") or self.query_params.get("async")
         if async_param is None:
             return False
-        return str(async_param).lower() in {"1", "true", "yes", "y"}
+        return self._to_bool(async_param)
+
+    @property
+    def force(self) -> bool:
+        """Extract force flag from body or query params."""
+        force_param = self.body.get("force")
+        if force_param is None:
+            force_param = self.query_params.get("force")
+        return self._to_bool(force_param)
 
     @property
     def request_id(self) -> str | None:
@@ -385,6 +401,16 @@ class OneDriveSyncRequest:
             return None
         normalized = str(correlation_id).strip()
         return normalized or None
+
+    @staticmethod
+    def _to_bool(raw_value: object) -> bool:
+        if isinstance(raw_value, bool):
+            return raw_value
+        if isinstance(raw_value, str):
+            return raw_value.lower() in {"1", "true", "yes", "y"}
+        if isinstance(raw_value, int):
+            return raw_value == 1
+        return False
 
 
 class OneDriveResetRequest:
@@ -461,11 +487,12 @@ class OneDriveSyncHandler:
             return self._handle_async(
                 req.athlete_id,
                 lookback_days,
+                req.force,
                 request_id=req.request_id,
                 correlation_id=req.correlation_id,
             )
 
-        return self._handle_sync(req.athlete_id, lookback_days)
+        return self._handle_sync(req.athlete_id, lookback_days, req.force)
 
     def handle_reset(self, req: OneDriveResetRequest) -> Tuple[Dict, int]:
         """Reset OneDrive delta token state for single athlete or all athletes."""
@@ -577,10 +604,10 @@ class OneDriveSyncHandler:
         )
         return token_data
 
-    def _handle_sync(self, athlete_id: str, lookback_days: int) -> Tuple[Dict, int]:
+    def _handle_sync(self, athlete_id: str, lookback_days: int, force: bool) -> Tuple[Dict, int]:
         """Execute synchronous sync."""
         try:
-            result = self.sync(athlete_id=athlete_id, lookback_days=lookback_days)
+            result = self.sync(athlete_id=athlete_id, lookback_days=lookback_days, force=force)
             return result, 200
         except ValueError as exc:
             logger.warning(
@@ -588,6 +615,7 @@ class OneDriveSyncHandler:
                 extra={
                     "athlete_id": athlete_id,
                     "lookback_days": lookback_days,
+                    "force": force,
                     "source_system": "onedrive",
                     "error_type": "ValueError",
                     "error": str(exc),
@@ -600,6 +628,7 @@ class OneDriveSyncHandler:
                 extra={
                     "athlete_id": athlete_id,
                     "lookback_days": lookback_days,
+                    "force": force,
                     "source_system": "onedrive",
                     "error_type": type(exc).__name__,
                     "error": str(exc),
@@ -613,6 +642,7 @@ class OneDriveSyncHandler:
                 extra={
                     "athlete_id": athlete_id,
                     "lookback_days": lookback_days,
+                    "force": force,
                     "source_system": "onedrive",
                     "error_type": type(exc).__name__,
                     "error": str(exc),
@@ -625,6 +655,7 @@ class OneDriveSyncHandler:
         self,
         athlete_id: str,
         lookback_days: int,
+        force: bool,
         *,
         request_id: str | None = None,
         correlation_id: str | None = None,
@@ -637,6 +668,7 @@ class OneDriveSyncHandler:
             return self._handle_async_queue(
                 athlete_id=athlete_id,
                 lookback_days=lookback_days,
+                force=force,
                 operation_id=operation_id,
                 queued_at_utc=queued_at_utc,
                 request_id=request_id,
@@ -646,6 +678,7 @@ class OneDriveSyncHandler:
         return self._handle_async_thread(
             athlete_id=athlete_id,
             lookback_days=lookback_days,
+            force=force,
             operation_id=operation_id,
             queued_at_utc=queued_at_utc,
             request_id=request_id,
@@ -657,6 +690,7 @@ class OneDriveSyncHandler:
         *,
         athlete_id: str,
         lookback_days: int,
+        force: bool,
         operation_id: str,
         queued_at_utc: str,
         request_id: str | None,
@@ -690,7 +724,7 @@ class OneDriveSyncHandler:
             queued_at_utc=queued_at_utc,
             request_id=request_id,
             correlation_id=correlation_id,
-            context={"source_system": "onedrive", "mode": "async"},
+            context={"source_system": "onedrive", "mode": "async", "force": force},
         )
 
         try:
@@ -707,6 +741,7 @@ class OneDriveSyncHandler:
                     context={
                         "source_system": "onedrive",
                         "mode": "async",
+                        "force": force,
                     },
                 )
             )
@@ -734,6 +769,7 @@ class OneDriveSyncHandler:
             "status": "queued",
             "athlete_id": athlete_id,
             "lookback_days": lookback_days,
+            "force": force,
             "mode": "async_queue",
             "operation_id": operation_id,
             "queued_at_utc": queued_at_utc,
@@ -744,6 +780,7 @@ class OneDriveSyncHandler:
         *,
         athlete_id: str,
         lookback_days: int,
+        force: bool,
         operation_id: str,
         queued_at_utc: str,
         request_id: str | None,
@@ -760,7 +797,7 @@ class OneDriveSyncHandler:
             queued_at_utc=queued_at_utc,
             request_id=request_id,
             correlation_id=correlation_id,
-            context={"source_system": "onedrive", "mode": "async"},
+            context={"source_system": "onedrive", "mode": "async", "force": force},
         )
         self._storage.async_operations.upsert_state(operation_state)
 
@@ -772,7 +809,9 @@ class OneDriveSyncHandler:
                     status="processing",
                 )
                 result = self.sync(
-                    athlete_id=athlete_id, lookback_days=lookback_days
+                    athlete_id=athlete_id,
+                    lookback_days=lookback_days,
+                    force=force,
                 )
                 self._storage.async_operations.mark_status(
                     athlete_id=athlete_id,
@@ -791,6 +830,7 @@ class OneDriveSyncHandler:
                     extra={
                         "athlete_id": athlete_id,
                         "lookback_days": lookback_days,
+                        "force": force,
                         "source_system": "onedrive",
                         "operation_id": operation_id,
                         "found": result.get("found"),
@@ -811,6 +851,7 @@ class OneDriveSyncHandler:
                     extra={
                         "athlete_id": athlete_id,
                         "lookback_days": lookback_days,
+                        "force": force,
                         "source_system": "onedrive",
                         "operation_id": operation_id,
                         "error_type": type(exc).__name__,
@@ -825,6 +866,7 @@ class OneDriveSyncHandler:
             "status": "queued",
             "athlete_id": athlete_id,
             "lookback_days": lookback_days,
+            "force": force,
             "mode": "async_thread",
             "operation_id": operation_id,
             "queued_at_utc": queued_at_utc,
@@ -838,19 +880,20 @@ class OneDriveSyncHandler:
             raise TypeError("req must be a OneDriveSyncRequest")
         return req
 
-    def sync(self, *, athlete_id: str, lookback_days: int) -> Dict:
+    def sync(self, *, athlete_id: str, lookback_days: int, force: bool = False) -> Dict:
         """Sync OneDrive folder and ingest qualifying FIT files."""
         access_token = self._get_access_token(athlete_id)
         tokens = self._get_tokens(athlete_id)
         drive_id = tokens.get("drive_id") or None
         delta_link = tokens.get("delta_token") or None
 
-        delta_mode = "incremental" if delta_link else "seed"
+        effective_delta_link = None if force else delta_link
+        delta_mode = "force_full" if force else ("incremental" if delta_link else "seed")
         try:
             files, next_delta_link = self._client.list_files_delta(
                 access_token=access_token,
                 folder_path=self._config.folder_path,
-                delta_link=delta_link,
+                delta_link=effective_delta_link,
                 extensions={".fit", ".fit.gz"},
             )
         except OneDriveDeltaTokenExpiredError:
@@ -904,6 +947,7 @@ class OneDriveSyncHandler:
             "lookback_days": lookback_days,
             "folder_path": self._config.folder_path,
             "sync_mode": delta_mode,
+            "force": force,
             "found": len(files),
             "ingested": 0,
             "skipped": 0,
@@ -919,6 +963,7 @@ class OneDriveSyncHandler:
                     access_token=access_token,
                     item=item,
                     drive_id=drive_id,
+                    force=force,
                 )
                 self._record_ingest_result(results, item, body, status_code)
             except Exception as exc:  # pylint: disable=broad-exception-caught

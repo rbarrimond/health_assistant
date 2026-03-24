@@ -199,6 +199,19 @@ class TestIntervalsSyncHandlerHandle:
         assert call_kwargs["oldest"] == "2026-03-04"
         assert call_kwargs["newest"] == "2026-03-04"
 
+    def test_handle_includes_force_in_response(self, handler, mock_client):
+        """Test response includes force flag when supplied."""
+        mock_client.get_athlete_wellness.return_value = []
+
+        response, status = handler.handle(
+            intervals_athlete_id="i508584",
+            athlete_id="rob",
+            force=True,
+        )
+
+        assert status == 200
+        assert response["force"] is True
+
     def test_handle_api_error(self, handler, mock_client):
         """Test handle when API call fails."""
         mock_client.get_athlete_wellness.side_effect = ExternalServiceError(

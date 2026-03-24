@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Operations)
-  version: "4.5.0"
+  version: "4.6.0"
   description: |
     Operational and administrative API for ingestion, configuration, integrations, and plugin assets.
     Complements the semantic GPT-facing specification with platform control-plane and runtime support endpoints.
@@ -583,8 +583,13 @@ paths:
               properties:
                 athlete_id:
                   type: string
+                lookback_days:
+                  type: integer
                 days:
                   type: integer
+                force:
+                  type: boolean
+                  description: When true, bypass delta-token incremental listing and unchanged-content skip checks to force full reprocessing
                 async:
                   type: boolean
       responses:
@@ -601,6 +606,8 @@ paths:
                     type: string
                   lookback_days:
                     type: integer
+                  force:
+                    type: boolean
                   folder_path:
                     type: string
                   mode:
@@ -616,10 +623,14 @@ paths:
                 properties:
                   status:
                     type: string
+                  lookback_days:
+                    type: integer
+                  force:
+                    type: boolean
+                  found:
+                    type: integer
                   athlete_id:
                     type: string
-                  scanned:
-                    type: integer
                   ingested:
                     type: integer
                   skipped:
@@ -805,6 +816,9 @@ paths:
                 lookback_days:
                   type: integer
                   description: Number of days to look back for wellness records (default 30)
+                force:
+                  type: boolean
+                  description: Reserved parity flag for sync endpoints; accepted and echoed in response
             examples:
               basicSync:
                 summary: Default sync (30 days)

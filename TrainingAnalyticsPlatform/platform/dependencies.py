@@ -223,9 +223,10 @@ class FunctionAppDependencies:
         """Return source registry for async ingestion queue execution."""
         return SourceHandlerRegistry(
             handlers={
-                "onedrive": lambda athlete_id, lookback_days, _force: self.onedrive_service.sync(
+                "onedrive": lambda athlete_id, lookback_days, force: self.onedrive_service.sync(
                     athlete_id=athlete_id,
                     lookback_days=lookback_days,
+                    force=force,
                 ),
                 "garmin": lambda athlete_id, lookback_days, force: self.garmin_service.sync(
                     athlete_id=athlete_id,

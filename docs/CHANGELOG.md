@@ -10,12 +10,15 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-03-23
 
-### Garmin Force Re-Ingestion Semantics Alignment [application v3.10.0, ingestion v15.6.0, operations API v4.5.0]
+### Sync Endpoint Force Parity Alignment [application v3.11.0, ingestion v15.7.0, operations API v4.6.0]
 
 - **Changed (force contract)**: `POST /api/garmin/sync` with `force=true` now bypasses both activity-id prefilter skipping and unchanged-content skip gating during FIT ingestion, ensuring forced activities continue through parse/store.
 - **Changed (persisted semantics)**: successful forced reprocessing now writes a fresh `ingested_at_utc` in `IngestionState` because ingestion no longer short-circuits on unchanged-content when force is enabled.
+- **Changed (force contract)**: `POST /api/onedrive/sync` now accepts `force`; when true, OneDrive sync bypasses incremental delta-token mode for that run (`sync_mode=force_full`) and bypasses unchanged-content skip checks during FIT ingestion.
+- **Changed (async parity)**: OneDrive async queue/thread paths now persist and propagate `force` context so background execution matches HTTP-triggered semantics.
+- **Changed (endpoint parity)**: `POST /api/intervals/sync` now accepts and forwards `force` for cross-endpoint contract consistency (current Intervals ingestion remains source-fetch driven and does not add a new skip gate).
 - **Updated (operations contract docs)**: `api_docs/openapi.operations.yaml` updated to describe force behavior as bypassing both activity-id prefilter and unchanged-content skip checks.
-- **Updated (backend docs)**: `docs/devops/BACKENDS.md` now documents forced skip-bypass behavior and `ingested_at_utc` refresh semantics for successful forced re-ingestion.
+- **Updated (backend docs)**: `docs/devops/BACKENDS.md` now documents OneDrive force full-rescan behavior and refreshed response contract fields.
 
 ### Canonical Metadata Schema Version Emission Alignment [application v3.9.7, ingestion v15.5.1]
 
