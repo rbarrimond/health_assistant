@@ -1,6 +1,6 @@
 # Semantic Access Layer API (GPT)
 
-Version: 6.0.0
+Version: 7.1.1
 
 The Semantic Access Layer is the **read + agent-memory write API** for ChatGPT Actions. It exposes meaningful, human-centric questions about training data rather than raw table access.
 

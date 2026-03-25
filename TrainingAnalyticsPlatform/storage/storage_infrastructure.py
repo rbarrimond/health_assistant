@@ -21,7 +21,7 @@ from TrainingAnalyticsPlatform.platform.exceptions import (
     IngestionIdResolutionError,
 )
 
-CANONICAL_SCHEMA_VERSION = "2.0.1"
+CANONICAL_SCHEMA_VERSION = "2.0.3"
 WORKOUTS_CONTAINER = "workouts"
 EXTERNAL_SOURCES_CONTAINER = "external-sources"
 
