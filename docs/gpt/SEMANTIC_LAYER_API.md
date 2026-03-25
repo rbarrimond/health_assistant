@@ -48,6 +48,8 @@ GET /api/planning/context?athlete_id=rob&days=45
 | `/api/training-state/current` | Current training state |
 | `/api/training-state/history` | Training-state trends |
 
+> For authoritative path and parameter definitions, see [`openapi.yaml`](../../api_docs/openapi.yaml).
+
 **Operational usage and call ordering:** [`GPT_ACTIONS_GUIDE.md`](./GPT_ACTIONS_GUIDE.md).
 
 ---
@@ -55,9 +57,7 @@ GET /api/planning/context?athlete_id=rob&days=45
 ## Scope Protections
 
 - `athlete_id` scoping (Phase 1 default behavior: `rob`)
-- Workout query max: `200`
-- Lookback max: `365` days
-- Weekly rollup max: `52` weeks
+- Scope limits are enforced as parameter `maximum` constraints in [`openapi.yaml`](../../api_docs/openapi.yaml).
 - Summary-first response philosophy (time series requested explicitly)
 
 ---
@@ -108,7 +108,7 @@ This layer:
 
 - **Date handling**: use ISO date/time inputs; assume UTC unless offset is explicit.
 - **Error semantics**: invalid parameters return 4xx; unexpected failures return 5xx.
-- **Projection strategy**: list endpoints provide compact projections; detail endpoints provide deep records.
+- **Projection strategy**: endpoint-level projection behavior is defined in [`openapi.yaml`](../../api_docs/openapi.yaml).
 - **Agent memory usage**: preference/observation records are intended for persistent context grounding, not derived analytics.
 
 For schema details and concrete payload examples, use [`openapi.yaml`](../../api_docs/openapi.yaml).

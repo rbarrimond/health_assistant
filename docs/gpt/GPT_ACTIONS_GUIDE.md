@@ -128,4 +128,4 @@ ChatGPT responds: "Your current FTP is 295 W and LTHR is 178 bpm (per the latest
 
 ## Actions Auth (Azure Functions)
 
-Use the `?code=<function_key>` query parameter when required by the function app.
+Auth is defined in [`openapi.yaml`](../../api_docs/openapi.yaml) under `securitySchemes.FunctionKey`. Pass `?code=<function_key>` as a query parameter on every request.
