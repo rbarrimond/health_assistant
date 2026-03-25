@@ -1,3 +1,19 @@
+---
+doc_type: context
+kb_role: domain_modality_context
+subject: Cycling Endurance Framework
+modality: cycling
+athlete_id: rob
+version: 1.0.0
+status: active
+tags:
+    - zone2
+    - durability
+    - decoupling
+    - time-in-zone
+    - recovery-signals
+---
+
 # Cycling Context – Endurance & Longevity Framework
 
 Version: 1.0.0

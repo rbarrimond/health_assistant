@@ -1,3 +1,19 @@
+---
+doc_type: context
+kb_role: athlete_specific_context
+subject: Robert Barrimond
+modality: multi
+athlete_id: rob
+version: 1.1.1
+status: active
+tags:
+  - priorities
+  - decision-framework
+  - risk-tolerance
+  - durability
+  - progression-philosophy
+---
+
 # Athlete Context – Robert Barrimond
 
 Version 1.1.1

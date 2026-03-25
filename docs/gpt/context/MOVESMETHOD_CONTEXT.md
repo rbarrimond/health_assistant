@@ -1,3 +1,20 @@
+---
+doc_type: context
+kb_role: domain_modality_context
+subject: MovesMethod Decision Framework
+modality: functional_strength
+athlete_id: rob
+version: 1.0.0
+status: active
+tags:
+  - movesmethod
+  - connective-tissue
+  - injury-prevention
+  - technical-failure
+  - systemic-vs-local-rpe
+  - nasal-breathing
+---
+
 # MovesMethod – Context & Decision Framework
 
 ## Purpose

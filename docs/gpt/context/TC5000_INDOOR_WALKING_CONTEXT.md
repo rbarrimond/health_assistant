@@ -1,3 +1,20 @@
+---
+doc_type: context
+kb_role: domain_modality_context
+subject: TC5000 Indoor Walking
+modality: indoor_walking
+athlete_id: rob
+version: 1.0.0
+status: active
+tags:
+  - tc5000
+  - bowflex
+  - treadclimber
+  - durability
+  - low-joint-stress
+  - nasal-breathing
+---
+
 # TC5000 Indoor Walking Context Document
 
 **Bowflex® TreadClimber® 5000 -- Primary Indoor Walking Modality:**
