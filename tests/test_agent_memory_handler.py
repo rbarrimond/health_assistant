@@ -224,6 +224,110 @@ class TestAgentMemoryHandler:
         assert "error" in result
 
     # ========================================================================
+    # add_preference / update_preference tests (active write path)
+    # ========================================================================
+
+    def test_add_preference_success(self, handler, mock_table_storage):
+        """Test successful creation of a preference item."""
+        # Arrange
+        mock_client = MagicMock()
+        mock_table_storage.infrastructure.get_table_client.return_value = mock_client
+
+        # Act
+        result, status = handler.add_preference(
+            athlete_id="rob",
+            category="goal",
+            summary="Build aerobic base",
+            details="Prioritize Z2 consistency",
+            priority="high",
+            status="active"
+        )
+
+        # Assert
+        assert status == 201
+        assert "preference_id" in result
+        assert "preference" in result
+        assert result["preference"]["category"] == "goal"
+        assert result["preference"]["summary"] == "Build aerobic base"
+        mock_client.upsert_entity.assert_called_once()
+
+    def test_add_preference_missing_required_fields(self, handler, mock_table_storage):
+        """Test add_preference with missing required fields."""
+        # Act
+        result, status = handler.add_preference(
+            athlete_id="rob",
+            category="goal",
+            summary=""
+        )
+
+        # Assert
+        assert status == 400
+        assert "error" in result
+
+    def test_update_preference_success(self, handler, mock_table_storage):
+        """Test successful update of a preference item."""
+        # Arrange
+        mock_client = MagicMock()
+        mock_table_storage.infrastructure.get_table_client.return_value = mock_client
+        existing_entity = {
+            "PartitionKey": "rob",
+            "RowKey": "pref-1",
+            "category": "goal",
+            "summary": "Build aerobic base",
+            "details": "Prioritize Z2 consistency",
+            "priority": "normal",
+            "status": "active",
+            "created_at": "2026-03-01T00:00:00+00:00",
+            "updated_at": "2026-03-01T00:00:00+00:00"
+        }
+        mock_client.get_entity.return_value = existing_entity
+
+        # Act
+        result, status = handler.update_preference(
+            athlete_id="rob",
+            preference_id="pref-1",
+            updates={"status": "resolved", "details": "Goal completed"}
+        )
+
+        # Assert
+        assert status == 200
+        assert result["preference_id"] == "pref-1"
+        assert result["preference"]["status"] == "resolved"
+        assert result["preference"]["details"] == "Goal completed"
+        mock_client.update_entity.assert_called_once()
+
+    def test_update_preference_not_found(self, handler, mock_table_storage):
+        """Test update_preference when the target preference does not exist."""
+        # Arrange
+        mock_client = MagicMock()
+        mock_table_storage.infrastructure.get_table_client.return_value = mock_client
+        mock_client.get_entity.side_effect = Exception("not found")
+
+        # Act
+        result, status = handler.update_preference(
+            athlete_id="rob",
+            preference_id="pref-missing",
+            updates={"status": "resolved"}
+        )
+
+        # Assert
+        assert status == 404
+        assert "error" in result
+
+    def test_update_preference_invalid_status(self, handler, mock_table_storage):
+        """Test update_preference status validation."""
+        # Act
+        result, status = handler.update_preference(
+            athlete_id="rob",
+            preference_id="pref-1",
+            updates={"status": "unknown"}
+        )
+
+        # Assert
+        assert status == 400
+        assert "error" in result
+
+    # ========================================================================
     # add_observation tests
     # ========================================================================
 

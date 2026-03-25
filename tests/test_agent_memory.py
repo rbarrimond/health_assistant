@@ -48,7 +48,7 @@ def test_get_preferences():
     return response.status_code == 200
 
 
-def test_update_preferences():
+def test_add_preference():
     """Test POST /api/agent/preferences"""
     print("\n[TEST] POST /api/agent/preferences")
     url = f"{BASE_URL}/agent/preferences"
@@ -58,19 +58,18 @@ def test_update_preferences():
 
     payload = {
         "athlete_id": ATHLETE_ID,
-        "current_goal": "Build aerobic base for spring races",
-        "training_phase": "base-building",
-        "preferred_sports": ["cycling", "running"],
-        "ftp_test_frequency_weeks": 6,
-        "last_ftp_test_date": "2026-01-15",
-        "notes": "Focus on Z2 quality and consistency"
+        "category": "goal",
+        "summary": "Build aerobic base for spring races",
+        "details": "Focus on Z2 quality and consistency",
+        "priority": "high",
+        "status": "active"
     }
 
     response = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
     print(f"Status: {response.status_code}")
     print(f"Response: {json.dumps(response.json(), indent=2)}")
 
-    return response.status_code == 200
+    return response.status_code == 201
 
 
 def test_add_observation():
@@ -156,7 +155,7 @@ def run_all_tests():
     results = {
         "get_context": False,
         "get_preferences": False,
-        "update_preferences": False,
+        "add_preference": False,
         "add_observation": False,
         "list_observations": False,
         "update_observation": False
@@ -168,7 +167,7 @@ def run_all_tests():
 
     # Write tests (require function key)
     if FUNCTION_KEY:
-        results["update_preferences"] = test_update_preferences()
+        results["add_preference"] = test_add_preference()
         observation_id = test_add_observation()
         results["add_observation"] = observation_id is not None
         results["list_observations"] = test_list_observations()

@@ -28,7 +28,7 @@ paths:
     get:
       summary: Get agent memory context (preferences + active observations)
       operationId: getAgentContext
-      description: "Returns the assistant’s working memory context: active athlete preferences, active observations, and instruction addendum for response grounding."
+      description: Returns the assistant working memory used for conversational grounding. Call this at conversation start to load active preferences and observations before planning or recommendation endpoints.
       parameters:
         - name: athlete_id
           in: query
@@ -46,6 +46,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentContext'
+              examples:
+                default:
+                  $ref: '#/components/examples/AgentContextExample'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -54,6 +57,7 @@ paths:
     get:
       summary: List agent preferences
       operationId: getAgentPreferences
+      description: Returns ordered preference items for the athlete. Use `status=active` for current constraints and goals before recommendation generation.
       parameters:
         - name: athlete_id
           in: query
@@ -87,6 +91,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentPreferencesResponse'
+              examples:
+                default:
+                  $ref: '#/components/examples/AgentPreferencesListExample'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -94,13 +101,16 @@ paths:
     post:
       summary: Create new preference
       operationId: createAgentPreference
-      description: Creates a structured athlete preference used to guide recommendations, prioritization, and response tone.
+      description: Creates a structured preference item (category/summary/details/priority/status). This endpoint is item-based create, not legacy bulk-update.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/CreatePreferenceRequest'
+            examples:
+              default:
+                $ref: '#/components/examples/CreatePreferenceRequestExample'
       security:
         - FunctionKey: []
       responses:
@@ -110,6 +120,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PreferenceCreateResponse'
+              examples:
+                default:
+                  $ref: '#/components/examples/PreferenceCreateResponseExample'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -118,6 +131,7 @@ paths:
     patch:
       summary: Update a preference
       operationId: updateAgentPreference
+      description: Updates mutable fields for one preference item by ID. Typical usage is lifecycle transitions such as `active -> resolved`.
       parameters:
         - name: preference_id
           in: path
@@ -147,6 +161,9 @@ paths:
                 status:
                   type: string
                   enum: [active, resolved, archived]
+            examples:
+              resolvePreference:
+                $ref: '#/components/examples/UpdatePreferenceRequestExample'
       security:
         - FunctionKey: []
       responses:
@@ -156,6 +173,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PreferenceUpdateResponse'
+              examples:
+                default:
+                  $ref: '#/components/examples/PreferenceUpdateResponseExample'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -166,6 +186,7 @@ paths:
     get:
       summary: List training observations
       operationId: listAgentObservations
+      description: Returns observation items that capture constraints, flags, and patterns. Use active observations to adjust recommendations.
       parameters:
         - name: athlete_id
           in: query
@@ -199,6 +220,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ObservationsList'
+              examples:
+                default:
+                  $ref: '#/components/examples/ObservationsListExample'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -206,12 +230,16 @@ paths:
     post:
       summary: Add new training observation
       operationId: addAgentObservation
+      description: Creates an observation item with optional detail, workout references, and TTL-style expiration.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateObservationRequest'
+            examples:
+              default:
+                $ref: '#/components/examples/CreateObservationRequestExample'
       security:
         - FunctionKey: []
       responses:
@@ -221,6 +249,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ObservationCreateResponse'
+              examples:
+                default:
+                  $ref: '#/components/examples/ObservationCreateResponseExample'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -229,6 +260,7 @@ paths:
     patch:
       summary: Update observation status
       operationId: updateAgentObservation
+      description: Updates one observation by ID. Most common usage is status transitions (`active`, `resolved`, `archived`).
       parameters:
         - name: observation_id
           in: path
@@ -251,6 +283,9 @@ paths:
                 status:
                   type: string
                   enum: [active, resolved, archived]
+            examples:
+              resolveObservation:
+                $ref: '#/components/examples/UpdateObservationStatusRequestExample'
       security:
         - FunctionKey: []
       responses:
@@ -260,6 +295,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ObservationStatusResponse'
+              examples:
+                default:
+                  $ref: '#/components/examples/ObservationStatusResponseExample'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -269,7 +307,7 @@ paths:
   /api/planning/context:
     get:
       summary: Get planning context for training decisions
-      description: Returns planning-ready context for short-horizon coaching decisions, including recent workouts, weekly rollups, and readiness-related summary signals.
+      description: Returns planning-ready context for short-horizon coaching decisions. Treat this as the primary endpoint for “what should I do next?” reasoning. Zone totals are stored in seconds but surfaced as minutes in summary fields.
       operationId: planningContext
       security:
         - FunctionKey: []
@@ -295,6 +333,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PlanningContext'
+              examples:
+                default:
+                  $ref: '#/components/examples/PlanningContextExample'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -302,7 +343,7 @@ paths:
   /api/workouts:
     get:
       summary: Query workouts with filters
-      description: Lists workouts for an athlete and date window as compact projections suitable for sorting, filtering, and batch review.
+      description: Lists workouts for an athlete/date window as compact projections for sorting and filtering. Use this for retrieval and triage; call workout detail endpoints only when deeper metrics are needed.
       operationId: listWorkouts
       security:
         - FunctionKey: []
@@ -345,6 +386,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WorkoutsList'
+              examples:
+                default:
+                  $ref: '#/components/examples/WorkoutsListExample'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -353,7 +397,7 @@ paths:
     get:
       summary: Get detailed workout data
       operationId: getWorkout
-      description: Returns a deep workout record for one session, including identity fields and nested metric families for analysis.
+      description: Returns a deep workout record for one session, including identity fields and nested metric families for analysis. Use this endpoint only when projection data is insufficient for the decision.
       security:
         - FunctionKey: []
       parameters:
@@ -382,6 +426,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WorkoutDetail'
+              examples:
+                default:
+                  $ref: '#/components/examples/WorkoutDetailExample'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -526,6 +573,7 @@ paths:
     get:
       summary: Get current physiometric values
       operationId: getCurrentPhysiometrics
+      description: Returns the latest canonical physiometrics snapshot across heart rate, power, body composition, recovery, and readiness domains.
       parameters:
         - name: athlete_id
           in: query
@@ -543,6 +591,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PhysiometricSnapshot'
+              examples:
+                default:
+                  $ref: '#/components/examples/PhysiometricsCurrentExample'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -551,6 +602,7 @@ paths:
     get:
       summary: Get physiometric time series
       operationId: getPhysiometricsHistory
+      description: Returns physiometrics trend points for the requested lookback window and optional metric filter.
       parameters:
         - name: athlete_id
           in: query
@@ -587,6 +639,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PhysiometricHistory'
+              examples:
+                default:
+                  $ref: '#/components/examples/PhysiometricsHistoryExample'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -613,6 +668,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TrainingStateSnapshot'
+              examples:
+                default:
+                  $ref: '#/components/examples/TrainingStateCurrentExample'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -657,6 +715,9 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/TrainingStateSnapshot'
+              examples:
+                default:
+                  $ref: '#/components/examples/TrainingStateHistoryExample'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -684,18 +745,398 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            invalidInput:
+              $ref: '#/components/examples/BadRequestExample'
     InternalError:
       description: Internal server error
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            unexpectedFailure:
+              $ref: '#/components/examples/InternalErrorExample'
     NotFound:
       description: Resource not found
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            missingResource:
+              $ref: '#/components/examples/NotFoundExample'
+  examples:
+    BadRequestExample:
+      summary: Invalid request payload or query
+      value:
+        error: athlete_id required
+    InternalErrorExample:
+      summary: Unexpected server-side failure
+      value:
+        error: Internal server error
+    NotFoundExample:
+      summary: Requested resource does not exist
+      value:
+        error: Preference not found
+    AgentContextExample:
+      summary: Context payload for conversation grounding
+      value:
+        athlete_id: rob
+        preferences:
+          - preference_id: c9c8812c-9b11-4cc2-a6d2-6f4f1ba2e0c8
+            category: goal
+            summary: Build aerobic base for spring races
+            details: Focus on Z2 consistency and fatigue control
+            priority: high
+            status: active
+            created_at: '2026-03-01T08:00:00+00:00'
+        active_observations:
+          - observation_id: 4e36e2f2-4ca6-4eb5-8cb2-2cfa9d689f31
+            category: fatigue
+            summary: Poor sleep in last 3 nights
+            priority: normal
+            status: active
+            created_at: '2026-03-24T06:00:00+00:00'
+        instruction_addendum: User goal is aerobic base; account for active fatigue observation.
+        retrieved_at: '2026-03-25T09:30:00+00:00'
+    AgentPreferencesListExample:
+      summary: Active preference list response
+      value:
+        athlete_id: rob
+        count: 2
+        preferences:
+          - preference_id: c9c8812c-9b11-4cc2-a6d2-6f4f1ba2e0c8
+            category: goal
+            summary: Build aerobic base for spring races
+            priority: high
+            status: active
+            created_at: '2026-03-01T08:00:00+00:00'
+          - preference_id: 16af8f3f-80ab-4ad8-bb34-cc0ffcf2a7c5
+            category: schedule
+            summary: Hard sessions only Tue/Thu
+            priority: normal
+            status: active
+            created_at: '2026-03-02T08:00:00+00:00'
+    CreatePreferenceRequestExample:
+      summary: Request to create a goal preference
+      value:
+        athlete_id: rob
+        category: goal
+        summary: Build aerobic base for spring races
+        details: Prioritize consistent Z2 volume over intensity this month
+        priority: high
+        status: active
+    PreferenceCreateResponseExample:
+      summary: Preference creation response
+      value:
+        preference_id: c9c8812c-9b11-4cc2-a6d2-6f4f1ba2e0c8
+        preference:
+          preference_id: c9c8812c-9b11-4cc2-a6d2-6f4f1ba2e0c8
+          athlete_id: rob
+          category: goal
+          summary: Build aerobic base for spring races
+          details: Prioritize consistent Z2 volume over intensity this month
+          priority: high
+          status: active
+          created_at: '2026-03-25T09:32:00+00:00'
+          updated_at: '2026-03-25T09:32:00+00:00'
+    UpdatePreferenceRequestExample:
+      summary: Resolve a completed preference
+      value:
+        athlete_id: rob
+        status: resolved
+    PreferenceUpdateResponseExample:
+      summary: Preference update response
+      value:
+        preference_id: c9c8812c-9b11-4cc2-a6d2-6f4f1ba2e0c8
+        preference:
+          preference_id: c9c8812c-9b11-4cc2-a6d2-6f4f1ba2e0c8
+          athlete_id: rob
+          category: goal
+          summary: Build aerobic base for spring races
+          priority: high
+          status: resolved
+          created_at: '2026-03-01T08:00:00+00:00'
+          updated_at: '2026-03-25T09:40:00+00:00'
+    ObservationsListExample:
+      summary: Observation list response
+      value:
+        athlete_id: rob
+        count: 1
+        observations:
+          - observation_id: 4e36e2f2-4ca6-4eb5-8cb2-2cfa9d689f31
+            category: fatigue
+            summary: Poor sleep in last 3 nights
+            details: HRV below baseline and subjective fatigue elevated
+            referenced_workout_ids: []
+            priority: normal
+            status: active
+            created_at: '2026-03-24T06:00:00+00:00'
+    CreateObservationRequestExample:
+      summary: Request to create an observation
+      value:
+        athlete_id: rob
+        category: fatigue
+        summary: Poor sleep in last 3 nights
+        details: HRV below baseline and subjective fatigue elevated
+        workout_ids: []
+        priority: normal
+        expires_days: 7
+    ObservationCreateResponseExample:
+      summary: Observation creation response
+      value:
+        observation_id: 4e36e2f2-4ca6-4eb5-8cb2-2cfa9d689f31
+        observation:
+          observation_id: 4e36e2f2-4ca6-4eb5-8cb2-2cfa9d689f31
+          athlete_id: rob
+          category: fatigue
+          summary: Poor sleep in last 3 nights
+          details: HRV below baseline and subjective fatigue elevated
+          referenced_workout_ids: []
+          priority: normal
+          status: active
+          created_at: '2026-03-24T06:00:00+00:00'
+          expires_at: '2026-03-31T06:00:00+00:00'
+    UpdateObservationStatusRequestExample:
+      summary: Resolve observation status
+      value:
+        athlete_id: rob
+        status: resolved
+    ObservationStatusResponseExample:
+      summary: Observation status update response
+      value:
+        observation_id: 4e36e2f2-4ca6-4eb5-8cb2-2cfa9d689f31
+        status: resolved
+        updated_at: '2026-03-25T10:05:00+00:00'
+    PlanningContextExample:
+      summary: Planning context summary payload
+      value:
+        athlete_id: rob
+        query_window:
+          start_date: '2026-02-09T00:00:00+00:00'
+          end_date: '2026-03-25T00:00:00+00:00'
+          days: 45
+        recent_workouts:
+          - workout_id: wk_20260324_ride
+            athlete_id: rob
+            sport: Cycling
+            start_time_utc: '2026-03-24T06:30:00+00:00'
+            duration_sec: 5400
+            has_power: true
+            has_hr: true
+            has_gps: true
+        weekly_rollups: []
+        summary:
+          cumulative_z2_minutes: 286
+          cumulative_intensity_minutes: 48
+          last_hard_day: '2026-03-22T07:00:00+00:00'
+          last_long_day: '2026-03-24T06:30:00+00:00'
+        notable_flags:
+          - One workout missing cadence samples.
+    WorkoutsListExample:
+      summary: Workout projection list payload
+      value:
+        athlete_id: rob
+        count: 2
+        workouts:
+          - workout_id: wk_20260324_ride
+            athlete_id: rob
+            sport: Cycling
+            start_time_utc: '2026-03-24T06:30:00+00:00'
+            duration_sec: 5400
+            has_power: true
+            has_hr: true
+            has_gps: true
+            pwr_avg_watts: 201
+            hr_avg_bpm: 141
+          - workout_id: wk_20260322_run
+            athlete_id: rob
+            sport: Running
+            start_time_utc: '2026-03-22T07:00:00+00:00'
+            duration_sec: 3600
+            has_power: false
+            has_hr: true
+            has_gps: true
+            hr_avg_bpm: 151
+    WorkoutDetailExample:
+      summary: Workout detail payload (abridged)
+      value:
+        workout_id: wk_20260324_ride
+        athlete_id: rob
+        sport: Cycling
+        start_time_utc: '2026-03-24T06:30:00+00:00'
+        duration_sec: 5400
+        metrics:
+          session:
+            sport: Cycling
+            duration_sec: 5400
+          heart_rate:
+            hr_avg_bpm: 141
+            hr_max_bpm: 169
+          power:
+            pwr_avg_watts: 201
+            pwr_normalized_watts: 218
+          zones_power:
+            pwr_z2_sec: 3120
+            intensity_sec: 780
+          load:
+            tss: 86
+            intensity_factor: 0.82
+    PhysiometricsCurrentExample:
+      summary: Latest physiometrics snapshot response
+      value:
+        athlete_id: rob
+        effective_date: '2026-03-25'
+        data_sources:
+          - workouts
+          - physiometrics
+          - garmin
+        source_effective_dates:
+          workouts: '2026-03-25'
+          physiometrics: '2026-03-25'
+          garmin: '2026-03-25'
+        heart_rate:
+          basis: rolling_30d
+          lthr_bpm: 170
+          hr_max_bpm: 188
+          resting_hr_bpm: 46
+          hrv_ln_rmssd: 4.12
+          hrv_sdnn_ms: 52
+        power:
+          ftp_watts: 285
+        vo2max:
+          cycling_vo2max_ml_kg_min: 58.7
+          running_vo2max_ml_kg_min: 56.1
+        body_composition:
+          weight_kg: 74.2
+          fat_mass_kg: 9.8
+          muscle_mass_kg: 33.6
+          bone_mass_kg: 3.5
+          body_fat_pct: 13.2
+        recovery:
+          sleep_duration_sec: 27000
+          spo2_pct: 97
+        activity:
+          steps: 10842
+        nutrition:
+          calories_kcal: 2860
+          carbs_g: 335
+          protein_g: 162
+          fat_g: 86
+        training_state:
+          training_load: 612
+          recovery_time_minutes: 1380
+          readiness_score: 74
+          training_effect_aerobic: 3.1
+          training_effect_anaerobic: 1.4
+          training_stress_score: 87
+          training_stress_balance: -9
+          atp_probability: 0.42
+          training_status_label: PRODUCTIVE
+          load_focus_low_aerobic_pct: 52
+          load_focus_high_aerobic_pct: 34
+          load_focus_anaerobic_pct: 14
+        visceral_fat_index: 6
+        metabolic_age_years: 34
+        soreness: 2
+        fatigue: 3
+        stress: 2
+        mood: 4
+        motivation: 4
+        injury: 1
+        systolic_bp: 118
+        diastolic_bp: 74
+    PhysiometricsHistoryExample:
+      summary: Physiometric history for selected metrics
+      value:
+        athlete_id: rob
+        query_window:
+          start_date: '2026-01-25'
+          end_date: '2026-03-25'
+          days: 60
+        count: 3
+        data_points:
+          - effective_date: '2026-03-23'
+            readiness_score: 71
+            resting_hr_bpm: 47
+            hrv_ln_rmssd: 4.05
+            weight_kg: 74.5
+          - effective_date: '2026-03-24'
+            readiness_score: 69
+            resting_hr_bpm: 48
+            hrv_ln_rmssd: 3.98
+            weight_kg: 74.4
+          - effective_date: '2026-03-25'
+            readiness_score: 74
+            resting_hr_bpm: 46
+            hrv_ln_rmssd: 4.12
+            weight_kg: 74.2
+    TrainingStateCurrentExample:
+      summary: Latest training state snapshot response
+      value:
+        athlete_id: rob
+        effective_date: '2026-03-25'
+        cts_rolling_7d: 71.4
+        cts_rolling_28d: 64.8
+        ats_rolling: 83.7
+        fatigue_index: 1.29
+        readiness_score: 74
+        garmin_readiness_score: 72
+        garmin_training_status: PRODUCTIVE
+        garmin_training_load: 612
+        garmin_recovery_time_hours: 23
+        garmin_load_focus_low_aerobic_pct: 52
+        garmin_load_focus_high_aerobic_pct: 34
+        garmin_load_focus_anaerobic_pct: 14
+        mood: 4
+        soreness: 2
+        pred_recovery_days: 1
+        data_sources: workouts,physiometrics,garmin
+        canonical_version: 3.0.0
+        last_updated_utc: '2026-03-25T09:45:00+00:00'
+    TrainingStateHistoryExample:
+      summary: Training state history response
+      value:
+        athlete_id: rob
+        days: 14
+        snapshots:
+          - athlete_id: rob
+            effective_date: '2026-03-23'
+            cts_rolling_7d: 68.9
+            cts_rolling_28d: 63.7
+            ats_rolling: 79.3
+            fatigue_index: 1.24
+            readiness_score: 71
+            garmin_training_status: MAINTAINING
+            pred_recovery_days: 2
+            data_sources: workouts,physiometrics,garmin
+            canonical_version: 3.0.0
+            last_updated_utc: '2026-03-23T09:45:00+00:00'
+          - athlete_id: rob
+            effective_date: '2026-03-24'
+            cts_rolling_7d: 70.5
+            cts_rolling_28d: 64.2
+            ats_rolling: 84.2
+            fatigue_index: 1.31
+            readiness_score: 69
+            garmin_training_status: PRODUCTIVE
+            pred_recovery_days: 2
+            data_sources: workouts,physiometrics,garmin
+            canonical_version: 3.0.0
+            last_updated_utc: '2026-03-24T09:45:00+00:00'
+          - athlete_id: rob
+            effective_date: '2026-03-25'
+            cts_rolling_7d: 71.4
+            cts_rolling_28d: 64.8
+            ats_rolling: 83.7
+            fatigue_index: 1.29
+            readiness_score: 74
+            garmin_training_status: PRODUCTIVE
+            pred_recovery_days: 1
+            data_sources: workouts,physiometrics,garmin
+            canonical_version: 3.0.0
+            last_updated_utc: '2026-03-25T09:45:00+00:00'
   schemas:
     HealthStatus:
       type: object
@@ -864,28 +1305,6 @@ components:
       required:
         - preference_id
         - preference
-    UpdatePreferencesRequest:
-      description: Legacy request schema (deprecated)
-      type: object
-      properties:
-        athlete_id:
-          type: string
-          default: rob
-        current_goal:
-          type: string
-        training_phase:
-          type: string
-        preferred_sports:
-          type: array
-          items:
-            type: string
-        ftp_test_frequency_weeks:
-          type: integer
-        last_ftp_test_date:
-          type: string
-          format: date
-        notes:
-          type: string
     Observation:
       type: object
       properties:
