@@ -1,6 +1,6 @@
 # GPT Actions Guide — Workout Intelligence Agent
 
-Version: 4.0.0
+Version: 4.0.1
 
 > **Document role:** Operational procedure only. This file defines API call ordering and usage flow.
 > Behavior, safety, and interpretation authority live in [INSTRUCTIONS.md](./INSTRUCTIONS.md).

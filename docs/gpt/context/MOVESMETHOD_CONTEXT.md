@@ -4,7 +4,7 @@ kb_role: domain_modality_context
 subject: MovesMethod Decision Framework
 modality: functional_strength
 athlete_id: rob
-version: 1.0.0
+version: 1.0.1
 status: active
 tags:
   - movesmethod

@@ -4,7 +4,7 @@ kb_role: domain_modality_context
 subject: Cycling Endurance Framework
 modality: cycling
 athlete_id: rob
-version: 1.0.0
+version: 1.0.1
 status: active
 tags:
     - zone2
@@ -16,7 +16,7 @@ tags:
 
 # Cycling Context – Endurance & Longevity Framework
 
-Version: 1.0.0
+Version: 1.0.1
 
 **Semantic Versioning Policy:**
 

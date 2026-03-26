@@ -4,7 +4,7 @@ kb_role: domain_modality_context
 subject: TC5000 Indoor Walking
 modality: indoor_walking
 athlete_id: rob
-version: 1.0.0
+version: 1.0.1
 status: active
 tags:
   - tc5000
