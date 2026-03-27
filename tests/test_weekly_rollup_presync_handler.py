@@ -211,6 +211,53 @@ class TestWeeklyRollupPreSyncHandler:
         assert result["sources"][0]["deferred"] is True
         assert result["sources"][0]["deferred_operation_id"] == "op-123"
 
+    def test_intervals_rate_limit_defers_without_extra_inline_retries(self):
+        onedrive = MagicMock()
+        onedrive.handle.return_value = ({"message": "ok"}, 200)
+
+        garmin = MagicMock()
+        garmin.handle.return_value = ({"message": "ok"}, 200)
+
+        garmin_physiometrics = MagicMock()
+        garmin_physiometrics.handle.return_value = ({"message": "ok"}, 200)
+
+        intervals = MagicMock()
+        intervals.handle.return_value = (
+            {"error": "Rate limited", "retry_after": "7200"},
+            429,
+            {"Retry-After": "7200"},
+        )
+
+        coordinator = MagicMock()
+        coordinator.maybe_defer.return_value = MagicMock(
+            deferred=True,
+            operation_id="op-intervals-123",
+            safe_to_retry_at_utc="2026-03-19T02:00:00+00:00",
+            retry_after_raw="7200",
+        )
+
+        handler = WeeklyRollupPreSyncHandler(
+            onedrive_service=onedrive,
+            garmin_service=garmin,
+            garmin_physiometrics_service=garmin_physiometrics,
+            intervals_service=intervals,
+            intervals_athlete_id="i508584",
+            retry_max_attempts=3,
+            deferred_retry_coordinator=coordinator,
+        )
+
+        with patch("TrainingAnalyticsPlatform.handlers.presync_core.time.sleep"):
+            result = handler.run("rob", enabled=True)
+
+        assert result["status"] == "failed"
+        intervals_result = result["sources"][-1]
+        assert intervals_result["source"] == "intervals_physiometrics"
+        assert intervals_result["http_status"] == 429
+        assert intervals_result["retry_after"] == "7200"
+        assert intervals_result["deferred"] is True
+        assert intervals_result["deferred_operation_id"] == "op-intervals-123"
+        assert intervals.handle.call_count == 1
+
     def test_sleep_with_backoff_uses_equal_jitter(self):
         handler = WeeklyRollupPreSyncHandler(
             onedrive_service=MagicMock(),

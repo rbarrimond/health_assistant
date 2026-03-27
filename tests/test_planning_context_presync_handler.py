@@ -144,6 +144,39 @@ class TestPlanningContextPreSyncHandlerPartialSuccess:
         assert failed["deferred"] is True
         assert failed["deferred_operation_id"] == "op-456"
 
+    def test_garmin_physiometrics_rate_limit_can_be_deferred(self):
+        coordinator = MagicMock()
+        coordinator.maybe_defer.return_value = MagicMock(
+            deferred=True,
+            operation_id="op-garmin-physio",
+            safe_to_retry_at_utc="2026-03-19T00:00:00+00:00",
+            retry_after_raw="1800",
+        )
+        handler = _make_handler(deferred_retry_coordinator=coordinator)
+
+        success_response = ({"status": "ok", "message": "synced"}, 200)
+        garmin_physio_fail_response = (
+            {"error": "rate limited", "error_code": "GARMIN_RATE_LIMITED"},
+            429,
+            {"Retry-After": "1800"},
+        )
+
+        handler._onedrive_service.handle.return_value = success_response
+        handler._garmin_service.handle.return_value = success_response
+        handler._garmin_physiometrics_service.handle.return_value = garmin_physio_fail_response
+        handler._intervals_service.handle.return_value = success_response
+
+        result = handler.run(athlete_id="rob", days=45)
+
+        failed = next(
+            s for s in result["sources"] if s["source"] == "garmin_physiometrics"
+        )
+        assert result["status"] == "partial"
+        assert failed["http_status"] == 429
+        assert failed["retry_after"] == "1800"
+        assert failed["deferred"] is True
+        assert failed["deferred_operation_id"] == "op-garmin-physio"
+
 
 class TestPlanningContextPreSyncHandlerAllFailed:
     def test_all_sources_fail_returns_failed(self):
