@@ -17,10 +17,12 @@ from azure.core.exceptions import AzureError
 from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import (
     OneDriveSyncHandler,
     OneDriveSyncConfig,
+    OneDriveSyncRequest,
 )
 from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import (
     GarminSyncHandler,
     GarminSyncConfig,
+    GarminSyncRequest,
 )
 from TrainingAnalyticsPlatform.handlers.wellness_sync import (
     GarminPhysiometricsSyncHandler,
