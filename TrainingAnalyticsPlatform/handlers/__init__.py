@@ -15,7 +15,7 @@ from .garmin_sync_handler import (
     GarminSyncIngestionHandler,
     GarminSyncConfig,
 )
-from .garmin_physiometrics_sync_handler import GarminPhysiometricsSyncHandler
+from .wellness_sync import GarminPhysiometricsSyncHandler, IntervalsSyncHandler
 from .weekly_rollup_presync_handler import WeeklyRollupPreSyncHandler
 from .planning_context_presync_handler import PlanningContextPreSyncHandler
 from .query_handler import QueryHandler
@@ -38,6 +38,7 @@ __all__ = [
     "GarminSyncIngestionHandler",
     "GarminSyncConfig",
     "GarminPhysiometricsSyncHandler",
+    "IntervalsSyncHandler",
     "WeeklyRollupPreSyncHandler",
     "PlanningContextPreSyncHandler",
     "QueryHandler",

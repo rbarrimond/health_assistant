@@ -22,9 +22,10 @@ from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import (
     GarminSyncHandler,
     GarminSyncConfig,
 )
-from TrainingAnalyticsPlatform.handlers.intervals_sync_handler import IntervalsSyncHandler
-from TrainingAnalyticsPlatform.handlers.garmin_physiometrics_sync_handler import (
+from TrainingAnalyticsPlatform.handlers.wellness_sync import (
     GarminPhysiometricsSyncHandler,
+    IntervalsSyncHandler,
+    WithingsWellnessService,
 )
 from TrainingAnalyticsPlatform.handlers.weekly_rollup_presync_handler import (
     WeeklyRollupPreSyncHandler,
@@ -122,6 +123,11 @@ class FunctionAppDependencies:
     def withings_client(self) -> WithingsClient:
         """Return a cached Withings client instance, creating it on first use."""
         return WithingsClient()
+
+    @cached_property
+    def withings_service(self) -> WithingsWellnessService:
+        """Return a cached Withings wellness service adapter."""
+        return WithingsWellnessService(self.withings_client, self.storage)
 
     @cached_property
     def garmin_service(self) -> GarminSyncHandler:
