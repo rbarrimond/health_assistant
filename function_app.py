@@ -40,12 +40,14 @@ from TrainingAnalyticsPlatform.handlers import (
     OneDriveResetRequest,
     QueryHandler,
     PhysiometricsHandler,
-    WithingsHandler,
     ConfigHandler,
     HealthHandler,
     AgentMemoryHandler,
 )
 from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import GarminSyncRequest
+from TrainingAnalyticsPlatform.handlers.wellness_sync import (
+    WithingsWellnessService as WithingsHandler,
+)
 from utils import endpoint, parse_ingest_payload
 
 logger = logging.getLogger(__name__)
@@ -117,6 +119,71 @@ def _extract_request_id(req: func.HttpRequest) -> str | None:
         return None
     normalized = request_id.strip()
     return normalized or None
+
+
+def _get_request_json_body(req: func.HttpRequest) -> dict[str, Any]:
+    """Return JSON body for POST requests, falling back to an empty dict."""
+    try:
+        return req.get_json() if req.method == "POST" else {}
+    except ValueError:
+        return {}
+
+
+def _resolve_intervals_sync_ids(
+    req: func.HttpRequest,
+    body: dict[str, Any],
+) -> tuple[str | None, str]:
+    """Resolve Intervals API identity and storage identity from request/env."""
+    intervals_athlete_id = (
+        body.get("intervals_athlete_id")
+        or req.params.get("intervals_athlete_id")
+        or os.getenv("INTERVALS_ATHLETE_ID")
+    )
+    athlete_id = (
+        body.get("athlete_id")
+        or req.params.get("athlete_id")
+        or os.getenv("DEFAULT_ATHLETE_ID", "rob")
+    )
+    return intervals_athlete_id, athlete_id
+
+
+def _parse_optional_lookback_days(
+    body: dict[str, Any],
+    req: func.HttpRequest,
+) -> int | None:
+    """Parse optional lookback_days, logging and defaulting on invalid values."""
+    lookback_days = body.get("lookback_days") or req.params.get("lookback_days")
+    if lookback_days is None:
+        return None
+
+    try:
+        return int(lookback_days)
+    except (ValueError, TypeError):
+        logger.warning(
+            "Invalid lookback_days, using default",
+            extra={"lookback_days": lookback_days},
+        )
+        return None
+
+
+def _log_intervals_sync_identity_sources(
+    req: func.HttpRequest,
+    body: dict[str, Any],
+) -> None:
+    """Log the resolved source locations for Intervals sync identities."""
+    if body.get("intervals_athlete_id"):
+        logger.info("Intervals sync: intervals_athlete_id from request body")
+    elif req.params.get("intervals_athlete_id"):
+        logger.info("Intervals sync: intervals_athlete_id from query parameter")
+    else:
+        logger.info("Intervals sync: intervals_athlete_id from INTERVALS_ATHLETE_ID env")
+
+    if body.get("athlete_id"):
+        logger.info("Intervals sync: athlete_id from request body")
+    elif req.params.get("athlete_id"):
+        logger.info("Intervals sync: athlete_id from query parameter")
+    else:
+        logger.info("Intervals sync: athlete_id from DEFAULT_ATHLETE_ID fallback")
 
 
 def _run_weekly_presync_for_athletes(
@@ -1159,63 +1226,17 @@ def intervals_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     Returns 400 if intervals_athlete_id cannot be resolved (API identity is required).
     Storage athlete_id has a safe default fallback.
     """
-    try:
-        body = req.get_json() if req.method == "POST" else {}
-    except ValueError:
-        body = {}
-
-    # Resolve intervals_athlete_id for API fetch (required)
-    intervals_athlete_id = (
-        body.get("intervals_athlete_id")
-        or req.params.get("intervals_athlete_id")
-        or os.getenv("INTERVALS_ATHLETE_ID")
-    )
-    
-    # Resolve athlete_id for storage partition (has safe default)
-    athlete_id = (
-        body.get("athlete_id")
-        or req.params.get("athlete_id")
-        or os.getenv("DEFAULT_ATHLETE_ID", "rob")
-    )
-    
-    lookback_days = body.get("lookback_days") or req.params.get("lookback_days")
-    if lookback_days is not None:
-        try:
-            lookback_days = int(lookback_days)
-        except (ValueError, TypeError):
-            logger.warning("Invalid lookback_days, using default", extra={"lookback_days": lookback_days})
-            lookback_days = None
-
-    force_raw = body.get("force")
-    if force_raw is None:
-        force_raw = req.params.get("force")
-    force = False
-    if isinstance(force_raw, bool):
-        force = force_raw
-    elif isinstance(force_raw, str):
-        force = force_raw.lower() in ("true", "1", "yes")
-    elif isinstance(force_raw, int):
-        force = force_raw == 1
+    body = _get_request_json_body(req)
+    intervals_athlete_id, athlete_id = _resolve_intervals_sync_ids(req, body)
+    lookback_days = _parse_optional_lookback_days(body, req)
+    force = _coerce_bool(body.get("force", req.params.get("force")), False)
 
     # Validate intervals_athlete_id (required for API)
     if not intervals_athlete_id:
         logger.warning("Missing intervals_athlete_id for Intervals sync")
         return json_response({"error": "intervals_athlete_id parameter required"}, 400)
 
-    # Log resolved sources for auditability
-    if body.get("intervals_athlete_id"):
-        logger.info("Intervals sync: intervals_athlete_id from request body")
-    elif req.params.get("intervals_athlete_id"):
-        logger.info("Intervals sync: intervals_athlete_id from query parameter")
-    else:
-        logger.info("Intervals sync: intervals_athlete_id from INTERVALS_ATHLETE_ID env")
-    
-    if body.get("athlete_id"):
-        logger.info("Intervals sync: athlete_id from request body")
-    elif req.params.get("athlete_id"):
-        logger.info("Intervals sync: athlete_id from query parameter")
-    else:
-        logger.info("Intervals sync: athlete_id from DEFAULT_ATHLETE_ID fallback")
+    _log_intervals_sync_identity_sources(req, body)
 
     handler = dependencies.intervals_service
     response, status = handler.handle(
