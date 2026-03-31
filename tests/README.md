@@ -51,7 +51,7 @@ pytest tests/test_semantic_layer.py::TestPlanningContext -v
 
 ## Test Summary
 
-**Status:** ✅ All tests passing (330 total)
+**Status:** ✅ Active pytest suite (run `pytest` for current collected totals)
 
 ### Test Breakdown by Category
 
@@ -60,24 +60,24 @@ pytest tests/test_semantic_layer.py::TestPlanningContext -v
 | **Configuration** | 24 | test_config.py |
 | **Configuration Handlers** | 13 | test_config_handler.py |
 | **FitParser Core** | 44 | test_fit_parser.py |
-| **FitParser Integration** | 2 | test_fit_parser_integration.py |
+| **Fit File Preprocessing** | See current suite | test_fit_file_preprocessor.py |
 | **Function App Extras** | 30 | test_function_app_extras.py |
 | **Function Endpoints** | 14 | test_function_endpoints.py |
 | **Handler Examples** | 17 | test_handlers_example.py |
 | **Health Handler** | 14 | test_health_handler.py |
-| **Indoor Inference** | 7 | test_is_indoor_inference.py |
+| **Device Filtration / Inference** | See current suite | test_device_filtration.py |
 | **OneDrive Sync** | 7 | test_onedrive_sync.py |
 | **OneDrive Sync Handler** | 24 | test_onedrive_sync_handler.py |
 | **Physiometrics Handler** | 16 | test_physiometrics_handler.py |
 | **Physiometrics Time Series** | 11 | test_physiometrics_timeseries.py |
 | **Query Handler** | 18 | test_query_handler.py |
-| **Schema Fields** | 5 | test_schema_fields.py |
+| **Workout Entity Schema** | See current suite | test_workout_entity_schema.py |
 | **Semantic Layer** | 27 | test_semantic_layer.py |
 | **Semantic Layer Endpoints** | 17 | test_semantic_layer_endpoints.py |
 | **Smoke Tests** | 12 | test_smoke.py |
 | **Table Storage** | 12 | test_table_storage_physiometrics.py |
 | **Withings Handler** | 16 | test_withings_handler.py |
-| **TOTAL** | **330** | **20 files** |
+| **TOTAL** | **Run `pytest --collect-only -q`** | **Suite evolves with ingestion/contracts** |
 
 - **Test Execution Time:** ~1-2s
 - **Code Coverage:** High coverage across core modules
@@ -848,7 +848,7 @@ class TestFeatureName:
 - [Main README](../README.md) - Project overview
 - [WORKOUT_SCHEMA.md](../docs/gpt/WORKOUT_SCHEMA.md) - Expected data model
 
-**Test Coverage Status**: ✅ 330 tests passing, high coverage across all modules
+**Test Coverage Status**: ✅ High coverage across core modules (see latest CI/pytest output for exact totals)
 
 ---
 

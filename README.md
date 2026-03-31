@@ -2,7 +2,7 @@
 
 Azure Function App that parses FIT workout files from multiple sources (OneDrive Personal, Garmin Connect, direct upload), integrates body metrics from Withings, and provides a comprehensive Semantic API for training intelligence powered by ChatGPT.
 
-**Status**: ✅ Production Ready - Deployed with 37 Endpoints, 330 Tests, Agent Memory System
+**Status**: ✅ Production Ready - Semantic API, ingestion automation, and agent memory system
 
 ## Quick Navigation
 
@@ -26,7 +26,7 @@ Data Sources
 ├── Withings - Body metrics via OAuth webhook
 └── Direct Upload - Manual FIT file ingestion
     ↓
-Azure Functions App (31 HTTP/Timer Endpoints)
+Azure Functions App (HTTP + timer endpoints)
     ├── FIT Ingestion Layer
    │   ├── FIT Parser (fitdecode library)
     │   ├── Metric Computation (TSS, IF, NP, EF)
@@ -52,7 +52,7 @@ Azure Table Storage (6 Tables)
     ├── AgentPreferences (user training goals & preferences)
     └── AgentObservations (training patterns & insights)
     ↓
-Semantic Layer API (14 Core + 15 Supporting Endpoints)
+Semantic Layer API (read + operations surfaces)
     ├── Agent Memory System
     │   ├── /api/agent/context (primary context loader)
     │   ├── /api/agent/preferences (training goals)
@@ -159,6 +159,7 @@ Read Interfaces
 - `GARMIN_EMAIL`: Garmin Connect account email (stored in Key Vault in Azure)
 - `GARMIN_PASSWORD`: Garmin Connect account password (stored in Key Vault in Azure)
 - `GARMIN_SYNC_LOOKBACK_DAYS`: Activity sync window in days (default: `30`)
+- `GARMIN_PHYSIOMETRICS_SYNC_LOOKBACK_DAYS`: Physiometrics sync window in days (default: `7`)
 - `GARMIN_SYNC_TIMER_SCHEDULE`: Safety-net timer cron for Garmin activity sync (default: `0 0 3 * * 1`)
 - `GARMIN_PHYSIOMETRICS_SYNC_TIMER_SCHEDULE`: Safety-net timer cron for Garmin physiometrics sync (default: `0 30 3 * * 1`)
 - `INTERVALS_SYNC_TIMER_SCHEDULE`: Safety-net timer cron for Intervals physiometrics sync (default: `0 0 2 * * 1`)
@@ -193,102 +194,26 @@ See [config/README.md](./config/README.md) for detailed physiometrics configurat
 
 ```text
 health_assistant/
-├── function_app.py               # Azure Functions HTTP adapter (37 endpoints)
-├── pyproject.toml                # Build configuration & dependencies
-├── requirements.txt              # Runtime dependencies for Azure
-├── local.settings.json           # Local development secrets (not committed)
-├── host.json                     # Azure Functions host configuration
-│
-├── TrainingAnalyticsPlatform/                    # Core parsing & business logic
-│   ├── fit_parser.py             # FIT file parsing + metric computation
-│   ├── models/                   # Pydantic data models (see models/README.md for architecture)
-│   │   ├── README.md             # Model design patterns, composition, usage examples
-│   │   ├── core.py               # WorkoutMetricsModel, CanonicalAnalyticsEngine
-│   │   ├── substrate.py          # CanonicalRecord, CanonicalLap
-│   │   ├── legacy.py             # Workout, WorkoutSession, DeviceInfo, RecordSample
-│   │   ├── agent.py              # AgentPreferences, AgentObservation
-│   │   ├── constants.py          # Shared constants, utilities, decorators
-│   │   └── metrics/              # Metric submodels (8 files)
-│   ├── adapter.py                # fitdecode → pydantic mapping
-│   ├── table_storage.py          # Azure Tables client (6 tables)
-│   ├── config.py                 # Configuration management (multi-source)
-│   ├── semantic_layer.py         # Read API implementation (14 endpoints)
-│   ├── exceptions.py             # Custom exception hierarchy
-│   ├── types.py                  # Type definitions & enums
-│   ├── logging_setup.py          # Centralized logging configuration
-│   ├── onedrive_client.py        # Microsoft Graph OAuth client
-│   ├── withings_client.py        # Withings OAuth + webhook client
-│   ├── withings_webhook_processor.py  # Withings payload processing
-│   ├── backup_exporter.py        # Daily backup to Blob Storage
-│   ├── apple_workout_types.py    # Apple Watch workouts mapping
-│   └── handlers/                 # HTTP business logic handlers
-│       ├── fit_payload_handler.py      # FIT ingestion workflow
-│       ├── onedrive_sync_handler.py    # OneDrive sync ingestion + endpoint
-│       ├── query_handler.py            # Workout query orchestration
-│       ├── physiometrics_handler.py    # Body metrics CRUD
-│       ├── withings_handler.py         # Withings integration
-│       ├── config_handler.py           # Configuration management
-│       ├── health_handler.py           # System health checks
-│       └── agent_memory_handler.py     # GPT memory management
-│
-├── config/                       # Configuration templates
-│   ├── README.md                 # Configuration documentation
-│   ├── physiometrics.json.example      # Athlete metrics template
-│   └── onedrive_power_automate_legacy.json.example  # Legacy Power Automate config
-│
-├── docs/                         # Comprehensive documentation
-│   ├── AGENT_MEMORY.md           # GPT memory system architecture
-│   ├── BACKENDS.md               # OneDrive/Withings/Garmin integration
-│   ├── DEPLOYMENT.md             # Azure deployment procedures
-│   ├── MONITORING.md             # Power BI dashboards & monitoring
-│   ├── SEMANTIC_LAYER_API.md     # Complete API reference (37 endpoints)
-│   ├── WORKOUT_SCHEMA.md         # Data model specification (100+ fields)
-│   ├── WORKOUT_INTELLIGENCE_AGENT_VISION.md  # System design philosophy
-│   ├── GPT_ACTIONS_GUIDE.md      # ChatGPT integration guide
-│   ├── INSTRUCTIONS.md           # GPT agent instructions
-│   ├── CYCLING_CONTEXT.md        # Cycling-specific training context
-│   ├── MOVESMETHOD_CONTEXT.md    # Training methodology context
-│   └── ROB_CONTEXT.md            # Personal athlete context
-│
-├── api_docs/                     # ChatGPT plugin specification
-│   ├── ai-plugin.json            # Plugin manifest
-│   ├── openapi.yaml              # OpenAPI 3.0 spec (semantic/read endpoints)
-│   ├── openapi.operations.yaml   # OpenAPI 3.0 spec (full operations)
-│   └── README.md                 # API specification documentation
-│
-├── tests/                        # Comprehensive test suite (330 tests)
-│   ├── test_config.py            # Configuration tests (24)
-│   ├── test_config_handler.py    # Config handler tests (13)
-│   ├── test_fit_parser.py        # Core parser tests (44)
-│   ├── test_fit_parser_integration.py  # Integration tests (2)
-│   ├── test_function_app_extras.py     # Function helpers (30)
-│   ├── test_function_endpoints.py      # HTTP endpoint tests (14)
-│   ├── test_handlers_example.py  # Handler patterns (17)
-│   ├── test_health_handler.py    # Health check tests (14)
-│   ├── test_is_indoor_inference.py     # Indoor detection (7)
-│   ├── test_onedrive_sync.py     # OneDrive sync logic (7)
-│   ├── test_onedrive_sync_handler.py   # Sync handler tests (24)
-│   ├── test_physiometrics_handler.py   # Physiometrics CRUD (16)
-│   ├── test_physiometrics_timeseries.py  # Time-series tests (11)
-│   ├── test_query_handler.py     # Query handler tests (18)
-│   ├── test_schema_fields.py     # Schema validation (5)
-│   ├── test_semantic_layer.py    # Semantic API tests (27)
-│   ├── test_semantic_layer_endpoints.py  # Endpoint integration (17)
-│   ├── test_smoke.py             # Smoke tests (12)
-│   ├── test_table_storage_physiometrics.py  # Storage tests (12)
-│   ├── test_withings_handler.py  # Withings tests (16)
-│   ├── conftest.py               # Pytest fixtures
-│   ├── data/                     # Real FIT workout files
-│   │   ├── README.md             # Test data documentation
-│   │   ├── *.fit                 # Real workout files (8 files)
-│   │   └── test_payload_*.json   # Pre-generated test payloads (3)
-│   └── postman/                  # API testing
-│       ├── README.md             # Postman testing guide
-│       ├── postman_collection.json     # Ready-to-use collection
-│       └── API_ALIGNMENT.md      # API consistency verification
-│
-├── scripts/                      # Utility scripts
-└── htmlcov/                      # Code coverage reports
+├── function_app.py                 # Azure Functions route and trigger adapter
+├── host.json                       # Azure Functions host configuration
+├── pyproject.toml                  # Build/dependency metadata
+├── requirements.txt                # Runtime dependency lock surface
+├── TrainingAnalyticsPlatform/
+│   ├── analytics/                  # Semantic read/query composition
+│   ├── handlers/                   # Ingestion + API orchestration handlers
+│   ├── ingestion/                  # FIT parsing and normalization pipeline
+│   ├── integrations/               # OneDrive/Garmin/Withings/Intervals clients
+│   ├── models/                     # Domain models and analytics contracts
+│   ├── platform/                   # Configuration, exceptions, logging, shared types
+│   └── storage/                    # Azure Table and state persistence layers
+├── config/                         # Local config templates and constants
+├── api_docs/                       # OpenAPI and plugin artifacts
+├── docs/
+│   ├── devops/                     # Operations, deployment, monitoring, backend docs
+│   ├── gpt/                        # GPT-facing contracts and context
+│   └── CHANGELOG.md                # Versioned change history
+├── tests/                          # Pytest suite + test data + Postman assets
+└── scripts/                        # Utility, backfill, and diagnostics scripts
 ```
 
 ## Implemented Capabilities
@@ -383,9 +308,10 @@ health_assistant/
 **Garmin Connect** (`garminconnect` email/password login):
 
 - Login using `GARMIN_EMAIL` + `GARMIN_PASSWORD`
-- Configurable safety-net timer trigger (weekly by default)
-- Configurable lookback window (default: 30 days)
+- Configurable safety-net timer triggers for both activity sync and physiometrics sync
+- Configurable lookback windows for activity (default: 30 days) and physiometrics (default: 7 days)
 - HTTP endpoint for manual sync: `POST /api/garmin/sync`
+- HTTP endpoint for manual physiometrics sync: `POST /api/garmin/physiometrics/sync`
 - FIT file download and parsing
 
 **Backup & Export**:
@@ -420,7 +346,7 @@ health_assistant/
 - Enables GPT to maintain long-term training awareness
 - Separates ephemeral conversation from persistent facts
 
-### 📈 Semantic Layer API (31 HTTP Endpoints + 2 Timers)
+### 📈 Semantic Layer API (Read + Operations Endpoints)
 
 **Agent Memory** (6 endpoints):
 
@@ -454,7 +380,7 @@ health_assistant/
 - `POST /api/config/update` - Update athlete metrics (stored in Table Storage)
 - `GET /api/config/history` - Configuration audit trail
 
-**Backend Integration** (9 endpoints):
+**Backend Integration** (10 endpoints):
 
 - `POST /api/process_fit` - Direct FIT file upload (admin)
 - `GET /api/onedrive/authorize` - OneDrive OAuth flow (admin)
@@ -465,6 +391,7 @@ health_assistant/
 - `POST /api/withings/webhook` - Withings webhook receiver
 - `POST /api/garmin/sync` - Manual sync trigger (admin)
 - `POST /api/garmin/physiometrics/sync` - Manual Garmin physiometrics sync (admin)
+- `POST /api/intervals/sync` - Manual Intervals.icu physiometrics sync (admin)
 
 **ChatGPT Plugin** (3 endpoints):
 
@@ -476,6 +403,7 @@ health_assistant/
 
 - Weekly safety-net OneDrive sync (schedule configurable via `ONEDRIVE_SYNC_TIMER_SCHEDULE`)
 - Weekly safety-net Garmin sync (schedule configurable via `GARMIN_SYNC_TIMER_SCHEDULE`)
+- Weekly safety-net Garmin physiometrics sync (schedule configurable via `GARMIN_PHYSIOMETRICS_SYNC_TIMER_SCHEDULE`)
 - Weekly safety-net Intervals sync (schedule configurable via `INTERVALS_SYNC_TIMER_SCHEDULE`)
 - Daily backup export to Blob Storage (2 AM UTC)
 
@@ -502,7 +430,7 @@ health_assistant/
 
 ### 🧪 Testing & Quality
 
-**Comprehensive Test Suite** (330 tests across 20 files):
+**Comprehensive Test Suite** (maintained via pytest and CI):
 
 - **Unit Tests**: 290+ tests covering core logic
 - **Integration Tests**: Real FIT file parsing with actual workout data
@@ -694,7 +622,7 @@ curl "http://localhost:7071/api/rollups/weekly?athlete_id=rob&weeks=8"
 
 ### Running Tests
 
-**Full test suite** (330 tests):
+**Full test suite**:
 
 ```bash
 pytest
@@ -1044,7 +972,7 @@ Returns HTTP 503 with `"status": "degraded"` if storage connectivity fails.
 **Current Performance**:
 
 - FIT file parsing: <1 second per file (typical indoor cycling workout)
-- Test suite execution: ~1-2 seconds (330 tests)
+- Test suite execution: fast local feedback cycle (see tests/README.md for current scope)
 - API response times: <200ms (planning context endpoint)
 
 **Azure Functions Scaling**:
@@ -1069,7 +997,7 @@ See [docs/DEPLOYMENT.md](./docs/devops/DEPLOYMENT.md#scaling-and-performance) fo
 |-|-|-|
 |[DEPLOYMENT.md](./docs/devops/DEPLOYMENT.md)|Azure deployment procedures|DevOps, Infrastructure|
 |[BACKENDS.md](./docs/devops/BACKENDS.md)|OneDrive, Withings, Garmin integration|Developers, Users|
-|[SEMANTIC_LAYER_API.md](./docs/gpt/SEMANTIC_LAYER_API.md)|Complete API reference (37 endpoints)|Developers, GPT Config|
+|[SEMANTIC_LAYER_API.md](./docs/gpt/SEMANTIC_LAYER_API.md)|Complete API reference (read + operations surfaces)|Developers, GPT Config|
 |[WORKOUT_SCHEMA.md](./docs/gpt/WORKOUT_SCHEMA.md)|Data model (100+ fields)|Developers, Data Analysts|
 |[AGENT_MEMORY.md](./docs/gpt/AGENT_MEMORY.md)|GPT memory system architecture|GPT Developers|
 |[MONITORING.md](./docs/devops/MONITORING.md)|Power BI dashboards & monitoring|Athletes, Analysts|

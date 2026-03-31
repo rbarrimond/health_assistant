@@ -252,4 +252,4 @@ pytest tests/test_canonical_validation.py # Analytics engine tests
 pytest tests/test_handlers_example.py     # Integration tests
 ```
 
-381 tests validate model construction, serialization, and analytics computations.
+The test suite validates model construction, serialization, and analytics computations; use `pytest` for current totals.

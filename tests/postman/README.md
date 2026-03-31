@@ -1,8 +1,8 @@
 # Postman Testing Guide for Health Assistant Function App
 
-**Quick Reference**: Ready-to-use API testing collection with 31 requests covering all endpoints.
+**Quick Reference**: Ready-to-use API testing collection covering the current endpoint surfaces.
 
-**Latest Update** (March 4, 2026): Ingestion handlers refactored for improved maintainability and structured logging. All 33 endpoints verified; 57/57 integration tests passing. Added lap detail endpoint and Intervals.icu sync. No breaking API changes.
+**Latest Update** (March 4, 2026): Ingestion handlers refactored for improved maintainability and structured logging. Collection and API alignment validated with no breaking API changes.
 
 ## Quick Links
 
@@ -22,7 +22,7 @@ The Postman collection provides organized testing for:
 - ✅ **Backend Integration** (9 requests) - OneDrive sync, Garmin sync, Intervals.icu sync, Withings OAuth flows
 - ✅ **System Health** (1 request) - Health check endpoint
 
-**Total**: 34 pre-configured requests ready to run
+**Total**: Collection includes pre-configured requests across all core categories and is maintained as endpoints evolve.
 
 ## Import Collection
 
@@ -276,13 +276,13 @@ base64 -i your_workout.fit
 
 ## Additional Resources
 
-- [Complete API Reference](../../docs/gpt/SEMANTIC_LAYER_API.md) - All 37 endpoints documented
+- [Complete API Reference](../../docs/gpt/SEMANTIC_LAYER_API.md) - Current endpoint documentation
 - [Test Data Files](../data/README.md) - FIT file details and conversion scripts
-- [Main Testing Guide](../README.md) - Complete test suite (330 tests)
+- [Main Testing Guide](../README.md) - Test strategy and suite overview
 - [API Alignment Report](./API_ALIGNMENT.md) - Collection consistency verification
 
 ---
 
-**Collection Status**: ✅ Aligned with Function App (31 requests covering all endpoints)
+**Collection Status**: ✅ Aligned with Function App endpoint surfaces
 
 **Last Updated**: February 2026
