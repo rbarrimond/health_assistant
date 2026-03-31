@@ -16,11 +16,11 @@ from .garmin_sync_handler import (
     GarminSyncConfig,
 )
 from .wellness_sync import GarminPhysiometricsSyncHandler, IntervalsSyncHandler
+from .wellness_sync import WithingsWellnessService as WithingsHandler
 from .weekly_rollup_presync_handler import WeeklyRollupPreSyncHandler
 from .planning_context_presync_handler import PlanningContextPreSyncHandler
 from .query_handler import QueryHandler
 from .physiometrics_handler import PhysiometricsHandler
-from .withings_handler import WithingsHandler
 from .config_handler import ConfigHandler
 from .health_handler import HealthHandler
 from .agent_memory_handler import AgentMemoryHandler

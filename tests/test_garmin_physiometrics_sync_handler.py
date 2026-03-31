@@ -5,9 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from TrainingAnalyticsPlatform.handlers.garmin_physiometrics_sync_handler import (
-    GarminPhysiometricsSyncHandler,
-)
+from TrainingAnalyticsPlatform.handlers.wellness_sync import GarminPhysiometricsSyncHandler
 from TrainingAnalyticsPlatform.integrations.garmin_client import GarminConnectError
 
 
@@ -116,7 +114,7 @@ def test_sync_handler_lookback_zero_targets_today_only():
     handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
 
     with patch(
-        "TrainingAnalyticsPlatform.handlers.garmin_physiometrics_sync_handler.datetime"
+        "TrainingAnalyticsPlatform.handlers.wellness_sync.datetime"
     ) as mocked_datetime:
         mocked_datetime.now.return_value = datetime(2026, 3, 4, tzinfo=timezone.utc)
         mocked_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
@@ -203,7 +201,7 @@ def test_sync_handler_skips_dates_already_stored_when_not_forced():
     handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
 
     with patch(
-        "TrainingAnalyticsPlatform.handlers.garmin_physiometrics_sync_handler.datetime"
+        "TrainingAnalyticsPlatform.handlers.wellness_sync.datetime"
     ) as mocked_datetime:
         mocked_datetime.now.return_value = datetime(2026, 3, 4, tzinfo=timezone.utc)
         mocked_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
@@ -241,7 +239,7 @@ def test_sync_handler_force_true_reprocesses_stored_dates():
     handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
 
     with patch(
-        "TrainingAnalyticsPlatform.handlers.garmin_physiometrics_sync_handler.datetime"
+        "TrainingAnalyticsPlatform.handlers.wellness_sync.datetime"
     ) as mocked_datetime:
         mocked_datetime.now.return_value = datetime(2026, 3, 4, tzinfo=timezone.utc)
         mocked_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
@@ -275,7 +273,7 @@ def test_sync_handler_continues_when_prefetch_history_fails():
     handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
 
     with patch(
-        "TrainingAnalyticsPlatform.handlers.garmin_physiometrics_sync_handler.datetime"
+        "TrainingAnalyticsPlatform.handlers.wellness_sync.datetime"
     ) as mocked_datetime:
         mocked_datetime.now.return_value = datetime(2026, 3, 4, tzinfo=timezone.utc)
         mocked_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
@@ -400,7 +398,7 @@ def test_sync_handler_short_circuits_on_fatal_garmin_error():
     handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
 
     with patch(
-        "TrainingAnalyticsPlatform.handlers.garmin_physiometrics_sync_handler.datetime"
+        "TrainingAnalyticsPlatform.handlers.wellness_sync.datetime"
     ) as mocked_datetime:
         mocked_datetime.now.return_value = datetime(2026, 3, 4, tzinfo=timezone.utc)
         mocked_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)

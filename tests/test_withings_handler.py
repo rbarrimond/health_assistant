@@ -263,7 +263,7 @@ class TestWithingsHandler:
         # Arrange
         # Mock logger to raise exception
         mocker.patch(
-            'TrainingAnalyticsPlatform.handlers.withings_handler.logger.info',
+            'TrainingAnalyticsPlatform.handlers.wellness_sync.logger.info',
             side_effect=Exception("Logging error"),
         )
 

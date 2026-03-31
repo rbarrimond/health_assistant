@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from TrainingAnalyticsPlatform.handlers.intervals_sync_handler import IntervalsSyncHandler
+from TrainingAnalyticsPlatform.handlers.wellness_sync import IntervalsSyncHandler
 from TrainingAnalyticsPlatform.ingestion.wellness_adapters import IntervalsPhysiometricsAdapter
 from TrainingAnalyticsPlatform.models.wellness import PhysiometricsSnapshot
 from TrainingAnalyticsPlatform.platform.exceptions import ExternalServiceError, StorageError
@@ -51,7 +51,7 @@ class TestIntervalsSyncHandlerInit:
     def test_init_without_client(self, mock_storage):
         """Test initialization without client (creates default)."""
         with patch(
-            "TrainingAnalyticsPlatform.handlers.intervals_sync_handler.IntervalsicuClient"
+            "TrainingAnalyticsPlatform.handlers.wellness_sync.IntervalsicuClient"
         ):
             handler = IntervalsSyncHandler(storage=mock_storage)
             assert handler.storage is mock_storage
@@ -166,7 +166,7 @@ class TestIntervalsSyncHandlerHandle:
         mock_client.get_athlete_wellness.return_value = []
 
         with patch(
-            "TrainingAnalyticsPlatform.handlers.intervals_sync_handler.datetime"
+            "TrainingAnalyticsPlatform.handlers.wellness_sync.datetime"
         ) as mocked_datetime:
             mocked_datetime.now.return_value = datetime(2026, 3, 4, tzinfo=timezone.utc)
             mocked_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
@@ -186,7 +186,7 @@ class TestIntervalsSyncHandlerHandle:
         mock_client.get_athlete_wellness.return_value = []
 
         with patch(
-            "TrainingAnalyticsPlatform.handlers.intervals_sync_handler.datetime"
+            "TrainingAnalyticsPlatform.handlers.wellness_sync.datetime"
         ) as mocked_datetime:
             mocked_datetime.now.return_value = datetime(2026, 3, 4, tzinfo=timezone.utc)
             mocked_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
