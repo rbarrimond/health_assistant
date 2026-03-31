@@ -23,6 +23,7 @@ Azure Function App that parses FIT workout files from multiple sources (OneDrive
 ```text
 Data Sources
 ├── OneDrive Personal (/Apps/HealthFit) - FIT files via OAuth + Microsoft Graph
+├── Garmin Connect - FIT activity sync + physiometrics sync
 ├── Withings - Body metrics via OAuth webhook
 └── Direct Upload - Manual FIT file ingestion
     ↓
@@ -33,10 +34,14 @@ Azure Functions App (HTTP + timer endpoints)
     │   └── Zone Calculation (HR/Power zones)
     ├── Backend Integration Layer
     │   ├── OneDrive OAuth + 10-Minute Sync
+    │   ├── Garmin activity + physiometrics sync
     │   ├── Withings OAuth + Webhook
     │   └── Idempotency Tracking
     └── Handler Architecture
         ├── OneDriveSyncHandler
+        ├── GarminSyncHandler
+        ├── GarminPhysiometricsSyncHandler
+        ├── IntervalsSyncHandler
         ├── QueryHandler
         ├── PhysiometricsHandler
         ├── WithingsHandler
@@ -78,13 +83,15 @@ Read Interfaces
 
 - **Ingestion Triggers**:
   - 10-minute timer trigger for OneDrive sync (Microsoft Graph delta query)
+  - Weekly timer triggers for Garmin activity sync and Garmin physiometrics sync
+  - Weekly timer trigger for Intervals.icu physiometrics sync
   - Withings webhook for real-time body metrics
   - HTTP endpoint for manual FIT file uploads
   - Daily backup export to Azure Blob Storage
   
 - **Input**:
-  - Base64-encoded FIT files + metadata (from OneDrive or direct upload)
-  - Withings physiometric payloads (weight, composition, vitals)
+  - Base64-encoded FIT files + metadata (from OneDrive, Garmin Connect, or direct upload)
+  - Withings, Garmin, and Intervals physiometric payloads (weight, composition, vitals, readiness/training-state signals)
   
 - **Processing**:
   - FIT parsing with fitdecode library
