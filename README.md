@@ -25,6 +25,7 @@ Data Sources
 ├── OneDrive Personal (/Apps/HealthFit) - FIT files via OAuth + Microsoft Graph
 ├── Garmin Connect - FIT activity sync + physiometrics sync
 ├── Withings - Body metrics via OAuth webhook
+├── Intervals.icu - Physiometrics and training-state sync via API
 └── Direct Upload - Manual FIT file ingestion
     ↓
 Azure Functions App (HTTP + timer endpoints)
@@ -33,15 +34,19 @@ Azure Functions App (HTTP + timer endpoints)
     │   ├── Metric Computation (TSS, IF, NP, EF)
     │   └── Zone Calculation (HR/Power zones)
     ├── Backend Integration Layer
-    │   ├── OneDrive OAuth + 10-Minute Sync
+    │   ├── OneDrive OAuth + scheduled sync
     │   ├── Garmin activity + physiometrics sync
+    │   ├── Intervals.icu physiometrics sync
     │   ├── Withings OAuth + Webhook
     │   └── Idempotency Tracking
     └── Handler Architecture
+        ├── FitPayloadIngestionHandler
         ├── OneDriveSyncHandler
         ├── GarminSyncHandler
         ├── GarminPhysiometricsSyncHandler
         ├── IntervalsSyncHandler
+        ├── PlanningContextPreSyncHandler
+        ├── WeeklyRollupPreSyncHandler
         ├── QueryHandler
         ├── PhysiometricsHandler
         ├── WithingsHandler
@@ -49,25 +54,26 @@ Azure Functions App (HTTP + timer endpoints)
         ├── HealthHandler
         └── AgentMemoryHandler
     ↓
-Azure Table Storage (6 Tables)
-    ├── Workouts (100+ fields per session)
+Azure Table Storage (domain + operational tables)
+    ├── Workouts / WorkoutLaps (workout sessions and lap detail)
     ├── WeeklyRollups (aggregated training summaries)
-    ├── IngestionState (idempotency + deduplication)
-    ├── Physiometrics (body composition from Withings)
-    ├── AgentPreferences (user training goals & preferences)
-    └── AgentObservations (training patterns & insights)
+    ├── IngestionState / SourceIngestionState (idempotency + source tracking)
+    ├── Physiometrics (body composition and wellness snapshots)
+    ├── AgentPreferences / AgentObservations (persistent agent memory)
+    ├── OneDriveTokens / WithingsTokens / GarminTokens (OAuth/session persistence)
+    └── Operational support tables (WebhookDeduplication, AsyncIngestionOperations, RateLimitDeferrals, GarminActivityIndex)
     ↓
 Semantic Layer API (read + operations surfaces)
     ├── Agent Memory System
     │   ├── /api/agent/context (primary context loader)
     │   ├── /api/agent/preferences (training goals)
     │   └── /api/agent/observations (training insights)
-    ├── Planning & Analysis (WorkoutProjection v3.2.0+)
-    │   ├── /api/planning/context (lightweight projections; 30 fields ~40-50% payload reduction)
+    ├── Planning & Analysis (WorkoutProjection)
+    │   ├── /api/planning/context (compact workout projections optimized for planning and LLM consumption)
     │   ├── /api/workouts (lightweight projections with optional filters)
     │   ├── /api/workouts/{workout_id} (full detail: zones, efficiency, metrics)
     │   ├── /api/rollups/weekly (aggregated summaries)
-    │   └── /api/analysis/* (zones, efficiency)
+    │   └── /api/analysis/* and /api/training-state/*
     └── Configuration & Health
         ├── /api/physiometrics/* (body metrics)
         ├── /api/config/* (system configuration)
@@ -82,12 +88,14 @@ Read Interfaces
 ### Data Flow
 
 - **Ingestion Triggers**:
-  - 10-minute timer trigger for OneDrive sync (Microsoft Graph delta query)
+  - Weekly timer trigger for OneDrive sync (Microsoft Graph delta query)
   - Weekly timer triggers for Garmin activity sync and Garmin physiometrics sync
   - Weekly timer trigger for Intervals.icu physiometrics sync
+  - Queue triggers for deferred retry and async ingestion workflows
   - Withings webhook for real-time body metrics
   - HTTP endpoint for manual FIT file uploads
   - Daily backup export to Azure Blob Storage
+  - Weekly timer trigger for persisted rollup computation
   
 - **Input**:
   - Base64-encoded FIT files + metadata (from OneDrive, Garmin Connect, or direct upload)
@@ -104,8 +112,8 @@ Read Interfaces
 - **Storage**:
   - Azure Tables with composite keys for efficient querying
   - Immutable workout records with embedded zone definitions
-  - Time-series body metrics with Withings integration
-  - Agent memory (preferences + observations)
+  - Time-series body metrics with Withings, Garmin, and Intervals integrations
+  - Agent memory, OAuth/session state, and async operational tracking
   
 - **Read Layer**:
   - Semantic API endpoints optimized for LLM consumption
