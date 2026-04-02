@@ -12,6 +12,7 @@ import os
 from abc import ABC, abstractmethod
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple, Union
+from urllib.parse import urlparse
 
 import azure.functions as func
 from azure.storage.blob import ContainerClient
@@ -1250,7 +1251,7 @@ class WithingsWellnessService:
         self,
         code: str,
         state: str,
-        webhook_base_url: str,
+        webhook_callback_url: str,
     ) -> tuple[str, int, str]:
         """Process OAuth callback and store tokens."""
         if not code or not state:
@@ -1270,12 +1271,24 @@ class WithingsWellnessService:
 
             callback_url = os.getenv(
                 "WITHINGS_WEBHOOK_URL",
-                f"{webhook_base_url}/api/withings/webhook",
+                webhook_callback_url,
             )
-            self.client.subscribe_to_notifications(
-                access_token=token_data["access_token"],
-                callback_url=callback_url,
-            )
+            parsed_callback_url = urlparse(callback_url)
+            callback_port = parsed_callback_url.port
+            webhook_subscription_skipped = callback_port not in (None, 80, 443)
+            if webhook_subscription_skipped:
+                self._logger.warning(
+                    "Skipping Withings webhook subscription due to unsupported callback port",
+                    extra={
+                        "callback_url": callback_url,
+                        "callback_port": callback_port,
+                    },
+                )
+            else:
+                self.client.subscribe_to_notifications(
+                    access_token=token_data["access_token"],
+                    callback_url=callback_url,
+                )
 
             self._logger.info(
                 "Successfully connected Withings for athlete %s (userid: %s)",
@@ -1288,6 +1301,10 @@ class WithingsWellnessService:
                     <h1>Success!</h1>
                     <p>Withings connected for athlete {token_data['athlete_id']}.</p>
                     <p>Weight measurements will now sync automatically.</p>
+                    {
+                        '<p>Webhook subscription was skipped because callback URL port must be 80 or 443.</p>'
+                        if webhook_subscription_skipped else ''
+                    }
                     <p>You can close this window and return to the chat.</p>
                 </body>
                 </html>"""

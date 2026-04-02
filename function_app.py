@@ -1060,12 +1060,12 @@ def withings_callback(req: func.HttpRequest) -> func.HttpResponse:
     """Handle Withings OAuth callback."""
     code = req.params.get("code", "")
     state = req.params.get("state", "")
-    webhook_base_url = os.getenv("WITHINGS_WEBHOOK_URL",
-                                 f"{req.url.split('/api/')[0]}/api/withings/webhook")
+    webhook_callback_url = os.getenv("WITHINGS_WEBHOOK_URL",
+                                     f"{req.url.split('/api/')[0]}/api/withings/webhook")
 
     handler = WithingsHandler(dependencies.withings_client, dependencies.storage)
     html, status, content_type = handler.handle_oauth_callback(
-        code, state, webhook_base_url)
+        code, state, webhook_callback_url)
 
     return func.HttpResponse(html, status_code=status, mimetype=content_type)
 

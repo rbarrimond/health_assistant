@@ -100,7 +100,7 @@ class TestWithingsHandler:
         html, status, content_type = handler.handle_oauth_callback(
             code="auth_code_123",
             state="state_token_123",
-            webhook_base_url="https://example.com/api/withings/webhook"
+            webhook_callback_url="https://example.com/api/withings/webhook"
         )
 
         # Assert
@@ -120,7 +120,7 @@ class TestWithingsHandler:
         html, status, content_type = handler.handle_oauth_callback(
             code=None,
             state="state_token_123",
-            webhook_base_url="https://example.com/webhook"
+            webhook_callback_url="https://example.com/webhook"
         )
 
         # Assert
@@ -136,7 +136,7 @@ class TestWithingsHandler:
         html, status, content_type = handler.handle_oauth_callback(
             code="auth_code_123",
             state=None,
-            webhook_base_url="https://example.com/webhook"
+            webhook_callback_url="https://example.com/webhook"
         )
 
         # Assert
@@ -154,7 +154,7 @@ class TestWithingsHandler:
         html, status, content_type = handler.handle_oauth_callback(
             code="bad_code",
             state="state_token_123",
-            webhook_base_url="https://example.com/webhook"
+            webhook_callback_url="https://example.com/webhook"
         )
 
         # Assert
@@ -180,7 +180,7 @@ class TestWithingsHandler:
         _, status, _ = handler.handle_oauth_callback(
             code="auth_code_123",
             state="state_token_123",
-            webhook_base_url=""  # Empty base URL
+            webhook_callback_url=""  # Empty callback URL
         )
 
         # Assert
@@ -188,6 +188,38 @@ class TestWithingsHandler:
         mock_storage.oauth_tokens.store_withings_tokens.assert_called_once()
         # Handler always attempts subscription, constructs URL from base or env var
         mock_withings_client.subscribe_to_notifications.assert_called_once()
+
+    def test_handle_oauth_callback_skips_subscription_for_non_standard_port(
+        self,
+        handler,
+        mock_withings_client,
+        mock_storage,
+    ):
+        """Test OAuth callback skips webhook subscription when callback port is not 80/443."""
+        # Arrange
+        token_data = {
+            "athlete_id": "athlete1",
+            "userid": "12345",
+            "access_token": "access_token_abc",
+            "refresh_token": "refresh_token_xyz",
+            "expires_in": 3600,
+            "scope": "user.metrics",
+        }
+        mock_withings_client.exchange_auth_code.return_value = token_data
+
+        # Act
+        html, status, content_type = handler.handle_oauth_callback(
+            code="auth_code_123",
+            state="state_token_123",
+            webhook_callback_url="http://localhost:7071/api/withings/webhook",
+        )
+
+        # Assert
+        assert status == 200
+        assert content_type == "text/html"
+        assert "Webhook subscription was skipped" in html
+        mock_storage.oauth_tokens.store_withings_tokens.assert_called_once()
+        mock_withings_client.subscribe_to_notifications.assert_not_called()
 
     def test_process_webhook_success_weight_notification(self, handler):
         """Test successful processing of weight notification."""
