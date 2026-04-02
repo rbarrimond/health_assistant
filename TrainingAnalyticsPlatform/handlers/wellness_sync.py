@@ -1359,8 +1359,14 @@ class WithingsWellnessService:
         """Process Withings webhook notification."""
         try:
             if not all([userid, appli, startdate, enddate]):
-                self._logger.warning("Invalid Withings webhook payload: missing fields")
-                return "Missing required fields", 400
+                # Withings sends a verification POST during subscription registration
+                # with no payload fields to confirm the endpoint is reachable.
+                # Return 200 so the subscription is accepted.
+                self._logger.debug(
+                    "Withings webhook verification ping (missing fields) - responding OK",
+                    extra={"userid": userid, "appli": appli},
+                )
+                return "OK", 200
 
             if appli != "1":
                 self._logger.info("Ignoring non-weight notification (appli=%s)", appli)
