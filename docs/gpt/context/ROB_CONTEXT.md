@@ -87,10 +87,12 @@ Stability and tolerance must precede load or intensity.
 
 ## Cycling Integration Preferences
 
-- Endurance riding is the primary training modality.
-- Zone 2 riding is foundational and should be protected.
-- Non-cycling work must support riding, not compete with it.
-- High structural or unilateral sessions should not be stacked with high-intensity cycling.
+- Cycling is primary in the short term.
+- Zone 2 remains foundational and should usually be protected.
+- Structural work is durability infrastructure, not optional accessory work.
+- It should usually support riding, but may take priority when neglect risks pain, dysfunction, or lost consistency.
+- When cycling volume conflicts with structural integrity, favor long-term consistency and pain-free training.
+- Do not stack high structural stress carelessly with high-intensity cycling.
 
 ---
 
