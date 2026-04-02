@@ -381,7 +381,19 @@ Generate Withings OAuth authorization URL.
 GET /api/withings/callback?code=...&state=...
 ```
 
-OAuth callback endpoint (handled automatically by Azure).
+OAuth callback endpoint.
+
+**Behavior:**
+
+- Exchanges the authorization code for Withings access/refresh tokens
+- Stores the resulting tokens and Withings `userid`
+- Attempts a single webhook subscription using `WITHINGS_WEBHOOK_URL`
+- Returns success HTML even if webhook subscription fails, surfacing the subscription issue as a warning
+
+**Operational requirement:**
+
+- `redirect_uri` must exactly match a callback URL registered in the Withings developer portal
+- `WITHINGS_WEBHOOK_URL` must be publicly reachable and registered in Withings for automatic notification delivery
 
 ### Withings Webhook
 
@@ -392,7 +404,16 @@ Content-Type: application/x-www-form-urlencoded
 userid=12345&appli=1&startdate=1705622400&enddate=1705622500
 ```
 
+```http
+GET /api/withings/webhook?userid=12345&appli=1&startdate=1705622400&enddate=1705622500
+```
+
 Internal endpoint called by Withings servers when new measurements are available.
+
+**Request handling:**
+
+- Accepts both `POST` form payloads and `GET` query-string payloads
+- Normalizes `userid`, `appli`, `startdate`, and `enddate` from either transport shape before invoking the handler
 
 **Processing:**
 
