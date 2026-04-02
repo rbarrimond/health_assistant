@@ -4,7 +4,7 @@ kb_role: athlete_specific_context
 subject: Robert Barrimond
 modality: multi
 athlete_id: rob
-version: 1.1.2
+version: 1.2.0
 status: active
 tags:
   - priorities
@@ -16,7 +16,7 @@ tags:
 
 # Athlete Context – Robert Barrimond
 
-Version 1.1.2
+Version 1.2.0
 
 **Semantic Versioning Policy:**
 
