@@ -1,3 +1,19 @@
+---
+doc_type: technical_specification
+kb_role: analytics_data_contract
+subject: Canonical Analytics Surface
+modality: deterministic_formula_contract
+domain: data_architecture
+version: 1.0.0
+status: active
+tags:
+  - analytics
+  - power_metrics
+  - determinism
+  - reproducibility
+  - formula_contract
+---
+
 # Canonical Analytics Surface
 <!-- markdownlint-disable MD025 -->
 
