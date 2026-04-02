@@ -10,11 +10,11 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-04-02
 
-### Withings OAuth/Webhook Transport Simplification [application v3.12.2]
+### Withings OAuth/Webhook Transport Simplification [application v3.12.2, operations API v4.7.0]
 
 - **Changed (callback contract)**: `GET /api/withings/callback` now preserves successful OAuth token exchange/storage even when the follow-on webhook subscription attempt fails, returning success HTML with an operational warning instead of failing the callback outright.
 - **Changed (webhook transport tolerance)**: `GET /api/withings/webhook` and `POST /api/withings/webhook` are both accepted; webhook fields are normalized from either query params or form data before handler invocation.
-- **Updated (operations docs)**: `docs/devops/OPERATIONS_API.md` now documents the explicit callback contract, Withings registration requirements, and dual-method webhook behavior.
+- **Updated (operations contract/docs)**: `api_docs/openapi.operations.yaml` and `docs/devops/OPERATIONS_API.md` now document the explicit callback contract, Withings registration requirements, and dual-method webhook behavior.
 
 ## 2026-03-23
 

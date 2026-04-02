@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Operations)
-  version: "4.6.1"
+  version: "4.7.0"
   description: |
     Operational and administrative API for ingestion, configuration, integrations, and plugin assets.
     Complements the semantic GPT-facing specification with platform control-plane and runtime support endpoints.
@@ -371,7 +371,7 @@ paths:
             type: string
       responses:
         '200':
-          description: Success HTML message
+          description: Success HTML message. OAuth token exchange/storage succeeded; webhook subscription warnings may be included in the HTML body.
           content:
             text/html:
               schema:
@@ -383,12 +383,51 @@ paths:
               schema:
                 type: string
         '500':
-          description: Server error completing OAuth
+          description: Server error completing OAuth token exchange or token persistence
           content:
             text/html:
               schema:
                 type: string
   /api/withings/webhook:
+    get:
+      summary: Receive Withings webhook notifications
+      operationId: withingsWebhookGet
+      security:
+        - FunctionKey: []
+      parameters:
+        - name: userid
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: appli
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: startdate
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: enddate
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Acknowledged after normalizing webhook fields from query parameters
+          content:
+            text/plain:
+              schema:
+                type: string
+        '400':
+          description: Missing required fields
+          content:
+            text/plain:
+              schema:
+                type: string
     post:
       summary: Receive Withings webhook notifications
       operationId: withingsWebhook
@@ -402,7 +441,7 @@ paths:
               $ref: '#/components/schemas/WithingsWebhookPayload'
       responses:
         '200':
-          description: Acknowledged (weight notifications only processed)
+          description: Acknowledged after normalizing webhook fields from form payload
           content:
             text/plain:
               schema:
