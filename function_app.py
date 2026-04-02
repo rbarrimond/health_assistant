@@ -1070,17 +1070,23 @@ def withings_callback(req: func.HttpRequest) -> func.HttpResponse:
     return func.HttpResponse(html, status_code=status, mimetype=content_type)
 
 
-@app.route(route="withings/webhook", methods=["POST"])
+@app.route(route="withings/webhook", methods=["POST", "GET"])
 @endpoint(
     response_kind="text",
     swallow_exceptions=True,
 )
 def withings_webhook(req: func.HttpRequest) -> func.HttpResponse:
     """Receive Withings webhook notifications."""
-    userid = req.form.get("userid", "")
-    appli = req.form.get("appli", "")
-    startdate = req.form.get("startdate", "")
-    enddate = req.form.get("enddate", "")
+    form_values = getattr(req, "form", {}) or {}
+    params_values = getattr(req, "params", {}) or {}
+
+    def _request_field(name: str) -> str:
+        return form_values.get(name, "") or params_values.get(name, "")
+
+    userid = _request_field("userid")
+    appli = _request_field("appli")
+    startdate = _request_field("startdate")
+    enddate = _request_field("enddate")
 
     handler = WithingsHandler(dependencies.withings_client, dependencies.storage)
     result, status = handler.process_webhook(

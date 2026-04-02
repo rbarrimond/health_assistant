@@ -7,7 +7,10 @@ from unittest.mock import Mock
 import pytest
 
 from TrainingAnalyticsPlatform.handlers import WithingsHandler
-from TrainingAnalyticsPlatform.platform.exceptions import ExternalServiceError, ValidationError
+from TrainingAnalyticsPlatform.platform.exceptions import (
+    ExternalServiceError,
+    ValidationError,
+)
 
 
 class TestWithingsHandler:
@@ -189,13 +192,13 @@ class TestWithingsHandler:
         # Handler always attempts subscription, constructs URL from base or env var
         mock_withings_client.subscribe_to_notifications.assert_called_once()
 
-    def test_handle_oauth_callback_skips_subscription_for_non_standard_port(
+    def test_handle_oauth_callback_succeeds_when_subscription_fails(
         self,
         handler,
         mock_withings_client,
         mock_storage,
     ):
-        """Test OAuth callback skips webhook subscription when callback port is not 80/443."""
+        """Test OAuth callback still succeeds when webhook subscription fails."""
         # Arrange
         token_data = {
             "athlete_id": "athlete1",
@@ -206,20 +209,24 @@ class TestWithingsHandler:
             "scope": "user.metrics",
         }
         mock_withings_client.exchange_auth_code.return_value = token_data
+        mock_withings_client.subscribe_to_notifications.side_effect = ExternalServiceError(
+            "Withings API error: callback URL invalid"
+        )
 
         # Act
         html, status, content_type = handler.handle_oauth_callback(
             code="auth_code_123",
             state="state_token_123",
-            webhook_callback_url="http://localhost:7071/api/withings/webhook",
+            webhook_callback_url="https://example.com/api/withings/webhook",
         )
 
         # Assert
         assert status == 200
         assert content_type == "text/html"
-        assert "Webhook subscription was skipped" in html
+        assert "Success" in html
+        assert "OAuth completed, but webhook subscription failed" in html
         mock_storage.oauth_tokens.store_withings_tokens.assert_called_once()
-        mock_withings_client.subscribe_to_notifications.assert_not_called()
+        mock_withings_client.subscribe_to_notifications.assert_called_once()
 
     def test_process_webhook_success_weight_notification(self, handler):
         """Test successful processing of weight notification."""

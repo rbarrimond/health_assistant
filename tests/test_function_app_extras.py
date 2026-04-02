@@ -695,6 +695,27 @@ class TestAsyncIngestionQueueProcessing:
 
         assert response.status_code == 200
 
+    def test_withings_webhook_get_query_params(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.form = {}
+        req.params = {
+            "userid": "123",
+            "appli": "1",
+            "startdate": "1",
+            "enddate": "2",
+        }
+
+        mock_handler = MagicMock()
+        mock_handler.process_webhook.return_value = ("OK", 200)
+
+        with _patch_dependency("storage", MagicMock()):
+            with _patch_dependency("withings_client", MagicMock()):
+                with patch("function_app.WithingsHandler", return_value=mock_handler):
+                    response = function_app.withings_webhook(req)
+
+        assert response.status_code == 200
+        mock_handler.process_webhook.assert_called_once_with("123", "1", "1", "2")
+
 
 class TestIngestionHelpersAndFlow:
     def test_ingest_fit_payload_missing_file_content(self):

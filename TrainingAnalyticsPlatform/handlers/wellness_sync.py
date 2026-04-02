@@ -12,7 +12,6 @@ import os
 from abc import ABC, abstractmethod
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple, Union
-from urllib.parse import urlparse
 
 import azure.functions as func
 from azure.storage.blob import ContainerClient
@@ -1273,21 +1272,26 @@ class WithingsWellnessService:
                 "WITHINGS_WEBHOOK_URL",
                 webhook_callback_url,
             )
-            parsed_callback_url = urlparse(callback_url)
-            callback_port = parsed_callback_url.port
-            webhook_subscription_skipped = callback_port not in (None, 80, 443)
-            if webhook_subscription_skipped:
-                self._logger.warning(
-                    "Skipping Withings webhook subscription due to unsupported callback port",
-                    extra={
-                        "callback_url": callback_url,
-                        "callback_port": callback_port,
-                    },
-                )
-            else:
+            subscription_warning = ""
+            try:
                 self.client.subscribe_to_notifications(
                     access_token=token_data["access_token"],
                     callback_url=callback_url,
+                )
+            except HealthAssistantError as exc:
+                self._logger.warning(
+                    "Withings OAuth succeeded but webhook subscription failed: %s",
+                    exc,
+                    extra={
+                        "athlete_id": token_data["athlete_id"],
+                        "withings_userid": str(token_data["userid"]),
+                        "callback_url": callback_url,
+                    },
+                    exc_info=True,
+                )
+                subscription_warning = (
+                    "OAuth completed, but webhook subscription failed. "
+                    "Ensure WITHINGS_WEBHOOK_URL is publicly reachable and registered in Withings."
                 )
 
             self._logger.info(
@@ -1301,10 +1305,7 @@ class WithingsWellnessService:
                     <h1>Success!</h1>
                     <p>Withings connected for athlete {token_data['athlete_id']}.</p>
                     <p>Weight measurements will now sync automatically.</p>
-                    {
-                        '<p>Webhook subscription was skipped because callback URL port must be 80 or 443.</p>'
-                        if webhook_subscription_skipped else ''
-                    }
+                    {f'<p>{subscription_warning}</p>' if subscription_warning else ''}
                     <p>You can close this window and return to the chat.</p>
                 </body>
                 </html>"""
