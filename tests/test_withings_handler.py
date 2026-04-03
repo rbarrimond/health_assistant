@@ -8,6 +8,7 @@ import pytest
 
 from TrainingAnalyticsPlatform.handlers import WithingsHandler
 from TrainingAnalyticsPlatform.platform.exceptions import (
+    AuthError,
     ExternalServiceError,
     ValidationError,
 )
@@ -318,6 +319,28 @@ class TestWithingsHandler:
 
         # Assert
         assert status == 503
+
+    def test_resolve_withings_userid_accepts_userid_fallback(self, handler):
+        """Test userid fallback is accepted when withings_userid is absent."""
+        token_data = {
+            "userid": "12345",
+            "access_token": "access_token_abc",
+            "refresh_token": "refresh_token_xyz",
+        }
+
+        resolved = handler._resolve_withings_userid(token_data)
+
+        assert resolved == "12345"
+
+    def test_resolve_withings_userid_raises_when_identifiers_missing(self, handler):
+        """Test auth error is raised when neither withings_userid nor userid exists."""
+        token_data = {
+            "access_token": "access_token_abc",
+            "refresh_token": "refresh_token_xyz",
+        }
+
+        with pytest.raises(AuthError, match="Withings user id missing"):
+            handler._resolve_withings_userid(token_data)
 
     def test_get_authorization_url_includes_instructions(self, handler, mock_withings_client):
         """Test authorization URL response includes helpful instructions."""

@@ -201,6 +201,28 @@ class TestPhysiometricsTimeSeries:
             assert entity["access_token"] == "access_token_abc"
             assert entity["scope"] == "user.metrics,user.info"
 
+    def test_get_withings_tokens_reconstructs_userid_from_rowkey(self, storage):
+        """Test retrieval reconstructs withings_userid from RowKey for legacy entities."""
+        with patch.object(storage.oauth_tokens.infra, "get_table_client") as mock_client:
+            mock_table = MagicMock()
+            mock_client.return_value = mock_table
+
+            mock_table.query_entities.return_value = [
+                {
+                    "PartitionKey": "rob",
+                    "RowKey": "12345",
+                    "access_token": "access_token_abc",
+                    "refresh_token": "refresh_token_xyz",
+                    "expires_at_utc": "2099-01-01T00:00:00+00:00",
+                }
+            ]
+
+            token_data = storage.oauth_tokens.get_withings_tokens("rob")
+
+            assert token_data is not None
+            assert token_data["withings_userid"] == "12345"
+            assert token_data["RowKey"] == "12345"
+
     def test_webhook_deduplication(self, storage):
         """Test webhook deduplication logic."""
         with patch.object(storage.webhooks.infra, "get_table_client") as mock_client:

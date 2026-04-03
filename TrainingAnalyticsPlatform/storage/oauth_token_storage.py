@@ -79,7 +79,19 @@ class OAuthTokenStorage:
             if not entities:
                 return None
 
-            return dict(entities[0])
+            token_data = dict(entities[0])
+            if not token_data.get("withings_userid") and token_data.get("RowKey"):
+                token_data["withings_userid"] = str(token_data["RowKey"])
+                logger.debug(
+                    "Reconstructed withings_userid from RowKey in stored token payload",
+                    extra={
+                        "athlete_id": athlete_id,
+                        "withings_userid": token_data["withings_userid"],
+                        "source_system": "withings",
+                    },
+                )
+
+            return token_data
 
         except HttpResponseError as e:
             logger.error(
