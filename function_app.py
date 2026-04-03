@@ -48,6 +48,14 @@ from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import GarminSyncReq
 from TrainingAnalyticsPlatform.handlers.wellness_sync import (
     WithingsWellnessService as WithingsHandler,
 )
+from TrainingAnalyticsPlatform.handlers.request_models import (
+    PhysiometricsUpdateRequest,
+    WithingsWebhookRequest,
+    GarminPhysiometricsSyncRequest,
+    IntervalsSyncRequest,
+    WeeklyRollupComputeRequest,
+    default_athlete_id,
+)
 from utils import endpoint, parse_ingest_payload
 
 logger = logging.getLogger(__name__)
@@ -91,23 +99,6 @@ def _get_athlete_id_from_state(state: str | None) -> str | None:
     return state.split("|", 1)[0] or None
 
 
-def _coerce_bool(value: Any, default: bool) -> bool:
-    """Parse bool-like values with default fallback."""
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, int):
-        return value == 1
-    if isinstance(value, str):
-        lowered = value.strip().lower()
-        if lowered in {"true", "1", "yes", "y"}:
-            return True
-        if lowered in {"false", "0", "no", "n"}:
-            return False
-    return default
-
-
 def _extract_request_id(req: func.HttpRequest) -> str | None:
     """Extract request identifier from inbound headers when present."""
     request_id = (
@@ -124,66 +115,12 @@ def _extract_request_id(req: func.HttpRequest) -> str | None:
 def _get_request_json_body(req: func.HttpRequest) -> dict[str, Any]:
     """Return JSON body for POST requests, falling back to an empty dict."""
     try:
-        return req.get_json() if req.method == "POST" else {}
+        if req.method != "POST":
+            return {}
+        payload = req.get_json()
+        return payload if isinstance(payload, dict) else {}
     except ValueError:
         return {}
-
-
-def _resolve_intervals_sync_ids(
-    req: func.HttpRequest,
-    body: dict[str, Any],
-) -> tuple[str | None, str]:
-    """Resolve Intervals API identity and storage identity from request/env."""
-    intervals_athlete_id = (
-        body.get("intervals_athlete_id")
-        or req.params.get("intervals_athlete_id")
-        or os.getenv("INTERVALS_ATHLETE_ID")
-    )
-    athlete_id = (
-        body.get("athlete_id")
-        or req.params.get("athlete_id")
-        or os.getenv("DEFAULT_ATHLETE_ID", "rob")
-    )
-    return intervals_athlete_id, athlete_id
-
-
-def _parse_optional_lookback_days(
-    body: dict[str, Any],
-    req: func.HttpRequest,
-) -> int | None:
-    """Parse optional lookback_days, logging and defaulting on invalid values."""
-    lookback_days = body.get("lookback_days") or req.params.get("lookback_days")
-    if lookback_days is None:
-        return None
-
-    try:
-        return int(lookback_days)
-    except (ValueError, TypeError):
-        logger.warning(
-            "Invalid lookback_days, using default",
-            extra={"lookback_days": lookback_days},
-        )
-        return None
-
-
-def _log_intervals_sync_identity_sources(
-    req: func.HttpRequest,
-    body: dict[str, Any],
-) -> None:
-    """Log the resolved source locations for Intervals sync identities."""
-    if body.get("intervals_athlete_id"):
-        logger.info("Intervals sync: intervals_athlete_id from request body")
-    elif req.params.get("intervals_athlete_id"):
-        logger.info("Intervals sync: intervals_athlete_id from query parameter")
-    else:
-        logger.info("Intervals sync: intervals_athlete_id from INTERVALS_ATHLETE_ID env")
-
-    if body.get("athlete_id"):
-        logger.info("Intervals sync: athlete_id from request body")
-    elif req.params.get("athlete_id"):
-        logger.info("Intervals sync: athlete_id from query parameter")
-    else:
-        logger.info("Intervals sync: athlete_id from DEFAULT_ATHLETE_ID fallback")
 
 
 def _run_weekly_presync_for_athletes(
@@ -792,32 +729,32 @@ def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
     except ValueError:
         return json_response({"error": ERR_INVALID_JSON}, 400)
 
-    athlete_id = req_body.get("athlete_id")
-    has_single_metric = "metric" in req_body and "value" in req_body
-    has_bulk_metrics = "metrics" in req_body
+    update_request = PhysiometricsUpdateRequest.from_payload(req_body)
 
-    if not (has_single_metric or has_bulk_metrics):
+    if not (update_request.has_single_metric or update_request.has_bulk_metrics):
         return json_response(
-            {"error": "Either 'metric'+'value' or 'metrics' dict required"}, 400)
+            {"error": "Either 'metric'+'value' or 'metrics' dict required"}, 400
+        )
 
     handler = PhysiometricsHandler(dependencies.semantic_layer)
-    effective_date = req_body.get("effective_date")
-    source = req_body.get("source", "chatgpt")
-
-    if has_single_metric:
+    if update_request.has_single_metric:
+        assert update_request.athlete_id is not None
+        assert update_request.metric is not None
         result, status = handler.update_metric(
-            athlete_id=athlete_id,
-            metric=req_body["metric"],
-            value=req_body["value"],
-            effective_date=effective_date,
-            source=source
+            athlete_id=update_request.athlete_id,
+            metric=update_request.metric,
+            value=update_request.value,
+            effective_date=update_request.effective_date,
+            source=update_request.source,
         )
     else:
+        assert update_request.athlete_id is not None
+        assert update_request.metrics is not None
         result, status = handler.update_metrics(
-            athlete_id=athlete_id,
-            metrics=req_body["metrics"],
-            effective_date=effective_date,
-            source=source
+            athlete_id=update_request.athlete_id,
+            metrics=cast(Dict[str, float], update_request.metrics),
+            effective_date=update_request.effective_date,
+            source=update_request.source,
         )
 
     return json_response(result, status)
@@ -1084,17 +1021,14 @@ def withings_webhook(req: func.HttpRequest) -> func.HttpResponse:
     form_values = getattr(req, "form", {}) or {}
     params_values = getattr(req, "params", {}) or {}
 
-    def _request_field(name: str) -> str:
-        return form_values.get(name, "") or params_values.get(name, "")
-
-    userid = _request_field("userid")
-    appli = _request_field("appli")
-    startdate = _request_field("startdate")
-    enddate = _request_field("enddate")
-
     handler = WithingsHandler(dependencies.withings_client, dependencies.storage)
+    webhook_request = WithingsWebhookRequest.from_sources(form_values, params_values)
     result, status = handler.process_webhook(
-        userid, appli, startdate, enddate)
+        webhook_request.userid,
+        webhook_request.appli,
+        webhook_request.startdate,
+        webhook_request.enddate,
+    )
 
     return func.HttpResponse(result, status_code=status)
 
@@ -1186,27 +1120,18 @@ def garmin_physiometrics_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     except ValueError:
         body = {}
 
-    athlete_id = (
-        body.get("athlete_id")
-        or req.params.get("athlete_id")
-        or os.getenv("DEFAULT_ATHLETE_ID", "rob")
+    sync_request = GarminPhysiometricsSyncRequest.from_sources(
+        body=body,
+        params=req.params,
+        default_athlete_id=default_athlete_id(),
     )
-    lookback_days = body.get("lookback_days")
-    if lookback_days is None:
-        lookback_days = req.params.get("lookback_days")
-    force_raw = body.get("force")
-    if force_raw is None:
-        force_raw = req.params.get("force")
-    force = False
-    if isinstance(force_raw, bool):
-        force = force_raw
-    elif isinstance(force_raw, str):
-        force = force_raw.lower() in ("true", "1", "yes")
-    elif isinstance(force_raw, int):
-        force = force_raw == 1
 
     handler = dependencies.garmin_physiometrics_service
-    response, status = handler.handle(athlete_id, lookback_days, force=force)
+    response, status = handler.handle(
+        sync_request.athlete_id,
+        sync_request.lookback_days,
+        force=sync_request.force,
+    )
     return json_response(response, status)
 
 
@@ -1259,23 +1184,30 @@ def intervals_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     Storage athlete_id has a safe default fallback.
     """
     body = _get_request_json_body(req)
-    intervals_athlete_id, athlete_id = _resolve_intervals_sync_ids(req, body)
-    lookback_days = _parse_optional_lookback_days(body, req)
-    force = _coerce_bool(body.get("force", req.params.get("force")), False)
+    sync_request = IntervalsSyncRequest.from_sources(
+        body=body,
+        params=req.params,
+        default_athlete_id=default_athlete_id(),
+        env_intervals_athlete_id=os.getenv("INTERVALS_ATHLETE_ID"),
+    )
 
     # Validate intervals_athlete_id (required for API)
-    if not intervals_athlete_id:
+    if not sync_request.intervals_athlete_id:
         logger.warning("Missing intervals_athlete_id for Intervals sync")
         return json_response({"error": "intervals_athlete_id parameter required"}, 400)
 
-    _log_intervals_sync_identity_sources(req, body)
+    logger.info(
+        "Intervals sync: intervals_athlete_id from %s",
+        sync_request.intervals_athlete_id_source,
+    )
+    logger.info("Intervals sync: athlete_id from %s", sync_request.athlete_id_source)
 
     handler = dependencies.intervals_service
     response, status = handler.handle(
-        intervals_athlete_id=intervals_athlete_id,
-        athlete_id=athlete_id,
-        lookback_days=lookback_days,
-        force=force,
+        intervals_athlete_id=sync_request.intervals_athlete_id,
+        athlete_id=sync_request.athlete_id,
+        lookback_days=sync_request.lookback_days,
+        force=sync_request.force,
     )
 
     return json_response(response, status)
@@ -1438,33 +1370,19 @@ def force_weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
     except ValueError:
         body = {}
 
-    all_athletes = bool(body.get("all_athletes", False))
-    requested_athlete_ids = body.get("athlete_ids")
-    athlete_id = body.get("athlete_id") or req.params.get("athlete_id")
-    raw_weeks = body.get("weeks", req.params.get("weeks", 1))
-
     try:
-        weeks = int(raw_weeks)
+        rollup_request = WeeklyRollupComputeRequest.from_sources(
+            body=body,
+            params=req.params,
+            default_athlete_id=default_athlete_id(),
+            list_athletes_with_workouts=dependencies.semantic_layer.list_athletes_with_workouts,
+        )
     except (TypeError, ValueError):
         return json_response({"error": "weeks must be an integer >= 1"}, 400)
 
-    if weeks < 1:
-        return json_response({"error": "weeks must be >= 1"}, 400)
-
-    athletes = []
-    if isinstance(requested_athlete_ids, list):
-        athletes = [str(item) for item in requested_athlete_ids if str(item).strip()]
-    elif athlete_id:
-        athletes = [str(athlete_id)]
-    elif all_athletes:
-        athletes = dependencies.semantic_layer.list_athletes_with_workouts()
-
-    if not athletes:
-        athletes = [os.getenv("DEFAULT_ATHLETE_ID", "rob")]
-
     result = dependencies.semantic_layer.compute_and_persist_previous_week_rollups(
-        athlete_ids=athletes,
-        weeks=weeks,
+        athlete_ids=rollup_request.athletes,
+        weeks=rollup_request.weeks,
     )
 
     status = 207 if result.get("status") in {"partial", "failed"} else 200

@@ -38,6 +38,7 @@ from TrainingAnalyticsPlatform.platform.exceptions import (
     StorageError,
     ValidationError,
 )
+from TrainingAnalyticsPlatform.handlers.request_models import WithingsWebhookRequest
 from TrainingAnalyticsPlatform.storage.protocols import StorageInfrastructureProtocol
 from TrainingAnalyticsPlatform.storage.source_ingestion_state import \
     SourceIngestionStateStorage
@@ -1211,6 +1212,14 @@ class WithingsWellnessService:
         self.client = withings_client
         self.storage = storage
         self._logger = logger
+
+    @staticmethod
+    def parse_webhook_request(
+        form_values: Dict[str, Any],
+        params_values: Dict[str, Any],
+    ) -> WithingsWebhookRequest:
+        """Normalize webhook fields from form/query sources."""
+        return WithingsWebhookRequest.from_sources(form_values, params_values)
 
     def get_authorization_url(self, athlete_id: str) -> tuple[Dict[str, Any], int]:
         """Generate Withings OAuth authorization URL."""

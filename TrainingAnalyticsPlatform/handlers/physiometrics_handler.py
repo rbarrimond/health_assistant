@@ -4,6 +4,7 @@ import logging
 from typing import Dict, List, Tuple, Any, Optional
 
 from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.handlers.request_models import PhysiometricsUpdateRequest
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +147,30 @@ class PhysiometricsHandler:
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Error updating physiometrics: %s", exc, exc_info=True)
             return {"error": "Failed to update physiometrics"}, 500
+
+    def handle_update_request(
+        self,
+        update_request: PhysiometricsUpdateRequest,
+    ) -> Tuple[Dict[str, Any], int]:
+        """Dispatch a normalized physiometrics update request."""
+        if not (update_request.has_single_metric or update_request.has_bulk_metrics):
+            return {"error": "Either 'metric'+'value' or 'metrics' dict required"}, 400
+
+        if update_request.has_single_metric:
+            return self.update_metric(
+                athlete_id=update_request.athlete_id or "",
+                metric=update_request.metric or "",
+                value=update_request.value,
+                effective_date=update_request.effective_date,
+                source=update_request.source,
+            )
+
+        return self.update_metrics(
+            athlete_id=update_request.athlete_id or "",
+            metrics=update_request.metrics or {},
+            effective_date=update_request.effective_date,
+            source=update_request.source,
+        )
 
     def get_training_state_current(self, athlete_id: str) -> Tuple[Dict[str, Any], int]:
         """Get current training state (on-demand projection from Workouts + Physiometrics).
