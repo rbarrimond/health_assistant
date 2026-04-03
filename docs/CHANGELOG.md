@@ -8,6 +8,15 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-04-03
+
+### Withings Token Payload User ID Backward-Compatibility Fix [application v3.12.4]
+
+- **Fixed**: Withings manual sync no longer fails with `AUTH_ERROR` when stored legacy token entities omit explicit `withings_userid` but still contain the canonical Azure Table `RowKey` user identifier.
+- **Changed (storage read tolerance)**: `OAuthTokenStorage.get_withings_tokens()` now reconstructs `withings_userid` from `RowKey` at read time for legacy payloads, preserving existing storage schema and avoiding destructive token migration.
+- **Added (observability)**: structured debug logging emits a reconstruction event when legacy payload fallback is used.
+- **Added (tests)**: regression coverage verifies RowKey-based userid reconstruction and handler-level identifier resolution/error paths.
+
 ## 2026-04-02
 
 ### Withings Webhook Anonymous Auth Fix [application v3.12.3]
