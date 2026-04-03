@@ -161,7 +161,13 @@ def process_webhook_async(message_body: str) -> None:
 
         access_token = _ensure_access_token(storage, client, athlete_id, userid)
 
-        measurements = client.fetch_measurements(access_token, startdate, enddate)
+        checkpoint = storage.webhooks.get_latest_processed_enddate(athlete_id, userid)
+        lastupdate = startdate if checkpoint is None else max(checkpoint, startdate)
+
+        measurements = client.fetch_measurements(
+            access_token=access_token,
+            lastupdate=lastupdate,
+        )
         logger.info("Fetched %d measurements from Withings", len(measurements))
 
         _store_measurements(storage, athlete_id, measurements)

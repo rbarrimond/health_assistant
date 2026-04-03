@@ -32,6 +32,7 @@ from TrainingAnalyticsPlatform.integrations.intervals_client import Intervalsicu
 from TrainingAnalyticsPlatform.integrations.withings_client import WithingsClient
 from TrainingAnalyticsPlatform.models.wellness import PhysiometricsSnapshot
 from TrainingAnalyticsPlatform.platform.exceptions import (
+    AuthError,
     ExternalServiceError,
     HealthAssistantError,
     StorageError,
@@ -1246,6 +1247,152 @@ class WithingsWellnessService:
             )
             return {"error": "Failed to generate authorization URL"}, 500
 
+    def _ensure_access_token(
+        self,
+        athlete_id: str,
+        userid: str,
+        token_data: Dict[str, Any],
+    ) -> str:
+        """Return a valid access token, refreshing when expired."""
+        try:
+            access_token = token_data["access_token"]
+            expires_at_raw = token_data["expires_at_utc"]
+            refresh_token = token_data["refresh_token"]
+            expires_at = datetime.fromisoformat(
+                expires_at_raw.replace("Z", "+00:00")
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise AuthError("Invalid Withings token payload") from exc
+
+        if datetime.now(timezone.utc) < expires_at:
+            return access_token
+
+        refreshed = self.client.refresh_access_token(refresh_token)
+        self.storage.oauth_tokens.refresh_withings_token(
+            athlete_id=athlete_id,
+            withings_userid=userid,
+            new_access_token=refreshed["access_token"],
+            new_refresh_token=refreshed["refresh_token"],
+            expires_in=refreshed["expires_in"],
+        )
+        return refreshed["access_token"]
+
+    def _store_measurements(self, athlete_id: str, measurements: List[Dict[str, Any]]) -> int:
+        """Persist parsed Withings measurements into physiometrics storage."""
+        stored_count = 0
+        for measurement in measurements:
+            measured_at = datetime.fromisoformat(measurement["measured_at"])
+            effective_date = measured_at.date().isoformat()
+
+            physiometrics_data: Dict[str, Any] = {}
+            for key in [
+                "weight_kg",
+                "fat_mass_kg",
+                "muscle_mass_kg",
+                "bone_mass_kg",
+                "body_fat_pct",
+                "visceral_fat_index",
+                "metabolic_age_years",
+            ]:
+                if key in measurement:
+                    physiometrics_data[key] = measurement[key]
+
+            if not physiometrics_data:
+                continue
+
+            self.storage.physiometrics.store_physiometrics(
+                athlete_id=athlete_id,
+                physiometrics_data=physiometrics_data,
+                effective_date=effective_date,
+                data_source="withings",
+            )
+            stored_count += 1
+
+        return stored_count
+
+    @staticmethod
+    def _resolve_withings_userid(token_data: Dict[str, Any]) -> str:
+        """Resolve Withings user identifier from stored token payload."""
+        userid = str(token_data.get("withings_userid") or token_data.get("userid") or "")
+        if not userid:
+            raise AuthError("Withings user id missing from stored token payload")
+        return userid
+
+    def sync_metrics(
+        self,
+        athlete_id: str,
+        lookback_days: int = 30,
+    ) -> tuple[Dict[str, Any], int]:
+        """Run a manual Withings sync using persisted webhook checkpoint state."""
+        if not athlete_id:
+            return ATHLETE_ID_REQUIRED_ERROR, 400
+
+        if lookback_days <= 0:
+            return {"error": "lookback_days must be a positive integer"}, 400
+
+        try:
+            token_data = self.storage.oauth_tokens.get_withings_tokens(athlete_id)
+            if not token_data:
+                return {
+                    "error": "Withings account is not connected for this athlete"
+                }, 404
+
+            userid = self._resolve_withings_userid(token_data)
+
+            access_token = self._ensure_access_token(athlete_id, userid, token_data)
+
+            checkpoint = self.storage.webhooks.get_latest_processed_enddate(athlete_id, userid)
+            default_lastupdate = int(
+                (datetime.now(timezone.utc) - timedelta(days=lookback_days)).timestamp()
+            )
+            lastupdate = checkpoint if checkpoint is not None else default_lastupdate
+
+            measurements = self.client.fetch_measurements(
+                access_token=access_token,
+                lastupdate=lastupdate,
+            )
+            stored_count = self._store_measurements(athlete_id, measurements)
+
+            new_checkpoint = checkpoint
+            for measurement in measurements:
+                measured_at_utc = datetime.fromisoformat(
+                    measurement["measured_at"]
+                ).astimezone(timezone.utc)
+                measured_at_unix = int(measured_at_utc.timestamp())
+                if new_checkpoint is None or measured_at_unix > new_checkpoint:
+                    new_checkpoint = measured_at_unix
+
+            if new_checkpoint is not None:
+                self.storage.webhooks.mark_webhook_processed(
+                    athlete_id=athlete_id,
+                    withings_userid=userid,
+                    enddate=str(new_checkpoint),
+                )
+
+            return {
+                "status": "success",
+                "athlete_id": athlete_id,
+                "withings_userid": userid,
+                "processed_measurements": stored_count,
+                "fetched_measurements": len(measurements),
+                "applied_lastupdate": lastupdate,
+                "previous_checkpoint": checkpoint,
+                "new_checkpoint": new_checkpoint,
+                "checkpoint_source": "webhook_dedup" if checkpoint is not None else "lookback",
+            }, 200
+        except ValidationError as exc:
+            self._logger.error("Invalid Withings sync request: %s", exc, exc_info=True)
+            return {"error": str(exc)}, 400
+        except AuthError as exc:
+            self._logger.error("Withings auth state invalid: %s", exc, exc_info=True)
+            return {"error": str(exc)}, 401
+        except HealthAssistantError as exc:
+            self._logger.error("Withings sync failed: %s", exc, exc_info=True)
+            return {"error": "Failed to sync Withings measurements"}, 500
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            self._logger.error("Withings sync failed: %s", exc, exc_info=True)
+            return {"error": "Failed to sync Withings measurements"}, 500
+
     def handle_oauth_callback(
         self,
         code: str,
@@ -1358,7 +1505,7 @@ class WithingsWellnessService:
     ) -> tuple[str, int]:
         """Process Withings webhook notification."""
         try:
-            if not all([userid, appli, startdate, enddate]):
+            if not any([userid, appli, startdate, enddate]):
                 # Withings sends a verification POST during subscription registration
                 # with no payload fields to confirm the endpoint is reachable.
                 # Return 200 so the subscription is accepted.
@@ -1367,6 +1514,18 @@ class WithingsWellnessService:
                     extra={"userid": userid, "appli": appli},
                 )
                 return "OK", 200
+
+            if not all([userid, appli, startdate, enddate]):
+                self._logger.warning(
+                    "Withings webhook missing required fields",
+                    extra={
+                        "userid_present": bool(userid),
+                        "appli_present": bool(appli),
+                        "startdate_present": bool(startdate),
+                        "enddate_present": bool(enddate),
+                    },
+                )
+                return "Missing required webhook fields", 400
 
             if appli != "1":
                 self._logger.info("Ignoring non-weight notification (appli=%s)", appli)

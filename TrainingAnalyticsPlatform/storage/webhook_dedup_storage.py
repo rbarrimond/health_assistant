@@ -67,3 +67,38 @@ class WebhookDedupStorage:
         except HttpResponseError as e:
             logger.error("Error marking webhook as processed: %s", e)
             raise StorageError("Failed to mark webhook as processed") from e
+
+    def get_latest_processed_enddate(
+        self,
+        athlete_id: str,
+        withings_userid: str,
+    ) -> Optional[int]:
+        """Return the latest processed Withings webhook enddate for an athlete/user."""
+        try:
+            table_client = self.infra.get_table_client("WebhookDeduplication")
+            query = (
+                f"PartitionKey eq '{athlete_id}' "
+                f"and withings_userid eq '{withings_userid}'"
+            )
+
+            latest: Optional[int] = None
+            entities = table_client.query_entities(
+                query_filter=query,
+                select=["enddate"],
+            )
+            for entity in entities:
+                raw_enddate = entity.get("enddate")
+                if raw_enddate is None:
+                    continue
+                try:
+                    parsed = int(raw_enddate)
+                except (TypeError, ValueError):
+                    continue
+                if latest is None or parsed > latest:
+                    latest = parsed
+
+            return latest
+
+        except HttpResponseError as e:
+            logger.error("Error retrieving latest webhook checkpoint: %s", e)
+            raise StorageError("Failed to retrieve webhook checkpoint") from e

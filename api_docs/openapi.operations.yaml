@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Operations)
-  version: "4.7.0"
+  version: "4.8.0"
   description: |
     Operational and administrative API for ingestion, configuration, integrations, and plugin assets.
     Complements the semantic GPT-facing specification with platform control-plane and runtime support endpoints.
@@ -452,6 +452,38 @@ paths:
             text/plain:
               schema:
                 type: string
+  /api/withings/sync:
+    post:
+      summary: Trigger manual Withings sync
+      operationId: withingsSync
+      security:
+        - FunctionKey: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WithingsSyncRequest'
+      responses:
+        '200':
+          description: Manual sync completed using persisted checkpoint or lookback fallback
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WithingsSyncResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Athlete has no connected Withings account
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/workouts/{workout_id}/recalculated:
     get:
       summary: Get recalculated workout zones (read-only)
@@ -1925,6 +1957,49 @@ components:
         - appli
         - startdate
         - enddate
+    WithingsSyncRequest:
+      type: object
+      properties:
+        athlete_id:
+          type: string
+          description: Athlete identifier (defaults to configured default athlete)
+        lookback_days:
+          type: integer
+          minimum: 1
+          default: 30
+          description: Fallback lookback window when no checkpoint exists
+    WithingsSyncResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success]
+        athlete_id:
+          type: string
+        withings_userid:
+          type: string
+        processed_measurements:
+          type: integer
+          minimum: 0
+        fetched_measurements:
+          type: integer
+          minimum: 0
+        applied_lastupdate:
+          type: integer
+          description: Unix timestamp passed to Withings getmeas lastupdate
+        previous_checkpoint:
+          type:
+            - integer
+            - 'null'
+          description: Previously persisted checkpoint from webhook dedup state
+        new_checkpoint:
+          type:
+            - integer
+            - 'null'
+          description: Updated checkpoint persisted after sync
+        checkpoint_source:
+          type: string
+          enum: [webhook_dedup, lookback]
     RecalculatedWorkoutResponse:
       type: object
       properties:

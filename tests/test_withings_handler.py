@@ -26,6 +26,8 @@ class TestWithingsHandler:
         """Create mock storage coordinator."""
         storage = Mock()
         storage.oauth_tokens = Mock()
+        storage.webhooks = Mock()
+        storage.physiometrics = Mock()
         return storage
 
     @pytest.fixture
@@ -332,3 +334,71 @@ class TestWithingsHandler:
         assert status == 200
         assert "instructions" in result
         assert "authorize" in result["instructions"].lower()
+
+    def test_sync_metrics_success_with_checkpoint(
+        self,
+        handler,
+        mock_withings_client,
+        mock_storage,
+    ):
+        """Test manual sync uses checkpoint and persists newest checkpoint."""
+        mock_storage.oauth_tokens.get_withings_tokens.return_value = {
+            "access_token": "token",
+            "refresh_token": "refresh",
+            "expires_at_utc": "2999-01-01T00:00:00Z",
+            "withings_userid": "12345",
+        }
+        mock_storage.webhooks.get_latest_processed_enddate.return_value = 1700000000
+        mock_withings_client.fetch_measurements.return_value = [
+            {
+                "measured_at": "2024-01-01T00:00:10+00:00",
+                "weight_kg": 70.2,
+                "body_fat_pct": 15.3,
+            }
+        ]
+
+        result, status = handler.sync_metrics("athlete1", lookback_days=30)
+
+        assert status == 200
+        assert result["status"] == "success"
+        assert result["checkpoint_source"] == "webhook_dedup"
+        mock_withings_client.fetch_measurements.assert_called_once_with(
+            access_token="token",
+            lastupdate=1700000000,
+        )
+        mock_storage.physiometrics.store_physiometrics.assert_called_once()
+        mock_storage.webhooks.mark_webhook_processed.assert_called_once()
+
+    def test_sync_metrics_not_connected(self, handler, mock_storage):
+        """Test manual sync returns 404 when athlete has no Withings tokens."""
+        mock_storage.oauth_tokens.get_withings_tokens.return_value = None
+
+        result, status = handler.sync_metrics("athlete1")
+
+        assert status == 404
+        assert "error" in result
+
+    def test_sync_metrics_invalid_lookback(self, handler):
+        """Test manual sync validates lookback_days."""
+        result, status = handler.sync_metrics("athlete1", lookback_days=0)
+
+        assert status == 400
+        assert "lookback_days" in result["error"]
+
+    def test_sync_metrics_invalid_token_payload_returns_auth_failure(
+        self,
+        handler,
+        mock_storage,
+    ):
+        """Test malformed stored token payload is handled via business auth error path."""
+        mock_storage.oauth_tokens.get_withings_tokens.return_value = {
+            "access_token": "token",
+            "refresh_token": "refresh",
+            "expires_at_utc": "not-a-timestamp",
+            "withings_userid": "12345",
+        }
+
+        result, status = handler.sync_metrics("athlete1", lookback_days=30)
+
+        assert status == 401
+        assert "error" in result

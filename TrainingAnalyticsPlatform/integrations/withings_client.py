@@ -35,6 +35,81 @@ TYPE_METABOLIC_AGE = 155
 class WithingsClient:
     """Client for Withings API integration."""
 
+    @staticmethod
+    def _build_measure_params(
+        start_date: Optional[int],
+        end_date: Optional[int],
+        lastupdate: Optional[int],
+        offset: Optional[int],
+    ) -> Dict[str, Any]:
+        params: Dict[str, Any] = {
+            "action": "getmeas",
+            # Body composition metrics only
+            "meastypes": "1,5,6,8,76,77,88,91,123,155",
+            "category": 1,
+        }
+
+        if lastupdate is not None:
+            params["lastupdate"] = lastupdate
+        else:
+            params["startdate"] = start_date
+            params["enddate"] = end_date
+
+        if offset is not None:
+            params["offset"] = offset
+
+        return params
+
+    @staticmethod
+    def _next_offset(body: Dict[str, Any]) -> Optional[int]:
+        if not bool(body.get("more", 0)):
+            return None
+        next_offset = body.get("offset")
+        if next_offset is None:
+            return None
+        return int(next_offset)
+
+    @staticmethod
+    def _parse_measurements_from_groups(measure_groups: List[Dict], parser: Any) -> List[Dict]:
+        parsed_measurements: List[Dict] = []
+        for group in measure_groups:
+            parsed = parser(group)
+            if parsed:
+                parsed_measurements.append(parsed)
+        return parsed_measurements
+
+    def _fetch_measure_page(
+        self,
+        access_token: str,
+        start_date: Optional[int],
+        end_date: Optional[int],
+        lastupdate: Optional[int],
+        offset: Optional[int],
+    ) -> Dict[str, Any]:
+        headers = {"Authorization": f"Bearer {access_token}"}
+        params = self._build_measure_params(
+            start_date=start_date,
+            end_date=end_date,
+            lastupdate=lastupdate,
+            offset=offset,
+        )
+
+        response = requests.post(
+            WITHINGS_MEASURE_URL,
+            data=params,
+            headers=headers,
+            timeout=30,
+        )
+        response.raise_for_status()
+        result = response.json()
+
+        if result.get("status") != 0:
+            raise ExternalServiceError(
+                f"Withings API error: {result.get('error')}"
+            )
+
+        return result.get("body", {})
+
     def __init__(self):
         """Initialize Withings client with credentials from environment."""
         self.client_id = os.getenv("WITHINGS_CLIENT_ID")
@@ -195,9 +270,13 @@ class WithingsClient:
             logger.error("Withings subscription returned invalid payload", exc_info=True)
             raise ExternalServiceError("Subscription returned invalid response payload") from exc
 
-    def fetch_measurements(self, access_token: str,
-                          start_date: int,
-                          end_date: int) -> List[Dict]:
+    def fetch_measurements(
+        self,
+        access_token: str,
+        start_date: Optional[int] = None,
+        end_date: Optional[int] = None,
+        lastupdate: Optional[int] = None,
+    ) -> List[Dict]:
         """
         Fetch weight and body composition measurements from Withings API.
 
@@ -205,6 +284,7 @@ class WithingsClient:
             access_token: OAuth access token
             start_date: Unix timestamp (start of range)
             end_date: Unix timestamp (end of range)
+            lastupdate: Optional unix timestamp for incremental sync
 
         Returns:
             List of measurement dicts with parsed values:
@@ -220,40 +300,46 @@ class WithingsClient:
         Raises:
             ExternalServiceError: If API request fails
         """
-        params = {
-            "action": "getmeas",
-            "meastypes": "1,5,6,8,76,77,88,91,123,155",  # All body composition types
-            "startdate": start_date,
-            "enddate": end_date,
-        }
-
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-        }
+        if lastupdate is None and (start_date is None or end_date is None):
+            raise ValidationError(
+                "Either lastupdate or both start_date and end_date must be provided"
+            )
 
         try:
-            response = requests.get(
-                WITHINGS_MEASURE_URL, params=params, headers=headers, timeout=30
-            )
-            response.raise_for_status()
-            result = response.json()
+            measurements: List[Dict] = []
+            offset: Optional[int] = None
 
-            if result.get("status") != 0:
-                raise ExternalServiceError(
-                    f"Withings API error: {result.get('error')}"
+            while True:
+                body = self._fetch_measure_page(
+                    access_token=access_token,
+                    start_date=start_date,
+                    end_date=end_date,
+                    lastupdate=lastupdate,
+                    offset=offset,
+                )
+                measure_groups = body.get("measuregrps", [])
+
+                logger.info(
+                    "Fetched %d Withings measurement groups (offset=%s)",
+                    len(measure_groups),
+                    offset,
                 )
 
-            body = result.get("body", {})
-            measure_groups = body.get("measuregrps", [])
+                measurements.extend(
+                    self._parse_measurements_from_groups(
+                        measure_groups,
+                        self.parse_measurement_group,
+                    )
+                )
 
-            logger.info("Fetched %d measurement groups from Withings", len(measure_groups))
-
-            # Parse measurement groups
-            measurements = []
-            for group in measure_groups:
-                parsed = self.parse_measurement_group(group)
-                if parsed:
-                    measurements.append(parsed)
+                next_offset = self._next_offset(body)
+                if next_offset is None:
+                    if bool(body.get("more", 0)):
+                        logger.warning(
+                            "Withings API reported more data but no offset was returned; stopping pagination"
+                        )
+                    break
+                offset = next_offset
 
             return measurements
 

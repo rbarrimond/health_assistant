@@ -331,6 +331,14 @@ class WebhookDeduplicationProtocol(Protocol):
         """Record webhook as processed."""
         ...
 
+    def get_latest_processed_enddate(
+        self,
+        athlete_id: str,
+        withings_userid: str,
+    ) -> Optional[int]:
+        """Return latest processed webhook enddate timestamp when available."""
+        ...
+
 
 class TrainingAggregationStorageProtocol(Protocol):
     """Protocol for training aggregation operations."""

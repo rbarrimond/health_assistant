@@ -1095,6 +1095,28 @@ def withings_webhook(req: func.HttpRequest) -> func.HttpResponse:
     return func.HttpResponse(result, status_code=status)
 
 
+@app.route(route="withings/sync", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+@endpoint
+def withings_sync(req: func.HttpRequest) -> func.HttpResponse:
+    """Trigger manual Withings body composition sync using checkpoint-based incremental fetch."""
+    body = _get_request_json_body(req)
+    athlete_id = (
+        body.get("athlete_id")
+        or req.params.get("athlete_id")
+        or os.getenv("DEFAULT_ATHLETE_ID", "rob")
+    )
+
+    lookback_value = body.get("lookback_days", req.params.get("lookback_days", 30))
+    try:
+        lookback_days = int(lookback_value)
+    except (TypeError, ValueError):
+        return json_response({"error": "lookback_days must be an integer"}, 400)
+
+    handler = WithingsHandler(dependencies.withings_client, dependencies.storage)
+    result, status = handler.sync_metrics(athlete_id, lookback_days)
+    return json_response(result, status)
+
+
 # ============================================================================
 # Garmin Connect Sync Endpoints
 # ============================================================================

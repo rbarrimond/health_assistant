@@ -526,6 +526,25 @@
           "response": []
         },
         {
+          "name": "POST /api/withings/sync",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/withings/sync?code={{function_key}}",
+            "description": "Manual checkpoint-aware Withings sync. Uses persisted webhook checkpoint when available; otherwise falls back to lookback_days.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"athlete_id\": \"{{athlete_id}}\",\n  \"lookback_days\": 30\n}"
+            }
+          },
+          "response": []
+        },
+        {
           "name": "POST /api/withings/webhook",
           "request": {
             "method": "POST",
