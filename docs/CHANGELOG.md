@@ -10,6 +10,14 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-04-02
 
+### Withings Webhook Anonymous Auth Fix [application v3.12.3]
+
+- **Fixed**: `withings/webhook` route was missing `auth_level=func.AuthLevel.ANONYMOUS` on its `@app.route()` decorator, causing Azure Functions to default to FUNCTION-level auth. Withings servers probe the webhook URL during subscription setup and cannot pass function keys; the resulting `401 Unauthorized` response caused the OAuth callback to surface "The callback URL is either absent or incorrect".
+- **Fixed (docs)**: `api_docs/openapi.operations.yaml` incorrectly documented `GET /api/withings/webhook` and `POST /api/withings/webhook` with `FunctionKey` security. Both operations are now correctly documented as anonymous.
+- **Fixed (docs)**: `docs/devops/OPERATIONS_API.md` Withings Webhook section now explicitly states the endpoint requires no authentication.
+- **Added (test)**: regression test `test_withings_webhook_route_is_anonymous` in `tests/test_function_app_extras.py` verifies the route binding carries `AuthLevel.ANONYMOUS`.
+- **Updated (postman)**: removed `?code={{function_key}}` from webhook URL in Postman collection.
+
 ### Withings OAuth/Webhook Transport Simplification [application v3.12.2, operations API v4.7.0]
 
 - **Changed (callback contract)**: `GET /api/withings/callback` now preserves successful OAuth token exchange/storage even when the follow-on webhook subscription attempt fails, returning success HTML with an operational warning instead of failing the callback outright.

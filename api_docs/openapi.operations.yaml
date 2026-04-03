@@ -392,8 +392,6 @@ paths:
     get:
       summary: Receive Withings webhook notifications
       operationId: withingsWebhookGet
-      security:
-        - FunctionKey: []
       parameters:
         - name: userid
           in: query
@@ -431,8 +429,6 @@ paths:
     post:
       summary: Receive Withings webhook notifications
       operationId: withingsWebhook
-      security:
-        - FunctionKey: []
       requestBody:
         required: true
         content:

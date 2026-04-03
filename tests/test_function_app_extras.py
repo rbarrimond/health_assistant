@@ -716,6 +716,19 @@ class TestAsyncIngestionQueueProcessing:
         assert response.status_code == 200
         mock_handler.process_webhook.assert_called_once_with("123", "1", "1", "2")
 
+    def test_withings_webhook_route_is_anonymous(self):
+        route_binding = None
+
+        for builder in function_app.app._function_builders:
+            function_definition = builder.build()
+            if function_definition.get_function_name() == "withings_webhook":
+                route_binding = function_definition.get_bindings_dict()["bindings"][0]
+                break
+
+        assert route_binding is not None
+        assert route_binding["route"] == "withings/webhook"
+        assert route_binding["authLevel"].value == "anonymous"
+
 
 class TestIngestionHelpersAndFlow:
     def test_ingest_fit_payload_missing_file_content(self):

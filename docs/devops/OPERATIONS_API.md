@@ -410,6 +410,8 @@ GET /api/withings/webhook?userid=12345&appli=1&startdate=1705622400&enddate=1705
 
 Internal endpoint called by Withings servers when new measurements are available.
 
+**Authentication:** No key required (anonymous). Withings servers cannot pass function keys, so this endpoint must be publicly reachable without credentials.
+
 **Request handling:**
 
 - Accepts both `POST` form payloads and `GET` query-string payloads

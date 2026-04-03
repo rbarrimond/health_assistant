@@ -1070,7 +1070,11 @@ def withings_callback(req: func.HttpRequest) -> func.HttpResponse:
     return func.HttpResponse(html, status_code=status, mimetype=content_type)
 
 
-@app.route(route="withings/webhook", methods=["POST", "GET"])
+@app.route(
+    route="withings/webhook",
+    methods=["POST", "GET"],
+    auth_level=func.AuthLevel.ANONYMOUS,
+)
 @endpoint(
     response_kind="text",
     swallow_exceptions=True,

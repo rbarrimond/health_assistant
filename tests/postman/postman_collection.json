@@ -549,7 +549,7 @@
           "request": {
             "method": "POST",
             "header": [],
-            "url": "{{base_url}}/api/withings/webhook?code={{function_key}}",
+            "url": "{{base_url}}/api/withings/webhook",
             "description": "Webhook payload for Withings notifications. Triggers sync of body composition data. v3.0.0 schema: Withings exclusively owns body composition fields (weight_kg, fat_mass_kg, muscle_mass_kg, bone_mass_kg, body_fat_pct). Stores in Physiometrics table with canonical_version='3.0.0'.",
             "body": {
               "mode": "urlencoded",
