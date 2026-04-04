@@ -1721,11 +1721,11 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
             }
         if zone_basis == "LTHR":
             return {
-                "hr_z1": (int(reference_bpm * 0.65), int(reference_bpm * 0.81)),
-                "hr_z2": (int(reference_bpm * 0.81), int(reference_bpm * 0.90)),
-                "hr_z3": (int(reference_bpm * 0.90), int(reference_bpm * 0.94)),
-                "hr_z4": (int(reference_bpm * 0.94), int(reference_bpm * 1.00)),
-                "hr_z5": (int(reference_bpm * 1.00), int(reference_bpm * 1.06)),
+                "hr_z1": (int(reference_bpm * 0.01), int(reference_bpm * 0.68999)),
+                "hr_z2": (int(reference_bpm * 0.69), int(reference_bpm * 0.83999)),
+                "hr_z3": (int(reference_bpm * 0.84), int(reference_bpm * 0.94999)),
+                "hr_z4": (int(reference_bpm * 0.95), int(reference_bpm * 1.06999)),
+                "hr_z5": (int(reference_bpm * 1.06), int(reference_bpm * 2.00)),
             }
         if zone_basis == "HRR":
             rest_hr = hr_rest if hr_rest else 60
