@@ -489,12 +489,12 @@ class TestWorkoutQueries:
         assert "durability" in metrics
         assert "artifacts" in metrics
 
-    def test_get_workout_detail_surfaces_metadata_zones_in_session_section(
+    def test_get_workout_detail_surfaces_only_enrichment_raw_metadata_in_session(
         self,
         semantic_layer,
         mock_storage,
     ):
-        """Direct workout detail should expose metadata.json zones through metrics.session."""
+        """Direct workout detail should keep raw passthrough limited to metadata.json enrichment."""
         mock_table_client = MagicMock()
         mock_storage.infrastructure.get_table_client.return_value = mock_table_client
 
@@ -545,10 +545,13 @@ class TestWorkoutQueries:
 
         assert workout is not None
         session_metrics = workout["metrics"]["session"]
-        assert session_metrics["identity"]["device_name"] == "zwift 0"
-        assert session_metrics["metadata_session"]["avg_speed_mps"] == pytest.approx(7.535)
+        assert session_metrics["device_name"] == "zwift 0"
+        assert session_metrics["sub_sport"] == "virtual_activity"
+        assert session_metrics["moving_time_sec"] == pytest.approx(4212)
         assert session_metrics["enrichment"]["garmin_aerobic_training_effect"] == pytest.approx(5.0)
         assert session_metrics["timezone"] == "America/New_York"
+        assert "identity" not in session_metrics
+        assert "metadata_session" not in session_metrics
         assert "activity_metadata" not in session_metrics
 
     def test_get_workout_detail_not_found(self, semantic_layer, mock_storage):

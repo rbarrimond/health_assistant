@@ -2147,7 +2147,7 @@ components:
           format: date-time
         session:
           type: object
-          description: Session summary plus direct-workout metadata passthrough; may include `identity`, `metadata_session`, and `enrichment` from the canonical `metadata.json` blob while keeping timezone fields normalized at the top of `session`.
+          description: Session summary with flattened identity/session values plus raw `enrichment` passthrough from the canonical `metadata.json` blob; timezone fields remain normalized at the top of `session`.
           additionalProperties: true
         samples:
           type: object

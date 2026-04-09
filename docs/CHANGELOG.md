@@ -12,8 +12,8 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ### Workout Detail Metadata Passthrough Alignment [application v3.13.1, semantic API v7.2.1]
 
-- **Changed (response contract)**: `GET /api/workouts/{workout_id}` now preserves the relevant `metadata.json` zones inside `metrics.session`, exposing `identity`, `metadata_session`, and `enrichment` for direct workout inspection while keeping timezone fields normalized directly on `session`.
-- **Fixed (response shape)**: removed the redundant raw `metrics.session.activity_metadata` subsection; canonical timezone fields remain available directly as `metrics.session.local_tz_offset` and `metrics.session.timezone`.
+- **Changed (response contract)**: `GET /api/workouts/{workout_id}` now preserves direct workout metadata in a narrower form: identity/session values are flattened into the normal `metrics.session` fields, and only raw `metrics.session.enrichment` remains exposed for inspection.
+- **Fixed (response shape)**: removed the redundant raw `metrics.session.identity`, `metrics.session.metadata_session`, and `metrics.session.activity_metadata` subsections; canonical timezone fields remain available directly as `metrics.session.local_tz_offset` and `metrics.session.timezone`.
 - **Preserved (semantic boundary)**: workout enrichment remains workout-scoped metadata and is **not** reinterpreted as daily physiometrics or training-state data.
 - **Added (tests)**: regression coverage now verifies the single-workout detail response carries the stored metadata context.
 

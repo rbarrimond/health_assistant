@@ -209,8 +209,6 @@ class WorkoutMetricsModel(BaseModel):
                 metrics.get("moving_time_sec"),
                 metadata_session.get("moving_time_sec"),
             ),
-            identity=identity or None,
-            metadata_session=metadata_session or None,
             enrichment=enrichment or None,
         )
 

@@ -30,15 +30,7 @@ class SessionMetricsModel(BaseModel):
     )
     duration_sec: Optional[float] = Field(None, ge=0, description="Total elapsed time seconds")
     moving_time_sec: Optional[float] = Field(None, ge=0, description="Active movement seconds")
-    identity: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Raw `metadata.json.identity` payload for the direct workout response",
-    )
-    metadata_session: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Raw `metadata.json.session` payload for the direct workout response",
-    )
     enrichment: Optional[Dict[str, Any]] = Field(
         None,
-        description="Raw `metadata.json.enrichment` payload for the direct workout response",
+        description="Raw `metadata.json.enrichment` payload for direct workout inspection",
     )
