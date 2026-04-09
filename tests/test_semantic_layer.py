@@ -548,7 +548,8 @@ class TestWorkoutQueries:
         assert session_metrics["identity"]["device_name"] == "zwift 0"
         assert session_metrics["metadata_session"]["avg_speed_mps"] == pytest.approx(7.535)
         assert session_metrics["enrichment"]["garmin_aerobic_training_effect"] == pytest.approx(5.0)
-        assert session_metrics["activity_metadata"]["timezone"] == "America/New_York"
+        assert session_metrics["timezone"] == "America/New_York"
+        assert "activity_metadata" not in session_metrics
 
     def test_get_workout_detail_not_found(self, semantic_layer, mock_storage):
         """Test retrieving non-existent workout."""

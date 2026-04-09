@@ -211,7 +211,6 @@ class WorkoutMetricsModel(BaseModel):
             ),
             identity=identity or None,
             metadata_session=metadata_session or None,
-            activity_metadata=activity_metadata or None,
             enrichment=enrichment or None,
         )
 

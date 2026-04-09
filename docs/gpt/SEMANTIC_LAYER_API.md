@@ -38,7 +38,7 @@ GET /api/planning/context?athlete_id=rob&days=45
 | `/api/agent/observations` | Observation CRUD (list/create/update-status) |
 | `/api/planning/context` | Planning decisions |
 | `/api/workouts` | Workout listing |
-| `/api/workouts/{workout_id}` | Workout detail (includes `metrics.session` metadata passthrough for direct inspection) |
+| `/api/workouts/{workout_id}` | Workout detail (includes `metrics.session` metadata passthrough for direct inspection, without redundant raw `activity_metadata`) |
 | `/api/workouts/{workout_id}/laps/{lap_index}` | Single-lap detail |
 | `/api/rollups/weekly` | Weekly summaries |
 | `/api/analysis/zones` | Zone distribution |

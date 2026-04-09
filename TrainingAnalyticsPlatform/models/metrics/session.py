@@ -38,10 +38,6 @@ class SessionMetricsModel(BaseModel):
         None,
         description="Raw `metadata.json.session` payload for the direct workout response",
     )
-    activity_metadata: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Raw `metadata.json.activity_metadata` payload for the direct workout response",
-    )
     enrichment: Optional[Dict[str, Any]] = Field(
         None,
         description="Raw `metadata.json.enrichment` payload for the direct workout response",
