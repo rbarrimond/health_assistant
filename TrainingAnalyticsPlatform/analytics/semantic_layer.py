@@ -1510,6 +1510,11 @@ class SemanticLayer:
         metrics: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Build workout identity and summary fields with schema-defined precedence."""
+        identity = identity or {}
+        session = session or {}
+        enrichment = enrichment or {}
+        activity_metadata = activity_metadata or {}
+        metrics = metrics or {}
         sport = identity.get("sport") or workout_entity.sport or self._infer_sport(metrics)
         local_tz_offset = activity_metadata.get("local_tz_offset")
         timezone_value = activity_metadata.get("timezone") or local_tz_offset

@@ -92,6 +92,7 @@ def test_semantic_base_dict_prefers_activity_timezone() -> None:
 
     result = semantic_layer._build_workout_base_dict(
         workout_entity=workout_entity,
+        identity={},
         session={},
         enrichment={},
         activity_metadata={
