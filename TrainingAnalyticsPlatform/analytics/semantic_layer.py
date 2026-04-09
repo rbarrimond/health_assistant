@@ -433,7 +433,7 @@ class SemanticLayer:
     ) -> WorkoutDetailResponse:
         """Build typed workout detail response from table entity and derived metrics."""
         metadata_blob = self._load_metadata_blob_for_workout(entity, workout_entity)
-        session, enrichment, activity_metadata = self._extract_workout_metadata_sections(
+        identity, session, enrichment, activity_metadata = self._extract_workout_metadata_sections(
             metadata_blob
         )
         detail_metrics = self._build_workout_detail_metrics(
@@ -444,6 +444,7 @@ class SemanticLayer:
         )
         workout = self._build_workout_base_dict(
             workout_entity,
+            identity,
             session,
             enrichment,
             activity_metadata,
@@ -466,14 +467,20 @@ class SemanticLayer:
                 "sport": workout.get("sport"),
                 "sub_sport": workout.get("sub_sport"),
                 "workout_name": workout.get("workout_name"),
-                "device_name": workout_entity.device_model,
+                "apple_workout_type": enrichment.get("apple_workout_type"),
+                "device_name": identity.get("device_name") or workout_entity.device_model,
                 "is_indoor": workout.get("is_indoor"),
                 "start_time_utc": workout.get("start_time_utc"),
                 "local_tz_offset": workout.get("local_tz_offset"),
+                "timezone": workout.get("timezone"),
                 "duration_sec": workout.get("duration_sec"),
                 "moving_time_sec": workout.get("moving_time_sec"),
                 "has_gps": workout_entity.has_gps,
                 "hr_resting_bpm": detail_metrics.get("hr_resting_bpm"),
+                "identity": identity,
+                "metadata_session": session,
+                "activity_metadata": activity_metadata,
+                "enrichment": enrichment,
             },
         )
         return WorkoutDetailResponse(
@@ -1484,9 +1491,10 @@ class SemanticLayer:
     @staticmethod
     def _extract_workout_metadata_sections(
         metadata_blob: Dict[str, Any],
-    ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
-        """Return session, enrichment, and activity metadata sections from metadata blob."""
+    ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+        """Return identity, session, enrichment, and activity metadata sections from metadata blob."""
         return (
+            metadata_blob.get("identity", {}),
             metadata_blob.get("session", {}),
             metadata_blob.get("enrichment", {}),
             metadata_blob.get("activity_metadata", {}),
@@ -1495,29 +1503,31 @@ class SemanticLayer:
     def _build_workout_base_dict(
         self,
         workout_entity: WorkoutEntity,
+        identity: Dict[str, Any],
         session: Dict[str, Any],
         enrichment: Dict[str, Any],
         activity_metadata: Dict[str, Any],
         metrics: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Build workout identity and summary fields with schema-defined precedence."""
-        sport = workout_entity.sport or self._infer_sport(metrics)
+        sport = identity.get("sport") or workout_entity.sport or self._infer_sport(metrics)
         local_tz_offset = activity_metadata.get("local_tz_offset")
         timezone_value = activity_metadata.get("timezone") or local_tz_offset
+        is_indoor = enrichment.get("is_indoor")
         return {
             "workout_id": workout_entity.workout_id,
             "athlete_id": workout_entity.athlete_id,
             "sport": sport,
-            "sub_sport": workout_entity.sub_sport or enrichment.get("sub_sport") or sport,
+            "sub_sport": identity.get("sub_sport") or workout_entity.sub_sport or enrichment.get("sub_sport") or sport,
             "workout_name": enrichment.get("workout_name")
             or self._infer_workout_name(metrics, sport),
-            "is_indoor": enrichment.get("is_indoor") or self._infer_is_indoor(metrics),
-            "start_time_utc": workout_entity.start_time_utc,
+            "is_indoor": is_indoor if is_indoor is not None else self._infer_is_indoor(metrics),
+            "start_time_utc": identity.get("start_time_utc") or workout_entity.start_time_utc,
             "local_tz_offset": local_tz_offset,
             "timezone": timezone_value,
-            "duration_sec": workout_entity.duration_sec or session.get("duration_sec"),
+            "duration_sec": session.get("duration_sec") or workout_entity.duration_sec,
             "moving_time_sec": session.get("moving_time_sec"),
-            "distance_m": workout_entity.distance_m or session.get("distance_m"),
+            "distance_m": session.get("distance_m") or workout_entity.distance_m,
             "elevation_gain_m": session.get("elevation_gain_m"),
             "elevation_loss_m": session.get("elevation_loss_m"),
             "calories_kcal": session.get("calories_kcal")

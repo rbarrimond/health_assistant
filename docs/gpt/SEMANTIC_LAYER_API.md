@@ -1,6 +1,6 @@
 # Semantic Access Layer API (GPT)
 
-Version: 7.1.3
+Version: 7.2.0
 
 The Semantic Access Layer is the **read + agent-memory write API** for ChatGPT Actions. It exposes meaningful, human-centric questions about training data rather than raw table access.
 
@@ -38,7 +38,7 @@ GET /api/planning/context?athlete_id=rob&days=45
 | `/api/agent/observations` | Observation CRUD (list/create/update-status) |
 | `/api/planning/context` | Planning decisions |
 | `/api/workouts` | Workout listing |
-| `/api/workouts/{workout_id}` | Workout detail |
+| `/api/workouts/{workout_id}` | Workout detail (includes `metrics.session` metadata passthrough for direct inspection) |
 | `/api/workouts/{workout_id}/laps/{lap_index}` | Single-lap detail |
 | `/api/rollups/weekly` | Weekly summaries |
 | `/api/analysis/zones` | Zone distribution |

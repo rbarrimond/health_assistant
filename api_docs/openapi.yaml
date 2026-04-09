@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Semantic/GPT)
-  version: "7.1.1"
+  version: "7.2.0"
   description: GPT-facing semantic API for athlete memory, planning context, workouts, physiometrics, and training-state signals. Use this spec for conversational decision support; use openapi.operations.yaml for operational and system endpoints.
 servers:
   - url: https://health.azure.barrimond.net
@@ -2147,6 +2147,7 @@ components:
           format: date-time
         session:
           type: object
+          description: Session summary plus direct-workout metadata passthrough; may include `identity`, `metadata_session`, `activity_metadata`, and `enrichment` sections from the canonical `metadata.json` blob.
           additionalProperties: true
         samples:
           type: object

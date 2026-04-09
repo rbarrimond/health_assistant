@@ -489,6 +489,67 @@ class TestWorkoutQueries:
         assert "durability" in metrics
         assert "artifacts" in metrics
 
+    def test_get_workout_detail_surfaces_metadata_zones_in_session_section(
+        self,
+        semantic_layer,
+        mock_storage,
+    ):
+        """Direct workout detail should expose metadata.json zones through metrics.session."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+
+        mock_entity = {
+            "PartitionKey": "rob",
+            "RowKey": "workout-meta-001",
+            "workout_id": "workout-meta-001",
+            "athlete_id": "rob",
+            "ingestion_id": "ingest-meta-001",
+            "canonical_records_blob": "ingest-meta-001/canonical.parquet",
+            "source_system": "garmin",
+            "sport": "cycling",
+            "duration_sec": 4211,
+        }
+        mock_table_client.query_entities.return_value = [mock_entity]
+        mock_storage.workouts.load_metadata_json.return_value = {
+            "identity": {
+                "sport": "cycling",
+                "sub_sport": "virtual_activity",
+                "device_name": "zwift 0",
+            },
+            "session": {
+                "avg_speed_mps": 7.535,
+                "calories_kcal": 664.0,
+                "moving_time_sec": 4212,
+            },
+            "enrichment": {
+                "garmin_aerobic_training_effect": 5.0,
+                "garmin_training_effect_label": "VO2MAX",
+            },
+            "activity_metadata": {
+                "local_tz_offset": "UTC-04:00",
+                "timezone": "America/New_York",
+            },
+        }
+        mock_storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+            {
+                "timestamp_utc": pd.date_range("2026-04-07T23:58:51Z", periods=120, freq="s"),
+                "elapsed_sec": pd.Series(range(120), dtype=float),
+                "heart_rate_bpm": 145.0,
+                "power_watts": 225.0,
+                "speed_mps": 7.5,
+                "distance_m": pd.Series(range(120), dtype=float) * 7.5,
+            }
+        )
+
+        workout = semantic_layer.get_workout_detail("rob", "workout-meta-001")
+
+        assert workout is not None
+        session_metrics = workout["metrics"]["session"]
+        assert session_metrics["identity"]["device_name"] == "zwift 0"
+        assert session_metrics["metadata_session"]["avg_speed_mps"] == pytest.approx(7.535)
+        assert session_metrics["enrichment"]["garmin_aerobic_training_effect"] == pytest.approx(5.0)
+        assert session_metrics["activity_metadata"]["timezone"] == "America/New_York"
+
     def test_get_workout_detail_not_found(self, semantic_layer, mock_storage):
         """Test retrieving non-existent workout."""
         mock_table_client = MagicMock()

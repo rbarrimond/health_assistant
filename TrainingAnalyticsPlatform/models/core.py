@@ -159,21 +159,60 @@ class WorkoutMetricsModel(BaseModel):
         return any(value is not None for value in values)
 
     @staticmethod
+    def _coalesce(*values: Any) -> Any:
+        for value in values:
+            if value is not None:
+                return value
+        return None
+
+    @staticmethod
+    def _metadata_section(metadata: Dict[str, Any], key: str) -> Dict[str, Any]:
+        value = metadata.get(key)
+        return value if isinstance(value, dict) else {}
+
+    @staticmethod
     def _build_session(metrics: Dict[str, Any], metadata: Dict[str, Any]) -> SessionMetricsModel:
-        local_tz_offset = metadata.get("local_tz_offset")
-        timezone_value = metadata.get("timezone") or local_tz_offset
+        identity = WorkoutMetricsModel._metadata_section(metadata, "identity")
+        metadata_session = WorkoutMetricsModel._metadata_section(metadata, "metadata_session")
+        activity_metadata = WorkoutMetricsModel._metadata_section(metadata, "activity_metadata")
+        enrichment = WorkoutMetricsModel._metadata_section(metadata, "enrichment")
+        coalesce = WorkoutMetricsModel._coalesce
+        local_tz_offset = coalesce(
+            metadata.get("local_tz_offset"),
+            activity_metadata.get("local_tz_offset"),
+        )
+        timezone_value = coalesce(
+            metadata.get("timezone"),
+            activity_metadata.get("timezone"),
+            local_tz_offset,
+        )
         return SessionMetricsModel(
-            sport=metadata.get("sport"),
-            sub_sport=metadata.get("sub_sport"),
-            apple_workout_type=metadata.get("apple_workout_type"),
-            workout_name=metadata.get("workout_name"),
-            device_name=metadata.get("device_name"),
-            is_indoor=metadata.get("is_indoor"),
-            start_time_utc=metadata.get("start_time_utc") or metrics.get("start_time_utc"),
+            sport=coalesce(metadata.get("sport"), identity.get("sport")),
+            sub_sport=coalesce(metadata.get("sub_sport"), identity.get("sub_sport")),
+            apple_workout_type=coalesce(
+                metadata.get("apple_workout_type"),
+                enrichment.get("apple_workout_type"),
+            ),
+            workout_name=coalesce(metadata.get("workout_name"), enrichment.get("workout_name")),
+            device_name=coalesce(metadata.get("device_name"), identity.get("device_name")),
+            is_indoor=coalesce(metadata.get("is_indoor"), enrichment.get("is_indoor")),
+            start_time_utc=coalesce(
+                metadata.get("start_time_utc"),
+                metrics.get("start_time_utc"),
+                identity.get("start_time_utc"),
+            ),
             local_tz_offset=local_tz_offset,
             timezone=timezone_value,
-            duration_sec=metadata.get("duration_sec") or metrics.get("duration_sec"),
-            moving_time_sec=metadata.get("moving_time_sec") or metrics.get("moving_time_sec"),
+            duration_sec=coalesce(metadata.get("duration_sec"), metrics.get("duration_sec")),
+            moving_time_sec=coalesce(
+                metadata.get("moving_time_sec"),
+                metrics.get("moving_time_sec"),
+                metadata_session.get("moving_time_sec"),
+            ),
+            identity=identity or None,
+            metadata_session=metadata_session or None,
+            activity_metadata=activity_metadata or None,
+            enrichment=enrichment or None,
         )
 
     @staticmethod

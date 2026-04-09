@@ -8,6 +8,14 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-04-08
+
+### Workout Detail Metadata Passthrough Alignment [application v3.13.0, semantic API v7.2.0]
+
+- **Changed (response contract)**: `GET /api/workouts/{workout_id}` now preserves the relevant `metadata.json` zones inside `metrics.session`, exposing `identity`, `metadata_session`, `activity_metadata`, and `enrichment` for direct workout inspection.
+- **Preserved (semantic boundary)**: workout enrichment remains workout-scoped metadata and is **not** reinterpreted as daily physiometrics or training-state data.
+- **Added (tests)**: regression coverage now verifies the single-workout detail response carries the stored metadata context.
+
 ## 2026-04-03
 
 ### Withings Token Payload User ID Backward-Compatibility Fix [application v3.12.4]
