@@ -1762,7 +1762,7 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
                 "hr_z1": (int(reference_bpm * 0.01), int(reference_bpm * 0.68999)),
                 "hr_z2": (int(reference_bpm * 0.69), int(reference_bpm * 0.83999)),
                 "hr_z3": (int(reference_bpm * 0.84), int(reference_bpm * 0.94999)),
-                "hr_z4": (int(reference_bpm * 0.95), int(reference_bpm * 1.06999)),
+                "hr_z4": (int(reference_bpm * 0.95), int(reference_bpm * 1.05999)),
                 "hr_z5": (int(reference_bpm * 1.06), int(reference_bpm * 2.00)),
             }
         if zone_basis == "HRR":
