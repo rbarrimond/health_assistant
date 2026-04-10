@@ -15,7 +15,7 @@ from typing import Any, Dict, cast
 
 import azure.functions as func
 
-from config.constants import (
+from TrainingAnalyticsPlatform.platform.http_constants import (
     API_DOCS_DIR,
     ENV_PLUGIN_CONTACT_EMAIL,
     ENV_PLUGIN_LEGAL_URL,
@@ -56,7 +56,10 @@ from TrainingAnalyticsPlatform.handlers.request_models import (
     WeeklyRollupComputeRequest,
     default_athlete_id,
 )
-from utils import endpoint, parse_ingest_payload
+from TrainingAnalyticsPlatform.platform.function_utils import (
+    endpoint,
+    parse_ingest_payload,
+)
 
 logger = logging.getLogger(__name__)
 setup_logging()

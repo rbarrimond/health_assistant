@@ -12,7 +12,7 @@ import azure.functions as func
 import pytest
 
 import function_app
-from config.constants import ENV_PUBLIC_BASE_URL
+from TrainingAnalyticsPlatform.platform.http_constants import ENV_PUBLIC_BASE_URL
 from TrainingAnalyticsPlatform.platform.dependencies import FunctionAppDependencies
 from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import (
     ONEDRIVE_CLIENT_ID,

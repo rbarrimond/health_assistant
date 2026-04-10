@@ -1,4 +1,4 @@
-"""Shared utilities for the Azure Functions HTTP adapter."""
+"""Packaged utilities for the Azure Functions HTTP adapter."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import json
 import logging
 import time
 from collections.abc import Mapping
-from functools import wraps
 from dataclasses import dataclass
+from functools import wraps
 from typing import Any, Callable, Dict, cast
 
 import azure.functions as func
@@ -417,7 +417,6 @@ def _normalize_structured_errors(
     correlation: Dict[str, str],
     request_context: Dict[str, str],
 ) -> None:
-    """Normalize structured errors array in place (errors with recoverable/category metadata)."""
     body["errors"] = [
         _normalize_error_detail(
             error_item,
@@ -437,7 +436,6 @@ def _normalize_structured_errors(
 
 
 def _uses_structured_partial_errors(body: Dict[str, Any]) -> bool:
-    """Check if errors array contains structured dicts with recoverable semantic (e.g. Garmin model)."""
     errors = body.get("errors")
     if not isinstance(errors, list) or not errors:
         return False

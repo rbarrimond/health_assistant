@@ -11,7 +11,10 @@ from urllib.parse import urlparse
 
 import azure.functions as func
 
-from config.constants import ENV_PUBLIC_BASE_URL, JSON_CONTENT_TYPE
+from TrainingAnalyticsPlatform.platform.http_constants import (
+    ENV_PUBLIC_BASE_URL,
+    JSON_CONTENT_TYPE,
+)
 
 
 def extract_correlation_context(req: Optional[func.HttpRequest]) -> Dict[str, str]:

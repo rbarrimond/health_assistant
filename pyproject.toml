@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "health-assistant"
-version = "3.13.1"
+version = "3.13.3"
 description = "FIT file parser for Azure Functions"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -46,6 +46,10 @@ markers = [
     "azure_integration: integration tests requiring Azure/Azurite (skipped unless RUN_AZURE_INTEGRATION=1)",
 ]
 
+[tool.setuptools]
+py-modules = ["function_app"]
+
 [tool.setuptools.packages.find]
-include = ["TrainingAnalyticsPlatform*", "function_app*"]
+where = ["."]
+include = ["TrainingAnalyticsPlatform*"]
 exclude = ["tests*", "htmlcov*"]

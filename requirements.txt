@@ -15,3 +15,6 @@ pyarrow>=14.0.0
 pydantic>=2.6.0
 requests>=2.31.0
 garminconnect>=0.2.40
+
+# Install the local application package so Azure/Oryx also resolves repo modules.
+.

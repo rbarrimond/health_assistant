@@ -8,6 +8,19 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-04-10
+
+### Azure Deployment Runtime Import Cleanup [application v3.13.3]
+
+- **Fixed (deployment imports)**: the Function App runtime no longer depends on the top-level `config` shim for HTTP constants; packaged imports now resolve through `TrainingAnalyticsPlatform.platform.*` in Azure deployments.
+- **Changed (adapter structure)**: `function_app.py` now imports its endpoint helpers from packaged platform modules instead of the root `utils` shim.
+- **Changed (build config)**: setuptools packaging now only declares the root `function_app` module explicitly while package discovery remains scoped to `TrainingAnalyticsPlatform*`.
+
+### Azure Deployment Module Packaging Fix [application v3.13.2]
+
+- **Fixed (deployment packaging)**: Azure/Oryx deployments now explicitly install the local application package, ensuring repo modules resolve consistently in the deployed Function App environment.
+- **Changed (build config)**: setuptools now declares the root `function_app` and `utils` modules explicitly while package discovery remains scoped to `TrainingAnalyticsPlatform*`.
+
 ## 2026-04-08
 
 ### Workout Detail Metadata Passthrough Alignment [application v3.13.1, semantic API v7.2.1]
