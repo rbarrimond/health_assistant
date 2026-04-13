@@ -19,3 +19,4 @@ docs/
 .python_packages/
 *.egg-info/
 .azure/
+.python-version
