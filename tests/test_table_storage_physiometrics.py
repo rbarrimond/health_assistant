@@ -140,6 +140,9 @@ class TestStorePhysiometrics:
             athlete_id="rob",
             effective_date="2026-03-16",
             data_sources="garmin",
+            ftp_watts=224,
+            hr_lthr_bpm=173,
+            hr_max_bpm=195,
             training_status_label="RECOVERY_2",
             load_focus_low_aerobic_pct=66.7,
             load_focus_high_aerobic_pct=17.0,
@@ -151,6 +154,9 @@ class TestStorePhysiometrics:
 
         entity = mock_table_client.upsert_entity.call_args[0][0]
         assert entity["RowKey"] == "2026-03-16|garmin"
+        assert entity["power_ftp_watts"] == 224
+        assert entity["heart_rate_lthr_bpm"] == 173
+        assert entity["heart_rate_hr_max_bpm"] == 195
         assert entity["training_status_label"] == "RECOVERY_2"
         assert entity["load_focus_low_aerobic_pct"] == pytest.approx(66.7)
         assert entity["load_focus_high_aerobic_pct"] == pytest.approx(17.0)

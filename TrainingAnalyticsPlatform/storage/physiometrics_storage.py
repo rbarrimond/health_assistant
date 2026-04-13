@@ -294,8 +294,8 @@ class PhysiometricsStorage:
             "effective_date": effective_date,
             "data_source": normalized_source,
             "heart_rate_basis": payload.get("heart_rate", {}).get("basis"),
-            "heart_rate_lthr_bpm": payload.get("heart_rate", {}).get("lthr_bpm"),
-            "heart_rate_hr_max_bpm": payload.get("heart_rate", {}).get("hr_max_bpm"),
+            "heart_rate_lthr_bpm": payload.get("heart_rate", {}).get("lthr_bpm") or payload.get("hr_lthr_bpm"),
+            "heart_rate_hr_max_bpm": payload.get("heart_rate", {}).get("hr_max_bpm") or payload.get("hr_max_bpm"),
             "heart_rate_resting_bpm": (
                 # Try flat key first (from PhysiometricsSnapshot.to_storage_dict)
                 payload.get("resting_hr_bpm")
@@ -304,7 +304,7 @@ class PhysiometricsStorage:
                 # Final default only if no source provided value
                 or 60
             ),
-            "power_ftp_watts": payload.get("power", {}).get("ftp_watts"),
+            "power_ftp_watts": payload.get("power", {}).get("ftp_watts") or payload.get("ftp_watts"),
             "weight_kg": payload.get("weight_kg"),
             "fat_mass_kg": payload.get("fat_mass_kg"),
             "muscle_mass_kg": payload.get("muscle_mass_kg"),
