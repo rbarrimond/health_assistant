@@ -31,6 +31,7 @@ from TrainingAnalyticsPlatform.integrations.garmin_client import (
 from TrainingAnalyticsPlatform.integrations.intervals_client import IntervalsicuClient
 from TrainingAnalyticsPlatform.integrations.withings_client import WithingsClient
 from TrainingAnalyticsPlatform.models.wellness import PhysiometricsSnapshot
+from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.platform.exceptions import (
     AuthError,
     ExternalServiceError,
@@ -792,6 +793,17 @@ class GarminPhysiometricsSyncHandler(WellnessSourceSyncContract):
         summary = self.client.get_user_summary(date_str)
         training_status = self.client.get_training_status(date_str)
         training_readiness, morning_training_readiness = self._fetch_training_readiness_payloads(date_str)
+        cycling_ftp, lactate_threshold = self._fetch_training_baseline_payloads()
+        date_scoped_cycling_ftp = self._baseline_payload_for_date(
+            baseline_payload=cycling_ftp,
+            effective_date=date_str,
+            date_paths=(("calendarDate",),),
+        )
+        date_scoped_lactate_threshold = self._baseline_payload_for_date(
+            baseline_payload=lactate_threshold,
+            effective_date=date_str,
+            date_paths=(("speed_and_heart_rate", "calendarDate"),),
+        )
 
         blob_name = self._store_raw_payload(
             athlete_id=athlete_id,
@@ -800,6 +812,8 @@ class GarminPhysiometricsSyncHandler(WellnessSourceSyncContract):
             training_status=training_status,
             training_readiness=training_readiness,
             morning_training_readiness=morning_training_readiness,
+            cycling_ftp=date_scoped_cycling_ftp,
+            lactate_threshold=date_scoped_lactate_threshold,
         )
         self.ingestion_state.record_blob_fetched(
             source_name="garmin",
@@ -813,6 +827,8 @@ class GarminPhysiometricsSyncHandler(WellnessSourceSyncContract):
                 "training_status": training_status,
                 "training_readiness": training_readiness,
                 "morning_training_readiness": morning_training_readiness,
+                "cycling_ftp": date_scoped_cycling_ftp,
+                "lactate_threshold": date_scoped_lactate_threshold,
             }
         )
         self.adapter.validate_semantic_contract(parsed)
@@ -831,6 +847,7 @@ class GarminPhysiometricsSyncHandler(WellnessSourceSyncContract):
             effective_date=snapshot.effective_date,
             data_source="garmin",
         )
+        Config.invalidate_physiometrics_cache()
         self.ingestion_state.record_blob_processed(blob_name)
         return blob_name
 
@@ -865,6 +882,99 @@ class GarminPhysiometricsSyncHandler(WellnessSourceSyncContract):
 
         return training_readiness, morning_training_readiness
 
+    def _fetch_training_baseline_payloads(
+        self,
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        """Fetch dedicated Garmin baseline payloads; degrade gracefully when unavailable."""
+        cycling_ftp: Optional[Dict[str, Any]] = None
+        lactate_threshold: Optional[Dict[str, Any]] = None
+
+        try:
+            cycling_ftp = self.client.get_cycling_ftp()
+        except GarminConnectError:
+            logger.warning(
+                "Garmin cycling FTP unavailable during physiometrics sync",
+                exc_info=True,
+            )
+
+        try:
+            lactate_threshold = self.client.get_lactate_threshold()
+        except GarminConnectError:
+            logger.warning(
+                "Garmin lactate threshold unavailable during physiometrics sync",
+                exc_info=True,
+            )
+
+        return cycling_ftp, lactate_threshold
+
+    @staticmethod
+    def _baseline_payload_for_date(
+        *,
+        baseline_payload: Optional[Dict[str, Any]],
+        effective_date: str,
+        date_paths: tuple[tuple[str, ...], ...],
+    ) -> Optional[Dict[str, Any]]:
+        """Attach a latest-baseline payload only when it is already in effect for the daily row."""
+        if not baseline_payload:
+            return None
+
+        payload_date = GarminPhysiometricsSyncHandler._extract_payload_effective_date(
+            baseline_payload,
+            date_paths=date_paths,
+        )
+        if payload_date is None:
+            return baseline_payload
+        if payload_date <= effective_date:
+            return baseline_payload
+        return None
+
+    @staticmethod
+    def _extract_payload_effective_date(
+        payload: Dict[str, Any],
+        *,
+        date_paths: tuple[tuple[str, ...], ...],
+    ) -> Optional[str]:
+        """Extract an ISO date from a Garmin payload timestamp field."""
+        for path in date_paths:
+            value = GarminPhysiometricsSyncHandler._extract_nested_payload_value(
+                payload,
+                path,
+            )
+            parsed_date = GarminPhysiometricsSyncHandler._coerce_payload_date(value)
+            if parsed_date is None:
+                continue
+            return parsed_date
+        return None
+
+    @staticmethod
+    def _extract_nested_payload_value(
+        payload: Dict[str, Any],
+        path: tuple[str, ...],
+    ) -> Any:
+        """Return a nested payload value when each path segment is present."""
+        value: Any = payload
+        for key in path:
+            if not isinstance(value, dict):
+                return None
+            value = value.get(key)
+        return value
+
+    @staticmethod
+    def _coerce_payload_date(value: Any) -> Optional[str]:
+        """Coerce a Garmin timestamp-like string to YYYY-MM-DD."""
+        if not isinstance(value, str) or not value:
+            return None
+        if len(value) >= 10 and value[4] == "-" and value[7] == "-":
+            return value[:10]
+
+        normalized = value.replace("Z", "+00:00")
+        try:
+            return datetime.fromisoformat(normalized).date().isoformat()
+        except ValueError:
+            if len(value) >= 10:
+                return value[:10]
+            return None
+
     def _store_raw_payload(
         self,
         athlete_id: str,
@@ -873,6 +983,8 @@ class GarminPhysiometricsSyncHandler(WellnessSourceSyncContract):
         training_status: Dict[str, Any],
         training_readiness: Optional[Union[Dict[str, Any], list[Dict[str, Any]]]],
         morning_training_readiness: Optional[Dict[str, Any]],
+        cycling_ftp: Optional[Dict[str, Any]],
+        lactate_threshold: Optional[Dict[str, Any]],
     ) -> str:
         """Persist one Garmin daily physiometrics fetch envelope to blob storage."""
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
@@ -890,6 +1002,8 @@ class GarminPhysiometricsSyncHandler(WellnessSourceSyncContract):
                 "training_status": training_status,
                 "training_readiness": training_readiness,
                 "morning_training_readiness": morning_training_readiness,
+                "cycling_ftp": cycling_ftp,
+                "lactate_threshold": lactate_threshold,
             },
         }
         self.storage.infrastructure.upload_external_source_json(blob_name, envelope)
@@ -920,8 +1034,10 @@ class GarminPhysiometricsSyncHandler(WellnessSourceSyncContract):
             extra={
                 "athlete_id": athlete_id,
                 "effective_date": effective_date,
-                "has_cycling_vo2max": storage_dict.get("cycling_vo2max_ml_kg_min") is not None,
-                "has_running_vo2max": storage_dict.get("running_vo2max_ml_kg_min") is not None,
+                        "has_cycling_vo2max": storage_dict.get("cycling_vo2max_ml_kg_min") is not None,
+                        "has_running_vo2max": storage_dict.get("running_vo2max_ml_kg_min") is not None,
+                        "has_ftp": storage_dict.get("ftp_watts") is not None,
+                        "has_lthr": storage_dict.get("hr_lthr_bpm") is not None,
                 "has_training_load": storage_dict.get("training_load") is not None,
                 "has_readiness": storage_dict.get("readiness_score") is not None,
                 "has_training_status_label": storage_dict.get("training_status_label") is not None,

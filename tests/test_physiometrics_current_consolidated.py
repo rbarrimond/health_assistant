@@ -155,6 +155,70 @@ class TestCurrentPhysiometricsConsolidation:
         assert result["power"]["ftp_watts"] == 320
         assert result["training_state"]["training_load"] == pytest.approx(310.0)
 
+    def test_newer_manual_baselines_override_older_garmin(self, layer):
+        """Manual FTP/LTHR should win when written after the latest Garmin baseline."""
+        mock_table = MagicMock()
+        mock_table.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-03-02|garmin",
+                "effective_date": "2026-03-02",
+                "data_source": "garmin",
+                "updated_at_utc": "2026-03-02T08:20:00+00:00",
+                "power_ftp_watts": 320,
+                "heart_rate_lthr_bpm": 172,
+            },
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-03-03|manual",
+                "effective_date": "2026-03-03",
+                "data_source": "manual",
+                "updated_at_utc": "2026-03-03T09:00:00+00:00",
+                "heart_rate_basis": "LTHR",
+                "power_ftp_watts": 300,
+                "heart_rate_lthr_bpm": 176,
+            },
+        ]
+        layer.storage.infrastructure.get_table_client = MagicMock(return_value=mock_table)
+
+        result = layer.get_current_physiometrics("rob")
+
+        assert result["power"]["ftp_watts"] == 300
+        assert result["heart_rate"]["lthr_bpm"] == 176
+        assert result["heart_rate"]["basis"] == "LTHR"
+
+    def test_newer_garmin_baselines_override_older_manual(self, layer):
+        """Garmin FTP/LTHR should retake precedence when Garmin writes are newer."""
+        mock_table = MagicMock()
+        mock_table.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-03-02|manual",
+                "effective_date": "2026-03-02",
+                "data_source": "manual",
+                "updated_at_utc": "2026-03-02T09:00:00+00:00",
+                "heart_rate_basis": "LTHR",
+                "power_ftp_watts": 300,
+                "heart_rate_lthr_bpm": 176,
+            },
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-03-04|garmin",
+                "effective_date": "2026-03-04",
+                "data_source": "garmin",
+                "updated_at_utc": "2026-03-04T08:20:00+00:00",
+                "power_ftp_watts": 325,
+                "heart_rate_lthr_bpm": 174,
+            },
+        ]
+        layer.storage.infrastructure.get_table_client = MagicMock(return_value=mock_table)
+
+        result = layer.get_current_physiometrics("rob")
+
+        assert result["power"]["ftp_watts"] == 325
+        assert result["heart_rate"]["lthr_bpm"] == 174
+        assert result["heart_rate"]["basis"] is None
+
     def test_metric_uses_latest_non_null_within_source(self, layer):
         """Keep canonical metric visible when the newest row for the preferred source is sparse."""
         mock_table = MagicMock()

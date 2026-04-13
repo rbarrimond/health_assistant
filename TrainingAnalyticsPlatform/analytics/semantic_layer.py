@@ -14,6 +14,14 @@ import pandas as pd
 
 from azure.core.exceptions import HttpResponseError
 
+from TrainingAnalyticsPlatform.analytics.physiometrics_resolution import (
+    BASELINE_SOURCE_PRECEDENCE,
+    build_source_rows_by_source,
+    canonical_sources_from_row,
+    effective_date_from_row,
+    parse_iso_timestamp,
+    resolve_latest_metric_across_sources,
+)
 from TrainingAnalyticsPlatform.models.core import (
     CanonicalAnalyticsEngine,
     LapSummaryResponse,
@@ -38,6 +46,7 @@ logger = logging.getLogger(__name__)
 UTC_OFFSET = "+00:00"
 CANONICAL_DISTORTION_WARN_PCT = float(os.getenv("CANONICAL_DISTORTION_WARN_PCT", "5.0"))
 _NON_1HZ_EPSILON_SEC = 1.01
+RECENCY_RESOLVED_BASELINE_METRICS = frozenset(BASELINE_SOURCE_PRECEDENCE.keys())
 
 _LAP_PROMOTED_FIELDS = {
     "message_index",
@@ -198,7 +207,7 @@ PHYSIOMETRICS_OPTIONAL_METRICS = [
 
 PHYSIOMETRICS_STORAGE_FIELD_ALIASES = {
     "ftp_watts": ["ftp_watts", "power_ftp_watts"],
-    "hr_lthr_bpm": ["hr_lthr_bpm", "heart_rate_lthr_bpm"],
+    "hr_lthr_bpm": ["hr_lthr_bpm", "heart_rate_lthr_bpm", "lactate_threshold_hr_bpm"],
     "hr_max_bpm": ["hr_max_bpm", "heart_rate_hr_max_bpm"],
     "resting_hr_bpm": ["resting_hr_bpm", "heart_rate_resting_bpm"],
     "soreness": ["soreness", "subjective_soreness"],
@@ -3032,36 +3041,17 @@ class SemanticLayer:
     @staticmethod
     def _parse_iso_timestamp(value: Optional[str]) -> datetime:
         """Parse ISO timestamp; fallback to minimum UTC time when missing/invalid."""
-        if not value:
-            return datetime.min.replace(tzinfo=timezone.utc)
-        normalized = value.replace("Z", UTC_OFFSET)
-        try:
-            parsed = datetime.fromisoformat(normalized)
-            if parsed.tzinfo is None:
-                return parsed.replace(tzinfo=timezone.utc)
-            return parsed
-        except ValueError:
-            return datetime.min.replace(tzinfo=timezone.utc)
+        return parse_iso_timestamp(value)
 
     @staticmethod
     def _canonical_sources_from_row(row: Dict[str, Any]) -> Set[str]:
         """Return canonical source IDs present in a physiometrics row."""
-        sources: Set[str] = set()
-        singular = row.get("data_source")
-        if isinstance(singular, str) and singular.strip():
-            sources.add(singular.strip().lower())
-        csv_sources = row.get("data_sources")
-        if isinstance(csv_sources, str) and csv_sources.strip():
-            for value in csv_sources.split(","):
-                normalized = value.strip().lower()
-                if normalized:
-                    sources.add(normalized)
-        return sources
+        return canonical_sources_from_row(row)
 
     @staticmethod
     def _effective_date_from_row(row: Dict[str, Any]) -> str:
         """Return the row's effective date fallback key for ordering."""
-        return row.get("effective_date") or row.get("RowKey", "")
+        return effective_date_from_row(row)
 
     def _is_row_newer(self, candidate: Dict[str, Any], existing: Dict[str, Any]) -> bool:
         """Compare two source rows and return whether candidate is newer."""
@@ -3104,27 +3094,12 @@ class SemanticLayer:
         table_client = self.storage.infrastructure.get_table_client("Physiometrics")
         rows = list(table_client.query_entities(f"PartitionKey eq '{athlete_id}'"))
         tracked_sources = {"intervals", "garmin", "withings", "manual", "chatgpt"}
-        rows_by_source: Dict[str, List[Dict[str, Any]]] = {}
-
-        for row in rows:
-            effective_date = row.get("effective_date") or ""
-            if target_date and effective_date and effective_date > target_date:
-                continue
-            for source in self._canonical_sources_from_row(row):
-                if source not in tracked_sources:
-                    continue
-                rows_by_source.setdefault(source, []).append(row)
-
-        for source_rows in rows_by_source.values():
-            source_rows.sort(
-                key=lambda row: (
-                    row.get("effective_date") or "",
-                    self._parse_iso_timestamp(row.get("updated_at_utc")),
-                ),
-                reverse=True,
-            )
-
-        return rows_by_source
+        grouped = build_source_rows_by_source(
+            rows,
+            tracked_sources=tracked_sources,
+            target_date=target_date,
+        )
+        return {source: list(source_rows) for source, source_rows in grouped.items()}
 
     @staticmethod
     def _resolve_row_metric_value(row: Dict[str, Any], metric_name: str) -> Optional[Any]:
@@ -3143,6 +3118,16 @@ class SemanticLayer:
         source_rows_by_source: Dict[str, List[Dict[str, Any]]],
     ) -> Tuple[Optional[Any], Optional[str]]:
         """Resolve one metric using source precedence and latest non-null value per source."""
+        if metric_name in RECENCY_RESOLVED_BASELINE_METRICS:
+            metric_value, row, _ = resolve_latest_metric_across_sources(
+                metric_name,
+                source_rows_by_source,
+                field_aliases=PHYSIOMETRICS_STORAGE_FIELD_ALIASES,
+                source_precedence=BASELINE_SOURCE_PRECEDENCE,
+            )
+            if metric_value is not None:
+                return metric_value, row.get("heart_rate_basis") if row else None
+
         for source in sources:
             source_rows = source_rows_by_source.get(source, [])
             for row in source_rows:
@@ -3232,6 +3217,7 @@ class SemanticLayer:
                 effective_date=effective_date,
                 data_source=source
             )
+            Config.invalidate_physiometrics_cache()
 
             logger.info(
                 "Updated physiometric",

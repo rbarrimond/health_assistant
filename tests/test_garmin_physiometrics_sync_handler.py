@@ -42,6 +42,24 @@ def _training_readiness_payload() -> dict:
     }
 
 
+def _cycling_ftp_payload(calendar_date: str = "2026-03-03T06:00:00+00:00") -> dict:
+    return {
+        "calendarDate": calendar_date,
+        "functionalThresholdPower": 312,
+    }
+
+
+def _lactate_threshold_payload(calendar_date: str = "2026-03-03") -> dict:
+    return {
+        "speed_and_heart_rate": {
+            "calendarDate": calendar_date,
+            "heartRateCycling": 173,
+            "heartRate": 165,
+        },
+        "power": {},
+    }
+
+
 def test_sync_handler_stores_combined_metrics():
     storage = Mock()
     storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
@@ -57,6 +75,8 @@ def test_sync_handler_stores_combined_metrics():
     client.get_training_status.return_value = _training_status_payload()
     client.get_training_readiness.return_value = _training_readiness_payload()
     client.get_morning_training_readiness.return_value = None
+    client.get_cycling_ftp.return_value = _cycling_ftp_payload()
+    client.get_lactate_threshold.return_value = _lactate_threshold_payload()
 
     handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
 
@@ -70,6 +90,8 @@ def test_sync_handler_stores_combined_metrics():
     assert kwargs["athlete_id"] == "rob"
     assert kwargs["data_source"] == "garmin"
     assert kwargs["physiometrics_data"]["training_load"] == 76
+    assert kwargs["physiometrics_data"]["ftp_watts"] == 312
+    assert kwargs["physiometrics_data"]["hr_lthr_bpm"] == 173
     assert kwargs["physiometrics_data"]["cycling_vo2max_ml_kg_min"] == pytest.approx(58.3)
     assert kwargs["physiometrics_data"]["running_vo2max_ml_kg_min"] == pytest.approx(55.1)
     assert kwargs["physiometrics_data"]["readiness_score"] == 84
@@ -86,6 +108,8 @@ def test_sync_handler_validates_lookback_days_type():
     client = Mock()
     client.get_training_readiness.return_value = _training_readiness_payload()
     client.get_morning_training_readiness.return_value = None
+    client.get_cycling_ftp.return_value = None
+    client.get_lactate_threshold.return_value = None
 
     handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
 
@@ -110,6 +134,8 @@ def test_sync_handler_lookback_zero_targets_today_only():
     client.get_training_status.return_value = _training_status_payload()
     client.get_training_readiness.return_value = _training_readiness_payload()
     client.get_morning_training_readiness.return_value = None
+    client.get_cycling_ftp.return_value = _cycling_ftp_payload(calendar_date="2026-03-04T06:00:00+00:00")
+    client.get_lactate_threshold.return_value = _lactate_threshold_payload(calendar_date="2026-03-04")
 
     handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
 
@@ -140,6 +166,8 @@ def test_sync_handler_reports_partial_errors():
     client.get_training_status.side_effect = RuntimeError("garmin unavailable")
     client.get_training_readiness.return_value = _training_readiness_payload()
     client.get_morning_training_readiness.return_value = None
+    client.get_cycling_ftp.return_value = _cycling_ftp_payload()
+    client.get_lactate_threshold.return_value = _lactate_threshold_payload()
 
     handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
 
@@ -168,6 +196,8 @@ def test_sync_handler_tolerates_readiness_endpoint_failures():
     client.get_training_status.return_value = _training_status_payload()
     client.get_training_readiness.side_effect = GarminConnectError("readiness unavailable")
     client.get_morning_training_readiness.side_effect = GarminConnectError("morning readiness unavailable")
+    client.get_cycling_ftp.return_value = _cycling_ftp_payload()
+    client.get_lactate_threshold.return_value = _lactate_threshold_payload()
 
     handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
 
@@ -197,6 +227,8 @@ def test_sync_handler_skips_dates_already_stored_when_not_forced():
     client.get_training_status.return_value = _training_status_payload()
     client.get_training_readiness.return_value = _training_readiness_payload()
     client.get_morning_training_readiness.return_value = None
+    client.get_cycling_ftp.return_value = _cycling_ftp_payload()
+    client.get_lactate_threshold.return_value = _lactate_threshold_payload()
 
     handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
 
@@ -235,6 +267,8 @@ def test_sync_handler_force_true_reprocesses_stored_dates():
     client.get_training_status.return_value = _training_status_payload()
     client.get_training_readiness.return_value = _training_readiness_payload()
     client.get_morning_training_readiness.return_value = None
+    client.get_cycling_ftp.return_value = _cycling_ftp_payload()
+    client.get_lactate_threshold.return_value = _lactate_threshold_payload()
 
     handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
 
@@ -269,6 +303,8 @@ def test_sync_handler_continues_when_prefetch_history_fails():
     client.get_training_status.return_value = _training_status_payload()
     client.get_training_readiness.return_value = _training_readiness_payload()
     client.get_morning_training_readiness.return_value = None
+    client.get_cycling_ftp.return_value = _cycling_ftp_payload()
+    client.get_lactate_threshold.return_value = _lactate_threshold_payload()
 
     handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
 
@@ -283,6 +319,60 @@ def test_sync_handler_continues_when_prefetch_history_fails():
     assert response["records_fetched"] == 1
     assert response["records_skipped"] == 0
     assert storage.physiometrics.store_physiometrics.call_count == 1
+
+def test_sync_handler_only_applies_latest_baselines_on_or_after_baseline_date():
+    storage = Mock()
+    storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
+    storage.physiometrics = Mock()
+    storage.infrastructure = Mock()
+    storage.infrastructure.upload_external_source_json = Mock(return_value="physiometrics/rob/garmin/daily/blob.json")
+    state_table = Mock()
+    state_table.query_entities.return_value = [{"blob_name": "physiometrics/rob/garmin/daily/blob.json"}]
+    storage.infrastructure.get_table_client = Mock(return_value=state_table)
+
+    client = Mock()
+    client.get_user_summary.return_value = _summary_payload("2026-03-09")
+    client.get_training_status.return_value = _training_status_payload()
+    client.get_training_readiness.return_value = _training_readiness_payload()
+    client.get_morning_training_readiness.return_value = None
+    client.get_cycling_ftp.return_value = _cycling_ftp_payload(calendar_date="2026-03-10T17:48:13.480")
+    client.get_lactate_threshold.return_value = _lactate_threshold_payload(calendar_date="2026-03-10")
+
+    handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
+
+    handler._process_single_day("rob", "2026-03-09")
+
+    kwargs = storage.physiometrics.store_physiometrics.call_args.kwargs
+    assert kwargs["physiometrics_data"]["ftp_watts"] == 300
+    assert kwargs["physiometrics_data"]["hr_lthr_bpm"] == 168
+
+
+def test_sync_handler_tolerates_dedicated_baseline_endpoint_failures():
+    storage = Mock()
+    storage.oauth_tokens.get_garmin_rate_limit_blocked_until.return_value = None
+    storage.physiometrics = Mock()
+    storage.infrastructure = Mock()
+    storage.infrastructure.upload_external_source_json = Mock(return_value="physiometrics/rob/garmin/daily/blob.json")
+    state_table = Mock()
+    state_table.query_entities.return_value = [{"blob_name": "physiometrics/rob/garmin/daily/blob.json"}]
+    storage.infrastructure.get_table_client = Mock(return_value=state_table)
+
+    client = Mock()
+    client.get_user_summary.return_value = _summary_payload("2026-03-03")
+    client.get_training_status.return_value = _training_status_payload()
+    client.get_training_readiness.return_value = _training_readiness_payload()
+    client.get_morning_training_readiness.return_value = None
+    client.get_cycling_ftp.side_effect = GarminConnectError("ftp unavailable")
+    client.get_lactate_threshold.side_effect = GarminConnectError("lthr unavailable")
+
+    handler = GarminPhysiometricsSyncHandler(storage=storage, client=client)
+
+    _, status = handler.handle("rob", lookback_days=1)
+
+    assert status == 200
+    kwargs = storage.physiometrics.store_physiometrics.call_args.kwargs
+    assert kwargs["physiometrics_data"]["ftp_watts"] == 300
+    assert kwargs["physiometrics_data"]["hr_lthr_bpm"] == 168
 
 
 # ---------------------------------------------------------------------------
@@ -306,6 +396,8 @@ def test_handle_restores_session_from_stored_token_and_skips_login():
     client.get_training_status.return_value = _training_status_payload()
     client.get_training_readiness.return_value = None
     client.get_morning_training_readiness.return_value = None
+    client.get_cycling_ftp.return_value = _cycling_ftp_payload()
+    client.get_lactate_threshold.return_value = _lactate_threshold_payload()
     client.dump_tokens.return_value = "refreshed-garth-token"
 
     handler = _make_physiometrics_handler(storage, client)
@@ -330,6 +422,8 @@ def test_handle_falls_back_to_login_when_no_stored_token():
     client.get_training_status.return_value = _training_status_payload()
     client.get_training_readiness.return_value = None
     client.get_morning_training_readiness.return_value = None
+    client.get_cycling_ftp.return_value = _cycling_ftp_payload()
+    client.get_lactate_threshold.return_value = _lactate_threshold_payload()
     client.dump_tokens.return_value = "fresh-garth-token"
 
     handler = _make_physiometrics_handler(storage, client)
@@ -354,6 +448,8 @@ def test_handle_falls_back_to_login_on_stale_token():
     client.get_training_status.return_value = _training_status_payload()
     client.get_training_readiness.return_value = None
     client.get_morning_training_readiness.return_value = None
+    client.get_cycling_ftp.return_value = _cycling_ftp_payload()
+    client.get_lactate_threshold.return_value = _lactate_threshold_payload()
     client.dump_tokens.return_value = "fresh-garth-token"
 
     handler = _make_physiometrics_handler(storage, client)

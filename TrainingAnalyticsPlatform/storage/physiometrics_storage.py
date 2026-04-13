@@ -8,6 +8,11 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 from pydantic import ValidationError as PydanticValidationError
 
+from TrainingAnalyticsPlatform.analytics.physiometrics_resolution import (
+    BASELINE_SOURCE_PRECEDENCE,
+    build_source_rows_by_source,
+    resolve_latest_metric_across_sources,
+)
 from TrainingAnalyticsPlatform.models.wellness import PhysiometricsSnapshot
 from TrainingAnalyticsPlatform.platform.exceptions import StorageError
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import StorageInfrastructure
@@ -68,6 +73,10 @@ class PhysiometricsStorage:
         "source_updated_at_utc": "source_updated_at_utc",
         "raw_intervals_icu_json": "raw_intervals_icu_json",
         "ext_json": "ext_json",
+    }
+    _BASELINE_FIELD_ALIASES = {
+        "ftp_watts": ["ftp_watts", "power_ftp_watts"],
+        "hr_lthr_bpm": ["hr_lthr_bpm", "heart_rate_lthr_bpm", "lactate_threshold_hr_bpm"],
     }
 
     @staticmethod
@@ -171,6 +180,40 @@ class PhysiometricsStorage:
             return json.loads(latest["full_config_json"])
 
         return self._reconstruct_from_storage_entity(latest)
+
+    def _merge_resolved_baselines(
+        self,
+        payload: Dict[str, Any],
+        entities: Sequence[Mapping[str, Any]],
+        *,
+        target_date: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Overlay recency-resolved FTP/LTHR baselines onto a hydrated payload."""
+        source_rows_by_source = build_source_rows_by_source(
+            entities,
+            tracked_sources={"garmin", "chatgpt", "manual"},
+            target_date=target_date,
+        )
+
+        ftp_watts, _, _ = resolve_latest_metric_across_sources(
+            "ftp_watts",
+            source_rows_by_source,
+            field_aliases=self._BASELINE_FIELD_ALIASES,
+            source_precedence=BASELINE_SOURCE_PRECEDENCE,
+        )
+        if ftp_watts is not None:
+            payload.setdefault("power", {})["ftp_watts"] = ftp_watts
+
+        lthr_bpm, _, _ = resolve_latest_metric_across_sources(
+            "hr_lthr_bpm",
+            source_rows_by_source,
+            field_aliases=self._BASELINE_FIELD_ALIASES,
+            source_precedence=BASELINE_SOURCE_PRECEDENCE,
+        )
+        if lthr_bpm is not None:
+            payload.setdefault("heart_rate", {})["lthr_bpm"] = lthr_bpm
+
+        return payload
 
     @staticmethod
     def _to_snapshot_payload(canonical: Mapping[str, Any]) -> Dict[str, Any]:
@@ -398,7 +441,7 @@ class PhysiometricsStorage:
                 result[canonical_key] = entity.get(storage_key)
 
     def get_physiometrics(self, athlete_id: str) -> Optional[Dict]:
-        """Retrieve the latest user-authored physiometrics config for an athlete."""
+        """Retrieve current physiometrics config with recency-aware FTP/LTHR baselines."""
         try:
             table_client = self.infra.get_table_client("Physiometrics")
             query = f"PartitionKey eq '{athlete_id}'"
@@ -413,7 +456,7 @@ class PhysiometricsStorage:
             if latest is None:
                 return None
 
-            return self._hydrate_entity(latest)
+            return self._merge_resolved_baselines(self._hydrate_entity(latest), entities)
         except ResourceNotFoundError:
             return None
         except HttpResponseError as e:
@@ -452,7 +495,11 @@ class PhysiometricsStorage:
             if latest is None:
                 return None
 
-            return self._hydrate_entity(latest)
+            return self._merge_resolved_baselines(
+                self._hydrate_entity(latest),
+                entities,
+                target_date=target_date,
+            )
 
         except HttpResponseError as e:
             logger.error(
@@ -601,7 +648,17 @@ class PhysiometricsStorage:
     ) -> str:
         """Update a single physiometric value, preserving other fields."""
         latest_config = self.get_physiometrics(athlete_id) or {}
-        latest_config[metric_name] = value
+        if metric_name == "ftp_watts":
+            latest_config.setdefault("power", {})[metric_name] = value
+        elif metric_name == "hr_lthr_bpm":
+            latest_config.setdefault("heart_rate", {})["lthr_bpm"] = value
+            latest_config[metric_name] = value
+        elif metric_name == "hr_max_bpm":
+            latest_config.setdefault("heart_rate", {})[metric_name] = value
+        elif metric_name == "resting_hr_bpm":
+            latest_config.setdefault("heart_rate", {})[metric_name] = value
+        else:
+            latest_config[metric_name] = value
 
         return self.store_physiometrics(
             athlete_id=athlete_id,

@@ -112,6 +112,69 @@ class TestPhysiometricsTimeSeries:
             assert entity["data_source"] == "chatgpt"
             assert entity["RowKey"] == "2026-01-19|chatgpt"
 
+    def test_update_single_metric_persists_ftp_in_power_section(self, storage):
+        """FTP single-metric updates should write the nested power field used by resolution."""
+        with patch.object(storage.physiometrics.infra, "get_table_client") as mock_client:
+            mock_table = MagicMock()
+            mock_client.return_value = mock_table
+            mock_table.query_entities.return_value = [
+                {
+                    "PartitionKey": "rob",
+                    "RowKey": "2026-01-18|chatgpt",
+                    "effective_date": "2026-01-18",
+                    "updated_at_utc": "2026-01-18T10:00:00+00:00",
+                    "data_source": "chatgpt",
+                    "full_config_json": json.dumps({
+                        "heart_rate": {"lthr_bpm": 175, "hr_max_bpm": 195},
+                        "power": {"ftp_watts": 285},
+                    }),
+                }
+            ]
+
+            storage.physiometrics.update_single_metric(
+                athlete_id="rob",
+                metric_name="ftp_watts",
+                value=295,
+                effective_date="2026-01-19",
+                data_source="manual",
+            )
+
+            entity = mock_table.upsert_entity.call_args[0][0]
+            assert entity["power_ftp_watts"] == 295
+            assert entity["RowKey"] == "2026-01-19|manual"
+
+    def test_update_single_metric_persists_lthr_in_heart_rate_section(self, storage):
+        """LTHR single-metric updates should write the nested heart-rate field used by resolution."""
+        with patch.object(storage.physiometrics.infra, "get_table_client") as mock_client:
+            mock_table = MagicMock()
+            mock_client.return_value = mock_table
+            mock_table.query_entities.return_value = [
+                {
+                    "PartitionKey": "rob",
+                    "RowKey": "2026-01-18|chatgpt",
+                    "effective_date": "2026-01-18",
+                    "updated_at_utc": "2026-01-18T10:00:00+00:00",
+                    "data_source": "chatgpt",
+                    "full_config_json": json.dumps({
+                        "heart_rate": {"basis": "LTHR", "lthr_bpm": 175, "hr_max_bpm": 195},
+                        "power": {"ftp_watts": 285},
+                    }),
+                }
+            ]
+
+            storage.physiometrics.update_single_metric(
+                athlete_id="rob",
+                metric_name="hr_lthr_bpm",
+                value=178,
+                effective_date="2026-01-19",
+                data_source="manual",
+            )
+
+            entity = mock_table.upsert_entity.call_args[0][0]
+            assert entity["heart_rate_lthr_bpm"] == 178
+            assert entity["lactate_threshold_hr_bpm"] == 178
+            assert entity["RowKey"] == "2026-01-19|manual"
+
     def test_get_physiometrics_history(self, storage):
         """Test retrieving time-series physiometrics data."""
         with patch.object(storage.physiometrics.infra, "get_table_client") as mock_client:
@@ -178,6 +241,81 @@ class TestPhysiometricsTimeSeries:
             )
 
             assert config["power"]["ftp_watts"] == 280
+
+    def test_get_physiometrics_uses_newer_garmin_baselines_over_older_manual(self, storage):
+        """Current config should surface newer Garmin FTP/LTHR over older manual baselines."""
+        with patch.object(storage.physiometrics.infra, "get_table_client") as mock_client:
+            mock_table = MagicMock()
+            mock_client.return_value = mock_table
+            mock_table.query_entities.return_value = [
+                {
+                    "PartitionKey": "rob",
+                    "RowKey": "2026-01-15|manual",
+                    "effective_date": "2026-01-15",
+                    "updated_at_utc": "2026-01-15T08:00:00+00:00",
+                    "data_source": "manual",
+                    "full_config_json": json.dumps({
+                        "heart_rate": {"basis": "LTHR", "lthr_bpm": 170},
+                        "power": {"ftp_watts": 280},
+                        "athlete_info": {"home_timezone": "America/New_York"},
+                    }),
+                    "heart_rate_basis": "LTHR",
+                    "heart_rate_lthr_bpm": 170,
+                    "power_ftp_watts": 280,
+                },
+                {
+                    "PartitionKey": "rob",
+                    "RowKey": "2026-01-18|garmin",
+                    "effective_date": "2026-01-18",
+                    "updated_at_utc": "2026-01-18T08:00:00+00:00",
+                    "data_source": "garmin",
+                    "heart_rate_lthr_bpm": 174,
+                    "power_ftp_watts": 285,
+                },
+            ]
+
+            config = storage.physiometrics.get_physiometrics("rob")
+
+            assert config["power"]["ftp_watts"] == 285
+            assert config["heart_rate"]["lthr_bpm"] == 174
+            assert config["heart_rate"]["basis"] == "LTHR"
+            assert config["athlete_info"]["home_timezone"] == "America/New_York"
+
+    def test_get_physiometrics_uses_newer_manual_baselines_over_older_garmin(self, storage):
+        """Current config should keep newer manual FTP/LTHR over older Garmin baselines."""
+        with patch.object(storage.physiometrics.infra, "get_table_client") as mock_client:
+            mock_table = MagicMock()
+            mock_client.return_value = mock_table
+            mock_table.query_entities.return_value = [
+                {
+                    "PartitionKey": "rob",
+                    "RowKey": "2026-01-15|garmin",
+                    "effective_date": "2026-01-15",
+                    "updated_at_utc": "2026-01-15T08:00:00+00:00",
+                    "data_source": "garmin",
+                    "heart_rate_lthr_bpm": 170,
+                    "power_ftp_watts": 280,
+                },
+                {
+                    "PartitionKey": "rob",
+                    "RowKey": "2026-01-18|manual",
+                    "effective_date": "2026-01-18",
+                    "updated_at_utc": "2026-01-18T08:00:00+00:00",
+                    "data_source": "manual",
+                    "full_config_json": json.dumps({
+                        "heart_rate": {"basis": "LTHR", "lthr_bpm": 176},
+                        "power": {"ftp_watts": 290},
+                    }),
+                    "heart_rate_basis": "LTHR",
+                    "heart_rate_lthr_bpm": 176,
+                    "power_ftp_watts": 290,
+                },
+            ]
+
+            config = storage.physiometrics.get_physiometrics("rob")
+
+            assert config["power"]["ftp_watts"] == 290
+            assert config["heart_rate"]["lthr_bpm"] == 176
 
     def test_withings_token_storage(self, storage):
         """Test storing and retrieving Withings OAuth tokens."""

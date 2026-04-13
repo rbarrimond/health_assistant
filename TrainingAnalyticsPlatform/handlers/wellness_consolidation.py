@@ -8,6 +8,11 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
+from TrainingAnalyticsPlatform.analytics.physiometrics_resolution import (
+    BASELINE_SOURCE_PRECEDENCE,
+    build_source_rows_by_source,
+    resolve_latest_metric_across_sources,
+)
 from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
 from TrainingAnalyticsPlatform.models.wellness import (
     PhysiometricsSnapshot,
@@ -25,7 +30,9 @@ class SourcePrecedenceResolver:
     Schema v4.2.0 field ownership (updated with training status + load focus):
     - Withings: exclusive for all body composition
     - Intervals: exclusive for resting_hr_bpm, steps, nutrition (Garmin values ignored)
-    - Garmin: exclusive for training state and performance metrics, training status labels, load focus percentages
+    - Garmin: exclusive for training state and most performance metrics
+    - FTP/LTHR: recency-aware across Garmin/manual/chatgpt with Garmin tie-break priority
+    - Garmin: exclusive for training status labels and load focus percentages
     """
 
     METRIC_SOURCES = {
@@ -52,11 +59,11 @@ class SourcePrecedenceResolver:
         "protein_g": ["intervals"],
         "fat_g": ["intervals"],
         
-        # Performance baselines (Garmin exclusive)
-        "ftp_watts": ["garmin"],
+        # Performance baselines (Garmin tie-break priority, recency-aware resolution)
+        "ftp_watts": ["garmin", "chatgpt", "manual"],
         "cycling_vo2max_ml_kg_min": ["garmin"],
         "running_vo2max_ml_kg_min": ["garmin"],
-        "hr_lthr_bpm": ["garmin"],
+        "hr_lthr_bpm": ["garmin", "chatgpt", "manual"],
         "hr_max_bpm": ["garmin"],
         
         # Training state (Garmin exclusive)
@@ -97,7 +104,7 @@ class PhysiometricsConsolidationHandler:
     STORAGE_FIELD_ALIASES = {
         # Legacy nested storage format aliases
         "ftp_watts": ["ftp_watts", "power_ftp_watts"],
-        "hr_lthr_bpm": ["hr_lthr_bpm", "heart_rate_lthr_bpm"],
+        "hr_lthr_bpm": ["hr_lthr_bpm", "heart_rate_lthr_bpm", "lactate_threshold_hr_bpm"],
         "hr_max_bpm": ["hr_max_bpm", "heart_rate_hr_max_bpm"],
         "resting_hr_bpm": ["resting_hr_bpm", "heart_rate_resting_bpm"],
         # Prefixed nutrition fields from older schemas
@@ -263,6 +270,22 @@ class PhysiometricsConsolidationHandler:
         """
         preferred_sources = SourcePrecedenceResolver.METRIC_SOURCES.get(metric_name, [])
         if not preferred_sources:
+            return
+
+        if metric_name in BASELINE_SOURCE_PRECEDENCE:
+            source_rows_by_source = build_source_rows_by_source(
+                source_entities,
+                tracked_sources=set(preferred_sources),
+            )
+            value, _, source = resolve_latest_metric_across_sources(
+                metric_name,
+                source_rows_by_source,
+                field_aliases=self.STORAGE_FIELD_ALIASES,
+                source_precedence=BASELINE_SOURCE_PRECEDENCE,
+            )
+            if value is not None and source is not None:
+                setattr(consolidated, metric_name, value)
+                used_sources.add(source)
             return
 
         for source in preferred_sources:

@@ -56,6 +56,8 @@ The codebase has two separate constants files in different modules:
 
 The `physiometrics.json` file contains current athlete-specific configuration for heart rate and power metrics. This represents your *current physiological truth* and is snapshotted into each workout record during ingestion.
 
+For FTP and LTHR specifically, runtime resolution now considers source-qualified physiometrics rows from Garmin, `manual`, and `chatgpt`. Newer Garmin baselines supersede older user-authored values, and later user-authored edits supersede older Garmin rows in turn.
+
 ### Example Structure
 
 See `physiometrics.json.example` for a complete example.
@@ -117,7 +119,7 @@ The Health Assistant Config system loads configuration values in this order (hig
 
 **Configuration Loading**:
 
-- Config is loaded once at Function App startup (singleton pattern)
+- Config values are cached in-process for reuse, but cache invalidation occurs on config writes and Garmin physiometrics sync writes so runtime FTP/LTHR reads can observe newer baselines without a restart.
 - Update configuration: `POST /api/config/update` (admin endpoint) - updates athlete metrics in Table Storage
 - View configuration history: `GET /api/config/history` (admin endpoint) - audit trail of configuration changes
 

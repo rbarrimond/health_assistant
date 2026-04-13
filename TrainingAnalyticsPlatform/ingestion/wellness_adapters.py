@@ -480,6 +480,8 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
         training_status = raw_data.get("training_status", {})
         training_readiness = raw_data.get("training_readiness")
         morning_training_readiness = raw_data.get("morning_training_readiness")
+        cycling_ftp = raw_data.get("cycling_ftp") or {}
+        lactate_threshold = raw_data.get("lactate_threshold") or {}
         stats = summary.get("stats", summary)
         context = self._extract_training_context(training_status)
         most_recent_vo2max = context["most_recent_vo2max"]
@@ -498,14 +500,22 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
         ) or {}
 
         lactate_threshold_hr = self._extract_first(
-            training_status,
+            lactate_threshold,
             [
+                ("speed_and_heart_rate", "heartRateCycling"),
+                ("speed_and_heart_rate", "heartRate"),
+            ],
+        )
+        if lactate_threshold_hr is None:
+            lactate_threshold_hr = self._extract_first(
+                training_status,
+                [
                 ("lactateThresholdHeartRate",),
                 ("lactateThreshold", "heartRate"),
                 ("recoveryMetrics", "lactateThresholdHeartRate"),
                 ("recoveryMetrics", "lthr"),
-            ],
-        )
+                ],
+            )
 
         training_status_label = self._extract_training_status_label(latest_training_status)
         load_focus_metrics = self._extract_load_focus_metrics(
@@ -520,7 +530,14 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
         )
 
         parsed = {
-            "ftp": stats.get("functionThreshold"),
+            "ftp": self._extract_first(
+                cycling_ftp,
+                [
+                    ("functionalThresholdPower",),
+                ],
+            )
+            if cycling_ftp
+            else stats.get("functionThreshold"),
             "vo2max_cycling": vo2_metrics["vo2max_cycling"],
             "vo2max_running": vo2_metrics["vo2max_running"],
             "max_hr": stats.get("maxHeartRate"),
@@ -619,6 +636,8 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
                     "training_status": training_status,
                     "training_readiness": training_readiness,
                     "morning_training_readiness": morning_training_readiness,
+                    "cycling_ftp": cycling_ftp,
+                    "lactate_threshold": lactate_threshold,
                 }
             ),
         }

@@ -378,7 +378,7 @@ Most fields use single-source ownership. A small set of training baseline metric
 | **Activity** (1) | Intervals | Garmin step count less accurate |
 | **Nutrition** (4) | Intervals | Explicit nutrition logging |
 | **Extended recovery/body** (1) | Intervals (primary), Garmin (fallback) | Preserve oxygen saturation for wellness context |
-| **Performance baselines** (4) | Garmin (primary), then chatgpt/manual for FTP/LTHR/HRmax only | Preserve config-originated baseline values when Garmin baseline fields are missing |
+| **Performance baselines** (4) | Garmin for VO2max, recency-aware Garmin/chatgpt/manual for FTP/LTHR, Garmin primary for HRmax fallback | Preserve config-originated baseline values until newer Garmin baseline rows arrive |
 | **Training state** (3) | Garmin | Proprietary training load algorithms |
 | **Extended training** (5) | Garmin | Proprietary recovery/readiness models |
 
@@ -387,7 +387,8 @@ Most fields use single-source ownership. A small set of training baseline metric
 - **Intervals resting HR is Intervals-only** (no Garmin/manual/chatgpt fallback)
 - **Intervals steps take precedence** over Garmin (Garmin values ignored)
 - **Withings body composition primary** with Intervals fallback for `weight_kg` and `body_fat_pct`
-- **FTP/LTHR/HRmax use limited fallback**: `garmin -> chatgpt -> manual`
+- **FTP/LTHR are recency-aware across source-qualified rows**: compare `effective_date` first, then `updated_at_utc`; use `garmin -> chatgpt -> manual` only as a tie-breaker when timestamps are equivalent
+- **HRmax still uses limited fallback**: `garmin -> chatgpt -> manual`
 
 ### Ingestion Pathways: Direct Fetch Pattern
 
@@ -512,9 +513,9 @@ This storage identity is intentionally source-qualified. Daily rows from differe
     "protein_g": ["intervals"],
     "fat_g": ["intervals"],
     
-    "ftp_watts": ["garmin", "chatgpt", "manual"],
+    "ftp_watts": ["garmin", "chatgpt", "manual"],  # tie-breaker order after recency
     "cycling_vo2max_ml_kg_min": ["garmin"],
-    "hr_lthr_bpm": ["garmin", "chatgpt", "manual"],
+    "hr_lthr_bpm": ["garmin", "chatgpt", "manual"],  # tie-breaker order after recency
     "hr_max_bpm": ["garmin", "chatgpt", "manual"],
     
     "training_load": ["garmin"],

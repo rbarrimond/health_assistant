@@ -109,6 +109,11 @@ class Config:
     _physiometrics_cache: Optional[Dict[str, Any]] = None
     _table_storage_client = None
 
+    @classmethod
+    def invalidate_physiometrics_cache(cls) -> None:
+        """Invalidate cached physiometrics so subsequent reads observe fresh rows."""
+        cls._physiometrics_cache = None
+
     # Allow imports inside methods to avoid circular dependencies.
     # pylint: disable=import-outside-toplevel
     @staticmethod
@@ -216,8 +221,7 @@ class Config:
                 physiometrics_data,
                 effective_date=effective_date,
             )
-            # Clear cache so next load gets fresh data
-            cls._physiometrics_cache = None
+            cls.invalidate_physiometrics_cache()
             return timestamp
         except ValueError as exc:
             logger = logging.getLogger(__name__)

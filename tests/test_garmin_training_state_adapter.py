@@ -32,6 +32,18 @@ def _raw_payload(include_lthr: bool = True) -> dict:
                 "readiness": {"score": 82},
             },
         },
+        "cycling_ftp": {
+            "calendarDate": "2026-03-03T06:00:00+00:00",
+            "functionalThresholdPower": 312,
+        },
+        "lactate_threshold": {
+            "speed_and_heart_rate": {
+                "calendarDate": "2026-03-03",
+                "heartRateCycling": 173,
+                "heartRate": 165,
+            },
+            "power": {},
+        },
         "training_status": training_status,
     }
 
@@ -42,7 +54,7 @@ def test_maps_summary_and_training_status_fields():
     snapshot = adapter.adapt(_raw_payload(), athlete_id="rob")
 
     assert snapshot.effective_date == "2026-03-03"
-    assert snapshot.ftp_watts == 300
+    assert snapshot.ftp_watts == 312
     assert snapshot.cycling_vo2max_ml_kg_min == pytest.approx(59.2)
     assert snapshot.running_vo2max_ml_kg_min == pytest.approx(56.8)
     assert snapshot.hr_max_bpm == 196
@@ -57,7 +69,7 @@ def test_maps_summary_and_training_status_fields():
     assert snapshot.training_stress_balance == pytest.approx(-14.2)
     assert snapshot.atp_probability == pytest.approx(71.0)
     assert snapshot.recovery_time_minutes == 820
-    assert snapshot.hr_lthr_bpm == 171
+    assert snapshot.hr_lthr_bpm == 173
 
 
 def test_lthr_falls_back_to_estimate_when_training_status_missing_lthr():
@@ -65,7 +77,19 @@ def test_lthr_falls_back_to_estimate_when_training_status_missing_lthr():
 
     snapshot = adapter.adapt(_raw_payload(include_lthr=False), athlete_id="rob")
 
-    assert snapshot.hr_lthr_bpm == int(196 * 0.85)
+    assert snapshot.hr_lthr_bpm == 173
+
+
+def test_falls_back_to_legacy_ftp_and_lthr_when_dedicated_payloads_missing():
+    adapter = GarminTrainingStateAdapter()
+    raw = _raw_payload()
+    raw.pop("cycling_ftp")
+    raw.pop("lactate_threshold")
+
+    snapshot = adapter.adapt(raw, athlete_id="rob")
+
+    assert snapshot.ftp_watts == 300
+    assert snapshot.hr_lthr_bpm == 171
 
 
 def test_rejects_training_effect_out_of_range():

@@ -408,6 +408,45 @@ class GarminConnectClient:
                 f"Failed to fetch Garmin morning training readiness: {exc}"
             ) from exc
 
+    def get_cycling_ftp(self) -> Optional[Dict[str, Any]]:
+        """Fetch Garmin's latest cycling FTP payload."""
+        client = self._ensure_authenticated_client()
+        try:
+            value = client.get_cycling_ftp()
+            if value is None:
+                return None
+            if isinstance(value, list):
+                first = value[0] if value else None
+                return cast(Optional[Dict[str, Any]], first if isinstance(first, dict) else None)
+            if isinstance(value, dict):
+                return cast(Dict[str, Any], value)
+            logger.warning(
+                "Unexpected Garmin cycling FTP payload type",
+                extra={"payload_type": type(value).__name__},
+            )
+            return None
+        except Exception as exc:
+            logger.error("Failed to fetch Garmin cycling FTP: %s", exc)
+            raise GarminConnectError(f"Failed to fetch Garmin cycling FTP: {exc}") from exc
+
+    def get_lactate_threshold(self) -> Optional[Dict[str, Any]]:
+        """Fetch Garmin's latest lactate-threshold payload."""
+        client = self._ensure_authenticated_client()
+        try:
+            value = client.get_lactate_threshold()
+            if value is None:
+                return None
+            if isinstance(value, dict):
+                return cast(Dict[str, Any], value)
+            logger.warning(
+                "Unexpected Garmin lactate-threshold payload type",
+                extra={"payload_type": type(value).__name__},
+            )
+            return None
+        except Exception as exc:
+            logger.error("Failed to fetch Garmin lactate threshold: %s", exc)
+            raise GarminConnectError(f"Failed to fetch Garmin lactate threshold: {exc}") from exc
+
     def download_activity_fit(self, activity_id: str) -> bytes:
         """Download FIT file for a specific activity.
         

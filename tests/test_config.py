@@ -145,6 +145,14 @@ class TestConfigLoadPhysiometrics:
 
         assert result is None
 
+    def test_invalidate_physiometrics_cache_clears_cached_value(self) -> None:
+        """Explicit cache invalidation should discard cached physiometrics."""
+        Config._physiometrics_cache = {"power": {"ftp_watts": 280}}
+
+        Config.invalidate_physiometrics_cache()
+
+        assert Config._physiometrics_cache is None
+
 
 class TestConfigHrConfig:
     """Tests for HR configuration loading."""

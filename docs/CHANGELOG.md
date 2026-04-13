@@ -8,6 +8,15 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-04-13
+
+### Garmin Dedicated Baseline Endpoint Alignment [application v3.13.4, ingestion v15.8.1]
+
+- **Fixed (Garmin physiometrics ingestion)**: daily Garmin physiometrics sync now queries Garmin's dedicated latest cycling FTP and lactate-threshold biometric endpoints instead of relying solely on summary/training-status payload fields that can be absent for Edge 1050-derived estimates.
+- **Changed (baseline effective-date handling)**: latest Garmin FTP/LTHR payloads are now applied only to daily rows on or after the payload's own effective date, preventing forward-looking leakage into earlier dates while still allowing current baselines to persist across subsequent daily snapshots.
+- **Changed (baseline resolution tie-break)**: manual entries now outrank Garmin/chatgpt entries when baseline recency is equal, preserving manual-override intent without changing the existing recency-first selection model.
+- **Added (tests)**: regression coverage now verifies dedicated Garmin baseline payload mapping, graceful fallback to legacy Garmin fields when dedicated endpoints fail or are unavailable, and preservation of manual-over-Garmin baseline resolution behavior.
+
 ## 2026-04-10
 
 ### Azure Deployment Runtime Import Cleanup [application v3.13.3]
