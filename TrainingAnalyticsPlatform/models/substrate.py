@@ -89,6 +89,8 @@ class CanonicalRecord(BaseModel):
     cadence_rpm: Optional[float] = Field(None, ge=0)
     speed_mps: Optional[float] = Field(None, ge=0)
     distance_m: Optional[float] = Field(None, ge=0)
+    position_lat: Optional[float] = Field(None, ge=-90, le=90)
+    position_long: Optional[float] = Field(None, ge=-180, le=180)
     elevation_m: Optional[float] = Field(None)
     temperature_c: Optional[float] = Field(None)
     respiration_rate_brpm: Optional[float] = Field(None, ge=0)
@@ -156,6 +158,16 @@ class CanonicalRecord(BaseModel):
             expected_units=("m",),
             conversion_by_unit={"km": 1000.0},
         )
+        position_lat = cls._numeric_with_unit_confirmation(
+            msg,
+            "position_lat",
+            expected_units=("deg", "degrees"),
+        )
+        position_long = cls._numeric_with_unit_confirmation(
+            msg,
+            "position_long",
+            expected_units=("deg", "degrees"),
+        )
         elevation = cls._numeric_with_unit_confirmation(
             msg,
             "enhanced_altitude",
@@ -203,6 +215,8 @@ class CanonicalRecord(BaseModel):
             cadence_rpm=cast(Optional[float], cadence),
             speed_mps=cast(Optional[float], speed),
             distance_m=cast(Optional[float], distance),
+            position_lat=cast(Optional[float], position_lat),
+            position_long=cast(Optional[float], position_long),
             elevation_m=cast(Optional[float], elevation),
             temperature_c=cast(Optional[float], temperature),
             respiration_rate_brpm=None,  # Requires device-specific handling

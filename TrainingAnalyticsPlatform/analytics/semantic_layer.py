@@ -595,107 +595,121 @@ class SemanticLayer:
         workout_entity: WorkoutEntity,
         df: pd.DataFrame,
     ) -> pd.DataFrame:
-        """Backfill elevation_m from archived raw FIT frames when canonical records lack altitude."""
-        if not self._needs_elevation_fallback(df):
+        """Backfill climb-related context from archived raw FIT frames when canonical rows are sparse."""
+        if not self._needs_raw_fit_hydration(df):
             return df
 
-        raw_elevation = self._load_raw_fit_elevation_series(workout_entity)
-        if raw_elevation.empty:
+        raw_context = self._load_raw_fit_record_context(workout_entity)
+        if raw_context.empty:
             return df
 
         hydrated = df.copy()
+        restored_counts: Dict[str, int] = {}
+
         if "timestamp_utc" in hydrated:
             timestamps = pd.to_datetime(hydrated["timestamp_utc"], errors="coerce", utc=True)
-            aligned = raw_elevation.reindex(timestamps, method="nearest", tolerance=pd.Timedelta(seconds=1))
-            aligned_series = pd.Series(aligned.to_numpy(dtype=float), index=hydrated.index, dtype=float)
-            existing = (
-                pd.to_numeric(hydrated["elevation_m"], errors="coerce")
-                if "elevation_m" in hydrated
-                else pd.Series(index=hydrated.index, dtype=float)
-            )
-            hydrated["elevation_m"] = existing.where(existing.notna(), aligned_series)
-        elif "elapsed_sec" in hydrated:
-            elapsed = pd.to_numeric(hydrated["elapsed_sec"], errors="coerce").round().astype("Int64")
-            existing = (
-                pd.to_numeric(hydrated["elevation_m"], errors="coerce")
-                if "elevation_m" in hydrated
-                else pd.Series(index=hydrated.index, dtype=float)
-            )
-            aligned = elapsed.map(raw_elevation)
-            hydrated["elevation_m"] = existing.where(existing.notna(), aligned)
+            aligned = raw_context.reindex(timestamps, method="nearest", tolerance=pd.Timedelta(seconds=1))
+            aligned = aligned.reset_index(drop=True)
+            for column in ["elevation_m", "position_lat", "position_long"]:
+                if column in aligned:
+                    restored_counts[column] = self._fill_missing_numeric_column(
+                        hydrated,
+                        column,
+                        pd.Series(aligned[column].to_numpy(dtype=float), index=hydrated.index, dtype=float),
+                    )
 
-        elevation_series = (
-            pd.to_numeric(hydrated["elevation_m"], errors="coerce")
-            if "elevation_m" in hydrated
-            else pd.Series(dtype=float)
-        )
-        restored = int(elevation_series.notna().sum())
-        if restored:
+        if any(restored_counts.values()):
             logger.info(
-                "Recovered canonical elevation from archived raw FIT frames",
+                "Recovered canonical climb context from archived raw FIT frames",
                 extra={
                     "workout_id": workout_entity.workout_id,
                     "ingestion_id": workout_entity.ingestion_id,
-                    "restored_points": restored,
+                    "restored_columns": {k: v for k, v in restored_counts.items() if v > 0},
                 },
             )
         return hydrated
 
     @staticmethod
-    def _needs_elevation_fallback(df: pd.DataFrame) -> bool:
+    def _fill_missing_numeric_column(
+        df: pd.DataFrame,
+        column: str,
+        fallback: pd.Series,
+    ) -> int:
+        existing = (
+            pd.to_numeric(df[column], errors="coerce")
+            if column in df
+            else pd.Series(index=df.index, dtype=float)
+        )
+        before = int(existing.notna().sum())
+        df[column] = existing.where(existing.notna(), fallback)
+        after = int(pd.to_numeric(df[column], errors="coerce" ).notna().sum())
+        return max(0, after - before)
+
+    @staticmethod
+    def _needs_raw_fit_hydration(df: pd.DataFrame) -> bool:
         if df.empty or "distance_m" not in df:
             return False
-        if "elevation_m" not in df:
-            return True
-        elevation = pd.to_numeric(df["elevation_m"], errors="coerce")
-        return int(elevation.notna().sum()) == 0
+        return any(
+            SemanticLayer._is_missing_numeric_column(df, column)
+            for column in ["elevation_m", "position_lat", "position_long"]
+        )
 
-    def _load_raw_fit_elevation_series(self, workout_entity: WorkoutEntity) -> pd.Series:
-        """Load timestamp-indexed elevation from archived raw FIT frames."""
+    @staticmethod
+    def _is_missing_numeric_column(df: pd.DataFrame, column: str) -> bool:
+        if column not in df:
+            return True
+        return int(pd.to_numeric(df[column], errors="coerce").notna().sum()) == 0
+
+    def _load_raw_fit_record_context(self, workout_entity: WorkoutEntity) -> pd.DataFrame:
+        """Load timestamp-indexed elevation and GPS coordinates from archived raw FIT frames."""
         infra = getattr(self.storage.workouts, "infra", None)
         if infra is None:
-            return pd.Series(dtype=float)
+            return pd.DataFrame()
 
         for identifier in (workout_entity.ingestion_id, workout_entity.workout_id):
-            series = self._load_raw_fit_elevation_series_for_identifier(infra, identifier)
-            if not series.empty:
-                return series
-        return pd.Series(dtype=float)
+            context = self._load_raw_fit_record_context_for_identifier(infra, identifier)
+            if not context.empty:
+                return context
+        return pd.DataFrame()
 
-    def _load_raw_fit_elevation_series_for_identifier(self, infra: Any, identifier: Optional[str]) -> pd.Series:
+    def _load_raw_fit_record_context_for_identifier(
+        self,
+        infra: Any,
+        identifier: Optional[str],
+    ) -> pd.DataFrame:
         if not identifier:
-            return pd.Series(dtype=float)
+            return pd.DataFrame()
         try:
             blob_name = infra.raw_fit_blob_name(identifier)
             payload = infra.load_json_blob(blob_name, gzipped=True)
         except Exception:  # pylint: disable=broad-exception-caught
-            return pd.Series(dtype=float)
+            return pd.DataFrame()
         frames = payload if isinstance(payload, list) else []
-        return self._raw_fit_frames_to_elevation_series(frames)
+        return self._raw_fit_frames_to_record_context(frames)
 
     @staticmethod
-    def _raw_fit_frames_to_elevation_series(frames: List[Dict[str, Any]]) -> pd.Series:
+    def _raw_fit_frames_to_record_context(frames: List[Dict[str, Any]]) -> pd.DataFrame:
         rows = [
             row
-            for row in (SemanticLayer._raw_fit_elevation_row(frame) for frame in frames)
+            for row in (SemanticLayer._raw_fit_record_row(frame) for frame in frames)
             if row is not None
         ]
         if not rows:
-            return pd.Series(dtype=float)
+            return pd.DataFrame()
 
         raw_df = pd.DataFrame(rows)
         raw_df["timestamp_utc"] = pd.to_datetime(raw_df["timestamp_utc"], errors="coerce", utc=True)
-        raw_df["elevation_m"] = pd.to_numeric(raw_df["elevation_m"], errors="coerce")
-        raw_df = raw_df.dropna(subset=["timestamp_utc", "elevation_m"]).drop_duplicates(
+        for column in ["elevation_m", "position_lat", "position_long"]:
+            if column in raw_df:
+                raw_df[column] = pd.to_numeric(raw_df[column], errors="coerce")
+        raw_df = raw_df.dropna(subset=["timestamp_utc"]).drop_duplicates(
             subset=["timestamp_utc"],
             keep="last",
         )
-        if raw_df.empty:
-            return pd.Series(dtype=float)
-        return pd.Series(raw_df["elevation_m"].to_numpy(dtype=float), index=raw_df["timestamp_utc"])
+        return raw_df.set_index("timestamp_utc") if not raw_df.empty else pd.DataFrame()
 
     @staticmethod
-    def _raw_fit_elevation_row(frame: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _raw_fit_record_row(frame: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if frame.get("frame_type") != "data_message" or frame.get("name") != "record":
             return None
         fields = frame.get("fields", [])
@@ -707,10 +721,14 @@ class SemanticLayer:
             if isinstance(field, dict) and field.get("name") is not None
         }
         timestamp = field_map.get("timestamp")
-        elevation = field_map.get("enhanced_altitude", field_map.get("altitude"))
-        if timestamp is None or elevation is None:
+        if timestamp is None:
             return None
-        return {"timestamp_utc": timestamp, "elevation_m": elevation}
+        return {
+            "timestamp_utc": timestamp,
+            "elevation_m": field_map.get("enhanced_altitude", field_map.get("altitude")),
+            "position_lat": field_map.get("position_lat"),
+            "position_long": field_map.get("position_long"),
+        }
 
     def _populate_workout_detail_laps(
         self,

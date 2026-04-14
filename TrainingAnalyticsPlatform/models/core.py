@@ -1947,7 +1947,7 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
         grade, power_values, hr_values = series
         segments = self._climb_segments(grade)
         return [
-            self._climb_summary(grade, power_values, hr_values, start_idx, end_idx)
+            self._climb_summary(resampled, grade, power_values, hr_values, start_idx, end_idx)
             for start_idx, end_idx in segments
         ]
 
@@ -2097,6 +2097,7 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
 
     def _climb_summary(
         self,
+        resampled: pd.DataFrame,
         grade: np.ndarray,
         power_values: np.ndarray,
         hr_values: np.ndarray,
@@ -2108,11 +2109,19 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
         power_slice = power_values[start_idx : end_idx + 1]
         avg_power = float(np.nanmean(power_slice)) if power_slice.size else None
         efficiency = self._climb_efficiency(avg_power, hr_values, start_idx, end_idx)
+
+        time_context = self._climb_time_context(resampled, start_idx, end_idx)
+        distance_context = self._climb_distance_context(resampled, start_idx, end_idx)
+        location_context = self._climb_location_context(resampled, start_idx, end_idx)
+
         return {
             "duration": int(end_idx - start_idx + 1),
             "avg_grade": round(avg_grade, 2),
             "avg_power": round(avg_power, 1) if avg_power is not None else None,
             "efficiency_factor": round(efficiency, 3) if efficiency is not None else None,
+            **time_context,
+            **distance_context,
+            **location_context,
         }
 
     def _climb_efficiency(
@@ -2129,6 +2138,77 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
         if avg_hr and avg_hr > 0:
             return avg_power / avg_hr
         return None
+
+    def _climb_time_context(
+        self,
+        resampled: pd.DataFrame,
+        start_idx: int,
+        end_idx: int,
+    ) -> Dict[str, Any]:
+        elapsed = (
+            pd.to_numeric(resampled["elapsed_sec"], errors="coerce")
+            if "elapsed_sec" in resampled
+            else pd.Series(dtype=float)
+        )
+        timestamps = (
+            pd.to_datetime(resampled["timestamp_utc"], errors="coerce", utc=True)
+            if "timestamp_utc" in resampled
+            else pd.Series(dtype="datetime64[ns, UTC]")
+        )
+        start_sec = float(elapsed.iloc[start_idx]) if len(elapsed) > start_idx and pd.notna(elapsed.iloc[start_idx]) else None
+        end_sec = float(elapsed.iloc[end_idx]) if len(elapsed) > end_idx and pd.notna(elapsed.iloc[end_idx]) else None
+        start_time = timestamps.iloc[start_idx] if len(timestamps) > start_idx else None
+        end_time = timestamps.iloc[end_idx] if len(timestamps) > end_idx else None
+        return {
+            "start_sec": round(start_sec, 1) if start_sec is not None else None,
+            "end_sec": round(end_sec, 1) if end_sec is not None else None,
+            "start_time_utc": start_time.isoformat() if pd.notna(start_time) else None,
+            "end_time_utc": end_time.isoformat() if pd.notna(end_time) else None,
+        }
+
+    def _climb_distance_context(
+        self,
+        resampled: pd.DataFrame,
+        start_idx: int,
+        end_idx: int,
+    ) -> Dict[str, Any]:
+        distance = (
+            pd.to_numeric(resampled["distance_m"], errors="coerce")
+            if "distance_m" in resampled
+            else pd.Series(dtype=float)
+        )
+        start_distance = float(distance.iloc[start_idx]) if len(distance) > start_idx and pd.notna(distance.iloc[start_idx]) else None
+        end_distance = float(distance.iloc[end_idx]) if len(distance) > end_idx and pd.notna(distance.iloc[end_idx]) else None
+        return {
+            "start_distance_m": round(start_distance, 1) if start_distance is not None else None,
+            "end_distance_m": round(end_distance, 1) if end_distance is not None else None,
+        }
+
+    def _climb_location_context(
+        self,
+        resampled: pd.DataFrame,
+        start_idx: int,
+        end_idx: int,
+    ) -> Dict[str, Any]:
+        lat_series = self._coordinate_series(resampled, ["position_lat", "latitude", "start_position_lat"])
+        long_series = self._coordinate_series(resampled, ["position_long", "longitude", "start_position_long"])
+        start_lat = float(lat_series.iloc[start_idx]) if len(lat_series) > start_idx and pd.notna(lat_series.iloc[start_idx]) else None
+        end_lat = float(lat_series.iloc[end_idx]) if len(lat_series) > end_idx and pd.notna(lat_series.iloc[end_idx]) else None
+        start_long = float(long_series.iloc[start_idx]) if len(long_series) > start_idx and pd.notna(long_series.iloc[start_idx]) else None
+        end_long = float(long_series.iloc[end_idx]) if len(long_series) > end_idx and pd.notna(long_series.iloc[end_idx]) else None
+        return {
+            "start_lat": round(start_lat, 6) if start_lat is not None else None,
+            "start_long": round(start_long, 6) if start_long is not None else None,
+            "end_lat": round(end_lat, 6) if end_lat is not None else None,
+            "end_long": round(end_long, 6) if end_long is not None else None,
+        }
+
+    @staticmethod
+    def _coordinate_series(resampled: pd.DataFrame, candidates: List[str]) -> pd.Series:
+        for column in candidates:
+            if column in resampled:
+                return pd.to_numeric(resampled[column], errors="coerce")
+        return pd.Series(dtype=float)
 
     def _compute_power_curve_artifact(self, power: pd.Series) -> List[Dict[str, Any]]:
         if power.empty:

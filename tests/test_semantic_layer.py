@@ -536,6 +536,8 @@ class TestWorkoutQueries:
                 "speed_mps": 5.0,
                 "distance_m": elapsed * 5.0,
                 "elevation_m": elevation,
+                "position_lat": 40.0 + elapsed * 0.0001,
+                "position_long": -75.0 - elapsed * 0.0001,
             }
         )
 
@@ -547,6 +549,16 @@ class TestWorkoutQueries:
         assert len(climbs) >= 1
         assert climbs[0]["avg_grade"] >= 3.0
         assert climbs[0]["duration"] >= 60
+        assert climbs[0]["start_sec"] >= 0
+        assert climbs[0]["end_sec"] >= climbs[0]["start_sec"]
+        assert climbs[0]["start_time_utc"].startswith("2026-02-22T")
+        assert climbs[0]["end_time_utc"].startswith("2026-02-22T")
+        assert climbs[0]["start_distance_m"] is not None
+        assert climbs[0]["end_distance_m"] >= climbs[0]["start_distance_m"]
+        assert climbs[0]["start_lat"] is not None
+        assert climbs[0]["start_long"] is not None
+        assert climbs[0]["end_lat"] is not None
+        assert climbs[0]["end_long"] is not None
 
     def test_get_workout_detail_recovers_climbs_from_raw_fit_when_canonical_elevation_missing(
         self,
@@ -601,6 +613,8 @@ class TestWorkoutQueries:
                     "fields": [
                         {"name": "timestamp", "value": f"2026-02-22T01:{51 + ((12 + second) // 60):02d}:{(12 + second) % 60:02d}+00:00", "units": ""},
                         {"name": "enhanced_altitude", "value": current_elevation, "units": "m"},
+                        {"name": "position_lat", "value": 40.0 + (second * 0.0001), "units": "deg"},
+                        {"name": "position_long", "value": -75.0 - (second * 0.0001), "units": "deg"},
                     ],
                 }
             )
@@ -614,6 +628,12 @@ class TestWorkoutQueries:
         climbs = artifacts.get("climbs") or []
         assert len(climbs) >= 1
         assert climbs[0]["duration"] >= 60
+        assert climbs[0]["start_time_utc"].startswith("2026-02-22T")
+        assert climbs[0]["start_distance_m"] is not None
+        assert climbs[0]["start_lat"] is not None
+        assert climbs[0]["start_long"] is not None
+        assert climbs[0]["end_lat"] is not None
+        assert climbs[0]["end_long"] is not None
 
     def test_get_workout_detail_surfaces_only_enrichment_raw_metadata_in_session(
         self,

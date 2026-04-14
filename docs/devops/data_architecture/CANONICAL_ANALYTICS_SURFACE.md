@@ -183,6 +183,10 @@ interval-level and climb-level analytics without duplicating scalar storage.
   `workout_step` messages when present.
 - `climbs.json` — Structured climb detection artifact.
   - `duration` — Climb duration in seconds.
+  - `start_sec` / `end_sec` — Elapsed second range of the climb inside the workout.
+  - `start_time_utc` / `end_time_utc` — UTC timestamps marking when the climb began and ended.
+  - `start_distance_m` / `end_distance_m` — Distance markers for where the climb occurred.
+  - `start_lat` / `start_long` and `end_lat` / `end_long` — GPS coordinates for climb start and finish when available.
   - `avg_grade` — Average grade percentage during climb.
   - `avg_power` — Average power during climb.
   - `efficiency_factor` — Efficiency factor during climb.

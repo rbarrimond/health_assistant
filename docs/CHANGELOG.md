@@ -10,12 +10,13 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-04-13
 
-### Workout Detail Climb Recovery for Garmin Edge Records [application v3.13.6]
+### Workout Detail Climb Recovery for Garmin Edge Records [application v3.13.7]
 
-- **Fixed (workout detail analytics)**: `GET /api/workouts/{workout_id}` now recovers climb artifacts for Garmin Edge workouts whose stored canonical parquet lacked per-record elevation samples.
-- **Fixed (FIT parsing)**: canonical record ingestion now prefers `enhanced_altitude` when present and falls back to legacy `altitude`, preserving elevation traces from newer Garmin devices.
-- **Changed (query-time resilience)**: when older ingests are missing `elevation_m`, the semantic layer now hydrates elevation from archived raw FIT record frames before computing climb artifacts.
-- **Added (tests)**: regression coverage now verifies both enhanced-altitude ingestion and raw-FIT elevation recovery for climb detection.
+- **Fixed (workout detail analytics)**: the workout detail response now recovers climb artifacts for Garmin Edge workouts whose stored canonical parquet lacked per-record elevation samples.
+- **Added (climb artifact context)**: each climb now includes start/end time, elapsed seconds, distance markers, and start/end latitude/longitude so clients can see where and when the climb occurred.
+- **Fixed (FIT parsing)**: canonical record ingestion now prefers enhanced altitude when present and falls back to legacy altitude, while also preserving record-level GPS coordinates for future climb localization.
+- **Changed (query-time resilience)**: when older ingests are missing elevation or GPS coordinates, the semantic layer now hydrates climb context from archived raw FIT record frames before computing climb artifacts.
+- **Added (tests)**: regression coverage now verifies enhanced-altitude ingestion, raw-FIT elevation recovery, and climb location/timing output.
 
 ### BREAKING: Current Training-State Contract Cleanup [application v3.13.5, semantic API v8.0.0]
 
