@@ -37,6 +37,8 @@ Core Telemetry
 - `cadence_rpm` — Pedaling cadence in revolutions per minute (nullable).
 - `speed_mps` — Ground speed in meters per second (nullable).
 - `distance_m` — Cumulative distance traveled in meters (nullable).
+- `position_lat` — GPS latitude in decimal degrees (nullable).
+- `position_long` — GPS longitude in decimal degrees (nullable).
 - `elevation_m` — Elevation above sea level in meters (nullable). When FIT record payloads expose `enhanced_altitude`, it is the preferred canonical source and falls back to legacy `altitude` when unavailable.
 
 Extended Telemetry (Nullable):

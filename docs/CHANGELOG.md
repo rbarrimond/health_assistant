@@ -10,11 +10,13 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-04-13
 
-### Workout Detail Climb Recovery for Garmin Edge Records [application v3.13.7]
+### Workout Detail Climb Localization and Recovery [application v3.14.0, semantic API v8.1.0, ingestion v15.9.0]
 
+- **Why this is a MINOR bump**: this release adds backward-compatible fields to the stored canonical workout substrate and to the workout-detail climb artifact contract, without removing or reinterpreting existing fields.
 - **Fixed (workout detail analytics)**: the workout detail response now recovers climb artifacts for Garmin Edge workouts whose stored canonical parquet lacked per-record elevation samples.
 - **Added (climb artifact context)**: each climb now includes start/end time, elapsed seconds, distance markers, and start/end latitude/longitude so clients can see where and when the climb occurred.
-- **Fixed (FIT parsing)**: canonical record ingestion now prefers enhanced altitude when present and falls back to legacy altitude, while also preserving record-level GPS coordinates for future climb localization.
+- **Added (canonical substrate)**: canonical record parsing now preserves record-level GPS coordinates alongside altitude in the stored workout substrate for downstream analytics.
+- **Fixed (FIT parsing)**: canonical record ingestion now prefers enhanced altitude when present and falls back to legacy altitude when needed.
 - **Changed (query-time resilience)**: when older ingests are missing elevation or GPS coordinates, the semantic layer now hydrates climb context from archived raw FIT record frames before computing climb artifacts.
 - **Added (tests)**: regression coverage now verifies enhanced-altitude ingestion, raw-FIT elevation recovery, and climb location/timing output.
 

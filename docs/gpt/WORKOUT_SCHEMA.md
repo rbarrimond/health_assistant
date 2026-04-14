@@ -164,7 +164,7 @@ the appropriate `metrics.*` family in the API response.
 |Field|Type|Required|Description|
 |---|---:|:---:|---|
 |intervals_json|array|⛔️|Structured interval detection artifact|
-|climbs_json|array|⛔️|Structured climb detection artifact|
+|climbs_json|array|⛔️|Structured climb detection artifact with timing and location context (`start_sec`, `end_sec`, `start_time_utc`, `end_time_utc`, `start_distance_m`, `end_distance_m`, `start_lat`, `start_long`, `end_lat`, `end_long`)|
 |power_curve_json|array|⛔️|Log-spaced power curve artifact|
 
 ---
