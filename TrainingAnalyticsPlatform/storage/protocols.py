@@ -73,6 +73,10 @@ class WorkoutStorageProtocol(Protocol):
         """Load canonical workout records from blob (parquet)."""
         ...
 
+    def store_canonical_dataframe(self, blob_name: str, df: pd.DataFrame) -> str:
+        """Persist an updated canonical workout DataFrame to an existing parquet blob path."""
+        ...
+
     def store_raw_fit_json(
         self,
         workout_id: str,

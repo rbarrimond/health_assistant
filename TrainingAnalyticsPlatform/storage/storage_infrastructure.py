@@ -594,3 +594,21 @@ class StorageInfrastructure:
         )
         payload = blob_client.download_blob().readall()
         return pd.read_parquet(io.BytesIO(payload))
+
+    def upload_dataframe_parquet_blob(self, blob_name: str, df: pd.DataFrame) -> str:
+        """Persist a pandas DataFrame to an existing workout parquet blob path."""
+        if not blob_name:
+            raise ValueError("blob_name is required")
+        if df.empty:
+            raise ValueError("cannot upload empty canonical DataFrame")
+
+        buffer = io.BytesIO()
+        df.to_parquet(buffer, index=False)
+        buffer.seek(0)
+
+        blob_client = self._blob_service_client.get_blob_client(
+            container=WORKOUTS_CONTAINER,
+            blob=blob_name,
+        )
+        blob_client.upload_blob(buffer.getvalue(), overwrite=True)
+        return blob_name

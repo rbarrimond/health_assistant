@@ -242,6 +242,10 @@ class WorkoutStorage:
         """Load canonical workout records from blob (parquet)."""
         return self.infra.load_parquet_blob(blob_name)
 
+    def store_canonical_dataframe(self, blob_name: str, df: pd.DataFrame) -> str:
+        """Persist an updated canonical workout DataFrame to the parquet blob path."""
+        return self.infra.upload_dataframe_parquet_blob(blob_name, df)
+
     def store_raw_fit_json(
         self,
         workout_id: str,
