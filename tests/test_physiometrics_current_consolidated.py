@@ -124,6 +124,30 @@ class TestCurrentPhysiometricsConsolidation:
         assert result["heart_rate"]["hrv_ln_rmssd"] == pytest.approx(3.95)
         assert result["recovery"]["sleep_duration_sec"] == 28000
 
+    def test_training_effect_fields_are_not_exposed_in_current_training_state(self, layer):
+        """Workout-scoped training effect metrics should not appear in the current physiometrics payload."""
+        mock_table = MagicMock()
+        mock_table.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-03-02|garmin",
+                "effective_date": "2026-03-02",
+                "data_source": "garmin",
+                "updated_at_utc": "2026-03-02T08:20:00+00:00",
+                "training_load": 310.0,
+                "training_effect_aerobic": 3.2,
+                "training_effect_anaerobic": 1.4,
+                "training_stress_score": 310.0,
+            },
+        ]
+        layer.storage.infrastructure.get_table_client = MagicMock(return_value=mock_table)
+
+        result = layer.get_current_physiometrics("rob")
+
+        assert result["training_state"]["training_load"] == pytest.approx(310.0)
+        assert "training_effect_aerobic" not in result["training_state"]
+        assert "training_effect_anaerobic" not in result["training_state"]
+
     def test_metric_precedence_garmin_over_intervals_for_ftp(self, layer):
         """Garmin takes precedence over Intervals for FTP and training metrics."""
         mock_table = MagicMock()
@@ -156,7 +180,7 @@ class TestCurrentPhysiometricsConsolidation:
         assert result["training_state"]["training_load"] == pytest.approx(310.0)
 
     def test_newer_manual_baselines_override_older_garmin(self, layer):
-        """Manual FTP/LTHR should win when written after the latest Garmin baseline."""
+        """Manual FTP/LTHR should win; max HR remains manual-only as a zone anchor baseline."""
         mock_table = MagicMock()
         mock_table.query_entities.return_value = [
             {
@@ -167,6 +191,7 @@ class TestCurrentPhysiometricsConsolidation:
                 "updated_at_utc": "2026-03-02T08:20:00+00:00",
                 "power_ftp_watts": 320,
                 "heart_rate_lthr_bpm": 172,
+                "heart_rate_hr_max_bpm": 180,
             },
             {
                 "PartitionKey": "rob",
@@ -177,6 +202,7 @@ class TestCurrentPhysiometricsConsolidation:
                 "heart_rate_basis": "LTHR",
                 "power_ftp_watts": 300,
                 "heart_rate_lthr_bpm": 176,
+                "heart_rate_hr_max_bpm": 191,
             },
         ]
         layer.storage.infrastructure.get_table_client = MagicMock(return_value=mock_table)
@@ -185,6 +211,7 @@ class TestCurrentPhysiometricsConsolidation:
 
         assert result["power"]["ftp_watts"] == 300
         assert result["heart_rate"]["lthr_bpm"] == 176
+        assert result["heart_rate"]["hr_max_bpm"] == 191
         assert result["heart_rate"]["basis"] == "LTHR"
 
     def test_newer_garmin_baselines_override_older_manual(self, layer):

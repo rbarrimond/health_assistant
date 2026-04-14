@@ -1737,10 +1737,6 @@ components:
               type: [integer, "null"]
             readiness_score:
               type: [number, "null"]
-            training_effect_aerobic:
-              type: [number, "null"]
-            training_effect_anaerobic:
-              type: [number, "null"]
             training_stress_score:
               type: [number, "null"]
             training_stress_balance:

@@ -10,6 +10,17 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-04-13
 
+### BREAKING: Current Training-State Contract Cleanup [application v3.13.5, semantic API v8.0.0]
+
+- **Removed (semantic current contract)**: `GET /api/physiometrics/current` no longer exposes `training_effect_aerobic` or `training_effect_anaerobic` inside the daily `training_state` block because those values are workout-scoped effects rather than stable current physiometrics.
+- **Preserved**: workout-specific training effect values remain available through workout-scoped ingestion/metadata surfaces and are not reinterpreted as daily readiness state.
+- **Added (tests)**: regression coverage now verifies workout-specific training-effect fields are absent from the current physiometrics projection.
+
+### Garmin Live LTHR Precedence Correction [ingestion v15.8.2]
+
+- **Fixed (Garmin lactate-threshold ingestion)**: when Edge 1050 payloads include both `speed_and_heart_rate.heartRate` and `speed_and_heart_rate.heartRateCycling`, the ingestion adapter now prefers the actively reported threshold HR value instead of retaining a stale cycling-specific fallback.
+- **Added (tests)**: regression coverage now verifies the adapter selects the current threshold HR when both Garmin fields are present, while still falling back to the cycling-specific value when the generic field is missing.
+
 ### Garmin Dedicated Baseline Endpoint Alignment [application v3.13.4, ingestion v15.8.1]
 
 - **Fixed (Garmin physiometrics ingestion)**: daily Garmin physiometrics sync now queries Garmin's dedicated latest cycling FTP and lactate-threshold biometric endpoints instead of relying solely on summary/training-status payload fields that can be absent for Edge 1050-derived estimates.

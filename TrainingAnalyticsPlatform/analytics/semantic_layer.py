@@ -3012,8 +3012,6 @@ class SemanticLayer:
                 "training_load": merged.get("training_load"),
                 "recovery_time_minutes": merged.get("recovery_time_minutes"),
                 "readiness_score": merged.get("readiness_score"),
-                "training_effect_aerobic": merged.get("training_effect_aerobic"),
-                "training_effect_anaerobic": merged.get("training_effect_anaerobic"),
                 "training_stress_score": merged.get("training_stress_score"),
                 "training_stress_balance": merged.get("training_stress_balance"),
                 "atp_probability": merged.get("atp_probability"),
