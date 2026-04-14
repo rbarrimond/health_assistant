@@ -508,6 +508,7 @@ class SemanticLayer:
     ) -> Dict[str, Any]:
         """Build deep-dive metrics payload using canonical analytics as required source."""
         metrics: Dict[str, Any] = {**session, **enrichment, **activity_metadata}
+        metrics.update(self._resolve_workout_physiometrics_context(workout_entity, metrics))
         blob_name = workout_entity.canonical_records_blob or metrics.get(
             "canonical_records_blob"
         )
@@ -589,6 +590,61 @@ class SemanticLayer:
         enriched = dict(metrics)
         enriched.update(canonical_metrics)
         return enriched
+
+    def _resolve_workout_physiometrics_context(
+        self,
+        workout_entity: WorkoutEntity,
+        metrics: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Resolve date-scoped physiometrics context for deep-dive workout analytics."""
+        target_date = self._resolve_workout_target_date(workout_entity, metrics)
+        if not target_date:
+            return {}
+
+        try:
+            physiometrics = self.storage.physiometrics.get_physiometrics_as_of(
+                workout_entity.athlete_id,
+                target_date,
+            )
+        except StorageError:
+            return {}
+
+        if not isinstance(physiometrics, dict):
+            return {}
+
+        resolved: Dict[str, Any] = {}
+        power = physiometrics.get("power") or {}
+        if isinstance(power, dict) and power.get("ftp_watts") is not None:
+            resolved["ftp_watts"] = power.get("ftp_watts")
+
+        updated_at = physiometrics.get("updated_at_utc")
+        if updated_at:
+            resolved["physiometrics_snapshot_timestamp"] = updated_at
+
+        return resolved
+
+    @staticmethod
+    def _resolve_workout_target_date(
+        workout_entity: WorkoutEntity,
+        metrics: Dict[str, Any],
+    ) -> Optional[str]:
+        """Resolve the workout-local calendar date used for as-of physiometrics lookup."""
+        start_time = workout_entity.start_time_utc or metrics.get("start_time_utc")
+        if not start_time:
+            return None
+
+        parsed = parse_iso_timestamp(str(start_time))
+        if parsed == datetime.min.replace(tzinfo=timezone.utc):
+            return None
+
+        timezone_value = metrics.get("timezone") or metrics.get("local_tz_offset")
+        if isinstance(timezone_value, str) and "/" in timezone_value:
+            try:
+                parsed = parsed.astimezone(ZoneInfo(timezone_value))
+            except ZoneInfoNotFoundError:
+                pass
+
+        return parsed.date().isoformat()
 
     def _hydrate_missing_elevation_from_raw_fit(
         self,

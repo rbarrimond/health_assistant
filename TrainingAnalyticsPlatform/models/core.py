@@ -1543,6 +1543,18 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
         ).dropna()
 
     def _resolve_ftp_watts(self) -> Optional[float]:
+        metadata = self.__dict__.get("metadata") or {}
+        if isinstance(metadata, dict):
+            direct_ftp = self._as_float(metadata.get("ftp_watts"))
+            if direct_ftp is not None and direct_ftp > 0:
+                return direct_ftp
+
+            power_section = metadata.get("power") or {}
+            if isinstance(power_section, dict):
+                section_ftp = self._as_float(power_section.get("ftp_watts"))
+                if section_ftp is not None and section_ftp > 0:
+                    return section_ftp
+
         return self._as_float(Config.power_config().ftp_watts)
 
     def _normalized_power(self, power: pd.Series) -> Optional[float]:

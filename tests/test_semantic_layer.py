@@ -433,6 +433,59 @@ class TestWorkoutQueries:
         assert workout["workout_id"] == "workout-001"
         assert workout["athlete_id"] == "rob"
 
+    def test_get_workout_detail_uses_ftp_effective_on_workout_date(
+        self,
+        semantic_layer,
+        mock_storage,
+    ):
+        """Workout detail should resolve FTP from the physiometrics state effective on the workout date."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+
+        mock_entity = {
+            "PartitionKey": "rob",
+            "RowKey": "workout-ftp-001",
+            "workout_id": "workout-ftp-001",
+            "athlete_id": "rob",
+            "ingestion_id": "ingest-ftp-001",
+            "canonical_records_blob": "ingest-ftp-001/canonical.parquet",
+            "source_system": "garmin",
+            "sport": "Cycling",
+            "start_time_utc": "2026-02-22T01:51:12+00:00",
+            "duration_sec": 3600,
+        }
+        mock_table_client.query_entities.return_value = [mock_entity]
+        mock_storage.workouts.load_metadata_json.return_value = {
+            "session": {},
+            "enrichment": {},
+            "activity_metadata": {},
+        }
+        mock_storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+            {
+                "timestamp_utc": pd.date_range("2026-02-22T01:51:12Z", periods=240, freq="s"),
+                "elapsed_sec": pd.Series(range(240), dtype=float),
+                "heart_rate_bpm": 145.0,
+                "power_watts": 210.0,
+            }
+        )
+        mock_storage.physiometrics.get_physiometrics_as_of.return_value = {
+            "power": {"ftp_watts": 240},
+            "updated_at_utc": "2026-02-22T00:00:00+00:00",
+        }
+
+        with patch(
+            "TrainingAnalyticsPlatform.models.core.Config.power_config",
+            return_value=SimpleNamespace(ftp_watts=300),
+        ):
+            workout = semantic_layer.get_workout_detail("rob", "workout-ftp-001")
+
+        assert workout is not None
+        assert workout["metrics"]["zones_power"]["ftp_watts"] == pytest.approx(240.0)
+        mock_storage.physiometrics.get_physiometrics_as_of.assert_called_once_with(
+            "rob",
+            "2026-02-22",
+        )
+
     def test_get_workout_detail_includes_full_metric_families_when_canonical_complete(
         self,
         semantic_layer,
