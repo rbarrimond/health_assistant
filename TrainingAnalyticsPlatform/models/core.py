@@ -1704,28 +1704,45 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
             return df["timestamp_utc"]
         return pd.Series(dtype=DATETIME64_NS)
 
-    @classmethod
     def _compute_hr_zones_from_series(
-        cls,
+        self,
         hr: pd.Series,
     ) -> Dict[str, float | int | str]:
         hr_cfg = Config.hr_config()
         zone_basis = hr_cfg.basis
-        hr_rest = hr_cfg.resting_hr_bpm
+        metadata = self.__dict__.get("metadata") or {}
+        heart_rate = metadata.get("heart_rate") or {}
+
+        hr_rest = (
+            self._as_float(metadata.get("hr_resting_bpm"))
+            or self._as_float(heart_rate.get("resting_hr_bpm"))
+            or hr_cfg.resting_hr_bpm
+        )
+        lthr_bpm = (
+            self._as_float(metadata.get("hr_lthr_bpm"))
+            or self._as_float(metadata.get("lthr_bpm"))
+            or self._as_float(heart_rate.get("lthr_bpm"))
+            or hr_cfg.lthr_bpm
+        )
+        hr_max_bpm = (
+            self._as_float(metadata.get("hr_max_bpm"))
+            or self._as_float(heart_rate.get("hr_max_bpm"))
+            or hr_cfg.hr_max_bpm
+        )
 
         if zone_basis == "LTHR":
-            ref_bpm = hr_cfg.lthr_bpm
+            ref_bpm = lthr_bpm
         elif zone_basis == "HRR":
-            ref_bpm = hr_cfg.hr_max_bpm
+            ref_bpm = hr_max_bpm
         else:
-            ref_bpm = hr_cfg.hr_max_bpm
+            ref_bpm = hr_max_bpm
 
         if not ref_bpm:
             ref_bpm = float(hr.max()) if not hr.empty else None
         if not ref_bpm:
             return {}
 
-        zones = cls._get_hr_zones(zone_basis, ref_bpm, hr_rest)
+        zones = self._get_hr_zones(zone_basis, ref_bpm, hr_rest)
         if not zones:
             return {}
 

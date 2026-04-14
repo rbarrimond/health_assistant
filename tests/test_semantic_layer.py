@@ -486,6 +486,67 @@ class TestWorkoutQueries:
             "2026-02-22",
         )
 
+    def test_get_workout_detail_uses_hr_baselines_effective_on_workout_date(
+        self,
+        semantic_layer,
+        mock_storage,
+    ):
+        """Workout detail should resolve HR zone inputs from the physiometrics state effective on the workout date."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+
+        mock_entity = {
+            "PartitionKey": "rob",
+            "RowKey": "workout-hr-001",
+            "workout_id": "workout-hr-001",
+            "athlete_id": "rob",
+            "ingestion_id": "ingest-hr-001",
+            "canonical_records_blob": "ingest-hr-001/canonical.parquet",
+            "source_system": "garmin",
+            "sport": "Cycling",
+            "start_time_utc": "2026-02-22T01:51:12+00:00",
+            "duration_sec": 3600,
+        }
+        mock_table_client.query_entities.return_value = [mock_entity]
+        mock_storage.workouts.load_metadata_json.return_value = {
+            "session": {},
+            "enrichment": {},
+            "activity_metadata": {},
+        }
+        mock_storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+            {
+                "timestamp_utc": pd.date_range("2026-02-22T01:51:12Z", periods=240, freq="s"),
+                "elapsed_sec": pd.Series(range(240), dtype=float),
+                "heart_rate_bpm": 145.0,
+                "power_watts": 210.0,
+            }
+        )
+        mock_storage.physiometrics.get_physiometrics_as_of.return_value = {
+            "heart_rate": {
+                "lthr_bpm": 165,
+                "hr_max_bpm": 191,
+                "resting_hr_bpm": 47,
+            },
+            "updated_at_utc": "2026-02-22T00:00:00+00:00",
+        }
+
+        with patch(
+            "TrainingAnalyticsPlatform.models.core.Config.hr_config",
+            return_value=SimpleNamespace(
+                basis="HRR",
+                lthr_bpm=170,
+                hr_max_bpm=200,
+                resting_hr_bpm=50,
+            ),
+        ):
+            workout = semantic_layer.get_workout_detail("rob", "workout-hr-001")
+
+        assert workout is not None
+        assert workout["metrics"]["hr_resting_bpm"] == pytest.approx(47.0)
+        assert workout["metrics"]["zones_hr"]["hr_zone_basis"] == "HRR"
+        assert workout["metrics"]["zones_hr"]["hr_zone_reference_bpm"] == pytest.approx(191.0)
+        assert workout["metrics"]["zones_hr"]["hr_z1_low_bpm"] == pytest.approx(119.0)
+
     def test_get_workout_detail_includes_full_metric_families_when_canonical_complete(
         self,
         semantic_layer,

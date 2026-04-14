@@ -612,14 +612,40 @@ class SemanticLayer:
         if not isinstance(physiometrics, dict):
             return {}
 
-        resolved: Dict[str, Any] = {}
-        power = physiometrics.get("power") or {}
-        if isinstance(power, dict) and power.get("ftp_watts") is not None:
-            resolved["ftp_watts"] = power.get("ftp_watts")
-
+        resolved = self._extract_workout_baseline_overrides(physiometrics)
         updated_at = physiometrics.get("updated_at_utc")
         if updated_at:
             resolved["physiometrics_snapshot_timestamp"] = updated_at
+
+        return resolved
+
+    @staticmethod
+    def _extract_workout_baseline_overrides(physiometrics: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract FTP and HR baseline overrides from a physiometrics payload."""
+        resolved: Dict[str, Any] = {}
+
+        power = physiometrics.get("power") or {}
+        if isinstance(power, dict):
+            ftp_watts = power.get("ftp_watts")
+            if ftp_watts is None:
+                ftp_watts = physiometrics.get("ftp_watts")
+            if ftp_watts is not None:
+                resolved["ftp_watts"] = ftp_watts
+
+        heart_rate = physiometrics.get("heart_rate") or {}
+        if not isinstance(heart_rate, dict):
+            heart_rate = {}
+
+        for resolved_key, nested_key in (
+            ("hr_lthr_bpm", "lthr_bpm"),
+            ("hr_max_bpm", "hr_max_bpm"),
+            ("hr_resting_bpm", "resting_hr_bpm"),
+        ):
+            value = heart_rate.get(nested_key)
+            if value is None:
+                value = physiometrics.get(resolved_key)
+            if value is not None:
+                resolved[resolved_key] = value
 
         return resolved
 
