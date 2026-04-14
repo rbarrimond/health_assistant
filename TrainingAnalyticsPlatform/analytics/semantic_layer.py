@@ -547,6 +547,8 @@ class SemanticLayer:
             )
             raise WorkoutDetailUnavailableError()
 
+        df = self._hydrate_missing_elevation_from_raw_fit(workout_entity, df)
+
         try:
             canonical = CanonicalAnalyticsEngine.from_dataframe(df, metrics)
         except ValidationError as exc:
@@ -587,6 +589,128 @@ class SemanticLayer:
         enriched = dict(metrics)
         enriched.update(canonical_metrics)
         return enriched
+
+    def _hydrate_missing_elevation_from_raw_fit(
+        self,
+        workout_entity: WorkoutEntity,
+        df: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Backfill elevation_m from archived raw FIT frames when canonical records lack altitude."""
+        if not self._needs_elevation_fallback(df):
+            return df
+
+        raw_elevation = self._load_raw_fit_elevation_series(workout_entity)
+        if raw_elevation.empty:
+            return df
+
+        hydrated = df.copy()
+        if "timestamp_utc" in hydrated:
+            timestamps = pd.to_datetime(hydrated["timestamp_utc"], errors="coerce", utc=True)
+            aligned = raw_elevation.reindex(timestamps, method="nearest", tolerance=pd.Timedelta(seconds=1))
+            aligned_series = pd.Series(aligned.to_numpy(dtype=float), index=hydrated.index, dtype=float)
+            existing = (
+                pd.to_numeric(hydrated["elevation_m"], errors="coerce")
+                if "elevation_m" in hydrated
+                else pd.Series(index=hydrated.index, dtype=float)
+            )
+            hydrated["elevation_m"] = existing.where(existing.notna(), aligned_series)
+        elif "elapsed_sec" in hydrated:
+            elapsed = pd.to_numeric(hydrated["elapsed_sec"], errors="coerce").round().astype("Int64")
+            existing = (
+                pd.to_numeric(hydrated["elevation_m"], errors="coerce")
+                if "elevation_m" in hydrated
+                else pd.Series(index=hydrated.index, dtype=float)
+            )
+            aligned = elapsed.map(raw_elevation)
+            hydrated["elevation_m"] = existing.where(existing.notna(), aligned)
+
+        elevation_series = (
+            pd.to_numeric(hydrated["elevation_m"], errors="coerce")
+            if "elevation_m" in hydrated
+            else pd.Series(dtype=float)
+        )
+        restored = int(elevation_series.notna().sum())
+        if restored:
+            logger.info(
+                "Recovered canonical elevation from archived raw FIT frames",
+                extra={
+                    "workout_id": workout_entity.workout_id,
+                    "ingestion_id": workout_entity.ingestion_id,
+                    "restored_points": restored,
+                },
+            )
+        return hydrated
+
+    @staticmethod
+    def _needs_elevation_fallback(df: pd.DataFrame) -> bool:
+        if df.empty or "distance_m" not in df:
+            return False
+        if "elevation_m" not in df:
+            return True
+        elevation = pd.to_numeric(df["elevation_m"], errors="coerce")
+        return int(elevation.notna().sum()) == 0
+
+    def _load_raw_fit_elevation_series(self, workout_entity: WorkoutEntity) -> pd.Series:
+        """Load timestamp-indexed elevation from archived raw FIT frames."""
+        infra = getattr(self.storage.workouts, "infra", None)
+        if infra is None:
+            return pd.Series(dtype=float)
+
+        for identifier in (workout_entity.ingestion_id, workout_entity.workout_id):
+            series = self._load_raw_fit_elevation_series_for_identifier(infra, identifier)
+            if not series.empty:
+                return series
+        return pd.Series(dtype=float)
+
+    def _load_raw_fit_elevation_series_for_identifier(self, infra: Any, identifier: Optional[str]) -> pd.Series:
+        if not identifier:
+            return pd.Series(dtype=float)
+        try:
+            blob_name = infra.raw_fit_blob_name(identifier)
+            payload = infra.load_json_blob(blob_name, gzipped=True)
+        except Exception:  # pylint: disable=broad-exception-caught
+            return pd.Series(dtype=float)
+        frames = payload if isinstance(payload, list) else []
+        return self._raw_fit_frames_to_elevation_series(frames)
+
+    @staticmethod
+    def _raw_fit_frames_to_elevation_series(frames: List[Dict[str, Any]]) -> pd.Series:
+        rows = [
+            row
+            for row in (SemanticLayer._raw_fit_elevation_row(frame) for frame in frames)
+            if row is not None
+        ]
+        if not rows:
+            return pd.Series(dtype=float)
+
+        raw_df = pd.DataFrame(rows)
+        raw_df["timestamp_utc"] = pd.to_datetime(raw_df["timestamp_utc"], errors="coerce", utc=True)
+        raw_df["elevation_m"] = pd.to_numeric(raw_df["elevation_m"], errors="coerce")
+        raw_df = raw_df.dropna(subset=["timestamp_utc", "elevation_m"]).drop_duplicates(
+            subset=["timestamp_utc"],
+            keep="last",
+        )
+        if raw_df.empty:
+            return pd.Series(dtype=float)
+        return pd.Series(raw_df["elevation_m"].to_numpy(dtype=float), index=raw_df["timestamp_utc"])
+
+    @staticmethod
+    def _raw_fit_elevation_row(frame: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if frame.get("frame_type") != "data_message" or frame.get("name") != "record":
+            return None
+        fields = frame.get("fields", [])
+        if not isinstance(fields, list):
+            return None
+        field_map = {
+            field.get("name"): field.get("value")
+            for field in fields
+            if isinstance(field, dict) and field.get("name") is not None
+        }
+        timestamp = field_map.get("timestamp")
+        elevation = field_map.get("enhanced_altitude", field_map.get("altitude"))
+        if timestamp is None or elevation is None:
+            return None
+        return {"timestamp_utc": timestamp, "elevation_m": elevation}
 
     def _populate_workout_detail_laps(
         self,
@@ -3097,7 +3221,10 @@ class SemanticLayer:
             tracked_sources=tracked_sources,
             target_date=target_date,
         )
-        return {source: list(source_rows) for source, source_rows in grouped.items()}
+        return {
+            source: [dict(source_row) for source_row in source_rows]
+            for source, source_rows in grouped.items()
+        }
 
     @staticmethod
     def _resolve_row_metric_value(row: Dict[str, Any], metric_name: str) -> Optional[Any]:

@@ -41,10 +41,11 @@ from pydantic import (BaseModel, ConfigDict, Field, computed_field,
 from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.platform.exceptions import ValidationError
 from TrainingAnalyticsPlatform.models.constants import (
-    CLIMB_MIN_GRADE, CLIMB_MIN_SEC, DATETIME64_NS,
-    INTERVAL_MIN_SEC, INTERVAL_THRESHOLD_FACTOR, ISO_8601_UTC_DESC,
-    LAG_WINDOW_SEC, POWER_CURVE_SECONDS,
-    RECOVERY_HR_WINDOW_SEC, SURGE_MIN_SEC, SURGE_THRESHOLD_FACTOR)
+    CLIMB_GRADE_WINDOW_SEC, CLIMB_MAX_GAP_SEC, CLIMB_MIN_GRADE,
+    CLIMB_MIN_SEC, DATETIME64_NS, INTERVAL_MIN_SEC,
+    INTERVAL_THRESHOLD_FACTOR, ISO_8601_UTC_DESC, LAG_WINDOW_SEC,
+    POWER_CURVE_SECONDS, RECOVERY_HR_WINDOW_SEC, SURGE_MIN_SEC,
+    SURGE_THRESHOLD_FACTOR)
 from TrainingAnalyticsPlatform.models.metrics import (
     DistanceMetricsModel, DurabilityMetricsModel, EnvelopeScoresModel,
     HRZonesModel, PowerDurationAnchorsModel, PowerZonesModel,
@@ -2028,10 +2029,16 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
 
         dist_values = distance.to_numpy(dtype=float)
         elev_values = elevation.to_numpy(dtype=float)
-        delta_dist = np.diff(dist_values)
-        delta_elev = np.diff(elev_values)
+        delta_dist = pd.Series(np.diff(dist_values), dtype=float)
+        delta_elev = pd.Series(np.diff(elev_values), dtype=float)
+
+        window = max(3, min(CLIMB_GRADE_WINDOW_SEC, len(delta_dist)))
+        smooth_dist = delta_dist.rolling(window=window, min_periods=3, center=True).sum()
+        smooth_elev = delta_elev.rolling(window=window, min_periods=3, center=True).sum()
         with np.errstate(divide="ignore", invalid="ignore"):
-            grade = np.where(delta_dist > 0, delta_elev / delta_dist, np.nan)
+            grade = np.where(smooth_dist.to_numpy(dtype=float) > 0,
+                             smooth_elev.to_numpy(dtype=float) / smooth_dist.to_numpy(dtype=float),
+                             np.nan)
 
         power_col = resampled.get("power_watts")
         hr_col = resampled.get("heart_rate_bpm")
@@ -2048,8 +2055,45 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
         return grade, power_values, hr_values
 
     def _climb_segments(self, grade: np.ndarray) -> List[tuple[int, int]]:
-        mask = grade >= CLIMB_MIN_GRADE
+        mask = np.isfinite(grade) & (grade >= CLIMB_MIN_GRADE)
+        mask = self._bridge_short_false_gaps(mask, CLIMB_MAX_GAP_SEC)
         return self._find_segments(mask, CLIMB_MIN_SEC)
+
+    def _bridge_short_false_gaps(self, mask: np.ndarray, max_gap: int) -> np.ndarray:
+        if max_gap <= 0 or mask.size == 0:
+            return mask
+
+        bridged = mask.copy()
+        false_indices = np.nonzero(~bridged)[0]
+        if false_indices.size == 0:
+            return bridged
+
+        gap_start = int(false_indices[0])
+        gap_prev = int(false_indices[0])
+        for idx in false_indices[1:]:
+            idx = int(idx)
+            if idx == gap_prev + 1:
+                gap_prev = idx
+                continue
+            self._fill_gap_if_supported(bridged, gap_start, gap_prev, max_gap)
+            gap_start = idx
+            gap_prev = idx
+        self._fill_gap_if_supported(bridged, gap_start, gap_prev, max_gap)
+        return bridged
+
+    def _fill_gap_if_supported(
+        self,
+        mask: np.ndarray,
+        start_idx: int,
+        end_idx: int,
+        max_gap: int,
+    ) -> None:
+        if start_idx == 0 or end_idx == mask.size - 1:
+            return
+        if end_idx - start_idx + 1 > max_gap:
+            return
+        if mask[start_idx - 1] and mask[end_idx + 1]:
+            mask[start_idx : end_idx + 1] = True
 
     def _climb_summary(
         self,

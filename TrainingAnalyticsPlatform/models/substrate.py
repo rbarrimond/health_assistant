@@ -156,7 +156,17 @@ class CanonicalRecord(BaseModel):
             expected_units=("m",),
             conversion_by_unit={"km": 1000.0},
         )
-        elevation = msg.get_value("altitude", fallback=None)
+        elevation = cls._numeric_with_unit_confirmation(
+            msg,
+            "enhanced_altitude",
+            expected_units=("m",),
+        )
+        if elevation is None:
+            elevation = cls._numeric_with_unit_confirmation(
+                msg,
+                "altitude",
+                expected_units=("m",),
+            )
         temperature = msg.get_value("temperature", fallback=None)
 
         # FIT record message left_right_balance is uint8 with bits 0-6 containing

@@ -10,6 +10,13 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-04-13
 
+### Workout Detail Climb Recovery for Garmin Edge Records [application v3.13.6]
+
+- **Fixed (workout detail analytics)**: `GET /api/workouts/{workout_id}` now recovers climb artifacts for Garmin Edge workouts whose stored canonical parquet lacked per-record elevation samples.
+- **Fixed (FIT parsing)**: canonical record ingestion now prefers `enhanced_altitude` when present and falls back to legacy `altitude`, preserving elevation traces from newer Garmin devices.
+- **Changed (query-time resilience)**: when older ingests are missing `elevation_m`, the semantic layer now hydrates elevation from archived raw FIT record frames before computing climb artifacts.
+- **Added (tests)**: regression coverage now verifies both enhanced-altitude ingestion and raw-FIT elevation recovery for climb detection.
+
 ### BREAKING: Current Training-State Contract Cleanup [application v3.13.5, semantic API v8.0.0]
 
 - **Removed (semantic current contract)**: `GET /api/physiometrics/current` no longer exposes `training_effect_aerobic` or `training_effect_anaerobic` inside the daily `training_state` block because those values are workout-scoped effects rather than stable current physiometrics.

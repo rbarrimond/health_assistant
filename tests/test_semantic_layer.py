@@ -489,6 +489,132 @@ class TestWorkoutQueries:
         assert "durability" in metrics
         assert "artifacts" in metrics
 
+    def test_get_workout_detail_detects_climbs_from_noisy_realistic_grade_series(
+        self,
+        semantic_layer,
+        mock_storage,
+    ):
+        """Workout detail should still surface climbs when minor resampling gaps interrupt a real ascent."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+
+        mock_entity = {
+            "PartitionKey": "rob",
+            "RowKey": "workout-climb-001",
+            "workout_id": "workout-climb-001",
+            "athlete_id": "rob",
+            "ingestion_id": "ingest-climb-001",
+            "canonical_records_blob": "ingest-climb-001/canonical.parquet",
+            "source_system": "garmin",
+            "sport": "Cycling",
+            "duration_sec": 240,
+        }
+        mock_table_client.query_entities.return_value = [mock_entity]
+        mock_storage.workouts.load_metadata_json.return_value = {
+            "session": {},
+            "enrichment": {},
+            "activity_metadata": {},
+        }
+
+        row_count = 240
+        elapsed = pd.Series(range(row_count), dtype=float)
+        elevation = []
+        current_elevation = 100.0
+        for second in range(row_count):
+            if 40 <= second < 160:
+                current_elevation += 0.22 if second % 15 not in {0, 1} else 0.0
+            else:
+                current_elevation += 0.01
+            elevation.append(current_elevation)
+
+        mock_storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+            {
+                "timestamp_utc": pd.date_range("2026-02-22T01:51:12Z", periods=row_count, freq="s"),
+                "elapsed_sec": elapsed,
+                "power_watts": 235.0,
+                "heart_rate_bpm": 148.0,
+                "speed_mps": 5.0,
+                "distance_m": elapsed * 5.0,
+                "elevation_m": elevation,
+            }
+        )
+
+        workout = semantic_layer.get_workout_detail("rob", "workout-climb-001")
+
+        assert workout is not None
+        artifacts = workout["metrics"].get("artifacts") or {}
+        climbs = artifacts.get("climbs") or []
+        assert len(climbs) >= 1
+        assert climbs[0]["avg_grade"] >= 3.0
+        assert climbs[0]["duration"] >= 60
+
+    def test_get_workout_detail_recovers_climbs_from_raw_fit_when_canonical_elevation_missing(
+        self,
+        semantic_layer,
+        mock_storage,
+    ):
+        """Workout detail should recover elevation from archived raw FIT frames for older ingests."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+
+        mock_entity = {
+            "PartitionKey": "rob",
+            "RowKey": "workout-rawfit-001",
+            "workout_id": "workout-rawfit-001",
+            "athlete_id": "rob",
+            "ingestion_id": "ingest-rawfit-001",
+            "canonical_records_blob": "ingest-rawfit-001/canonical.parquet",
+            "source_system": "garmin",
+            "sport": "Cycling",
+            "duration_sec": 240,
+        }
+        mock_table_client.query_entities.return_value = [mock_entity]
+        mock_storage.workouts.load_metadata_json.return_value = {
+            "session": {},
+            "enrichment": {},
+            "activity_metadata": {},
+        }
+        row_count = 240
+        elapsed = pd.Series(range(row_count), dtype=float)
+        mock_storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+            {
+                "timestamp_utc": pd.date_range("2026-02-22T01:51:12Z", periods=row_count, freq="s"),
+                "elapsed_sec": elapsed,
+                "power_watts": 235.0,
+                "heart_rate_bpm": 148.0,
+                "speed_mps": 5.0,
+                "distance_m": elapsed * 5.0,
+            }
+        )
+
+        raw_fit_frames = []
+        current_elevation = 100.0
+        for second in range(row_count):
+            if 40 <= second < 160:
+                current_elevation += 0.22 if second % 15 not in {0, 1} else 0.0
+            else:
+                current_elevation += 0.01
+            raw_fit_frames.append(
+                {
+                    "frame_type": "data_message",
+                    "name": "record",
+                    "fields": [
+                        {"name": "timestamp", "value": f"2026-02-22T01:{51 + ((12 + second) // 60):02d}:{(12 + second) % 60:02d}+00:00", "units": ""},
+                        {"name": "enhanced_altitude", "value": current_elevation, "units": "m"},
+                    ],
+                }
+            )
+        mock_storage.workouts.infra.raw_fit_blob_name.return_value = "ingest-rawfit-001/raw_fit.json.gz"
+        mock_storage.workouts.infra.load_json_blob.return_value = raw_fit_frames
+
+        workout = semantic_layer.get_workout_detail("rob", "workout-rawfit-001")
+
+        assert workout is not None
+        artifacts = workout["metrics"].get("artifacts") or {}
+        climbs = artifacts.get("climbs") or []
+        assert len(climbs) >= 1
+        assert climbs[0]["duration"] >= 60
+
     def test_get_workout_detail_surfaces_only_enrichment_raw_metadata_in_session(
         self,
         semantic_layer,
