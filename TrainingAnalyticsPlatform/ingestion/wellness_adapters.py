@@ -502,8 +502,11 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
         lactate_threshold_hr = self._extract_first(
             lactate_threshold,
             [
-                ("speed_and_heart_rate", "heartRateCycling"),
+                # Prefer the current device-reported threshold HR when both fields exist.
+                # Edge 1050 payloads can retain a stale cycling-specific value alongside the
+                # actively reported threshold in speed_and_heart_rate.heartRate.
                 ("speed_and_heart_rate", "heartRate"),
+                ("speed_and_heart_rate", "heartRateCycling"),
             ],
         )
         if lactate_threshold_hr is None:

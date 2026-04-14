@@ -276,6 +276,68 @@ class TestGetPhysiometrics:
             storage.get_physiometrics("rob")
 
 
+class TestGetPhysiometricsHistoryRange:
+    """Tests for date-range physiometrics history queries."""
+
+    def test_get_physiometrics_history_exposes_canonical_aliases(self) -> None:
+        """Verify unfiltered history rows expose canonical FTP and HR fields."""
+        mock_table_client = MagicMock()
+        mock_table_client.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-04-10|garmin",
+                "effective_date": "2026-04-10",
+                "updated_at_utc": "2026-04-10T18:00:00+00:00",
+                "data_source": "garmin",
+                "power_ftp_watts": 224,
+                "heart_rate_hr_max_bpm": 195,
+                "heart_rate_lthr_bpm": 173,
+            }
+        ]
+        storage = _make_storage(mock_table_client)
+
+        result = storage.get_physiometrics_history("rob", "2026-04-10", "2026-04-10")
+
+        assert result[0]["ftp_watts"] == 224
+        assert result[0]["hr_max_bpm"] == 195
+        assert result[0]["hr_lthr_bpm"] == 173
+
+    def test_get_physiometrics_history_filters_with_canonical_metric_names(self) -> None:
+        """Verify metric filters resolve canonical names from storage alias columns."""
+        mock_table_client = MagicMock()
+        mock_table_client.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-04-10|garmin",
+                "effective_date": "2026-04-10",
+                "updated_at_utc": "2026-04-10T18:00:00+00:00",
+                "data_source": "garmin",
+                "power_ftp_watts": 224,
+                "heart_rate_hr_max_bpm": 195,
+                "heart_rate_lthr_bpm": 173,
+            }
+        ]
+        storage = _make_storage(mock_table_client)
+
+        result = storage.get_physiometrics_history(
+            "rob",
+            "2026-04-10",
+            "2026-04-10",
+            metrics=["ftp_watts", "hr_max_bpm", "hr_lthr_bpm"],
+        )
+
+        assert result == [
+            {
+                "effective_date": "2026-04-10",
+                "updated_at_utc": "2026-04-10T18:00:00+00:00",
+                "data_source": "garmin",
+                "ftp_watts": 224,
+                "hr_max_bpm": 195,
+                "hr_lthr_bpm": 173,
+            }
+        ]
+
+
 class TestListPhysiometricsHistory:
     """Tests for list_physiometrics_history method."""
 

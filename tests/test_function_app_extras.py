@@ -192,6 +192,27 @@ class TestPhysiometricsEndpointHandlers:
             ["weight_kg", "cycling_vo2max_ml_kg_min"],
         )
 
+    def test_get_physiometrics_history_trims_metrics(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.params = {
+            "athlete_id": "rob",
+            "days": "7",
+            "metrics": "lactate_threshold_hr_bpm, power_ftp_watts, hr_max_bpm ",
+        }
+
+        mock_handler = MagicMock()
+        mock_handler.get_history.return_value = ({"athlete_id": "rob"}, 200)
+
+        with _patch_dependency("semantic_layer", MagicMock()):
+            with patch("function_app.PhysiometricsHandler", return_value=mock_handler):
+                function_app.get_physiometrics_history(req)
+
+        mock_handler.get_history.assert_called_once_with(
+            "rob",
+            7,
+            ["lactate_threshold_hr_bpm", "power_ftp_watts", "hr_max_bpm"],
+        )
+
     def test_update_physiometrics_single_metric(self):
         req = MagicMock(spec=func.HttpRequest)
         req.get_json.return_value = {

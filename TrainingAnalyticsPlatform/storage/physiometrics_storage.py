@@ -76,7 +76,10 @@ class PhysiometricsStorage:
     }
     _BASELINE_FIELD_ALIASES = {
         "ftp_watts": ["ftp_watts", "power_ftp_watts"],
-        "hr_lthr_bpm": ["hr_lthr_bpm", "heart_rate_lthr_bpm", "lactate_threshold_hr_bpm"],
+        "lthr_bpm": ["lthr_bpm", "hr_lthr_bpm", "heart_rate_lthr_bpm", "lactate_threshold_hr_bpm"],
+        "hr_lthr_bpm": ["hr_lthr_bpm", "heart_rate_lthr_bpm", "lactate_threshold_hr_bpm", "lthr_bpm"],
+        "hr_max_bpm": ["hr_max_bpm", "heart_rate_hr_max_bpm"],
+        "resting_hr_bpm": ["resting_hr_bpm", "heart_rate_resting_bpm"],
     }
 
     @staticmethod
@@ -141,7 +144,27 @@ class PhysiometricsStorage:
             cls._parse_updated_at(entity.get("updated_at_utc")),
             entity.get("RowKey", ""),
         )
+    @classmethod
+    def _resolve_metric_value(
+        cls,
+        entity: Mapping[str, Any],
+        metric_name: str,
+    ) -> Optional[Any]:
+        """Resolve a canonical physiometrics metric from storage alias columns."""
+        for field_name in cls._BASELINE_FIELD_ALIASES.get(metric_name, [metric_name]):
+            value = entity.get(field_name)
+            if value is not None:
+                return value
+        return None
 
+    @classmethod
+    def _with_canonical_metric_aliases(cls, entity: Mapping[str, Any]) -> Dict[str, Any]:
+        """Augment a history entity with canonical metric aliases for API consumers."""
+        normalized = dict(entity)
+        for metric_name in cls._BASELINE_FIELD_ALIASES:
+            if metric_name not in normalized:
+                normalized[metric_name] = cls._resolve_metric_value(normalized, metric_name)
+        return normalized
     @classmethod
     def _sorted_entities(
         cls,
@@ -606,7 +629,10 @@ class PhysiometricsStorage:
                 for entity in table_client.query_entities(query)
                 if start_date <= (entity.get("effective_date") or "") <= end_date
             ]
-            entities = self._sorted_entities(entities)
+            entities = [
+                self._with_canonical_metric_aliases(entity)
+                for entity in self._sorted_entities(entities)
+            ]
             if metrics:
                 result = []
                 for entity in entities:
@@ -616,8 +642,7 @@ class PhysiometricsStorage:
                         "data_source": entity.get("data_source"),
                     }
                     for metric in metrics:
-                        if entity.get(metric) is not None:
-                            data_point[metric] = entity.get(metric)
+                        data_point[metric] = self._resolve_metric_value(entity, metric)
                     result.append(data_point)
                 return result
 

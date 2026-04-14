@@ -69,13 +69,23 @@ def test_maps_summary_and_training_status_fields():
     assert snapshot.training_stress_balance == pytest.approx(-14.2)
     assert snapshot.atp_probability == pytest.approx(71.0)
     assert snapshot.recovery_time_minutes == 820
-    assert snapshot.hr_lthr_bpm == 173
+    assert snapshot.hr_lthr_bpm == 165
 
 
-def test_lthr_falls_back_to_estimate_when_training_status_missing_lthr():
+def test_lthr_prefers_current_threshold_value_when_available():
     adapter = GarminTrainingStateAdapter()
 
     snapshot = adapter.adapt(_raw_payload(include_lthr=False), athlete_id="rob")
+
+    assert snapshot.hr_lthr_bpm == 165
+
+
+def test_lthr_falls_back_to_cycling_threshold_when_generic_missing():
+    adapter = GarminTrainingStateAdapter()
+    raw = _raw_payload(include_lthr=False)
+    raw["lactate_threshold"]["speed_and_heart_rate"].pop("heartRate")
+
+    snapshot = adapter.adapt(raw, athlete_id="rob")
 
     assert snapshot.hr_lthr_bpm == 173
 

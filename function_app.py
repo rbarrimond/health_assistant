@@ -715,7 +715,7 @@ def get_physiometrics_history(req: func.HttpRequest) -> func.HttpResponse:
     days = int(req.params.get("days", "90"))
 
     metrics_param = req.params.get("metrics")
-    metrics = metrics_param.split(",") if metrics_param else None
+    metrics = [metric.strip() for metric in metrics_param.split(",") if metric.strip()] if metrics_param else None
 
     handler = PhysiometricsHandler(dependencies.semantic_layer)
     result, status = handler.get_history(athlete_id, days, metrics)
