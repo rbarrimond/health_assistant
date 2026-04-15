@@ -1585,7 +1585,11 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
 
     def _hr_zone_summary(self) -> Dict[str, Any]:
         hr = self._numeric_series(self.df, "heart_rate_bpm")
-        return self._compute_hr_zones_from_series(hr) if not hr.empty else {}
+        return (
+            self._compute_hr_zones_from_series(hr, metadata=self.metadata)
+            if not hr.empty
+            else {}
+        )
 
     def _power_zone_summary(self) -> Dict[str, Any]:
         power = self._numeric_series(self.df, "power_watts")
@@ -1684,7 +1688,8 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
         p4 = float(np.mean(power[-quartile:]))
         return (p4 - p1) / duration_sec
 
-    def _as_float(self, value: Any) -> Optional[float]:
+    @staticmethod
+    def _as_float(value: Any) -> Optional[float]:
         if isinstance(value, (int, float)):
             return float(value)
         if isinstance(value, str):
@@ -1704,29 +1709,31 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
             return df["timestamp_utc"]
         return pd.Series(dtype=DATETIME64_NS)
 
+    @classmethod
     def _compute_hr_zones_from_series(
-        self,
+        cls,
         hr: pd.Series,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, float | int | str]:
         hr_cfg = Config.hr_config()
         zone_basis = hr_cfg.basis
-        metadata = self.__dict__.get("metadata") or {}
+        metadata = metadata or {}
         heart_rate = metadata.get("heart_rate") or {}
 
         hr_rest = (
-            self._as_float(metadata.get("hr_resting_bpm"))
-            or self._as_float(heart_rate.get("resting_hr_bpm"))
+            cls._as_float(metadata.get("hr_resting_bpm"))
+            or cls._as_float(heart_rate.get("resting_hr_bpm"))
             or hr_cfg.resting_hr_bpm
         )
         lthr_bpm = (
-            self._as_float(metadata.get("hr_lthr_bpm"))
-            or self._as_float(metadata.get("lthr_bpm"))
-            or self._as_float(heart_rate.get("lthr_bpm"))
+            cls._as_float(metadata.get("hr_lthr_bpm"))
+            or cls._as_float(metadata.get("lthr_bpm"))
+            or cls._as_float(heart_rate.get("lthr_bpm"))
             or hr_cfg.lthr_bpm
         )
         hr_max_bpm = (
-            self._as_float(metadata.get("hr_max_bpm"))
-            or self._as_float(heart_rate.get("hr_max_bpm"))
+            cls._as_float(metadata.get("hr_max_bpm"))
+            or cls._as_float(heart_rate.get("hr_max_bpm"))
             or hr_cfg.hr_max_bpm
         )
 
@@ -1742,7 +1749,7 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
         if not ref_bpm:
             return {}
 
-        zones = self._get_hr_zones(zone_basis, ref_bpm, hr_rest)
+        zones = cls._get_hr_zones(zone_basis, ref_bpm, hr_rest)
         if not zones:
             return {}
 
