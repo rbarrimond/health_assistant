@@ -6,6 +6,7 @@ interface with the semantic layer.
 # pylint: disable=redefined-outer-name, line-too-long  # pytest fixtures intentionally shadow
 
 import json
+import gzip
 from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
@@ -95,6 +96,34 @@ class TestPlanningContextEndpoint:
 
         # Should cap at 365
         mock_semantic_layer.get_planning_context.assert_called_once_with("rob", 365)
+
+    def test_response_is_gzipped_when_requested(self, mock_request, mock_semantic_layer):
+        """Test planning context response uses gzip when Accept-Encoding requests it."""
+        mock_request.params = {"athlete_id": "rob", "days": "30"}
+        mock_request.headers = {"Accept-Encoding": "gzip"}
+
+        mock_context = {
+            "athlete_id": "rob",
+            "query_window": {},
+            "recent_workouts": [],
+            "weekly_rollups": [],
+            "summary": {},
+            "notable_flags": [],
+        }
+        mock_semantic_layer.get_planning_context.return_value = mock_context
+
+        mock_presync = MagicMock()
+        mock_presync.run.return_value = {"status": "all_succeeded", "sources": []}
+
+        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)), \
+             patch.object(FunctionAppDependencies, "planning_context_pre_sync_service", new=PropertyMock(return_value=mock_presync)):
+            response = planning_context(mock_request)
+
+        assert response.status_code == 200
+        assert response.headers.get("Content-Encoding") == "gzip"
+        assert response.headers.get("Vary") == "Accept-Encoding"
+        decoded = json.loads(gzip.decompress(response.get_body()).decode("utf-8"))
+        assert decoded["athlete_id"] == "rob"
 
 
 class TestListWorkoutsEndpoint:

@@ -69,6 +69,15 @@ class TestJsonResponseCompression:
 
         assert _decode_json_response_body(response) == {"status": "ok", "count": 2}
 
+    def test_json_response_honors_lowercase_accept_encoding_header(self) -> None:
+        req = MagicMock(spec=func.HttpRequest)
+        req.headers = {"accept-encoding": "gzip"}
+
+        response = json_response({"status": "ok"}, req=req)
+
+        assert response.headers["Content-Encoding"] == "gzip"
+        assert response.headers["Vary"] == "Accept-Encoding"
+
 
 class TestBuildResponseCompression:
     def test_build_response_gzips_html_when_requested(self) -> None:

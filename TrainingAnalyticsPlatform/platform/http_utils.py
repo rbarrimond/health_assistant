@@ -86,7 +86,11 @@ def gzip_encode_response_body(
 ) -> Tuple[bytes, Dict[str, str]]:
     """Optionally gzip-encode an HTTP response body based on request headers."""
     headers: Dict[str, str] = {}
-    accept_encoding = req.headers.get("Accept-Encoding", "") if req is not None else ""
+    accept_encoding = ""
+    if req is not None:
+        accept_encoding = req.headers.get("Accept-Encoding", "")
+        if not accept_encoding:
+            accept_encoding = req.headers.get("accept-encoding", "")
     if "gzip" not in accept_encoding.lower():
         return payload, headers
 

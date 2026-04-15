@@ -468,7 +468,7 @@ def planning_context(req: func.HttpRequest) -> func.HttpResponse:
     handler = QueryHandler(dependencies.semantic_layer)
     context, status = handler.query_planning_context(athlete_id, days)
 
-    return json_response(context, status)
+    return json_response(context, status, req=req)
 
 
 @app.route(route="workouts", methods=["GET"])
