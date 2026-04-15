@@ -8,6 +8,16 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-04-15
+
+### HTTP Response Gzip Standardization [application v3.14.1]
+
+- **Changed (response transport behavior)**: response gzip negotiation is now centralized in a shared helper so compression behavior is consistent across response builders.
+- **Changed (adapter behavior)**: HTML and plain-text responses built through the function response adapter now honor `Accept-Encoding: gzip` in addition to JSON responses.
+- **Fixed (helper interoperability)**: response-header mapping coercion now supports Azure Functions header container objects, ensuring gzip-aware decode/rebuild paths correctly detect `Content-Encoding` and `Vary` headers.
+- **Added (tests)**: targeted regression coverage verifies gzip negotiation for JSON/HTML/text responses and gzip decode behavior for response inspection helpers.
+- **Changed (postman docs)**: Postman guidance now explicitly documents a gzip-only response encoding contract and no longer implies `deflate`/`br` support.
+
 ## 2026-04-13
 
 ### Workout Detail Climb Localization and Recovery [application v3.14.0, semantic API v8.1.0, ingestion v15.9.0]

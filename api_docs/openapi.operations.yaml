@@ -6,7 +6,10 @@ info:
     Operational and administrative API for ingestion, configuration, integrations, and plugin assets.
     Complements the semantic GPT-facing specification with platform control-plane and runtime support endpoints.
 
-    This specification documents the current operations contract. For release history and change chronology, see `docs/CHANGELOG.md`.
+    Response compression contract:
+    - Clients may request gzip by sending `Accept-Encoding: gzip`.
+    - Responses may include `Content-Encoding: gzip` and `Vary: Accept-Encoding`.
+    - `deflate` and `br` are not part of the current response encoding contract.
 servers:
   - url: https://health.azure.barrimond.net
     description: Azure Functions host
@@ -492,6 +495,7 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: '#/components/parameters/AcceptEncodingOptional'
         - name: ftp_watts
           in: query
           required: false
@@ -507,6 +511,11 @@ paths:
       responses:
         '501':
           description: Placeholder response for recalculated zones
+          headers:
+            Content-Encoding:
+              $ref: '#/components/headers/ContentEncodingGzip'
+            Vary:
+              $ref: '#/components/headers/VaryAcceptEncoding'
           content:
             application/json:
               schema:
@@ -1142,6 +1151,25 @@ components:
       description: Athlete identifier (optional; falls back to DEFAULT_ATHLETE_ID)
       schema:
         type: string
+    AcceptEncodingOptional:
+      name: Accept-Encoding
+      in: header
+      required: false
+      description: Optional response-compression negotiation header. Use `gzip` to request gzip-encoded responses.
+      schema:
+        type: string
+        example: gzip
+  headers:
+    ContentEncodingGzip:
+      description: 'Present when the response body is gzip-compressed due to `Accept-Encoding: gzip` negotiation.'
+      schema:
+        type: string
+        enum: [gzip]
+    VaryAcceptEncoding:
+      description: Present when compression negotiation is applied.
+      schema:
+        type: string
+        enum: [Accept-Encoding]
   responses:
     BadRequest:
       description: Invalid input

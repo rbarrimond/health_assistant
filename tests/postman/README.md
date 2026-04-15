@@ -38,6 +38,12 @@ The Postman collection provides organized testing for:
 - Ensure your Azure Function is running locally (default: `http://localhost:7071`)
 - Run the function using: `func host start`
 
+### Response Compression
+
+API responses support `gzip` content encoding when requests include `Accept-Encoding: gzip`.
+`deflate` and `br` are not part of the current response encoding contract.
+For consistency across clients and environments, Postman requests should use `Accept-Encoding: gzip` when testing compressed responses.
+
 ### Health Check
 
 The `/health` endpoint is **anonymous** (no authentication required) and returns:

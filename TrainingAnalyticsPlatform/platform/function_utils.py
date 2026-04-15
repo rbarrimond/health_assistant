@@ -21,6 +21,7 @@ from TrainingAnalyticsPlatform.platform.http_constants import (
 from TrainingAnalyticsPlatform.platform.http_utils import (
     apply_correlation_headers,
     extract_correlation_context,
+    gzip_encode_response_body,
     json_response,
 )
 
@@ -110,16 +111,40 @@ def _build_response(
     status: int,
     req: func.HttpRequest | None = None,
 ) -> func.HttpResponse:
+    def _to_response_bytes(value: Any) -> bytes:
+        if isinstance(value, bytes):
+            return value
+        if isinstance(value, bytearray):
+            return bytes(value)
+        return str(value).encode("utf-8")
+
     if response_kind == "json":
         return json_response(cast(Dict[str, Any], body), status, req=req)
     if response_kind == "html":
-        return func.HttpResponse(body, status_code=status, mimetype=HTML_CONTENT_TYPE)
-    return func.HttpResponse(body, status_code=status, mimetype=TEXT_PLAIN_CONTENT_TYPE)
+        payload, headers = gzip_encode_response_body(_to_response_bytes(body), req=req)
+        return func.HttpResponse(
+            payload,
+            status_code=status,
+            mimetype=HTML_CONTENT_TYPE,
+            headers=headers,
+        )
+    payload, headers = gzip_encode_response_body(_to_response_bytes(body), req=req)
+    return func.HttpResponse(
+        payload,
+        status_code=status,
+        mimetype=TEXT_PLAIN_CONTENT_TYPE,
+        headers=headers,
+    )
 
 
 def _coerce_mapping(value: Any) -> Dict[str, Any]:
     if isinstance(value, Mapping):
         return dict(value)
+    if hasattr(value, "items"):
+        try:
+            return dict(value.items())
+        except Exception:  # pylint: disable=broad-exception-caught
+            return {}
     return {}
 
 

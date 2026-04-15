@@ -6,7 +6,7 @@ import json
 import gzip
 import os
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
 import azure.functions as func
@@ -66,18 +66,10 @@ def json_response(
     req: Optional[func.HttpRequest] = None,
 ) -> func.HttpResponse:
     """Create JSON HTTP response, optionally gzip-compressed."""
-    payload = json.dumps(data, default=str).encode("utf-8")
-    headers: Dict[str, str] = {}
-
-    accept_encoding = (
-        req.headers.get("Accept-Encoding", "")
-        if req is not None
-        else ""
+    payload, headers = gzip_encode_response_body(
+        json.dumps(data, default=str).encode("utf-8"),
+        req=req,
     )
-    if "gzip" in accept_encoding.lower():
-        payload = gzip.compress(payload)
-        headers["Content-Encoding"] = "gzip"
-        headers["Vary"] = "Accept-Encoding"
 
     return func.HttpResponse(
         body=payload,
@@ -85,6 +77,22 @@ def json_response(
         mimetype=JSON_CONTENT_TYPE,
         headers=headers,
     )
+
+
+def gzip_encode_response_body(
+    payload: bytes,
+    *,
+    req: Optional[func.HttpRequest] = None,
+) -> Tuple[bytes, Dict[str, str]]:
+    """Optionally gzip-encode an HTTP response body based on request headers."""
+    headers: Dict[str, str] = {}
+    accept_encoding = req.headers.get("Accept-Encoding", "") if req is not None else ""
+    if "gzip" not in accept_encoding.lower():
+        return payload, headers
+
+    headers["Content-Encoding"] = "gzip"
+    headers["Vary"] = "Accept-Encoding"
+    return gzip.compress(payload), headers
 
 
 def public_base_url(req: func.HttpRequest) -> str:

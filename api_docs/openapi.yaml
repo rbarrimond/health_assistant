@@ -2,7 +2,14 @@ openapi: 3.1.0
 info:
   title: Health Assistant API (Semantic/GPT)
   version: "8.0.0"
-  description: GPT-facing semantic API for athlete memory, planning context, workouts, physiometrics, and training-state signals. Use this spec for conversational decision support; use openapi.operations.yaml for operational and system endpoints.
+  description: |
+    GPT-facing semantic API for athlete memory, planning context, workouts, physiometrics, and training-state signals.
+    Use this spec for conversational decision support; use openapi.operations.yaml for operational and system endpoints.
+
+    Response compression contract:
+    - Clients may request gzip by sending `Accept-Encoding: gzip`.
+    - Responses may include `Content-Encoding: gzip` and `Vary: Accept-Encoding`.
+    - `deflate` and `br` are not part of the current response encoding contract.
 servers:
   - url: https://health.azure.barrimond.net
     description: Azure Functions host
@@ -406,6 +413,7 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: '#/components/parameters/AcceptEncodingOptional'
         - name: athlete_id
           in: query
           required: true
@@ -422,6 +430,11 @@ paths:
       responses:
         '200':
           description: Workout detail
+          headers:
+            Content-Encoding:
+              $ref: '#/components/headers/ContentEncodingGzip'
+            Vary:
+              $ref: '#/components/headers/VaryAcceptEncoding'
           content:
             application/json:
               schema:
@@ -738,6 +751,25 @@ components:
       description: Athlete identifier (optional; falls back to DEFAULT_ATHLETE_ID)
       schema:
         type: string
+    AcceptEncodingOptional:
+      name: Accept-Encoding
+      in: header
+      required: false
+      description: Optional response-compression negotiation header. Use `gzip` to request gzip-encoded responses.
+      schema:
+        type: string
+        example: gzip
+  headers:
+    ContentEncodingGzip:
+      description: 'Present when the response body is gzip-compressed due to `Accept-Encoding: gzip` negotiation.'
+      schema:
+        type: string
+        enum: [gzip]
+    VaryAcceptEncoding:
+      description: Present when compression negotiation is applied.
+      schema:
+        type: string
+        enum: [Accept-Encoding]
   responses:
     BadRequest:
       description: Invalid input
