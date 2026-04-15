@@ -495,7 +495,6 @@ paths:
           required: true
           schema:
             type: string
-        - $ref: '#/components/parameters/AcceptEncodingOptional'
         - name: ftp_watts
           in: query
           required: false
@@ -511,11 +510,6 @@ paths:
       responses:
         '501':
           description: Placeholder response for recalculated zones
-          headers:
-            Content-Encoding:
-              $ref: '#/components/headers/ContentEncodingGzip'
-            Vary:
-              $ref: '#/components/headers/VaryAcceptEncoding'
           content:
             application/json:
               schema:
@@ -1151,25 +1145,6 @@ components:
       description: Athlete identifier (optional; falls back to DEFAULT_ATHLETE_ID)
       schema:
         type: string
-    AcceptEncodingOptional:
-      name: Accept-Encoding
-      in: header
-      required: false
-      description: Optional response-compression negotiation header. Use `gzip` to request gzip-encoded responses.
-      schema:
-        type: string
-        example: gzip
-  headers:
-    ContentEncodingGzip:
-      description: 'Present when the response body is gzip-compressed due to `Accept-Encoding: gzip` negotiation.'
-      schema:
-        type: string
-        enum: [gzip]
-    VaryAcceptEncoding:
-      description: Present when compression negotiation is applied.
-      schema:
-        type: string
-        enum: [Accept-Encoding]
   responses:
     BadRequest:
       description: Invalid input

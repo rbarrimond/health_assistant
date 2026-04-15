@@ -30,8 +30,9 @@ from TrainingAnalyticsPlatform.platform.dependencies import dependencies
 from TrainingAnalyticsPlatform.platform.config import Config
 from TrainingAnalyticsPlatform.platform.logging_setup import setup_logging
 from TrainingAnalyticsPlatform.platform.http_utils import (
+    gzip_encode_response_body,
     extract_correlation_context,
-    json_response,
+    json_response as base_json_response,
     public_base_url,
 )
 from TrainingAnalyticsPlatform.handlers import (
@@ -65,6 +66,29 @@ logger = logging.getLogger(__name__)
 setup_logging()
 
 app = func.FunctionApp()
+
+
+def _json_response(req: func.HttpRequest, *args: Any, **kwargs: Any) -> func.HttpResponse:
+    """Return JSON response with request-aware gzip negotiation."""
+    kwargs.setdefault("req", req)
+    return base_json_response(*args, **kwargs)
+
+
+def _http_response(req: func.HttpRequest, body: Any, **kwargs: Any) -> func.HttpResponse:
+    """Return generic HTTP response with request-aware gzip negotiation for byte payloads."""
+    payload = body
+    if isinstance(payload, str):
+        payload = payload.encode("utf-8")
+    elif isinstance(payload, bytearray):
+        payload = bytes(payload)
+
+    response_headers = dict(kwargs.pop("headers", {}) or {})
+    if isinstance(payload, bytes):
+        payload, gzip_headers = gzip_encode_response_body(payload, req=req)
+        for key, value in gzip_headers.items():
+            response_headers.setdefault(key, value)
+
+    return func.HttpResponse(payload, headers=response_headers, **kwargs)
 
 ONEDRIVE_SYNC_TIMER_SCHEDULE = os.getenv("ONEDRIVE_SYNC_TIMER_SCHEDULE", "0 0 0 * * 1")
 GARMIN_SYNC_TIMER_SCHEDULE = os.getenv("GARMIN_SYNC_TIMER_SCHEDULE", "0 0 3 * * 1")
@@ -214,14 +238,14 @@ def get_async_operation_status(req: func.HttpRequest) -> func.HttpResponse:
     operation_id = req.params.get("operation_id")
 
     if not operation_id:
-        return json_response({"error": "operation_id is required"}, 400)
+        return _json_response(req, {"error": "operation_id is required"}, 400)
 
     state = dependencies.storage.async_operations.get_state(
         athlete_id=athlete_id,
         operation_id=operation_id,
     )
     if state is None:
-        return json_response(
+        return _json_response(req, 
             {
                 "error": "Operation not found",
                 "athlete_id": athlete_id,
@@ -250,7 +274,7 @@ def get_async_operation_status(req: func.HttpRequest) -> func.HttpResponse:
     if state.status == "failed":
         response_body["error_code"] = "OPERATIONAL_ERROR"
 
-    return json_response(response_body, 200)
+    return _json_response(req, response_body, 200)
 
 # ============================================================================
 # FIT File Upload Endpoints
@@ -281,7 +305,7 @@ def process_fit_files(req: func.HttpRequest) -> func.HttpResponse:
 
     handler = FitPayloadIngestionHandler(dependencies.storage)
     response, status = handler.handle(body)
-    return json_response(cast(Dict[str, Any], response), status)
+    return _json_response(req, cast(Dict[str, Any], response), status)
 
 
 # ============================================================================
@@ -296,7 +320,7 @@ def onedrive_authorize(req: func.HttpRequest) -> func.HttpResponse:
     state = req.params.get("state") or _build_onedrive_state(athlete_id)
     service = dependencies.onedrive_service
 
-    return json_response(
+    return _json_response(req, 
         {
             "authorization_url": service.build_authorize_url(state=state),
             "athlete_id": athlete_id,
@@ -314,7 +338,8 @@ def onedrive_callback(req: func.HttpRequest) -> func.HttpResponse:
     state = req.params.get("state")
 
     if not code:
-        return func.HttpResponse(
+        return _http_response(
+            req,
             "Missing authorization code",
             status_code=400,
             mimetype=TEXT_PLAIN_CONTENT_TYPE,
@@ -335,7 +360,8 @@ def onedrive_callback(req: func.HttpRequest) -> func.HttpResponse:
         "<p>You can close this window and return to the app.</p>"
         "</body></html>"
     )
-    return func.HttpResponse(
+    return _http_response(
+        req,
         success_html,
         status_code=200,
         mimetype=HTML_CONTENT_TYPE,
@@ -362,7 +388,7 @@ def onedrive_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     handler = dependencies.onedrive_service
     response, status = handler.handle(sync_req)
 
-    return json_response(response, status)
+    return _json_response(req, response, status)
 
 
 @app.route(route="onedrive/sync/reset", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
@@ -378,7 +404,7 @@ def onedrive_sync_reset_http(req: func.HttpRequest) -> func.HttpResponse:
     handler = dependencies.onedrive_service
     response, status = handler.handle_reset(reset_req)
 
-    return json_response(response, status)
+    return _json_response(req, response, status)
 
 
 @app.timer_trigger(arg_name="timer", schedule=ONEDRIVE_SYNC_TIMER_SCHEDULE)
@@ -468,7 +494,7 @@ def planning_context(req: func.HttpRequest) -> func.HttpResponse:
     handler = QueryHandler(dependencies.semantic_layer)
     context, status = handler.query_planning_context(athlete_id, days)
 
-    return json_response(context, status, req=req)
+    return _json_response(req, context, status)
 
 
 @app.route(route="workouts", methods=["GET"])
@@ -491,7 +517,7 @@ def list_workouts(req: func.HttpRequest) -> func.HttpResponse:
         sport=sport,
     )
 
-    return json_response({
+    return _json_response(req, {
         "athlete_id": athlete_id,
         "count": len(workouts),
         "workouts": workouts,
@@ -510,7 +536,7 @@ def get_workout_detail(req: func.HttpRequest) -> func.HttpResponse:
     }
 
     if not workout_id:
-        return json_response({"error": "workout_id required in route"}, 400)
+        return _json_response(req, {"error": "workout_id required in route"}, 400)
 
     handler = QueryHandler(dependencies.semantic_layer)
     workout, status = handler.query_workout_detail(
@@ -520,7 +546,7 @@ def get_workout_detail(req: func.HttpRequest) -> func.HttpResponse:
         include_developer_fields=include_developer_fields,
     )
 
-    return json_response(workout, status, req=req)
+    return _json_response(req, workout, status)
 
 
 @app.route(route="workouts/{workout_id}/laps/{lap_index}", methods=["GET"])
@@ -532,15 +558,15 @@ def get_workout_lap_detail(req: func.HttpRequest) -> func.HttpResponse:
     lap_index = req.route_params.get("lap_index")
 
     if not workout_id:
-        return json_response({"error": "workout_id required in route"}, 400)
+        return _json_response(req, {"error": "workout_id required in route"}, 400)
 
     if lap_index is None:
-        return json_response({"error": "lap_index required in route"}, 400)
+        return _json_response(req, {"error": "lap_index required in route"}, 400)
 
     try:
         lap_index_int = int(lap_index)
     except ValueError:
-        return json_response({"error": "lap_index must be an integer"}, 400)
+        return _json_response(req, {"error": "lap_index must be an integer"}, 400)
 
     handler = QueryHandler(dependencies.semantic_layer)
     lap, status = handler.query_workout_lap_detail(
@@ -549,7 +575,7 @@ def get_workout_lap_detail(req: func.HttpRequest) -> func.HttpResponse:
         lap_index_int,
     )
 
-    return json_response(lap, status, req=req)
+    return _json_response(req, lap, status)
 
 
 @app.route(
@@ -574,7 +600,7 @@ def get_workout_recalculated(req: func.HttpRequest) -> func.HttpResponse:
         }
     }
 
-    return json_response(response, 501)
+    return _json_response(req, response, 501)
 
 
 @app.route(route="analysis/zones", methods=["GET"])
@@ -588,7 +614,7 @@ def zone_distribution(req: func.HttpRequest) -> func.HttpResponse:
     handler = QueryHandler(dependencies.semantic_layer)
     zones, status = handler.query_training_zones(athlete_id, days)
 
-    return json_response(zones, status)
+    return _json_response(req, zones, status)
 
 
 @app.route(route="analysis/efficiency", methods=["GET"])
@@ -602,7 +628,7 @@ def efficiency_trends(req: func.HttpRequest) -> func.HttpResponse:
     handler = QueryHandler(dependencies.semantic_layer)
     trends, status = handler.query_efficiency_trends(athlete_id, days)
 
-    return json_response(trends, status)
+    return _json_response(req, trends, status)
 
 
 @app.route(route="rollups/weekly", methods=["GET"])
@@ -616,7 +642,7 @@ def weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
     handler = QueryHandler(dependencies.semantic_layer)
     rollups, status = handler.query_weekly_rollups(athlete_id, weeks)
 
-    return json_response(rollups, status)
+    return _json_response(req, rollups, status)
 
 
 # ============================================================================
@@ -637,7 +663,7 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable
     # Add timestamp
     result["timestamp"] = datetime.now(timezone.utc).isoformat()
 
-    return json_response(result, status)
+    return _json_response(req, result, status)
 
 
 @app.route(route=".well-known/ai-plugin.json", methods=["GET"])
@@ -660,7 +686,7 @@ def serve_ai_plugin_manifest(req: func.HttpRequest) -> func.HttpResponse:
     handler = HealthHandler(dependencies.storage, API_DOCS_DIR)
     result, status = handler.get_plugin_manifest(base_url, env_overrides)
 
-    return json_response(result, status)
+    return _json_response(req, result, status)
 
 
 @app.route(route="openapi.yaml", methods=["GET"])
@@ -675,7 +701,7 @@ def serve_openapi_spec(req: func.HttpRequest) -> func.HttpResponse:
     handler = HealthHandler(dependencies.storage, API_DOCS_DIR)
     spec_body, status = handler.get_openapi_spec(base_url)
 
-    return func.HttpResponse(spec_body, status_code=status, mimetype="application/x-yaml")
+    return _http_response(req, spec_body, status_code=status, mimetype="application/x-yaml")
 
 
 @app.route(route="logo.svg", methods=["GET"])
@@ -688,7 +714,7 @@ def serve_logo(req: func.HttpRequest) -> func.HttpResponse:  # pylint: disable=u
     handler = HealthHandler(dependencies.storage, API_DOCS_DIR)
     logo_body, status = handler.get_logo()
 
-    return func.HttpResponse(logo_body, status_code=status, mimetype="image/svg+xml")
+    return _http_response(req, logo_body, status_code=status, mimetype="image/svg+xml")
 
 
 # ============================================================================
@@ -704,7 +730,7 @@ def get_current_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
     handler = PhysiometricsHandler(dependencies.semantic_layer)
     result, status = handler.get_current(athlete_id)
 
-    return json_response(result, status)
+    return _json_response(req, result, status)
 
 
 @app.route(route="physiometrics/history", methods=["GET"])
@@ -720,7 +746,7 @@ def get_physiometrics_history(req: func.HttpRequest) -> func.HttpResponse:
     handler = PhysiometricsHandler(dependencies.semantic_layer)
     result, status = handler.get_history(athlete_id, days, metrics)
 
-    return json_response(result, status)
+    return _json_response(req, result, status)
 
 
 @app.route(route="physiometrics/update", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
@@ -730,12 +756,12 @@ def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
     try:
         req_body = req.get_json()
     except ValueError:
-        return json_response({"error": ERR_INVALID_JSON}, 400)
+        return _json_response(req, {"error": ERR_INVALID_JSON}, 400)
 
     update_request = PhysiometricsUpdateRequest.from_payload(req_body)
 
     if not (update_request.has_single_metric or update_request.has_bulk_metrics):
-        return json_response(
+        return _json_response(req, 
             {"error": "Either 'metric'+'value' or 'metrics' dict required"}, 400
         )
 
@@ -760,7 +786,7 @@ def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
             source=update_request.source,
         )
 
-    return json_response(result, status)
+    return _json_response(req, result, status)
 
 
 # ============================================================================
@@ -785,7 +811,7 @@ def get_current_training_state(req: func.HttpRequest) -> func.HttpResponse:
     handler = PhysiometricsHandler(dependencies.semantic_layer)
     result, status = handler.get_training_state_current(athlete_id)
 
-    return json_response(result, status)
+    return _json_response(req, result, status)
 
 
 @app.route(route="training-state/history", methods=["GET"])
@@ -808,7 +834,7 @@ def get_training_state_history(req: func.HttpRequest) -> func.HttpResponse:
     handler = PhysiometricsHandler(dependencies.semantic_layer)
     result, status = handler.get_training_state_history(athlete_id, days)
 
-    return json_response(result, status)
+    return _json_response(req, result, status)
 
 
 # ============================================================================
@@ -827,7 +853,7 @@ def get_agent_context(req: func.HttpRequest) -> func.HttpResponse:
     handler = AgentMemoryHandler(dependencies.storage)
     result, status = handler.get_context(athlete_id)
 
-    return json_response(result, status)
+    return _json_response(req, result, status)
 
 
 @app.route(route="agent/preferences", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
@@ -841,7 +867,7 @@ def get_agent_preferences(req: func.HttpRequest) -> func.HttpResponse:
     handler = AgentMemoryHandler(dependencies.storage)
     result, status = handler.get_preferences(athlete_id, status_filter, limit)
 
-    return json_response(result, status)
+    return _json_response(req, result, status)
 
 
 @app.route(route="agent/preferences", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
@@ -851,7 +877,7 @@ def update_agent_preferences(req: func.HttpRequest) -> func.HttpResponse:
     try:
         req_body = req.get_json()
     except ValueError:
-        return json_response({"error": ERR_INVALID_JSON}, 400)
+        return _json_response(req, {"error": ERR_INVALID_JSON}, 400)
 
     athlete_id = req_body.get("athlete_id", "rob")
     category = req_body.get("category")
@@ -870,7 +896,7 @@ def update_agent_preferences(req: func.HttpRequest) -> func.HttpResponse:
         status=status
     )
 
-    return json_response(result, status)
+    return _json_response(req, result, status)
 
 
 @app.route(route="agent/preferences/{preference_id}", methods=["PATCH"],
@@ -880,12 +906,12 @@ def update_agent_preference(req: func.HttpRequest) -> func.HttpResponse:
     """Update a preference (status, summary, details, etc.)."""
     preference_id = req.route_params.get("preference_id")
     if not preference_id:
-        return json_response({"error": "preference_id required in route"}, 400)
+        return _json_response(req, {"error": "preference_id required in route"}, 400)
 
     try:
         req_body = req.get_json()
     except ValueError:
-        return json_response({"error": ERR_INVALID_JSON}, 400)
+        return _json_response(req, {"error": ERR_INVALID_JSON}, 400)
 
     athlete_id = req_body.get("athlete_id", "rob")
 
@@ -896,7 +922,7 @@ def update_agent_preference(req: func.HttpRequest) -> func.HttpResponse:
         updates=req_body
     )
 
-    return json_response(result, status_code)
+    return _json_response(req, result, status_code)
 
 
 @app.route(route="agent/observations", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
@@ -910,7 +936,7 @@ def list_agent_observations(req: func.HttpRequest) -> func.HttpResponse:
     handler = AgentMemoryHandler(dependencies.storage)
     result, status = handler.list_observations(athlete_id, status_filter, limit)
 
-    return json_response(result, status)
+    return _json_response(req, result, status)
 
 
 @app.route(route="agent/observations", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
@@ -920,7 +946,7 @@ def add_agent_observation(req: func.HttpRequest) -> func.HttpResponse:
     try:
         req_body = req.get_json()
     except ValueError:
-        return json_response({"error": ERR_INVALID_JSON}, 400)
+        return _json_response(req, {"error": ERR_INVALID_JSON}, 400)
 
     athlete_id = req_body.get("athlete_id", "rob")
     category = req_body.get("category")
@@ -941,7 +967,7 @@ def add_agent_observation(req: func.HttpRequest) -> func.HttpResponse:
         expires_days=expires_days
     )
 
-    return json_response(result, status)
+    return _json_response(req, result, status)
 
 
 @app.route(route="agent/observations/{observation_id}", methods=["PATCH"],
@@ -951,12 +977,12 @@ def update_agent_observation(req: func.HttpRequest) -> func.HttpResponse:
     """Update an observation's status."""
     observation_id = req.route_params.get("observation_id")
     if not observation_id:
-        return json_response({"error": "observation_id required in route"}, 400)
+        return _json_response(req, {"error": "observation_id required in route"}, 400)
 
     try:
         req_body = req.get_json()
     except ValueError:
-        return json_response({"error": ERR_INVALID_JSON}, 400)
+        return _json_response(req, {"error": ERR_INVALID_JSON}, 400)
 
     athlete_id = req_body.get("athlete_id", "rob")
     status = req_body.get("status")
@@ -968,7 +994,7 @@ def update_agent_observation(req: func.HttpRequest) -> func.HttpResponse:
         status=status
     )
 
-    return json_response(result, status_code)
+    return _json_response(req, result, status_code)
 
 
 # ============================================================================
@@ -984,7 +1010,7 @@ def withings_authorize(req: func.HttpRequest) -> func.HttpResponse:
     handler = WithingsHandler(dependencies.withings_client, dependencies.storage)
     result, status = handler.get_authorization_url(athlete_id)
 
-    return json_response(result, status)
+    return _json_response(req, result, status)
 
 
 @app.route(route="withings/callback", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
@@ -1007,7 +1033,7 @@ def withings_callback(req: func.HttpRequest) -> func.HttpResponse:
     html, status, content_type = handler.handle_oauth_callback(
         code, state, webhook_callback_url)
 
-    return func.HttpResponse(html, status_code=status, mimetype=content_type)
+    return _http_response(req, html, status_code=status, mimetype=content_type)
 
 
 @app.route(
@@ -1033,7 +1059,7 @@ def withings_webhook(req: func.HttpRequest) -> func.HttpResponse:
         webhook_request.enddate,
     )
 
-    return func.HttpResponse(result, status_code=status)
+    return _http_response(req, result, status_code=status)
 
 
 @app.route(route="withings/sync", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
@@ -1051,11 +1077,11 @@ def withings_sync(req: func.HttpRequest) -> func.HttpResponse:
     try:
         lookback_days = int(lookback_value)
     except (TypeError, ValueError):
-        return json_response({"error": "lookback_days must be an integer"}, 400)
+        return _json_response(req, {"error": "lookback_days must be an integer"}, 400)
 
     handler = WithingsHandler(dependencies.withings_client, dependencies.storage)
     result, status = handler.sync_metrics(athlete_id, lookback_days)
-    return json_response(result, status)
+    return _json_response(req, result, status)
 
 
 # ============================================================================
@@ -1082,7 +1108,7 @@ def garmin_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     handler = dependencies.garmin_service
     response, status = handler.handle(sync_req)
 
-    return json_response(response, status)
+    return _json_response(req, response, status)
 
 
 @app.timer_trigger(arg_name="timer", schedule=GARMIN_SYNC_TIMER_SCHEDULE)
@@ -1135,7 +1161,7 @@ def garmin_physiometrics_sync_http(req: func.HttpRequest) -> func.HttpResponse:
         sync_request.lookback_days,
         force=sync_request.force,
     )
-    return json_response(response, status)
+    return _json_response(req, response, status)
 
 
 @app.timer_trigger(arg_name="timer", schedule=GARMIN_PHYSIOMETRICS_SYNC_TIMER_SCHEDULE)
@@ -1197,7 +1223,7 @@ def intervals_sync_http(req: func.HttpRequest) -> func.HttpResponse:
     # Validate intervals_athlete_id (required for API)
     if not sync_request.intervals_athlete_id:
         logger.warning("Missing intervals_athlete_id for Intervals sync")
-        return json_response({"error": "intervals_athlete_id parameter required"}, 400)
+        return _json_response(req, {"error": "intervals_athlete_id parameter required"}, 400)
 
     logger.info(
         "Intervals sync: intervals_athlete_id from %s",
@@ -1213,7 +1239,7 @@ def intervals_sync_http(req: func.HttpRequest) -> func.HttpResponse:
         force=sync_request.force,
     )
 
-    return json_response(response, status)
+    return _json_response(req, response, status)
 
 
 @app.timer_trigger(arg_name="timer", schedule=INTERVALS_SYNC_TIMER_SCHEDULE)
@@ -1264,12 +1290,12 @@ def update_config(req: func.HttpRequest) -> func.HttpResponse:
     try:
         req_body = req.get_json()
     except ValueError:
-        return json_response({"error": ERR_INVALID_JSON}, 400)
+        return _json_response(req, {"error": ERR_INVALID_JSON}, 400)
 
     handler = ConfigHandler()
     result, status = handler.update_config(req_body)
 
-    return json_response(result, status)
+    return _json_response(req, result, status)
 
 
 @app.route(route="config/history", methods=["GET"])
@@ -1279,12 +1305,12 @@ def config_history(req: func.HttpRequest) -> func.HttpResponse:
     try:
         limit = int(req.params.get("limit", "10"))
     except ValueError:
-        return json_response({"error": "Invalid limit parameter"}, 400)
+        return _json_response(req, {"error": "Invalid limit parameter"}, 400)
 
     handler = ConfigHandler()
     result, status = handler.get_history(limit)
 
-    return json_response(result, status)
+    return _json_response(req, result, status)
 
 
 # ============================================================================
@@ -1381,7 +1407,7 @@ def force_weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
             list_athletes_with_workouts=dependencies.semantic_layer.list_athletes_with_workouts,
         )
     except (TypeError, ValueError):
-        return json_response({"error": "weeks must be an integer >= 1"}, 400)
+        return _json_response(req, {"error": "weeks must be an integer >= 1"}, 400)
 
     result = dependencies.semantic_layer.compute_and_persist_previous_week_rollups(
         athlete_ids=rollup_request.athletes,
@@ -1389,4 +1415,4 @@ def force_weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
     )
 
     status = 207 if result.get("status") in {"partial", "failed"} else 200
-    return json_response(result, status)
+    return _json_response(req, result, status)
