@@ -4,7 +4,7 @@ kb_role: domain_modality_context
 subject: Cycling Endurance Framework
 modality: cycling
 athlete_id: rob
-version: 1.0.1
+version: 1.2.0
 status: active
 tags:
     - zone2
@@ -16,7 +16,7 @@ tags:
 
 # Cycling Context – Endurance & Longevity Framework
 
-Version: 1.0.1
+Version: 1.2.0
 
 **Semantic Versioning Policy:**
 
@@ -42,7 +42,7 @@ All non-cycling activities (strength, mobility, recovery work) exist to:
 - reduce injury risk
 - preserve long-term riding capacity
 
-When conflicts arise, cycling sustainability takes precedence over auxiliary training.
+When conflicts arise, cycling sustainability is prioritized, while still respecting injury risk and long-term durability.
 
 ---
 
@@ -51,8 +51,9 @@ When conflicts arise, cycling sustainability takes precedence over auxiliary tra
 1. **Maintain the ability to ride frequently and consistently**
 2. **Preserve aerobic base and metabolic efficiency**
 3. **Avoid overuse injuries and connective tissue breakdown**
-4. **Support gradual, sustainable performance improvements**
+4. **Develop durable yet punchy performance (endurance with repeatable hard efforts)**
 5. **Preserve enjoyment and psychological durability**
+6. **Support long-term healthspan and functional longevity**
 
 Peak fitness is secondary to durability and repeatability.
 
@@ -64,6 +65,7 @@ Peak fitness is secondary to durability and repeatability.
 - Aerobic adaptations are prioritized over anaerobic capacity.
 - Fitness gains are expected to accrue slowly and persistently.
 - Short-term intensity is used sparingly and intentionally.
+- Short, controlled high-intensity efforts are included to maintain “punch” without compromising durability.
 
 Loss of consistency is considered a greater failure than temporary under-reaching.
 
@@ -82,6 +84,7 @@ Loss of consistency is considered a greater failure than temporary under-reachin
 - Cycling RPE correlates reasonably with heart rate and metabolic load.
 - Sustained mouth breathing during cycling indicates moderate-to-high systemic stress.
 - RPE must be interpreted in context of duration and cumulative load.
+- Brief spikes in RPE are acceptable when they are repeatable and do not degrade overall session quality.
 
 ---
 
