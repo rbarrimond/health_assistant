@@ -8,6 +8,18 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-04-25
+
+### Training-State History Range Support and Query-Time Performance Hardening [application v3.15.0]
+
+- **Why this is a MINOR bump**: this release adds backward-compatible query capability to the training-state history endpoint via optional `since` and `until` parameters while preserving the existing `days` workflow.
+- **Added (training-state history API)**: `GET /api/training-state/history` now accepts explicit inclusive `since` and `until` date bounds in addition to the legacy `days` parameter.
+- **Fixed (HTTP adapter validation)**: malformed `days` values now return `400` from the route adapter instead of surfacing as `500` errors before handler validation can run.
+- **Fixed (date-range validation)**: training-state history requests now reject malformed `since` or `until` dates and inverted or future-implied ranges with explicit `400` responses.
+- **Changed (query-time performance)**: training-state history now prefetches workouts once for the full rolling window, resolves TSS once per workout, and derives daily 7-day and 28-day load values in memory instead of repeating overlapping storage reads for each day.
+- **Changed (documentation contract)**: the OpenAPI schema and architecture documentation now reflect the explicit range-query behavior and the current response envelope, including `query_window`, `count`, `data_points`, and `computed_at_utc`.
+- **Added (tests)**: focused route, handler, and semantic-layer regression coverage now verifies range support, validation branches, and the one-query-per-window performance path.
+
 ## 2026-04-15
 
 ### HTTP Response Gzip Standardization [application v3.14.1]

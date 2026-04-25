@@ -1,5 +1,6 @@
 """Physiometrics data handler."""
 
+from datetime import date
 import logging
 from typing import Dict, List, Tuple, Any, Optional
 
@@ -10,6 +11,9 @@ logger = logging.getLogger(__name__)
 
 # Error message constants
 ERROR_MISSING_ATHLETE_ID = "Missing required parameter: athlete_id"
+ERROR_INVALID_SINCE = "Invalid since date; expected YYYY-MM-DD"
+ERROR_INVALID_UNTIL = "Invalid until date; expected YYYY-MM-DD"
+ERROR_INVALID_DATE_RANGE = "Invalid date range; since must be on or before until"
 
 
 class PhysiometricsHandler:
@@ -198,13 +202,17 @@ class PhysiometricsHandler:
     def get_training_state_history(
         self,
         athlete_id: str,
-        days: int = 45
+        days: int = 45,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
     ) -> Tuple[Dict[str, Any], int]:
         """Get training state history (on-demand projection for date range).
 
         Args:
             athlete_id: Athlete identifier
             days: Number of days to look back (default 45, max 90)
+            since: Optional inclusive start date (YYYY-MM-DD)
+            until: Optional inclusive end date (YYYY-MM-DD)
 
         Returns:
             Tuple of (response_dict, status_code) containing:
@@ -214,12 +222,34 @@ class PhysiometricsHandler:
         if not athlete_id:
             return {"error": ERROR_MISSING_ATHLETE_ID}, 400
 
+        since_date: Optional[date] = None
+        until_date: Optional[date] = None
+
+        if since is not None:
+            try:
+                since_date = date.fromisoformat(since)
+            except ValueError:
+                return {"error": ERROR_INVALID_SINCE}, 400
+
+        if until is not None:
+            try:
+                until_date = date.fromisoformat(until)
+            except ValueError:
+                return {"error": ERROR_INVALID_UNTIL}, 400
+
+        effective_until = until_date or date.today()
+
+        if since_date is not None and since_date > effective_until:
+            return {"error": ERROR_INVALID_DATE_RANGE}, 400
+
         try:
             days = min(days, 90)  # Cap at 90 days
 
             result = self.semantic_layer.compute_training_state_history(
                 athlete_id=athlete_id,
-                days=days
+                days=days,
+                since=since_date.isoformat() if since_date is not None else None,
+                until=until_date.isoformat() if until_date is not None else None,
             )
 
             return result, 200

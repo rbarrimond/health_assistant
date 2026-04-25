@@ -171,6 +171,45 @@ class TestPhysiometricsEndpointHandlers:
         assert body["athlete_id"] == "rob"
         mock_handler.get_current.assert_called_once_with("rob")
 
+    def test_get_training_state_history_passes_since_until(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.params = {
+            "athlete_id": "rob",
+            "days": "45",
+            "since": "2026-03-01",
+            "until": "2026-03-10",
+        }
+
+        mock_handler = MagicMock()
+        mock_handler.get_training_state_history.return_value = ({"athlete_id": "rob"}, 200)
+
+        with _patch_dependency("semantic_layer", MagicMock()):
+            with patch("function_app.PhysiometricsHandler", return_value=mock_handler):
+                response = function_app.get_training_state_history(req)
+
+        assert response.status_code == 200
+        mock_handler.get_training_state_history.assert_called_once_with(
+            "rob",
+            days=45,
+            since="2026-03-01",
+            until="2026-03-10",
+        )
+
+    def test_get_training_state_history_rejects_invalid_days(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.params = {
+            "athlete_id": "rob",
+            "days": "abc",
+            "since": "2026-03-01",
+            "until": "2026-03-10",
+        }
+
+        response = function_app.get_training_state_history(req)
+
+        assert response.status_code == 400
+        body = json.loads(response.get_body())
+        assert body == {"error": "days must be an integer >= 0"}
+
     def test_get_physiometrics_history_parses_metrics(self):
         req = MagicMock(spec=func.HttpRequest)
         req.params = {

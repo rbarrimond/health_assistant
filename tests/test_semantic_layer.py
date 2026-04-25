@@ -1208,6 +1208,54 @@ class TestTrainingStateQueries:
         assert point["garmin_load_focus_high_aerobic_pct"] == pytest.approx(50.0)
         assert point["garmin_load_focus_anaerobic_pct"] == pytest.approx(18.0)
 
+    def test_compute_training_state_history_uses_since_until_range(
+        self, semantic_layer
+    ):
+        """History response should honor explicit inclusive since/until range."""
+        snapshot = SimpleNamespace(
+            effective_date="2026-03-18",
+            cts_rolling_7d=5.1,
+            cts_rolling_28d=10.1,
+            ats_rolling=5.1,
+            fatigue_index=0.51,
+            readiness_score=None,
+            garmin_readiness_score=None,
+            garmin_training_status=None,
+            garmin_training_load=None,
+            garmin_recovery_time_hours=None,
+            garmin_load_focus_low_aerobic_pct=None,
+            garmin_load_focus_high_aerobic_pct=None,
+            garmin_load_focus_anaerobic_pct=None,
+            mood=None,
+            soreness=None,
+            pred_recovery_days=None,
+            data_sources="workouts,physiometrics",
+            canonical_version="5.1.0",
+        )
+
+        with patch.object(
+            semantic_layer,
+            "_prefetch_training_state_history_tss",
+            return_value={},
+        ) as prefetch_tss, patch.object(
+            semantic_layer,
+            "_build_training_state_snapshot_from_tss",
+            return_value=snapshot,
+        ):
+            result = semantic_layer.compute_training_state_history(
+                "rob",
+                since="2026-03-17",
+                until="2026-03-18",
+            )
+
+        assert result["query_window"] == {
+            "start_date": "2026-03-17",
+            "end_date": "2026-03-18",
+            "days": 1,
+        }
+        assert result["count"] == 2
+        prefetch_tss.assert_called_once()
+
     def test_compute_training_state_history_resolves_workouts_once_per_window(
         self, semantic_layer, mock_storage
     ):

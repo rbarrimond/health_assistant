@@ -698,12 +698,26 @@ paths:
         - name: days
           in: query
           required: false
-          description: Days to look back (default 90, max 365)
+          description: Days to look back when since/until are not provided (default 45, max 90)
           schema:
             type: integer
             format: int32
-            default: 90
-            maximum: 365
+            default: 45
+            maximum: 90
+        - name: since
+          in: query
+          required: false
+          description: Inclusive start date (YYYY-MM-DD). Overrides the derived start date when provided.
+          schema:
+            type: string
+            format: date
+        - name: until
+          in: query
+          required: false
+          description: Inclusive end date (YYYY-MM-DD). Defaults to today when omitted.
+          schema:
+            type: string
+            format: date
       security:
         - FunctionKey: []
       responses:
@@ -716,12 +730,26 @@ paths:
                 properties:
                   athlete_id:
                     type: string
-                  days:
+                  query_window:
+                    type: object
+                    properties:
+                      start_date:
+                        type: string
+                        format: date
+                      end_date:
+                        type: string
+                        format: date
+                      days:
+                        type: integer
+                  count:
                     type: integer
-                  snapshots:
+                  data_points:
                     type: array
                     items:
                       $ref: '#/components/schemas/TrainingStateSnapshot'
+                  computed_at_utc:
+                    type: string
+                    format: date-time
               examples:
                 default:
                   $ref: '#/components/examples/TrainingStateHistoryExample'
@@ -1106,8 +1134,12 @@ components:
       summary: Training state history response
       value:
         athlete_id: rob
-        days: 14
-        snapshots:
+        query_window:
+          start_date: '2026-03-12'
+          end_date: '2026-03-25'
+          days: 13
+        count: 3
+        data_points:
           - athlete_id: rob
             effective_date: '2026-03-23'
             cts_rolling_7d: 68.9
@@ -1115,11 +1147,13 @@ components:
             ats_rolling: 79.3
             fatigue_index: 1.24
             readiness_score: 71
+            garmin_readiness_score: 69
             garmin_training_status: MAINTAINING
-            pred_recovery_days: 2
-            data_sources: workouts,physiometrics,garmin
-            canonical_version: 3.0.0
-            last_updated_utc: '2026-03-23T09:45:00+00:00'
+            garmin_training_load: 376.0
+            garmin_recovery_time_hours: 6.5
+            garmin_load_focus_low_aerobic_pct: 30.0
+            garmin_load_focus_high_aerobic_pct: 55.0
+            garmin_load_focus_anaerobic_pct: 15.0
           - athlete_id: rob
             effective_date: '2026-03-24'
             cts_rolling_7d: 70.5
@@ -1127,11 +1161,13 @@ components:
             ats_rolling: 84.2
             fatigue_index: 1.31
             readiness_score: 69
+            garmin_readiness_score: 67
             garmin_training_status: PRODUCTIVE
-            pred_recovery_days: 2
-            data_sources: workouts,physiometrics,garmin
-            canonical_version: 3.0.0
-            last_updated_utc: '2026-03-24T09:45:00+00:00'
+            garmin_training_load: 392.0
+            garmin_recovery_time_hours: 8.0
+            garmin_load_focus_low_aerobic_pct: 28.0
+            garmin_load_focus_high_aerobic_pct: 57.0
+            garmin_load_focus_anaerobic_pct: 15.0
           - athlete_id: rob
             effective_date: '2026-03-25'
             cts_rolling_7d: 71.4
@@ -1139,11 +1175,13 @@ components:
             ats_rolling: 83.7
             fatigue_index: 1.29
             readiness_score: 74
+            garmin_readiness_score: 72
             garmin_training_status: PRODUCTIVE
-            pred_recovery_days: 1
-            data_sources: workouts,physiometrics,garmin
-            canonical_version: 3.0.0
-            last_updated_utc: '2026-03-25T09:45:00+00:00'
+            garmin_training_load: 388.0
+            garmin_recovery_time_hours: 5.5
+            garmin_load_focus_low_aerobic_pct: 29.0
+            garmin_load_focus_high_aerobic_pct: 56.0
+            garmin_load_focus_anaerobic_pct: 15.0
   schemas:
     HealthStatus:
       type: object

@@ -3560,7 +3560,11 @@ class SemanticLayer:
         }
 
     def compute_training_state_history(
-        self, athlete_id: str, days: int = 45
+        self,
+        athlete_id: str,
+        days: int = 45,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
     ) -> Dict:
         """
         Compute training state history on-demand for a date range.
@@ -3571,12 +3575,19 @@ class SemanticLayer:
         Args:
             athlete_id: Athlete identifier
             days: Number of days to look back (default 45)
+            since: Optional inclusive start date (YYYY-MM-DD)
+            until: Optional inclusive end date (YYYY-MM-DD)
 
         Returns:
             Dict with query window and list of daily training state snapshots
         """
-        end_date = datetime.now(timezone.utc).date()
-        start_date = end_date - timedelta(days=days)
+        end_date = datetime.now(timezone.utc).date() if until is None else datetime.fromisoformat(
+            until
+        ).date()
+        start_date = end_date - timedelta(days=days) if since is None else datetime.fromisoformat(
+            since
+        ).date()
+        days = (end_date - start_date).days
 
         daily_tss = self._prefetch_training_state_history_tss(
             athlete_id,

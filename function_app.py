@@ -824,15 +824,27 @@ def get_training_state_history(req: func.HttpRequest) -> func.HttpResponse:
     Args:
         athlete_id: Athlete identifier (default: "rob")
         days: Number of days to look back (default: 45, max: 90)
+        since: Optional inclusive start date (YYYY-MM-DD)
+        until: Optional inclusive end date (YYYY-MM-DD)
     
     Returns:
         List of daily training state snapshots with rolling TSS and fatigue metrics.
     """
     athlete_id = req.params.get("athlete_id", "rob")
-    days = int(req.params.get("days", "45"))
+    try:
+        days = int(req.params.get("days", "45"))
+    except ValueError:
+        return _json_response(req, {"error": "days must be an integer >= 0"}, 400)
+    since = req.params.get("since")
+    until = req.params.get("until")
 
     handler = PhysiometricsHandler(dependencies.semantic_layer)
-    result, status = handler.get_training_state_history(athlete_id, days)
+    result, status = handler.get_training_state_history(
+        athlete_id,
+        days=days,
+        since=since,
+        until=until,
+    )
 
     return _json_response(req, result, status)
 

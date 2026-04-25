@@ -2,6 +2,7 @@
 
 # pylint: disable=line-too-long
 
+from datetime import date
 from unittest.mock import Mock
 
 import pytest
@@ -144,6 +145,62 @@ class TestPhysiometricsHandler:
         assert status == 400
         assert "error" in result
         mock_semantic_layer.get_physiometrics_trends.assert_not_called()
+
+    def test_get_training_state_history_uses_explicit_date_range(self, handler, mock_semantic_layer):
+        """Training state history should forward parsed since/until dates to the semantic layer."""
+        mock_semantic_layer.compute_training_state_history.return_value = {"count": 2}
+
+        result, status = handler.get_training_state_history(
+            "athlete1",
+            days=45,
+            since="2026-03-01",
+            until="2026-03-02",
+        )
+
+        assert status == 200
+        assert result == {"count": 2}
+        mock_semantic_layer.compute_training_state_history.assert_called_once_with(
+            athlete_id="athlete1",
+            days=45,
+            since=date(2026, 3, 1).isoformat(),
+            until=date(2026, 3, 2).isoformat(),
+        )
+
+    def test_get_training_state_history_rejects_invalid_since(self, handler, mock_semantic_layer):
+        """Training state history should reject malformed since dates."""
+        result, status = handler.get_training_state_history(
+            "athlete1",
+            since="2026-02-30",
+        )
+
+        assert status == 400
+        assert result == {"error": "Invalid since date; expected YYYY-MM-DD"}
+        mock_semantic_layer.compute_training_state_history.assert_not_called()
+
+    def test_get_training_state_history_rejects_inverted_date_range(self, handler, mock_semantic_layer):
+        """Training state history should reject date ranges where since is after until."""
+        result, status = handler.get_training_state_history(
+            "athlete1",
+            since="2026-03-03",
+            until="2026-03-01",
+        )
+
+        assert status == 400
+        assert result == {"error": "Invalid date range; since must be on or before until"}
+        mock_semantic_layer.compute_training_state_history.assert_not_called()
+
+    def test_get_training_state_history_rejects_future_since_without_until(self, handler, mock_semantic_layer):
+        """Training state history should reject a future since date when until defaults to today."""
+        future_since = date.today().replace(year=date.today().year + 1).isoformat()
+
+        result, status = handler.get_training_state_history(
+            "athlete1",
+            since=future_since,
+        )
+
+        assert status == 400
+        assert result == {"error": "Invalid date range; since must be on or before until"}
+        mock_semantic_layer.compute_training_state_history.assert_not_called()
 
     def test_update_metric_success(self, handler, mock_semantic_layer):
         """Test successful single metric update."""
