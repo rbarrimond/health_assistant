@@ -395,6 +395,25 @@ class TestWorkoutQueries:
 
         assert len(workouts) == 1
 
+    def test_get_workouts_normalizes_date_only_filters_to_utc_bounds(
+        self, semantic_layer, sample_workout_projections, mock_storage
+    ):
+        """Date-only workout filters should become inclusive UTC-aware bounds."""
+        with patch.object(
+            semantic_layer, '_get_workout_projections_in_range', return_value=sample_workout_projections
+        ) as get_range:
+            semantic_layer.get_workouts(
+                "rob",
+                since="2026-01-01",
+                until="2026-01-31",
+                limit=50,
+            )
+
+        get_range.assert_called_once()
+        _, start_date, end_date = get_range.call_args.args
+        assert start_date == datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        assert end_date == datetime(2026, 1, 31, 23, 59, 59, 999999, tzinfo=timezone.utc)
+
     def test_get_workout_detail_found(self, semantic_layer, mock_storage):
         """Test retrieving detailed workout data."""
         mock_table_client = MagicMock()

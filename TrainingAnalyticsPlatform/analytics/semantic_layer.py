@@ -8,7 +8,7 @@ It shapes data for reasoning, constrains scope, and encodes how humans think abo
 import logging
 import os
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, TypedDict
 import pandas as pd
@@ -354,17 +354,17 @@ class SemanticLayer:
             List of WorkoutProjection dictionaries
         """
         # Parse date range
-        end_date = (
-            datetime.fromisoformat(until.replace("Z", UTC_OFFSET))
-            if until
-            else datetime.now(timezone.utc)
+        end_date = self._parse_workout_query_bound(
+            until,
+            default_value=datetime.now(timezone.utc),
+            is_end=True,
         )
 
         # Default to 90 days if no start date
-        start_date = (
-            datetime.fromisoformat(since.replace("Z", UTC_OFFSET))
-            if since
-            else end_date - timedelta(days=90)
+        start_date = self._parse_workout_query_bound(
+            since,
+            default_value=end_date - timedelta(days=90),
+            is_end=False,
         )
 
         projections = self._get_workout_projections_in_range(
@@ -377,6 +377,38 @@ class SemanticLayer:
 
         # Apply limit and convert to dicts for response
         return [p.model_dump() for p in projections[:limit]]
+
+    @staticmethod
+    def _parse_workout_query_bound(
+        value: Optional[str],
+        *,
+        default_value: datetime,
+        is_end: bool,
+    ) -> datetime:
+        """Parse workout query bounds into UTC-aware datetimes.
+
+        Date-only values are treated as UTC day bounds so `until=YYYY-MM-DD`
+        remains inclusive for the full day.
+        """
+        if value is None:
+            parsed = default_value
+        else:
+            normalized_value = value.replace("Z", UTC_OFFSET)
+            parsed = datetime.fromisoformat(normalized_value)
+            if parsed.tzinfo is None:
+                if "T" not in value:
+                    parsed = datetime.combine(
+                        parsed.date(),
+                        time.max if is_end else time.min,
+                        tzinfo=timezone.utc,
+                    )
+                else:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+
+        return parsed.astimezone(timezone.utc)
 
     def get_workout_detail(
         self,
