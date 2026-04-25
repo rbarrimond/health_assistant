@@ -632,14 +632,14 @@ def compute_current_training_state(athlete_id: str) -> Dict:
 
 def compute_training_state_history(athlete_id: str, days: int = 45) -> Dict:
     """Compute training state for each day in date range."""
-    # 1. For each date in range:
-    #    a. Query Workouts for rolling 28-day window ending on that date
-    #    b. Compute CTS/ATS/fatigue_index at that point in time
-    #    c. Query Physiometrics for that date
-    # 2. Return list of TrainingStateSnapshot objects (all in-memory)
+  # 1. Query Workouts once for the full [start_date - 28d, end_date] window
+  # 2. Resolve workout TSS once per workout for that shared window
+  # 3. Build daily rolling 7d/28d TSS sums in memory for each date in range
+  # 4. Query Physiometrics as-of each date and build TrainingStateSnapshot objects
+  # 5. Return list of TrainingStateSnapshot objects (all in-memory)
 ```
 
-**Performance**: Azure Table queries are fast; Pandas rolling aggregation is efficient. Acceptable latency for read-only API (<500ms for 45-day history).
+**Performance**: Training-state history is optimized to avoid re-querying overlapping workout windows and reloading the same workout analytics for each day. End-to-end latency depends on storage locality, the number of workouts in the requested window, and whether workout rows already carry table-level TSS values.
 
 ### API Endpoints
 

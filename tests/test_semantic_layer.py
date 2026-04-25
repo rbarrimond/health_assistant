@@ -1208,6 +1208,71 @@ class TestTrainingStateQueries:
         assert point["garmin_load_focus_high_aerobic_pct"] == pytest.approx(50.0)
         assert point["garmin_load_focus_anaerobic_pct"] == pytest.approx(18.0)
 
+    def test_compute_training_state_history_resolves_workouts_once_per_window(
+        self, semantic_layer, mock_storage
+    ):
+        """History computation should resolve workout TSS once per shared window, not once per day."""
+        end_date = datetime.now(timezone.utc).date()
+        workout_dates = [
+            end_date - timedelta(days=2),
+            end_date - timedelta(days=1),
+        ]
+        workout_entities = [
+            {"workout_id": "w1"},
+            {"workout_id": "w2"},
+        ]
+        snapshot = SimpleNamespace(
+            effective_date=end_date.isoformat(),
+            cts_rolling_7d=5.1,
+            cts_rolling_28d=10.1,
+            ats_rolling=5.1,
+            fatigue_index=0.51,
+            readiness_score=None,
+            garmin_readiness_score=None,
+            garmin_training_status=None,
+            garmin_training_load=None,
+            garmin_recovery_time_hours=None,
+            garmin_load_focus_low_aerobic_pct=None,
+            garmin_load_focus_high_aerobic_pct=None,
+            garmin_load_focus_anaerobic_pct=None,
+            mood=None,
+            soreness=None,
+            pred_recovery_days=None,
+            data_sources="workouts,physiometrics",
+            canonical_version="5.1.0",
+        )
+
+        mock_storage.infrastructure.get_table_client.return_value = MagicMock()
+
+        with patch.object(
+            semantic_layer,
+            "_get_month_partitions",
+            return_value=["rob|2026-04"],
+        ), patch.object(
+            semantic_layer,
+            "_query_training_window_workouts",
+            return_value=workout_entities,
+        ) as query_workouts, patch.object(
+            semantic_layer,
+            "_parse_workout_start_date",
+            side_effect=workout_dates,
+        ) as parse_workout_date, patch.object(
+            semantic_layer,
+            "_resolve_workout_tss",
+            side_effect=[100.0, 50.0],
+        ) as resolve_tss, patch.object(
+            semantic_layer,
+            "_build_training_state_snapshot_from_tss",
+            return_value=snapshot,
+        ) as build_snapshot:
+            result = semantic_layer.compute_training_state_history("rob", days=2)
+
+        assert result["count"] == 3
+        query_workouts.assert_called_once()
+        assert parse_workout_date.call_count == len(workout_entities)
+        assert resolve_tss.call_count == len(workout_entities)
+        assert build_snapshot.call_count == 3
+
     def test_load_latest_physiometrics_snapshot_uses_typed_storage_path(
         self, semantic_layer, mock_storage
     ):
