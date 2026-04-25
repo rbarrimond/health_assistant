@@ -7,6 +7,7 @@ It shapes data for reasoning, constrains scope, and encodes how humans think abo
 
 import logging
 import os
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, TypedDict
@@ -3576,13 +3577,34 @@ class SemanticLayer:
         """
         end_date = datetime.now(timezone.utc).date()
         start_date = end_date - timedelta(days=days)
-        
-        # Compute training state for each day in range
+
+        daily_tss = self._prefetch_training_state_history_tss(
+            athlete_id,
+            start_date,
+            end_date,
+        )
+        full_window_start = start_date - timedelta(days=28)
+        cumulative_tss = [0.0]
+        current_prefix_date = full_window_start
+        while current_prefix_date <= end_date:
+            cumulative_tss.append(
+                cumulative_tss[-1] + daily_tss.get(current_prefix_date, 0.0)
+            )
+            current_prefix_date += timedelta(days=1)
+
         snapshots = []
         current_date = start_date
-        
+
         while current_date <= end_date:
-            snapshot = self._compute_training_state_for_date(athlete_id, current_date)
+            current_index = (current_date - full_window_start).days
+            tss_7d = cumulative_tss[current_index + 1] - cumulative_tss[current_index - 7]
+            tss_28d = cumulative_tss[current_index + 1]
+            snapshot = self._build_training_state_snapshot_from_tss(
+                athlete_id,
+                current_date,
+                tss_7d,
+                tss_28d,
+            )
             snapshots.append({
                 "effective_date": snapshot.effective_date,
                 "cts_rolling_7d": snapshot.cts_rolling_7d,
@@ -3612,26 +3634,51 @@ class SemanticLayer:
             "computed_at_utc": datetime.now(timezone.utc).isoformat(),
         }
 
-    def _compute_training_state_for_date(
-        self, athlete_id: str, date: Any  # datetime.date
-    ) -> TrainingStateSnapshot:
-        """
-        Compute TrainingStateSnapshot for a specific date (internal helper).
-
-        Args:
-            athlete_id: Athlete identifier
-            date: Target date (datetime.date)
-
-        Returns:
-            TrainingStateSnapshot with computed training state metrics
-        """
+    def _prefetch_training_state_history_tss(
+        self,
+        athlete_id: str,
+        start_date: Any,
+        end_date: Any,
+    ) -> Dict[Any, float]:
+        """Load and resolve workout TSS once for the full history window."""
+        full_window_start = start_date - timedelta(days=28)
+        start_dt = datetime.combine(full_window_start, datetime.min.time())
+        end_dt = datetime.combine(end_date, datetime.max.time())
         workouts_table = self.storage.infrastructure.get_table_client("Workouts")
-        tss_7d, tss_28d = self._compute_rolling_tss(
-            athlete_id, date, workouts_table
+        months = self._get_month_partitions(athlete_id, start_dt, end_dt)
+        workout_entities = self._query_training_window_workouts(
+            workouts_table,
+            months,
+            start_dt,
+            end_dt,
         )
+
+        daily_tss: Dict[Any, float] = defaultdict(float)
+        for entity in workout_entities:
+            workout_date = self._parse_workout_start_date(entity)
+            if workout_date is None or workout_date < full_window_start or workout_date > end_date:
+                continue
+
+            tss = self._resolve_workout_tss(entity)
+            if tss is None:
+                continue
+
+            daily_tss[workout_date] += tss
+
+        return dict(daily_tss)
+
+    def _build_training_state_snapshot_from_tss(
+        self,
+        athlete_id: str,
+        date: Any,
+        tss_7d: float,
+        tss_28d: float,
+    ) -> TrainingStateSnapshot:
+        """Build a training-state snapshot from precomputed rolling TSS values."""
         training_load = self._compute_training_load_components(tss_7d, tss_28d)
         training_state_physiometrics = self._resolve_training_state_physiometrics_as_of(
-            athlete_id, date.isoformat()
+            athlete_id,
+            date.isoformat(),
         )
         hrv_ln = training_state_physiometrics.get("hrv_ln_rmssd")
         garmin_readiness = training_state_physiometrics.get("readiness_score")
@@ -3653,7 +3700,7 @@ class SemanticLayer:
             hrv_ln,
             training_load["fatigue_index"],
         )
-        snapshot = self._build_training_state_snapshot(
+        return self._build_training_state_snapshot(
             athlete_id,
             date,
             training_load,
@@ -3667,13 +3714,37 @@ class SemanticLayer:
             load_focus_anaerobic_pct,
         )
 
+    def _compute_training_state_for_date(
+        self, athlete_id: str, date: Any  # datetime.date
+    ) -> TrainingStateSnapshot:
+        """
+        Compute TrainingStateSnapshot for a specific date (internal helper).
+
+        Args:
+            athlete_id: Athlete identifier
+            date: Target date (datetime.date)
+
+        Returns:
+            TrainingStateSnapshot with computed training state metrics
+        """
+        workouts_table = self.storage.infrastructure.get_table_client("Workouts")
+        tss_7d, tss_28d = self._compute_rolling_tss(
+            athlete_id, date, workouts_table
+        )
+        snapshot = self._build_training_state_snapshot_from_tss(
+            athlete_id,
+            date,
+            tss_7d,
+            tss_28d,
+        )
+
         logger.debug(
             "Computed training state for %s on %s: CTS_7d=%.1f, CTS_28d=%.1f, fatigue_idx=%.2f",
             athlete_id,
             date.isoformat(),
-            training_load["cts_7d"] or 0,
-            training_load["cts_28d"] or 0,
-            training_load["fatigue_index"] or 0,
+            snapshot.cts_rolling_7d or 0,
+            snapshot.cts_rolling_28d or 0,
+            snapshot.fatigue_index or 0,
         )
 
         return snapshot

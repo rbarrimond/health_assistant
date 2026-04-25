@@ -1190,7 +1190,11 @@ class TestTrainingStateQueries:
 
         with patch.object(
             semantic_layer,
-            "_compute_training_state_for_date",
+            "_prefetch_training_state_history_tss",
+            return_value={},
+        ), patch.object(
+            semantic_layer,
+            "_build_training_state_snapshot_from_tss",
             return_value=snapshot,
         ):
             result = semantic_layer.compute_training_state_history("rob", days=0)
