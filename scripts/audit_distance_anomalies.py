@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.analytics.rollup_service import RollupService
 from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
 
 
@@ -96,8 +96,8 @@ def _target_week_keys(athlete_tz: ZoneInfo, weeks: int) -> List[str]:
 
 
 def resolve_athlete_timezone(storage: StorageCoordinator, athlete_id: str) -> ZoneInfo:
-    semantic_layer = SemanticLayer(storage)
-    timezone_name = semantic_layer._resolve_athlete_home_timezone(athlete_id)  # pylint: disable=protected-access
+    rollup_service = RollupService(storage)
+    timezone_name = rollup_service._resolve_athlete_home_timezone(athlete_id)  # pylint: disable=protected-access
     if not timezone_name:
         raise RuntimeError(
             f"No athlete timezone configured for '{athlete_id}'. "

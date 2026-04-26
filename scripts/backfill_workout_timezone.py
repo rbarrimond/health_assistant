@@ -19,7 +19,7 @@ from azure.data.tables import UpdateMode
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.analytics.rollup_service import RollupService
 from TrainingAnalyticsPlatform.ingestion.timezone_utils import (
     is_zwift_cloud_workout,
     resolve_canonical_timezone,
@@ -131,12 +131,12 @@ def _resolve_expected_timezone(
     return timezone_value
 
 
-def _resolve_athlete_timezone(semantic_layer: SemanticLayer, athlete_id: Optional[str]) -> Optional[str]:
+def _resolve_athlete_timezone(rollup_service: RollupService, athlete_id: Optional[str]) -> Optional[str]:
     if not _is_present(athlete_id):
         return None
 
     try:
-        return semantic_layer._resolve_athlete_home_timezone(str(athlete_id))  # pylint: disable=protected-access
+        return rollup_service._resolve_athlete_home_timezone(str(athlete_id))  # pylint: disable=protected-access
     except (HttpResponseError, ValueError, TypeError, AttributeError):
         return None
 
@@ -356,7 +356,7 @@ def backfill_workout_timezone(
 ) -> None:
     """Backfill workout timezone in Workouts rows and metadata blobs."""
     storage = StorageCoordinator(connection_string=connection_string)
-    semantic_layer = SemanticLayer(storage)
+    rollup_service = RollupService(storage)
     workouts_table = storage.infrastructure.get_table_client("Workouts")
 
     counters = BackfillCounters()
@@ -378,7 +378,7 @@ def backfill_workout_timezone(
         athlete_key = str(entity_athlete_id) if _is_present(entity_athlete_id) else ""
         if athlete_key not in athlete_timezone_cache:
             athlete_timezone_cache[athlete_key] = _resolve_athlete_timezone(
-                semantic_layer,
+                rollup_service,
                 athlete_key if athlete_key else None,
             )
 

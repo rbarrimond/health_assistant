@@ -33,8 +33,9 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from azure.core.exceptions import HttpResponseError  # noqa: E402
+from azure.data.tables import TableEntity  # noqa: E402
 
-from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer  # noqa: E402
+from TrainingAnalyticsPlatform.analytics.workout_query_service import WorkoutQueryService  # noqa: E402
 from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator  # noqa: E402
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import WorkoutEntity  # noqa: E402
 
@@ -100,7 +101,7 @@ def _query_workout_entities(
     athlete_id: Optional[str],
     workout_id: Optional[str],
     limit: Optional[int],
-) -> list[dict[str, Any]]:
+) -> list[TableEntity]:
     table_client = storage.infrastructure.get_table_client("Workouts")
     filters = ["has_gps eq true"]
     if athlete_id:
@@ -150,7 +151,7 @@ def _run_backfill(
     apply: bool,
 ) -> BackfillCounters:
     counters = BackfillCounters()
-    semantic_layer = SemanticLayer(storage)
+    workout_service = WorkoutQueryService(storage)
     entities = _query_workout_entities(
         storage,
         athlete_id=athlete_id,
@@ -168,11 +169,11 @@ def _run_backfill(
                 continue
 
             original_df = storage.workouts.load_canonical_records(blob_name)
-            if original_df.empty or not semantic_layer._needs_raw_fit_hydration(original_df):  # pylint: disable=protected-access
+            if original_df.empty or not workout_service._needs_raw_fit_hydration(original_df):  # pylint: disable=protected-access
                 counters.skipped += 1
                 continue
 
-            hydrated_df = semantic_layer._hydrate_missing_elevation_from_raw_fit(workout_entity, original_df)  # pylint: disable=protected-access
+            hydrated_df = workout_service._hydrate_missing_elevation_from_raw_fit(original_df, workout_entity, entity)  # pylint: disable=protected-access
             changes = _change_summary(original_df, hydrated_df)
             if not any(changes.values()):
                 counters.skipped += 1
