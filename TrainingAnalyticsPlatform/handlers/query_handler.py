@@ -3,17 +3,29 @@
 import logging
 from typing import Any, Dict, List, Tuple
 
-from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.analytics.analysis_service import AnalysisService
+from TrainingAnalyticsPlatform.analytics.planning_service import PlanningService
+from TrainingAnalyticsPlatform.analytics.rollup_service import RollupService
+from TrainingAnalyticsPlatform.analytics.workout_query_service import WorkoutQueryService
 from TrainingAnalyticsPlatform.platform.exceptions import StorageError
 
 logger = logging.getLogger(__name__)
 
 
 class QueryHandler:
-    """Orchestrates semantic layer queries."""
+    """Orchestrates analytics service queries."""
 
-    def __init__(self, semantic_layer: SemanticLayer):
-        self.semantic_layer = semantic_layer
+    def __init__(
+        self,
+        workout_service: WorkoutQueryService,
+        planning_service: PlanningService,
+        rollup_service: RollupService,
+        analysis_service: AnalysisService,
+    ):
+        self.workout_service = workout_service
+        self.planning_service = planning_service
+        self.rollup_service = rollup_service
+        self.analysis_service = analysis_service
 
     def query_athlete_workouts(
         self,
@@ -37,7 +49,7 @@ class QueryHandler:
             (list of workout dicts, HTTP status code)
         """
         try:
-            results = self.semantic_layer.get_workouts(
+            results = self.workout_service.get_workouts(
                 athlete_id,
                 since=since,
                 until=until,
@@ -70,7 +82,7 @@ class QueryHandler:
             (workout detail dict, HTTP status code)
         """
         try:
-            workout = self.semantic_layer.get_workout_detail(
+            workout = self.workout_service.get_workout_detail(
                 athlete_id,
                 workout_id,
                 include_laps=include_laps,
@@ -97,7 +109,7 @@ class QueryHandler:
     ) -> Tuple[Dict[str, Any], int]:
         """Get lap summary and records for a specific workout lap."""
         try:
-            lap = self.semantic_layer.get_workout_lap_detail(
+            lap = self.workout_service.get_workout_lap_detail(
                 athlete_id,
                 workout_id,
                 lap_index,
@@ -124,7 +136,7 @@ class QueryHandler:
             (context dict, HTTP status code)
         """
         try:
-            context = self.semantic_layer.get_planning_context(athlete_id, days)
+            context = self.planning_service.get_planning_context(athlete_id, days)
             return context, 200
         except ValueError as exc:
             logger.warning("Planning query validation failed: %s", exc)
@@ -145,7 +157,7 @@ class QueryHandler:
             (zone analysis dict, HTTP status code)
         """
         try:
-            result = self.semantic_layer.get_zone_distribution(athlete_id, days)
+            result = self.analysis_service.get_zone_distribution(athlete_id, days)
             return result, 200
         except ValueError as exc:
             logger.warning("Zone analysis validation failed: %s", exc)
@@ -168,7 +180,7 @@ class QueryHandler:
             (efficiency trends dict, HTTP status code)
         """
         try:
-            trends = self.semantic_layer.get_efficiency_trends(athlete_id, days)
+            trends = self.analysis_service.get_efficiency_trends(athlete_id, days)
             return trends, 200
         except ValueError as exc:
             logger.warning("Efficiency query validation failed: %s", exc)
@@ -189,7 +201,7 @@ class QueryHandler:
             (rollups dict, HTTP status code)
         """
         try:
-            rollups = self.semantic_layer.get_weekly_rollups(athlete_id, weeks)
+            rollups = self.rollup_service.get_weekly_rollups(athlete_id, weeks)
             results: List[Dict[str, Any]] = []
             rollups_count = len(rollups)
 

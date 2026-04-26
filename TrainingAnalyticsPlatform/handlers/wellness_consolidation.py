@@ -13,7 +13,7 @@ from TrainingAnalyticsPlatform.analytics.physiometrics_resolution import (
     build_source_rows_by_source,
     resolve_latest_metric_across_sources,
 )
-from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.analytics.physiometrics_service import PhysiometricsService
 from TrainingAnalyticsPlatform.models.wellness import (
     PhysiometricsSnapshot,
     TrainingStateSnapshot,
@@ -438,7 +438,7 @@ class TrainingStateConsolidationHandler:
     def __init__(
         self,
         storage_client: StorageInfrastructureProtocol,
-        semantic_layer: Optional[SemanticLayer] = None,
+        physiometrics_service: Optional[PhysiometricsService] = None,
     ):
         """Initialize training state consolidation handler.
 
@@ -446,17 +446,17 @@ class TrainingStateConsolidationHandler:
             storage_client: Azure Table Storage client
         """
         self.storage_client = storage_client
-        self.semantic_layer = semantic_layer or self._build_semantic_layer(storage_client)
+        self.physiometrics_service = physiometrics_service or self._build_physiometrics_service(storage_client)
 
     @staticmethod
-    def _build_semantic_layer(storage_client: StorageInfrastructureProtocol) -> SemanticLayer:
-        """Create a semantic layer using shared storage when available."""
+    def _build_physiometrics_service(storage_client: StorageInfrastructureProtocol) -> PhysiometricsService:
+        """Create a physiometrics service using shared storage when available."""
         if all(
             hasattr(storage_client, attribute)
             for attribute in ("infrastructure", "workouts", "physiometrics")
         ):
-            return SemanticLayer(storage_client)
-        return SemanticLayer(StorageCoordinator())
+            return PhysiometricsService(storage_client)
+        return PhysiometricsService(StorageCoordinator())
 
     def compute_day(
         self, athlete_id: str, effective_date: str  # YYYY-MM-DD
@@ -471,7 +471,7 @@ class TrainingStateConsolidationHandler:
             Computed TrainingStateSnapshot
         """
         date_obj = datetime.strptime(effective_date, "%Y-%m-%d").date()
-        snapshot = self.semantic_layer._compute_training_state_for_date(
+        snapshot = self.physiometrics_service._compute_training_state_for_date(
             athlete_id,
             date_obj,
         )

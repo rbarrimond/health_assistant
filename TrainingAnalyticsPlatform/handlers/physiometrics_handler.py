@@ -4,7 +4,7 @@ from datetime import date
 import logging
 from typing import Dict, List, Tuple, Any, Optional
 
-from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.analytics.physiometrics_service import PhysiometricsService
 from TrainingAnalyticsPlatform.handlers.request_models import PhysiometricsUpdateRequest
 
 logger = logging.getLogger(__name__)
@@ -19,9 +19,9 @@ ERROR_INVALID_DATE_RANGE = "Invalid date range; since must be on or before until
 class PhysiometricsHandler:
     """Handles physiometric data operations."""
 
-    def __init__(self, semantic_layer: SemanticLayer):
-        """Initialize handler with semantic layer dependency."""
-        self.semantic_layer = semantic_layer
+    def __init__(self, physiometrics_service: PhysiometricsService):
+        """Initialize handler with physiometrics service dependency."""
+        self.physiometrics_service = physiometrics_service
 
     def get_current(self, athlete_id: str) -> Tuple[Dict[str, Any], int]:
         """Get current physiometric snapshot for an athlete.
@@ -36,7 +36,7 @@ class PhysiometricsHandler:
             return {"error": ERROR_MISSING_ATHLETE_ID}, 400
 
         try:
-            result = self.semantic_layer.get_current_physiometrics(athlete_id)
+            result = self.physiometrics_service.get_current_physiometrics(athlete_id)
             return result, 200
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Error getting current physiometrics: %s", exc, exc_info=True)
@@ -64,7 +64,7 @@ class PhysiometricsHandler:
         try:
             days = min(days, 365)  # Cap at 365
 
-            result = self.semantic_layer.get_physiometrics_trends(
+            result = self.physiometrics_service.get_physiometrics_trends(
                 athlete_id=athlete_id,
                 days=days,
                 metrics=metrics
@@ -99,7 +99,7 @@ class PhysiometricsHandler:
             return {"error": "athlete_id required"}, 400
 
         try:
-            result = self.semantic_layer.update_physiometric_value(
+            result = self.physiometrics_service.update_physiometric_value(
                 athlete_id=athlete_id,
                 metric=metric,
                 value=value,
@@ -135,7 +135,7 @@ class PhysiometricsHandler:
         try:
             results = []
             for metric, value in metrics.items():
-                result = self.semantic_layer.update_physiometric_value(
+                result = self.physiometrics_service.update_physiometric_value(
                     athlete_id=athlete_id,
                     metric=metric,
                     value=value,
@@ -193,7 +193,7 @@ class PhysiometricsHandler:
             return {"error": ERROR_MISSING_ATHLETE_ID}, 400
 
         try:
-            result = self.semantic_layer.compute_current_training_state(athlete_id)
+            result = self.physiometrics_service.compute_current_training_state(athlete_id)
             return result, 200
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Error computing training state: %s", exc, exc_info=True)
@@ -245,7 +245,7 @@ class PhysiometricsHandler:
         try:
             days = min(days, 90)  # Cap at 90 days
 
-            result = self.semantic_layer.compute_training_state_history(
+            result = self.physiometrics_service.compute_training_state_history(
                 athlete_id=athlete_id,
                 days=days,
                 since=since_date.isoformat() if since_date is not None else None,

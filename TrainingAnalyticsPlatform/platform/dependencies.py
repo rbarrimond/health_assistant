@@ -55,7 +55,11 @@ from TrainingAnalyticsPlatform.handlers.source_handler_registry import (
     DeferredRetrySourceHandler,
     SourceHandlerRegistry,
 )
-from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.analytics.analysis_service import AnalysisService
+from TrainingAnalyticsPlatform.analytics.physiometrics_service import PhysiometricsService
+from TrainingAnalyticsPlatform.analytics.planning_service import PlanningService
+from TrainingAnalyticsPlatform.analytics.rollup_service import RollupService
+from TrainingAnalyticsPlatform.analytics.workout_query_service import WorkoutQueryService
 from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
 from TrainingAnalyticsPlatform.integrations.async_ingestion_queue import (
     AsyncIngestionQueue,
@@ -87,11 +91,39 @@ class FunctionAppDependencies:
         return storage
 
     @cached_property
-    def semantic_layer(self) -> SemanticLayer:
-        """Return a cached semantic layer instance, creating it on first use."""
-        semantic_layer = SemanticLayer(self.storage)
-        logger.info("Semantic layer initialized")
-        return semantic_layer
+    def workout_service(self) -> WorkoutQueryService:
+        """Return a cached WorkoutQueryService instance, creating it on first use."""
+        service = WorkoutQueryService(self.storage)
+        logger.info("WorkoutQueryService initialized")
+        return service
+
+    @cached_property
+    def analysis_service(self) -> AnalysisService:
+        """Return a cached AnalysisService instance, creating it on first use."""
+        service = AnalysisService(self.storage)
+        logger.info("AnalysisService initialized")
+        return service
+
+    @cached_property
+    def rollup_service(self) -> RollupService:
+        """Return a cached RollupService instance, creating it on first use."""
+        service = RollupService(self.storage)
+        logger.info("RollupService initialized")
+        return service
+
+    @cached_property
+    def physiometrics_service(self) -> PhysiometricsService:
+        """Return a cached PhysiometricsService instance, creating it on first use."""
+        service = PhysiometricsService(self.storage)
+        logger.info("PhysiometricsService initialized")
+        return service
+
+    @cached_property
+    def planning_service(self) -> PlanningService:
+        """Return a cached PlanningService instance, creating it on first use."""
+        service = PlanningService(self.storage, self.workout_service)
+        logger.info("PlanningService initialized")
+        return service
 
     def ingest_fit_payload(self, payload: Dict[str, Any]) -> tuple[Dict[str, Any], int]:
         """Ingest a FIT payload using the shared storage instance."""
@@ -365,7 +397,7 @@ class FunctionAppDependencies:
         """Eagerly initialize core dependencies, deferring failures to runtime."""
         try:
             _ = self.storage
-            _ = self.semantic_layer
+            _ = self.workout_service
         except (ValueError, AzureError, OSError) as exc:
             logger.warning("Deferred initialization: %s", exc)
 

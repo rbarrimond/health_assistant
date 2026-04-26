@@ -491,7 +491,7 @@ def planning_context(req: func.HttpRequest) -> func.HttpResponse:
         },
     )
 
-    handler = QueryHandler(dependencies.semantic_layer)
+    handler = QueryHandler(dependencies.workout_service, dependencies.planning_service, dependencies.rollup_service, dependencies.analysis_service)
     context, status = handler.query_planning_context(athlete_id, days)
 
     return _json_response(req, context, status)
@@ -508,7 +508,7 @@ def list_workouts(req: func.HttpRequest) -> func.HttpResponse:
     limit = int(req.params.get("limit", "50"))
     limit = max(1, min(limit, 200))
 
-    handler = QueryHandler(dependencies.semantic_layer)
+    handler = QueryHandler(dependencies.workout_service, dependencies.planning_service, dependencies.rollup_service, dependencies.analysis_service)
     workouts, status = handler.query_athlete_workouts(
         athlete_id,
         limit=limit,
@@ -538,7 +538,7 @@ def get_workout_detail(req: func.HttpRequest) -> func.HttpResponse:
     if not workout_id:
         return _json_response(req, {"error": "workout_id required in route"}, 400)
 
-    handler = QueryHandler(dependencies.semantic_layer)
+    handler = QueryHandler(dependencies.workout_service, dependencies.planning_service, dependencies.rollup_service, dependencies.analysis_service)
     workout, status = handler.query_workout_detail(
         athlete_id,
         workout_id,
@@ -568,7 +568,7 @@ def get_workout_lap_detail(req: func.HttpRequest) -> func.HttpResponse:
     except ValueError:
         return _json_response(req, {"error": "lap_index must be an integer"}, 400)
 
-    handler = QueryHandler(dependencies.semantic_layer)
+    handler = QueryHandler(dependencies.workout_service, dependencies.planning_service, dependencies.rollup_service, dependencies.analysis_service)
     lap, status = handler.query_workout_lap_detail(
         athlete_id,
         workout_id,
@@ -611,7 +611,7 @@ def zone_distribution(req: func.HttpRequest) -> func.HttpResponse:
     days = int(req.params.get("days", "30"))
     days = max(1, min(days, 365))
 
-    handler = QueryHandler(dependencies.semantic_layer)
+    handler = QueryHandler(dependencies.workout_service, dependencies.planning_service, dependencies.rollup_service, dependencies.analysis_service)
     zones, status = handler.query_training_zones(athlete_id, days)
 
     return _json_response(req, zones, status)
@@ -625,7 +625,7 @@ def efficiency_trends(req: func.HttpRequest) -> func.HttpResponse:
     days = int(req.params.get("days", "90"))
     days = max(1, min(days, 365))
 
-    handler = QueryHandler(dependencies.semantic_layer)
+    handler = QueryHandler(dependencies.workout_service, dependencies.planning_service, dependencies.rollup_service, dependencies.analysis_service)
     trends, status = handler.query_efficiency_trends(athlete_id, days)
 
     return _json_response(req, trends, status)
@@ -639,7 +639,7 @@ def weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
     weeks = int(req.params.get("weeks", "16"))
     weeks = max(1, min(weeks, 52))
 
-    handler = QueryHandler(dependencies.semantic_layer)
+    handler = QueryHandler(dependencies.workout_service, dependencies.planning_service, dependencies.rollup_service, dependencies.analysis_service)
     rollups, status = handler.query_weekly_rollups(athlete_id, weeks)
 
     return _json_response(req, rollups, status)
@@ -727,7 +727,7 @@ def get_current_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
     """Get current physiometric values for an athlete."""
     athlete_id = req.params.get("athlete_id", "rob")
 
-    handler = PhysiometricsHandler(dependencies.semantic_layer)
+    handler = PhysiometricsHandler(dependencies.physiometrics_service)
     result, status = handler.get_current(athlete_id)
 
     return _json_response(req, result, status)
@@ -743,7 +743,7 @@ def get_physiometrics_history(req: func.HttpRequest) -> func.HttpResponse:
     metrics_param = req.params.get("metrics")
     metrics = [metric.strip() for metric in metrics_param.split(",") if metric.strip()] if metrics_param else None
 
-    handler = PhysiometricsHandler(dependencies.semantic_layer)
+    handler = PhysiometricsHandler(dependencies.physiometrics_service)
     result, status = handler.get_history(athlete_id, days, metrics)
 
     return _json_response(req, result, status)
@@ -765,7 +765,7 @@ def update_physiometrics(req: func.HttpRequest) -> func.HttpResponse:
             {"error": "Either 'metric'+'value' or 'metrics' dict required"}, 400
         )
 
-    handler = PhysiometricsHandler(dependencies.semantic_layer)
+    handler = PhysiometricsHandler(dependencies.physiometrics_service)
     if update_request.has_single_metric:
         assert update_request.athlete_id is not None
         assert update_request.metric is not None
@@ -808,7 +808,7 @@ def get_current_training_state(req: func.HttpRequest) -> func.HttpResponse:
     """
     athlete_id = req.params.get("athlete_id", "rob")
 
-    handler = PhysiometricsHandler(dependencies.semantic_layer)
+    handler = PhysiometricsHandler(dependencies.physiometrics_service)
     result, status = handler.get_training_state_current(athlete_id)
 
     return _json_response(req, result, status)
@@ -838,7 +838,7 @@ def get_training_state_history(req: func.HttpRequest) -> func.HttpResponse:
     since = req.params.get("since")
     until = req.params.get("until")
 
-    handler = PhysiometricsHandler(dependencies.semantic_layer)
+    handler = PhysiometricsHandler(dependencies.physiometrics_service)
     result, status = handler.get_training_state_history(
         athlete_id,
         days=days,
@@ -1365,7 +1365,7 @@ def weekly_rollup_timer(timer: func.TimerRequest) -> None:
     athlete_id = os.getenv("DEFAULT_ATHLETE_ID", "rob")
 
     try:
-        athletes = dependencies.semantic_layer.list_athletes_with_workouts()
+        athletes = dependencies.rollup_service.list_athletes_with_workouts()
         if not athletes:
             athletes = [athlete_id]
 
@@ -1380,7 +1380,7 @@ def weekly_rollup_timer(timer: func.TimerRequest) -> None:
             )
             return
 
-        result = dependencies.semantic_layer.compute_and_persist_previous_week_rollups(
+        result = dependencies.rollup_service.compute_and_persist_previous_week_rollups(
             athlete_ids=athletes,
         )
         athlete_results = result.get("results", [])
@@ -1416,12 +1416,12 @@ def force_weekly_rollups(req: func.HttpRequest) -> func.HttpResponse:
             body=body,
             params=req.params,
             default_athlete_id=default_athlete_id(),
-            list_athletes_with_workouts=dependencies.semantic_layer.list_athletes_with_workouts,
+            list_athletes_with_workouts=dependencies.rollup_service.list_athletes_with_workouts,
         )
     except (TypeError, ValueError):
         return _json_response(req, {"error": "weeks must be an integer >= 1"}, 400)
 
-    result = dependencies.semantic_layer.compute_and_persist_previous_week_rollups(
+    result = dependencies.rollup_service.compute_and_persist_previous_week_rollups(
         athlete_ids=rollup_request.athletes,
         weeks=rollup_request.weeks,
     )
