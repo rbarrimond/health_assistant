@@ -154,15 +154,17 @@ def test_sync_handler_handles_errors():
 
 def test_query_handler_fetches_planning_context():
     """Test planning context query."""
-    # Mock semantic layer
-    semantic_layer = Mock()
-    semantic_layer.get_planning_context.return_value = {
+    mock_workout_svc = Mock()
+    mock_planning_svc = Mock()
+    mock_rollup_svc = Mock()
+    mock_analysis_svc = Mock()
+    mock_planning_svc.get_planning_context.return_value = {
         "recent_load": {"tss": 450},
         "trends": {"increasing": True}
     }
 
     # Create handler
-    handler = QueryHandler(semantic_layer)
+    handler = QueryHandler(mock_workout_svc, mock_planning_svc, mock_rollup_svc, mock_analysis_svc)
 
     # Execute
     context, status = handler.query_planning_context("rob", 30)
@@ -170,20 +172,22 @@ def test_query_handler_fetches_planning_context():
     # Verify
     assert status == 200
     assert context["recent_load"]["tss"] == 450
-    semantic_layer.get_planning_context.assert_called_once_with("rob", 30)
+    mock_planning_svc.get_planning_context.assert_called_once_with("rob", 30)
 
 
 def test_query_handler_fetches_athlete_workouts():
     """Test workout query."""
-    # Mock semantic layer
-    semantic_layer = Mock()
-    semantic_layer.get_workouts.return_value = [
+    mock_workout_svc = Mock()
+    mock_planning_svc = Mock()
+    mock_rollup_svc = Mock()
+    mock_analysis_svc = Mock()
+    mock_workout_svc.get_workouts.return_value = [
         {"id": "W1", "sport": "Cycling"},
         {"id": "W2", "sport": "Running"}
     ]
 
     # Create handler
-    handler = QueryHandler(semantic_layer)
+    handler = QueryHandler(mock_workout_svc, mock_planning_svc, mock_rollup_svc, mock_analysis_svc)
 
     # Execute
     workouts, status = handler.query_athlete_workouts("rob", limit=50)
@@ -196,12 +200,14 @@ def test_query_handler_fetches_athlete_workouts():
 
 def test_query_handler_handles_semantic_layer_errors():
     """Test error handling in queries."""
-    # Mock semantic layer that raises error
-    semantic_layer = Mock()
-    semantic_layer.get_planning_context.side_effect = ValueError("Database error")
+    mock_workout_svc = Mock()
+    mock_planning_svc = Mock()
+    mock_rollup_svc = Mock()
+    mock_analysis_svc = Mock()
+    mock_planning_svc.get_planning_context.side_effect = ValueError("Database error")
 
     # Create handler
-    handler = QueryHandler(semantic_layer)
+    handler = QueryHandler(mock_workout_svc, mock_planning_svc, mock_rollup_svc, mock_analysis_svc)
 
     # Execute
     context, status = handler.query_planning_context("rob", 30)
@@ -225,8 +231,8 @@ def test_sync_and_query_workflow():
     )
     handler.sync = Mock(return_value={"status": "success", "synced": 3})
 
-    semantic_layer = Mock()
-    semantic_layer.get_workouts.return_value = [
+    mock_workout_svc = Mock()
+    mock_workout_svc.get_workouts.return_value = [
         {"id": "W1", "date": "2026-01-01"},
         {"id": "W2", "date": "2026-01-02"},
         {"id": "W3", "date": "2026-01-03"}
@@ -240,7 +246,7 @@ def test_sync_and_query_workflow():
     assert sync_response["synced"] == 3
 
     # Query the synced workouts
-    query_handler = QueryHandler(semantic_layer)
+    query_handler = QueryHandler(mock_workout_svc, Mock(), Mock(), Mock())
     workouts, query_status = query_handler.query_athlete_workouts("rob", limit=50)
 
     assert query_status == 200

@@ -148,7 +148,7 @@ class TestPhysiometricsEndpointHandlers:
         mock_handler = MagicMock()
         mock_handler.get_current.return_value = ({"athlete_id": "rob"}, 200)
 
-        with _patch_dependency("semantic_layer", MagicMock()):
+        with _patch_dependency("physiometrics_service", MagicMock()):
             with patch("function_app.PhysiometricsHandler", return_value=mock_handler):
                 response = function_app.get_current_physiometrics(req)
 
@@ -162,7 +162,7 @@ class TestPhysiometricsEndpointHandlers:
         mock_handler = MagicMock()
         mock_handler.get_current.return_value = ({"athlete_id": "rob"}, 200)
 
-        with _patch_dependency("semantic_layer", MagicMock()):
+        with _patch_dependency("physiometrics_service", MagicMock()):
             with patch("function_app.PhysiometricsHandler", return_value=mock_handler):
                 response = function_app.get_current_physiometrics(req)
 
@@ -183,7 +183,7 @@ class TestPhysiometricsEndpointHandlers:
         mock_handler = MagicMock()
         mock_handler.get_training_state_history.return_value = ({"athlete_id": "rob"}, 200)
 
-        with _patch_dependency("semantic_layer", MagicMock()):
+        with _patch_dependency("physiometrics_service", MagicMock()):
             with patch("function_app.PhysiometricsHandler", return_value=mock_handler):
                 response = function_app.get_training_state_history(req)
 
@@ -221,7 +221,7 @@ class TestPhysiometricsEndpointHandlers:
         mock_handler = MagicMock()
         mock_handler.get_history.return_value = ({"athlete_id": "rob"}, 200)
 
-        with _patch_dependency("semantic_layer", MagicMock()):
+        with _patch_dependency("physiometrics_service", MagicMock()):
             with patch("function_app.PhysiometricsHandler", return_value=mock_handler):
                 function_app.get_physiometrics_history(req)
 
@@ -242,7 +242,7 @@ class TestPhysiometricsEndpointHandlers:
         mock_handler = MagicMock()
         mock_handler.get_history.return_value = ({"athlete_id": "rob"}, 200)
 
-        with _patch_dependency("semantic_layer", MagicMock()):
+        with _patch_dependency("physiometrics_service", MagicMock()):
             with patch("function_app.PhysiometricsHandler", return_value=mock_handler):
                 function_app.get_physiometrics_history(req)
 
@@ -264,7 +264,7 @@ class TestPhysiometricsEndpointHandlers:
         mock_handler = MagicMock()
         mock_handler.update_metric.return_value = ({"status": "success"}, 200)
 
-        with _patch_dependency("semantic_layer", MagicMock()):
+        with _patch_dependency("physiometrics_service", MagicMock()):
             with patch("function_app.PhysiometricsHandler", return_value=mock_handler):
                 response = function_app.update_physiometrics(req)
 
@@ -288,7 +288,7 @@ class TestPhysiometricsEndpointHandlers:
         mock_handler = MagicMock()
         mock_handler.update_metrics.return_value = ({"status": "success"}, 200)
 
-        with _patch_dependency("semantic_layer", MagicMock()):
+        with _patch_dependency("physiometrics_service", MagicMock()):
             with patch("function_app.PhysiometricsHandler", return_value=mock_handler):
                 response = function_app.update_physiometrics(req)
 
@@ -405,7 +405,7 @@ class TestWeeklyRollupOperations:
             "sources": [],
         }
 
-        with _patch_dependency("semantic_layer", mock_semantic):
+        with _patch_dependency("rollup_service", mock_semantic):
             with _patch_dependency("weekly_rollup_pre_sync_service", mock_presync):
                 function_app.weekly_rollup_timer(timer)
 
@@ -445,7 +445,7 @@ class TestWeeklyRollupOperations:
             ],
         }
 
-        with _patch_dependency("semantic_layer", mock_semantic):
+        with _patch_dependency("rollup_service", mock_semantic):
             response = function_app.force_weekly_rollups(req)
 
         assert response.status_code == 200
@@ -474,7 +474,7 @@ class TestWeeklyRollupOperations:
             ],
         }
 
-        with _patch_dependency("semantic_layer", mock_semantic):
+        with _patch_dependency("rollup_service", mock_semantic):
             response = function_app.force_weekly_rollups(req)
 
         assert response.status_code == 207
@@ -515,16 +515,19 @@ class TestPlanningContextEndpoint:
             "sources": [],
         }
 
-        with _patch_dependency("semantic_layer", mock_semantic):
-            with _patch_dependency("planning_context_pre_sync_service", mock_presync):
-                with patch("function_app.QueryHandler") as handler_cls:
-                    mock_handler = MagicMock()
-                    mock_handler.query_planning_context.return_value = (
-                        {"athlete_id": "rob"},
-                        200,
-                    )
-                    handler_cls.return_value = mock_handler
-                    response = function_app.planning_context(req)
+        with _patch_dependency("planning_service", mock_semantic), \
+             _patch_dependency("workout_service", MagicMock()), \
+             _patch_dependency("rollup_service", MagicMock()), \
+             _patch_dependency("analysis_service", MagicMock()), \
+             _patch_dependency("planning_context_pre_sync_service", mock_presync), \
+             patch("function_app.QueryHandler") as handler_cls:
+            mock_handler = MagicMock()
+            mock_handler.query_planning_context.return_value = (
+                {"athlete_id": "rob"},
+                200,
+            )
+            handler_cls.return_value = mock_handler
+            response = function_app.planning_context(req)
 
         assert response.status_code == 200
         mock_presync.run.assert_called_once_with(athlete_id="rob", days=30)
@@ -551,16 +554,19 @@ class TestPlanningContextEndpoint:
             ],
         }
 
-        with _patch_dependency("planning_context_pre_sync_service", mock_presync):
-            with _patch_dependency("semantic_layer", MagicMock()):
-                with patch("function_app.QueryHandler") as handler_cls:
-                    mock_handler = MagicMock()
-                    mock_handler.query_planning_context.return_value = (
-                        {"athlete_id": "rob", "recent_workouts": []},
-                        200,
-                    )
-                    handler_cls.return_value = mock_handler
-                    response = function_app.planning_context(req)
+        with _patch_dependency("planning_context_pre_sync_service", mock_presync), \
+             _patch_dependency("planning_service", MagicMock()), \
+             _patch_dependency("workout_service", MagicMock()), \
+             _patch_dependency("rollup_service", MagicMock()), \
+             _patch_dependency("analysis_service", MagicMock()), \
+             patch("function_app.QueryHandler") as handler_cls:
+            mock_handler = MagicMock()
+            mock_handler.query_planning_context.return_value = (
+                {"athlete_id": "rob", "recent_workouts": []},
+                200,
+            )
+            handler_cls.return_value = mock_handler
+            response = function_app.planning_context(req)
 
         # Endpoint must return 200 regardless of pre-sync failure (best-available)
         assert response.status_code == 200

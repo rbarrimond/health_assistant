@@ -11,7 +11,7 @@ from TrainingAnalyticsPlatform.storage.oauth_token_storage import OAuthTokenStor
 from TrainingAnalyticsPlatform.storage.physiometrics_storage import PhysiometricsStorage
 from TrainingAnalyticsPlatform.storage.webhook_dedup_storage import WebhookDedupStorage
 
-from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.analytics.physiometrics_service import PhysiometricsService
 from TrainingAnalyticsPlatform.integrations.withings_client import WithingsClient
 
 class TestPhysiometricsTimeSeries:
@@ -382,13 +382,13 @@ class TestPhysiometricsTimeSeries:
 
 
 class TestSemanticLayerPhysiometrics:
-    """Test semantic layer physiometrics methods."""
+    """Test physiometrics service methods."""
 
     @pytest.fixture
     def layer(self):
-        """Create semantic layer with mocked storage."""
+        """Create physiometrics service with mocked storage."""
         with patch("TrainingAnalyticsPlatform.storage.storage_coordinator.StorageCoordinator"):
-            return SemanticLayer()
+            return PhysiometricsService(MagicMock())
 
     def test_get_current_physiometrics(self, layer):
         """Test retrieving current physiometrics consolidated across sources."""

@@ -12,10 +12,12 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from TrainingAnalyticsPlatform.analytics.semantic_layer import (
-    WEEKLY_ROLLUP_ALLOWED_FIELDS,
-    SemanticLayer,
-)
+from TrainingAnalyticsPlatform.analytics.rollup_service import WEEKLY_ROLLUP_ALLOWED_FIELDS, RollupService
+from TrainingAnalyticsPlatform.analytics.workout_query_service import WorkoutQueryService
+from TrainingAnalyticsPlatform.analytics.planning_service import PlanningService
+from TrainingAnalyticsPlatform.analytics.analysis_service import AnalysisService
+from TrainingAnalyticsPlatform.analytics.physiometrics_service import PhysiometricsService
+from TrainingAnalyticsPlatform.analytics import utils
 from TrainingAnalyticsPlatform.models.core import WorkoutMetricsModel, WorkoutProjection
 from TrainingAnalyticsPlatform.models.metrics.performance import DurabilityMetricsModel
 from TrainingAnalyticsPlatform.models.wellness import PhysiometricsSnapshot
@@ -49,9 +51,29 @@ def mock_storage():
 
 
 @pytest.fixture
-def semantic_layer(mock_storage):
-    """Create SemanticLayer with mocked storage."""
-    return SemanticLayer(mock_storage)
+def planning_service_fixture(mock_storage):
+    """PlanningService for TestPlanningContext."""
+    return PlanningService(mock_storage, MagicMock())
+
+@pytest.fixture
+def workout_service_fixture(mock_storage):
+    """WorkoutQueryService for workout test classes."""
+    return WorkoutQueryService(mock_storage)
+
+@pytest.fixture
+def analysis_service_fixture(mock_storage):
+    """AnalysisService for TestAnalysisQueries."""
+    return AnalysisService(mock_storage)
+
+@pytest.fixture
+def physiometrics_service_fixture(mock_storage):
+    """PhysiometricsService for TestTrainingStateQueries."""
+    return PhysiometricsService(mock_storage)
+
+@pytest.fixture
+def rollup_service_fixture(mock_storage):
+    """RollupService for rollup test classes."""
+    return RollupService(mock_storage)
 
 
 @pytest.fixture
@@ -206,16 +228,15 @@ def sample_workout_projections():
 class TestPlanningContext:
     """Tests for get_planning_context endpoint."""
 
-    def test_get_planning_context_basic(self, semantic_layer, sample_workouts, mock_storage):
+    def test_get_planning_context_basic(self, planning_service_fixture, sample_workouts, mock_storage):
         """Test basic planning context retrieval."""
         # Mock _get_workouts_in_range to return sample data
-        with patch.object(
-            semantic_layer, '_get_workouts_in_range', return_value=sample_workouts
+        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workouts_in_range', return_value=sample_workouts
         ):
             with patch.object(
-                semantic_layer, '_get_weekly_rollups', return_value=[]
+                planning_service_fixture, '_get_weekly_rollups', return_value=[]
             ):
-                context = semantic_layer.get_planning_context("rob", days=30)
+                context = planning_service_fixture.get_planning_context("rob", days=30)
 
         assert context["athlete_id"] == "rob"
         assert "query_window" in context
@@ -226,49 +247,46 @@ class TestPlanningContext:
         assert "notable_flags" in context
 
     def test_planning_context_detects_last_hard_day(
-        self, semantic_layer, sample_workouts, mock_storage
+        self, planning_service_fixture, sample_workouts, mock_storage
     ):
         """Test detection of last high-intensity workout."""
-        with patch.object(
-            semantic_layer, '_get_workouts_in_range', return_value=sample_workouts
+        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workouts_in_range', return_value=sample_workouts
         ):
             with patch.object(
-                semantic_layer, '_get_weekly_rollups', return_value=[]
+                planning_service_fixture, '_get_weekly_rollups', return_value=[]
             ):
-                context = semantic_layer.get_planning_context("rob", days=30)
+                context = planning_service_fixture.get_planning_context("rob", days=30)
 
         # workout-001 has 480 seconds (8 minutes) of intensity > 300 sec threshold
         assert context["summary"]["last_hard_day"] == sample_workouts[0]["start_time_utc"]
 
     def test_planning_context_detects_last_long_day(
-        self, semantic_layer, sample_workouts, mock_storage
+        self, planning_service_fixture, sample_workouts, mock_storage
     ):
         """Test detection of last long aerobic workout."""
         # Modify workout-002 to have > 60 minutes of Z2 (in seconds)
         workouts = sample_workouts.copy()
         workouts[1]["hr_z2_sec"] = 4500  # 75 minutes in seconds
 
-        with patch.object(
-            semantic_layer, '_get_workouts_in_range', return_value=workouts
+        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workouts_in_range', return_value=workouts
         ):
             with patch.object(
-                semantic_layer, '_get_weekly_rollups', return_value=[]
+                planning_service_fixture, '_get_weekly_rollups', return_value=[]
             ):
-                context = semantic_layer.get_planning_context("rob", days=30)
+                context = planning_service_fixture.get_planning_context("rob", days=30)
 
         assert context["summary"]["last_long_day"] == workouts[1]["start_time_utc"]
 
     def test_planning_context_cumulative_minutes(
-        self, semantic_layer, sample_workouts, mock_storage
+        self, planning_service_fixture, sample_workouts, mock_storage
     ):
         """Test cumulative zone minutes calculation."""
-        with patch.object(
-            semantic_layer, '_get_workouts_in_range', return_value=sample_workouts
+        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workouts_in_range', return_value=sample_workouts
         ):
             with patch.object(
-                semantic_layer, '_get_weekly_rollups', return_value=[]
+                planning_service_fixture, '_get_weekly_rollups', return_value=[]
             ):
-                context = semantic_layer.get_planning_context("rob", days=30)
+                context = planning_service_fixture.get_planning_context("rob", days=30)
 
         # Sum all HR Z2 seconds and convert to minutes
         # workout-001: 3000sec = 50min, workout-002: 2700sec = 45min, workout-003: 300sec = 5min
@@ -281,7 +299,7 @@ class TestPlanningContext:
         assert context["summary"]["cumulative_intensity_minutes"] == pytest.approx(expected_intensity)
 
     def test_planning_context_detects_flags(
-        self, semantic_layer, sample_workouts, mock_storage
+        self, planning_service_fixture, sample_workouts, mock_storage
     ):
         """Test detection of notable flags."""
         # Add workout with missing HR
@@ -295,20 +313,19 @@ class TestPlanningContext:
             # No hr_avg_bpm
         })
 
-        with patch.object(
-            semantic_layer, '_get_workouts_in_range', return_value=workouts
+        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workouts_in_range', return_value=workouts
         ):
             with patch.object(
-                semantic_layer, '_get_weekly_rollups', return_value=[]
+                planning_service_fixture, '_get_weekly_rollups', return_value=[]
             ):
-                context = semantic_layer.get_planning_context("rob", days=30)
+                context = planning_service_fixture.get_planning_context("rob", days=30)
 
         flags = context["notable_flags"]
         assert any("missing heart rate" in flag for flag in flags)
         assert any("very short" in flag for flag in flags)
 
     def test_planning_context_uses_seconds_fields(
-        self, semantic_layer, mock_storage
+        self, planning_service_fixture, mock_storage
     ):
         """Test that planning context correctly reads zone times from _sec fields."""
         # Create workouts with _sec fields (as storage actually provides)
@@ -336,13 +353,12 @@ class TestPlanningContext:
             },
         ]
 
-        with patch.object(
-            semantic_layer, '_get_workouts_in_range', return_value=workouts_with_sec_fields
+        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workouts_in_range', return_value=workouts_with_sec_fields
         ):
             with patch.object(
-                semantic_layer, '_get_weekly_rollups', return_value=[]
+                planning_service_fixture, '_get_weekly_rollups', return_value=[]
             ):
-                context = semantic_layer.get_planning_context("rob", days=30)
+                context = planning_service_fixture.get_planning_context("rob", days=30)
 
         # Verify last_long_day detected (workout-001 has 65min Z2 > 60min threshold)
         assert context["summary"]["last_long_day"] == "2026-03-01T10:00:00+00:00"
@@ -362,47 +378,43 @@ class TestPlanningContext:
 class TestWorkoutQueries:
     """Tests for workout query endpoints."""
 
-    def test_get_workouts_basic(self, semantic_layer, sample_workout_projections, mock_storage):
+    def test_get_workouts_basic(self, workout_service_fixture, sample_workout_projections, mock_storage):
         """Test basic workout listing."""
-        with patch.object(
-            semantic_layer, '_get_workout_projections_in_range', return_value=sample_workout_projections
+        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workout_projections_in_range', return_value=sample_workout_projections
         ):
-            workouts = semantic_layer.get_workouts("rob", limit=50)
+            workouts = workout_service_fixture.get_workouts("rob", limit=50)
 
         assert len(workouts) == 3
         assert all(w["athlete_id"] == "rob" for w in workouts)
 
     def test_get_workouts_with_sport_filter(
-        self, semantic_layer, sample_workout_projections, mock_storage
+        self, workout_service_fixture, sample_workout_projections, mock_storage
     ):
         """Test workout filtering by sport."""
-        with patch.object(
-            semantic_layer, '_get_workout_projections_in_range', return_value=sample_workout_projections
+        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workout_projections_in_range', return_value=sample_workout_projections
         ):
-            workouts = semantic_layer.get_workouts("rob", sport="Cycling")
+            workouts = workout_service_fixture.get_workouts("rob", sport="Cycling")
 
         assert len(workouts) == 2
         assert all(w["sport"] == "Cycling" for w in workouts)
 
     def test_get_workouts_respects_limit(
-        self, semantic_layer, sample_workout_projections, mock_storage
+        self, workout_service_fixture, sample_workout_projections, mock_storage
     ):
         """Test workout limit parameter."""
-        with patch.object(
-            semantic_layer, '_get_workout_projections_in_range', return_value=sample_workout_projections
+        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workout_projections_in_range', return_value=sample_workout_projections
         ):
-            workouts = semantic_layer.get_workouts("rob", limit=1)
+            workouts = workout_service_fixture.get_workouts("rob", limit=1)
 
         assert len(workouts) == 1
 
     def test_get_workouts_normalizes_date_only_filters_to_utc_bounds(
-        self, semantic_layer, sample_workout_projections, mock_storage
+        self, workout_service_fixture, sample_workout_projections, mock_storage
     ):
         """Date-only workout filters should become inclusive UTC-aware bounds."""
-        with patch.object(
-            semantic_layer, '_get_workout_projections_in_range', return_value=sample_workout_projections
+        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workout_projections_in_range', return_value=sample_workout_projections
         ) as get_range:
-            semantic_layer.get_workouts(
+            workout_service_fixture.get_workouts(
                 "rob",
                 since="2026-01-01",
                 until="2026-01-31",
@@ -410,11 +422,11 @@ class TestWorkoutQueries:
             )
 
         get_range.assert_called_once()
-        _, start_date, end_date = get_range.call_args.args
+        _storage, _athlete_id, start_date, end_date = get_range.call_args.args[:4]
         assert start_date == datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         assert end_date == datetime(2026, 1, 31, 23, 59, 59, 999999, tzinfo=timezone.utc)
 
-    def test_get_workout_detail_found(self, semantic_layer, mock_storage):
+    def test_get_workout_detail_found(self, workout_service_fixture, mock_storage):
         """Test retrieving detailed workout data."""
         mock_table_client = MagicMock()
         mock_storage.infrastructure.get_table_client.return_value = mock_table_client
@@ -446,7 +458,7 @@ class TestWorkoutQueries:
             }
         )
 
-        workout = semantic_layer.get_workout_detail("rob", "workout-001")
+        workout = workout_service_fixture.get_workout_detail("rob", "workout-001")
 
         assert workout is not None
         assert workout["workout_id"] == "workout-001"
@@ -454,7 +466,7 @@ class TestWorkoutQueries:
 
     def test_get_workout_detail_uses_ftp_effective_on_workout_date(
         self,
-        semantic_layer,
+        workout_service_fixture,
         mock_storage,
     ):
         """Workout detail should resolve FTP from the physiometrics state effective on the workout date."""
@@ -496,18 +508,18 @@ class TestWorkoutQueries:
             "TrainingAnalyticsPlatform.models.core.Config.power_config",
             return_value=SimpleNamespace(ftp_watts=300),
         ):
-            workout = semantic_layer.get_workout_detail("rob", "workout-ftp-001")
+            workout = workout_service_fixture.get_workout_detail("rob", "workout-ftp-001")
 
         assert workout is not None
         assert workout["metrics"]["zones_power"]["ftp_watts"] == pytest.approx(240.0)
         mock_storage.physiometrics.get_physiometrics_as_of.assert_called_once_with(
-            "rob",
-            "2026-02-22",
+            athlete_id="rob",
+            target_date="2026-02-22",
         )
 
     def test_get_workout_detail_uses_hr_baselines_effective_on_workout_date(
         self,
-        semantic_layer,
+        workout_service_fixture,
         mock_storage,
     ):
         """Workout detail should resolve HR zone inputs from the physiometrics state effective on the workout date."""
@@ -558,7 +570,7 @@ class TestWorkoutQueries:
                 resting_hr_bpm=50,
             ),
         ):
-            workout = semantic_layer.get_workout_detail("rob", "workout-hr-001")
+            workout = workout_service_fixture.get_workout_detail("rob", "workout-hr-001")
 
         assert workout is not None
         assert workout["metrics"]["hr_resting_bpm"] == pytest.approx(47.0)
@@ -568,7 +580,7 @@ class TestWorkoutQueries:
 
     def test_get_workout_detail_includes_full_metric_families_when_canonical_complete(
         self,
-        semantic_layer,
+        workout_service_fixture,
         mock_storage,
     ):
         """Deep-dive workout detail should populate all canonical metric families when data supports them."""
@@ -609,7 +621,7 @@ class TestWorkoutQueries:
             }
         )
 
-        workout = semantic_layer.get_workout_detail("rob", "workout-full-001")
+        workout = workout_service_fixture.get_workout_detail("rob", "workout-full-001")
 
         assert workout is not None
         metrics = workout["metrics"]
@@ -624,7 +636,7 @@ class TestWorkoutQueries:
 
     def test_get_workout_detail_detects_climbs_from_noisy_realistic_grade_series(
         self,
-        semantic_layer,
+        workout_service_fixture,
         mock_storage,
     ):
         """Workout detail should still surface climbs when minor resampling gaps interrupt a real ascent."""
@@ -674,7 +686,7 @@ class TestWorkoutQueries:
             }
         )
 
-        workout = semantic_layer.get_workout_detail("rob", "workout-climb-001")
+        workout = workout_service_fixture.get_workout_detail("rob", "workout-climb-001")
 
         assert workout is not None
         artifacts = workout["metrics"].get("artifacts") or {}
@@ -695,7 +707,7 @@ class TestWorkoutQueries:
 
     def test_get_workout_detail_recovers_climbs_from_raw_fit_when_canonical_elevation_missing(
         self,
-        semantic_layer,
+        workout_service_fixture,
         mock_storage,
     ):
         """Workout detail should recover elevation from archived raw FIT frames for older ingests."""
@@ -754,7 +766,7 @@ class TestWorkoutQueries:
         mock_storage.workouts.infra.raw_fit_blob_name.return_value = "ingest-rawfit-001/raw_fit.json.gz"
         mock_storage.workouts.infra.load_json_blob.return_value = raw_fit_frames
 
-        workout = semantic_layer.get_workout_detail("rob", "workout-rawfit-001")
+        workout = workout_service_fixture.get_workout_detail("rob", "workout-rawfit-001")
 
         assert workout is not None
         artifacts = workout["metrics"].get("artifacts") or {}
@@ -770,7 +782,7 @@ class TestWorkoutQueries:
 
     def test_get_workout_detail_surfaces_only_enrichment_raw_metadata_in_session(
         self,
-        semantic_layer,
+        workout_service_fixture,
         mock_storage,
     ):
         """Direct workout detail should keep raw passthrough limited to metadata.json enrichment."""
@@ -820,7 +832,7 @@ class TestWorkoutQueries:
             }
         )
 
-        workout = semantic_layer.get_workout_detail("rob", "workout-meta-001")
+        workout = workout_service_fixture.get_workout_detail("rob", "workout-meta-001")
 
         assert workout is not None
         session_metrics = workout["metrics"]["session"]
@@ -833,17 +845,17 @@ class TestWorkoutQueries:
         assert "metadata_session" not in session_metrics
         assert "activity_metadata" not in session_metrics
 
-    def test_get_workout_detail_not_found(self, semantic_layer, mock_storage):
+    def test_get_workout_detail_not_found(self, workout_service_fixture, mock_storage):
         """Test retrieving non-existent workout."""
         mock_table_client = MagicMock()
         mock_storage.infrastructure.get_table_client.return_value = mock_table_client
         mock_table_client.query_entities.return_value = []
 
-        workout = semantic_layer.get_workout_detail("rob", "nonexistent")
+        workout = workout_service_fixture.get_workout_detail("rob", "nonexistent")
 
         assert workout is None
 
-    def test_get_workout_detail_wrong_athlete(self, semantic_layer, mock_storage):
+    def test_get_workout_detail_wrong_athlete(self, workout_service_fixture, mock_storage):
         """Test workout detail with mismatched athlete_id."""
         mock_table_client = MagicMock()
         mock_storage.infrastructure.get_table_client.return_value = mock_table_client
@@ -858,11 +870,11 @@ class TestWorkoutQueries:
         }
         mock_table_client.query_entities.return_value = [mock_entity]
 
-        workout = semantic_layer.get_workout_detail("rob", "workout-001")
+        workout = workout_service_fixture.get_workout_detail("rob", "workout-001")
 
         assert workout is None
 
-    def test_get_workout_detail_with_developer_fields(self, semantic_layer, mock_storage):
+    def test_get_workout_detail_with_developer_fields(self, workout_service_fixture, mock_storage):
         """Test workout detail can include summarized developer fields."""
         mock_table_client = MagicMock()
         mock_storage.infrastructure.get_table_client.return_value = mock_table_client
@@ -896,7 +908,7 @@ class TestWorkoutQueries:
             }
         )
 
-        workout = semantic_layer.get_workout_detail(
+        workout = workout_service_fixture.get_workout_detail(
             "rob",
             "workout-001",
             include_developer_fields=True,
@@ -906,7 +918,7 @@ class TestWorkoutQueries:
         assert "developer_fields_summary" in workout
         assert workout["developer_fields_summary"]["field_count"] == 1
 
-    def test_get_workout_detail_summarizes_laps_payload(self, semantic_layer, mock_storage):
+    def test_get_workout_detail_summarizes_laps_payload(self, workout_service_fixture, mock_storage):
         """Laps on workout detail should be compact summaries, not raw FIT frame payloads."""
         mock_table_client = MagicMock()
         mock_storage.infrastructure.get_table_client.return_value = mock_table_client
@@ -955,7 +967,7 @@ class TestWorkoutQueries:
             }
         )
 
-        workout = semantic_layer.get_workout_detail("rob", "workout-001", include_laps=True)
+        workout = workout_service_fixture.get_workout_detail("rob", "workout-001", include_laps=True)
 
         assert workout is not None
         assert "laps" in workout
@@ -968,7 +980,7 @@ class TestWorkoutQueries:
         assert lap["extra_fields"]["dev_pedal_smoothness"]["value"] == pytest.approx(31.2)
         assert lap["extra_fields"]["dev_pedal_smoothness"]["units"] == "%"
 
-    def test_get_workout_lap_detail_returns_summary_shape(self, semantic_layer, mock_storage):
+    def test_get_workout_lap_detail_returns_summary_shape(self, workout_service_fixture, mock_storage):
         """Lap detail should return summarized lap payload shape with extra_fields."""
         mock_table_client = MagicMock()
         mock_storage.infrastructure.get_table_client.return_value = mock_table_client
@@ -993,7 +1005,7 @@ class TestWorkoutQueries:
             ]
         }
 
-        lap = semantic_layer.get_workout_lap_detail("rob", "workout-001", 0)
+        lap = workout_service_fixture.get_workout_lap_detail("rob", "workout-001", 0)
 
         assert lap is not None
         assert lap["workout_id"] == "workout-001"
@@ -1005,7 +1017,7 @@ class TestWorkoutQueries:
 
     def test_get_workout_detail_raises_storage_error_on_non_1hz_validation_failure(
         self,
-        semantic_layer,
+        workout_service_fixture,
         mock_storage,
     ):
         """Workout detail must fail when canonical validation cannot hydrate metrics."""
@@ -1048,25 +1060,24 @@ class TestWorkoutQueries:
         )
 
         with patch(
-            "TrainingAnalyticsPlatform.analytics.semantic_layer.CanonicalAnalyticsEngine.from_dataframe",
+            "TrainingAnalyticsPlatform.analytics.workout_query_service.CanonicalAnalyticsEngine.from_dataframe",
             side_effect=ValidationError("strict_1hz_failed", status_code=422),
         ):
             with pytest.raises(
                 StorageError,
                 match="Workout detail is temporarily unavailable",
             ):
-                semantic_layer.get_workout_detail("rob", mock_entity["workout_id"])
+                workout_service_fixture.get_workout_detail("rob", mock_entity["workout_id"])
 
 
 class TestAnalysisQueries:
     """Tests for analysis endpoints."""
 
-    def test_zone_distribution(self, semantic_layer, sample_workouts, mock_storage):
+    def test_zone_distribution(self, analysis_service_fixture, sample_workouts, mock_storage):
         """Test zone distribution returns valid structure with non-negative values."""
-        with patch.object(
-            semantic_layer, '_get_workouts_in_range', return_value=sample_workouts
+        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workouts_in_range', return_value=sample_workouts
         ):
-            distribution = semantic_layer.get_zone_distribution("rob", days=30)
+            distribution = analysis_service_fixture.get_zone_distribution("rob", days=30)
 
         # Validate structure
         assert "zones" in distribution
@@ -1085,13 +1096,12 @@ class TestAnalysisQueries:
         assert distribution["total_minutes"] >= 0
 
     def test_zone_distribution_percentages(
-        self, semantic_layer, sample_workouts, mock_storage
+        self, analysis_service_fixture, sample_workouts, mock_storage
     ):
         """Test zone percentages sum to approximately 100% and are in valid range."""
-        with patch.object(
-            semantic_layer, '_get_workouts_in_range', return_value=sample_workouts
+        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workouts_in_range', return_value=sample_workouts
         ):
-            distribution = semantic_layer.get_zone_distribution("rob", days=30)
+            distribution = analysis_service_fixture.get_zone_distribution("rob", days=30)
 
         percentages = distribution["percentages"]
 
@@ -1111,12 +1121,11 @@ class TestAnalysisQueries:
                 actual_pct = percentages[zone]
                 assert expected_pct == pytest.approx(actual_pct, rel=0.01)
 
-    def test_efficiency_trends(self, semantic_layer, sample_workouts, mock_storage):
+    def test_efficiency_trends(self, analysis_service_fixture, sample_workouts, mock_storage):
         """Test efficiency trend analysis."""
-        with patch.object(
-            semantic_layer, '_get_workouts_in_range', return_value=sample_workouts
+        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workouts_in_range', return_value=sample_workouts
         ):
-            trends = semantic_layer.get_efficiency_trends("rob", days=90)
+            trends = analysis_service_fixture.get_efficiency_trends("rob", days=90)
 
         assert "samples" in trends
         assert "summary" in trends
@@ -1126,13 +1135,12 @@ class TestAnalysisQueries:
         assert trends["samples"][0]["decoupling_pct"] == pytest.approx(2.5)
 
     def test_efficiency_trends_summary(
-        self, semantic_layer, sample_workouts, mock_storage
+        self, analysis_service_fixture, sample_workouts, mock_storage
     ):
         """Test efficiency trend summary calculation."""
-        with patch.object(
-            semantic_layer, '_get_workouts_in_range', return_value=sample_workouts
+        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workouts_in_range', return_value=sample_workouts
         ):
-            trends = semantic_layer.get_efficiency_trends("rob", days=90)
+            trends = analysis_service_fixture.get_efficiency_trends("rob", days=90)
 
         summary = trends["summary"]
         assert summary["total_samples"] == 1
@@ -1143,7 +1151,7 @@ class TestTrainingStateQueries:
     """Tests for training-state response projections."""
 
     def test_compute_current_training_state_includes_new_garmin_fields(
-        self, semantic_layer
+        self, physiometrics_service_fixture
     ):
         """Current training-state response should expose Garmin pass-through fields."""
         snapshot = SimpleNamespace(
@@ -1168,11 +1176,11 @@ class TestTrainingStateQueries:
         )
 
         with patch.object(
-            semantic_layer,
+            physiometrics_service_fixture,
             "_compute_training_state_for_date",
             return_value=snapshot,
         ):
-            result = semantic_layer.compute_current_training_state("rob")
+            result = physiometrics_service_fixture.compute_current_training_state("rob")
 
         assert result["garmin_training_status"] == "PRODUCTIVE_2"
         assert result["garmin_training_load"] == pytest.approx(376.0)
@@ -1183,7 +1191,7 @@ class TestTrainingStateQueries:
         assert "computed_at_utc" in result
 
     def test_compute_training_state_history_includes_new_garmin_fields(
-        self, semantic_layer
+        self, physiometrics_service_fixture
     ):
         """History response points should include Garmin pass-through fields."""
         snapshot = SimpleNamespace(
@@ -1208,15 +1216,15 @@ class TestTrainingStateQueries:
         )
 
         with patch.object(
-            semantic_layer,
+            physiometrics_service_fixture,
             "_prefetch_training_state_history_tss",
             return_value={},
         ), patch.object(
-            semantic_layer,
+            physiometrics_service_fixture,
             "_build_training_state_snapshot_from_tss",
             return_value=snapshot,
         ):
-            result = semantic_layer.compute_training_state_history("rob", days=0)
+            result = physiometrics_service_fixture.compute_training_state_history("rob", days=0)
 
         assert result["count"] == 1
         point = result["data_points"][0]
@@ -1228,7 +1236,7 @@ class TestTrainingStateQueries:
         assert point["garmin_load_focus_anaerobic_pct"] == pytest.approx(18.0)
 
     def test_compute_training_state_history_uses_since_until_range(
-        self, semantic_layer
+        self, physiometrics_service_fixture
     ):
         """History response should honor explicit inclusive since/until range."""
         snapshot = SimpleNamespace(
@@ -1253,15 +1261,15 @@ class TestTrainingStateQueries:
         )
 
         with patch.object(
-            semantic_layer,
+            physiometrics_service_fixture,
             "_prefetch_training_state_history_tss",
             return_value={},
         ) as prefetch_tss, patch.object(
-            semantic_layer,
+            physiometrics_service_fixture,
             "_build_training_state_snapshot_from_tss",
             return_value=snapshot,
         ):
-            result = semantic_layer.compute_training_state_history(
+            result = physiometrics_service_fixture.compute_training_state_history(
                 "rob",
                 since="2026-03-17",
                 until="2026-03-18",
@@ -1276,7 +1284,7 @@ class TestTrainingStateQueries:
         prefetch_tss.assert_called_once()
 
     def test_compute_training_state_history_resolves_workouts_once_per_window(
-        self, semantic_layer, mock_storage
+        self, physiometrics_service_fixture, mock_storage
     ):
         """History computation should resolve workout TSS once per shared window, not once per day."""
         end_date = datetime.now(timezone.utc).date()
@@ -1311,28 +1319,27 @@ class TestTrainingStateQueries:
 
         mock_storage.infrastructure.get_table_client.return_value = MagicMock()
 
-        with patch.object(
-            semantic_layer,
-            "_get_month_partitions",
+        with patch(
+            "TrainingAnalyticsPlatform.analytics.physiometrics_service.utils.get_month_partitions",
             return_value=["rob|2026-04"],
         ), patch.object(
-            semantic_layer,
+            physiometrics_service_fixture,
             "_query_training_window_workouts",
             return_value=workout_entities,
         ) as query_workouts, patch.object(
-            semantic_layer,
+            physiometrics_service_fixture,
             "_parse_workout_start_date",
             side_effect=workout_dates,
         ) as parse_workout_date, patch.object(
-            semantic_layer,
+            physiometrics_service_fixture,
             "_resolve_workout_tss",
             side_effect=[100.0, 50.0],
         ) as resolve_tss, patch.object(
-            semantic_layer,
+            physiometrics_service_fixture,
             "_build_training_state_snapshot_from_tss",
             return_value=snapshot,
         ) as build_snapshot:
-            result = semantic_layer.compute_training_state_history("rob", days=2)
+            result = physiometrics_service_fixture.compute_training_state_history("rob", days=2)
 
         assert result["count"] == 3
         query_workouts.assert_called_once()
@@ -1341,7 +1348,7 @@ class TestTrainingStateQueries:
         assert build_snapshot.call_count == 3
 
     def test_load_latest_physiometrics_snapshot_uses_typed_storage_path(
-        self, semantic_layer, mock_storage
+        self, physiometrics_service_fixture, mock_storage
     ):
         """Semantic layer should load typed physiometrics snapshot via storage API."""
         typed_snapshot = PhysiometricsSnapshot(  # type: ignore[call-arg]
@@ -1353,7 +1360,7 @@ class TestTrainingStateQueries:
         )
         mock_storage.physiometrics.get_physiometrics_snapshot_as_of.return_value = typed_snapshot
 
-        result = semantic_layer._load_latest_physiometrics_snapshot("rob", "2026-03-18")
+        result = physiometrics_service_fixture._load_latest_physiometrics_snapshot("rob", "2026-03-18")
 
         assert result is typed_snapshot
         mock_storage.physiometrics.get_physiometrics_snapshot_as_of.assert_called_once_with(
@@ -1362,19 +1369,19 @@ class TestTrainingStateQueries:
         )
 
     def test_load_latest_physiometrics_snapshot_handles_storage_error(
-        self, semantic_layer, mock_storage
+        self, physiometrics_service_fixture, mock_storage
     ):
         """Semantic layer should return None when typed physiometrics lookup fails."""
         mock_storage.physiometrics.get_physiometrics_snapshot_as_of.side_effect = StorageError(
             "lookup failed"
         )
 
-        result = semantic_layer._load_latest_physiometrics_snapshot("rob", "2026-03-18")
+        result = physiometrics_service_fixture._load_latest_physiometrics_snapshot("rob", "2026-03-18")
 
         assert result is None
 
     def test_resolve_training_state_physiometrics_as_of_uses_intervals_for_hrv_and_garmin_fields(
-        self, semantic_layer, mock_storage
+        self, physiometrics_service_fixture, mock_storage
     ):
         """Training-state physiometrics should merge as-of rows by source-specific ownership."""
         mock_table_client = MagicMock()
@@ -1404,7 +1411,7 @@ class TestTrainingStateQueries:
             },
         ]
 
-        result = semantic_layer._resolve_training_state_physiometrics_as_of(
+        result = physiometrics_service_fixture._resolve_training_state_physiometrics_as_of(
             "rob",
             "2026-03-18",
         )
@@ -1416,7 +1423,7 @@ class TestTrainingStateQueries:
         assert result["recovery_time_minutes"] == 360
 
     def test_resolve_training_state_physiometrics_as_of_ignores_future_rows(
-        self, semantic_layer, mock_storage
+        self, physiometrics_service_fixture, mock_storage
     ):
         """Training-state physiometrics should only use rows effective on or before the target date."""
         mock_table_client = MagicMock()
@@ -1440,7 +1447,7 @@ class TestTrainingStateQueries:
             },
         ]
 
-        result = semantic_layer._resolve_training_state_physiometrics_as_of(
+        result = physiometrics_service_fixture._resolve_training_state_physiometrics_as_of(
             "rob",
             "2026-03-18",
         )
@@ -1449,18 +1456,18 @@ class TestTrainingStateQueries:
         assert "hrv_ln_rmssd" not in result
 
     def test_compute_training_state_for_date_uses_as_of_source_merge(
-        self, semantic_layer, mock_storage
+        self, physiometrics_service_fixture, mock_storage
     ):
         """Training-state computation should combine workout load with as-of physiometrics ownership."""
         mock_table_client = MagicMock()
         mock_storage.infrastructure.get_table_client.return_value = mock_table_client
 
         with patch.object(
-            semantic_layer,
+            physiometrics_service_fixture,
             "_compute_rolling_tss",
             return_value=(140.0, 280.0),
         ), patch.object(
-            semantic_layer,
+            physiometrics_service_fixture,
             "_resolve_training_state_physiometrics_as_of",
             return_value={
                 "hrv_ln_rmssd": 4.0,
@@ -1473,7 +1480,7 @@ class TestTrainingStateQueries:
                 "load_focus_anaerobic_pct": 18.0,
             },
         ):
-            snapshot = semantic_layer._compute_training_state_for_date(
+            snapshot = physiometrics_service_fixture._compute_training_state_for_date(
                 "rob",
                 datetime(2026, 3, 18, tzinfo=timezone.utc).date(),
             )
@@ -1488,18 +1495,18 @@ class TestTrainingStateQueries:
         assert snapshot.garmin_load_focus_anaerobic_pct == pytest.approx(18.0)
 
     def test_compute_training_state_for_date_keeps_garmin_readiness_when_intervals_hrv_missing(
-        self, semantic_layer, mock_storage
+        self, physiometrics_service_fixture, mock_storage
     ):
         """Composite readiness should stay null when Intervals HRV is absent as of the target date."""
         mock_table_client = MagicMock()
         mock_storage.infrastructure.get_table_client.return_value = mock_table_client
 
         with patch.object(
-            semantic_layer,
+            physiometrics_service_fixture,
             "_compute_rolling_tss",
             return_value=(140.0, 280.0),
         ), patch.object(
-            semantic_layer,
+            physiometrics_service_fixture,
             "_resolve_training_state_physiometrics_as_of",
             return_value={
                 "readiness_score": 78.0,
@@ -1508,7 +1515,7 @@ class TestTrainingStateQueries:
                 "recovery_time_minutes": 240,
             },
         ):
-            snapshot = semantic_layer._compute_training_state_for_date(
+            snapshot = physiometrics_service_fixture._compute_training_state_for_date(
                 "rob",
                 datetime(2026, 3, 18, tzinfo=timezone.utc).date(),
             )
@@ -1522,7 +1529,7 @@ class TestWeeklyRollupQueries:
     """Tests for weekly rollup normalization and filtering."""
 
     def test_weekly_rollups_fallback_to_workout_aggregation_when_table_empty(
-        self, semantic_layer, mock_storage
+        self, rollup_service_fixture, mock_storage
     ):
         """Compute weekly rollups from workouts when WeeklyRollups has no rows."""
         mock_table_client = MagicMock()
@@ -1563,11 +1570,11 @@ class TestWeeklyRollupQueries:
         ]
 
         with patch.object(
-            semantic_layer,
+            rollup_service_fixture,
             "_get_rollup_metrics_models_in_range",
             return_value=fallback_workouts,
         ):
-            rollups = semantic_layer._get_weekly_rollups("rob", days=14)
+            rollups = rollup_service_fixture._get_weekly_rollups("rob", days=14)
 
         from pytest import approx
         
@@ -1585,7 +1592,7 @@ class TestWeeklyRollupQueries:
         assert rollups[0]["long_rides_count"] == 1
 
     def test_weekly_rollups_drop_legacy_fields(
-        self, semantic_layer, mock_storage
+        self, rollup_service_fixture, mock_storage
     ):
         """Return only documented weekly rollup fields from table entities."""
         mock_table_client = MagicMock()
@@ -1614,11 +1621,11 @@ class TestWeeklyRollupQueries:
             }
         ]
 
-        with patch("TrainingAnalyticsPlatform.analytics.semantic_layer.datetime") as mock_datetime:
+        with patch("TrainingAnalyticsPlatform.analytics.rollup_service.datetime") as mock_datetime:
             mock_datetime.now.return_value = datetime(
                 2026, 2, 20, tzinfo=timezone.utc
             )
-            rollups = semantic_layer._get_weekly_rollups("rob", days=14)
+            rollups = rollup_service_fixture._get_weekly_rollups("rob", days=14)
 
         assert len(rollups) == 1
         assert set(rollups[0].keys()) <= set(WEEKLY_ROLLUP_ALLOWED_FIELDS)
@@ -1627,7 +1634,7 @@ class TestWeeklyRollupQueries:
 
     def test_weekly_rollups_query_prefers_pipe_partition_and_keeps_local_fields(
         self,
-        semantic_layer,
+        rollup_service_fixture,
         mock_storage,
     ):
         """Query pipe-delimited weekly partitions and preserve local timezone fields."""
@@ -1661,11 +1668,11 @@ class TestWeeklyRollupQueries:
 
         mock_table_client.query_entities.side_effect = _query
 
-        with patch("TrainingAnalyticsPlatform.analytics.semantic_layer.datetime") as mock_datetime:
+        with patch("TrainingAnalyticsPlatform.analytics.rollup_service.datetime") as mock_datetime:
             mock_datetime.now.return_value = datetime(
                 2026, 2, 20, tzinfo=timezone.utc
             )
-            rollups = semantic_layer._get_weekly_rollups("rob", days=14)
+            rollups = rollup_service_fixture._get_weekly_rollups("rob", days=14)
 
         assert len(rollups) == 1
         assert rollups[0]["athlete_home_timezone"] == "America/New_York"
@@ -1676,7 +1683,7 @@ class TestWeeklyRollupQueries:
 
     def test_weekly_rollups_query_falls_back_to_legacy_hash_partition(
         self,
-        semantic_layer,
+        rollup_service_fixture,
         mock_storage,
     ):
         """Fallback query should preserve compatibility with legacy hash partitions."""
@@ -1709,11 +1716,11 @@ class TestWeeklyRollupQueries:
 
         mock_table_client.query_entities.side_effect = _query
 
-        with patch("TrainingAnalyticsPlatform.analytics.semantic_layer.datetime") as mock_datetime:
+        with patch("TrainingAnalyticsPlatform.analytics.rollup_service.datetime") as mock_datetime:
             mock_datetime.now.return_value = datetime(
                 2026, 2, 20, tzinfo=timezone.utc
             )
-            rollups = semantic_layer._get_weekly_rollups("rob", days=14)
+            rollups = rollup_service_fixture._get_weekly_rollups("rob", days=14)
 
         assert len(rollups) == 1
         assert queries == [
@@ -1722,7 +1729,7 @@ class TestWeeklyRollupQueries:
         ]
 
     def test_weekly_rollups_skip_malformed_entities(
-        self, semantic_layer, mock_storage, caplog
+        self, rollup_service_fixture, mock_storage, caplog
     ):
         """Skip entities missing required fields and emit warning log."""
         mock_table_client = MagicMock()
@@ -1756,12 +1763,12 @@ class TestWeeklyRollupQueries:
             },
         ]
 
-        with patch("TrainingAnalyticsPlatform.analytics.semantic_layer.datetime") as mock_datetime:
+        with patch("TrainingAnalyticsPlatform.analytics.rollup_service.datetime") as mock_datetime:
             mock_datetime.now.return_value = datetime(
                 2026, 2, 20, tzinfo=timezone.utc
             )
             with caplog.at_level("WARNING"):
-                rollups = semantic_layer._get_weekly_rollups("rob", days=14)
+                rollups = rollup_service_fixture._get_weekly_rollups("rob", days=14)
 
         assert len(rollups) == 1
         assert rollups[0]["workouts_count"] == 5
@@ -1771,10 +1778,10 @@ class TestWeeklyRollupQueries:
 class TestWeeklyRollupTimerComputation:
     """Tests for timezone-aware previous-week rollup computation and persistence."""
 
-    def test_resolve_timezone_from_agent_preferences(self, semantic_layer):
+    def test_resolve_timezone_from_agent_preferences(self, rollup_service_fixture):
         """Should resolve active athlete_home_timezone from AgentPreferences."""
         mock_table_client = MagicMock()
-        semantic_layer.storage.infrastructure.get_table_client.return_value = mock_table_client
+        rollup_service_fixture.storage.infrastructure.get_table_client.return_value = mock_table_client
         mock_table_client.query_entities.return_value = [
             {
                 "PartitionKey": "rob",
@@ -1786,14 +1793,14 @@ class TestWeeklyRollupTimerComputation:
             }
         ]
 
-        timezone_name = semantic_layer._resolve_timezone_from_agent_preferences("rob")
+        timezone_name = rollup_service_fixture._resolve_timezone_from_agent_preferences("rob")
 
         assert timezone_name == "America/Denver"
 
-    def test_resolve_athlete_home_timezone_prefers_agent_preferences(self, semantic_layer):
+    def test_resolve_athlete_home_timezone_prefers_agent_preferences(self, rollup_service_fixture):
         """AgentPreferences should have precedence over physiometrics timezone values."""
         mock_table_client = MagicMock()
-        semantic_layer.storage.infrastructure.get_table_client.return_value = mock_table_client
+        rollup_service_fixture.storage.infrastructure.get_table_client.return_value = mock_table_client
         mock_table_client.query_entities.return_value = [
             {
                 "PartitionKey": "rob",
@@ -1804,43 +1811,43 @@ class TestWeeklyRollupTimerComputation:
                 "updated_at": "2026-03-10T10:00:00+00:00",
             }
         ]
-        semantic_layer.storage.physiometrics.get_physiometrics.return_value = {
+        rollup_service_fixture.storage.physiometrics.get_physiometrics.return_value = {
             "athlete_info": {
                 "home_timezone": "America/Los_Angeles",
             },
             "athlete_timezone": "America/New_York",
         }
 
-        timezone_name = semantic_layer._resolve_athlete_home_timezone("rob")
+        timezone_name = rollup_service_fixture._resolve_athlete_home_timezone("rob")
 
         assert timezone_name == "America/Denver"
 
-    def test_resolve_athlete_home_timezone_prefers_athlete_info(self, semantic_layer):
+    def test_resolve_athlete_home_timezone_prefers_athlete_info(self, rollup_service_fixture):
         """Resolver should prefer athlete_info.home_timezone over legacy athlete_timezone."""
-        semantic_layer.storage.infrastructure.get_table_client.return_value = MagicMock()
-        semantic_layer.storage.infrastructure.get_table_client.return_value.query_entities.return_value = []
-        semantic_layer.storage.physiometrics.get_physiometrics.return_value = {
+        rollup_service_fixture.storage.infrastructure.get_table_client.return_value = MagicMock()
+        rollup_service_fixture.storage.infrastructure.get_table_client.return_value.query_entities.return_value = []
+        rollup_service_fixture.storage.physiometrics.get_physiometrics.return_value = {
             "athlete_info": {
                 "home_timezone": "America/Los_Angeles",
             },
             "athlete_timezone": "America/New_York",
         }
 
-        timezone_name = semantic_layer._resolve_athlete_home_timezone("rob")
+        timezone_name = rollup_service_fixture._resolve_athlete_home_timezone("rob")
 
         assert timezone_name == "America/Los_Angeles"
 
-    def test_previous_local_week_window_uses_completed_week(self, semantic_layer):
+    def test_previous_local_week_window_uses_completed_week(self, rollup_service_fixture):
         """Compute previous completed local week window from current UTC time."""
         now_utc = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)  # Tuesday
         athlete_tz = ZoneInfo("America/New_York")
 
-        window = semantic_layer._previous_local_week_window(now_utc, athlete_tz)
+        window = rollup_service_fixture._previous_local_week_window(now_utc, athlete_tz)
 
         assert window["week_start_local"].isoformat() == "2026-03-02T00:00:00-05:00"
         assert window["week_end_local"].isoformat() == "2026-03-08T23:59:59-04:00"
 
-    def test_compute_and_persist_previous_week_rollup(self, semantic_layer, mock_storage):
+    def test_compute_and_persist_previous_week_rollup(self, rollup_service_fixture, mock_storage):
         """Persist rollup for previous local week with timezone context fields."""
         workouts = [
             build_rollup_metrics_model({
@@ -1876,11 +1883,11 @@ class TestWeeklyRollupTimerComputation:
         ]
 
         with patch.object(
-            semantic_layer,
+            rollup_service_fixture,
             "_workouts_for_local_week",
             return_value=workouts,
         ):
-            rollup = semantic_layer.compute_and_persist_previous_week_rollup(
+            rollup = rollup_service_fixture.compute_and_persist_previous_week_rollup(
                 athlete_id="rob",
                 athlete_home_timezone="America/New_York",
                 now_utc=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
@@ -1901,7 +1908,7 @@ class TestWeeklyRollupTimerComputation:
 
     def test_workouts_for_local_week_skips_malformed_start_time_utc_in_rollup_path(
         self,
-        semantic_layer,
+        rollup_service_fixture,
         caplog,
     ):
         """Malformed Workouts.start_time_utc values should be skipped before model hydration."""
@@ -1927,16 +1934,15 @@ class TestWeeklyRollupTimerComputation:
         )
 
         with patch.object(
-            semantic_layer,
+            rollup_service_fixture,
             "_get_rollup_entities_in_range",
             return_value=entities,
-        ), patch.object(
-            semantic_layer,
-            "_build_rollup_metrics_model",
+        ), patch(
+            "TrainingAnalyticsPlatform.analytics.rollup_service.utils.build_rollup_metrics_model",
             return_value=valid_model,
         ) as build_model_mock:
             with caplog.at_level("WARNING"):
-                included = semantic_layer._workouts_for_local_week(
+                included = rollup_service_fixture._workouts_for_local_week(
                     athlete_id="rob",
                     week_start_local=datetime(2026, 3, 2, 0, 0, tzinfo=ZoneInfo("America/New_York")),
                     week_end_local=datetime(2026, 3, 8, 23, 59, 59, tzinfo=ZoneInfo("America/New_York")),
@@ -1950,7 +1956,7 @@ class TestWeeklyRollupTimerComputation:
 
     def test_compute_and_persist_previous_week_rollup_uses_hr_fallback_for_intensity(
         self,
-        semantic_layer,
+        rollup_service_fixture,
     ):
         """HR-only workouts should not contribute without intensity_sec."""
         workouts = [
@@ -1975,11 +1981,11 @@ class TestWeeklyRollupTimerComputation:
         ]
 
         with patch.object(
-            semantic_layer,
+            rollup_service_fixture,
             "_workouts_for_local_week",
             return_value=workouts,
         ):
-            rollup = semantic_layer.compute_and_persist_previous_week_rollup(
+            rollup = rollup_service_fixture.compute_and_persist_previous_week_rollup(
                 athlete_id="rob",
                 athlete_home_timezone="America/New_York",
                 now_utc=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
@@ -1991,7 +1997,7 @@ class TestWeeklyRollupTimerComputation:
 
     def test_compute_and_persist_previous_week_rollup_mixes_power_and_hr_intensity(
         self,
-        semantic_layer,
+        rollup_service_fixture,
     ):
         """Weekly intensity and hard-days should use intensity_sec only."""
         workouts = [
@@ -2014,11 +2020,11 @@ class TestWeeklyRollupTimerComputation:
         ]
 
         with patch.object(
-            semantic_layer,
+            rollup_service_fixture,
             "_workouts_for_local_week",
             return_value=workouts,
         ):
-            rollup = semantic_layer.compute_and_persist_previous_week_rollup(
+            rollup = rollup_service_fixture.compute_and_persist_previous_week_rollup(
                 athlete_id="rob",
                 athlete_home_timezone="America/New_York",
                 now_utc=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
@@ -2028,14 +2034,14 @@ class TestWeeklyRollupTimerComputation:
         assert rollup["total_intensity_min"] == pytest.approx(10.0)
         assert rollup["hard_days_count"] == 1
 
-    def test_compute_and_persist_previous_week_rollups_batch(self, semantic_layer):
+    def test_compute_and_persist_previous_week_rollups_batch(self, rollup_service_fixture):
         """Batch wrapper should classify succeeded/skipped/failed athletes."""
         with patch.object(
-            semantic_layer,
+            rollup_service_fixture,
             "compute_and_persist_previous_week_rollup",
             side_effect=[{"workouts_count": 1}, None, RuntimeError("boom")],
         ):
-            result = semantic_layer.compute_and_persist_previous_week_rollups(
+            result = rollup_service_fixture.compute_and_persist_previous_week_rollups(
                 athlete_ids=["a1", "a2", "a3"],
                 now_utc=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
             )
@@ -2052,15 +2058,15 @@ class TestWeeklyRollupTimerComputation:
 
     def test_compute_and_persist_previous_week_rollups_multi_week(
         self,
-        semantic_layer,
+        rollup_service_fixture,
     ):
         """Batch wrapper should compute multiple completed weeks when requested."""
         with patch.object(
-            semantic_layer,
+            rollup_service_fixture,
             "compute_and_persist_previous_week_rollup",
             return_value={"workouts_count": 1},
         ) as mock_compute:
-            result = semantic_layer.compute_and_persist_previous_week_rollups(
+            result = rollup_service_fixture.compute_and_persist_previous_week_rollups(
                 athlete_ids=["rob"],
                 weeks=3,
                 now_utc=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
@@ -2078,15 +2084,15 @@ class TestWeeklyRollupTimerComputation:
 
     def test_compute_and_persist_previous_week_rollups_mixed_week_outcomes_same_athlete(
         self,
-        semantic_layer,
+        rollup_service_fixture,
     ):
         """A failed week should not hide successful/skipped weeks in detailed results."""
         with patch.object(
-            semantic_layer,
+            rollup_service_fixture,
             "compute_and_persist_previous_week_rollup",
             side_effect=[{"workouts_count": 1}, RuntimeError("boom"), None],
         ):
-            result = semantic_layer.compute_and_persist_previous_week_rollups(
+            result = rollup_service_fixture.compute_and_persist_previous_week_rollups(
                 athlete_ids=["rob"],
                 weeks=3,
                 now_utc=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
@@ -2114,7 +2120,7 @@ class TestWeeklyRollupTimerComputation:
 
     def test_build_rollup_metrics_model_retries_with_resample_on_sampling_validation_error(
         self,
-        semantic_layer,
+        rollup_service_fixture,
     ):
         """Non-1Hz canonical validation errors should retry with resample=True."""
         entity = {
@@ -2126,12 +2132,12 @@ class TestWeeklyRollupTimerComputation:
             "canonical_records_blob": "ing-1/canonical.parquet",
         }
 
-        semantic_layer.storage.workouts.load_metadata_json.return_value = {
+        rollup_service_fixture.storage.workouts.load_metadata_json.return_value = {
             "session": {},
             "enrichment": {},
             "activity_metadata": {},
         }
-        semantic_layer.storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+        rollup_service_fixture.storage.workouts.load_canonical_records.return_value = pd.DataFrame(
             {
                 "timestamp_utc": pd.to_datetime(
                     ["2026-03-08T23:24:18Z", "2026-03-08T23:25:25Z"],
@@ -2159,7 +2165,7 @@ class TestWeeklyRollupTimerComputation:
                 expected,
             ],
         ) as mock_from_canonical:
-            result = semantic_layer._build_rollup_metrics_model(entity)
+            result = utils.build_rollup_metrics_model(rollup_service_fixture.storage, entity)
 
         assert result == expected
         assert mock_from_canonical.call_count == 2
@@ -2168,7 +2174,7 @@ class TestWeeklyRollupTimerComputation:
 
     def test_build_rollup_metrics_model_promotes_identity_start_time_for_canonical(
         self,
-        semantic_layer,
+        rollup_service_fixture,
     ):
         """Weekly rollup should pass start_time_utc from metadata.identity to canonical engine."""
         entity = {
@@ -2180,7 +2186,7 @@ class TestWeeklyRollupTimerComputation:
             "canonical_records_blob": "ing-1/canonical.parquet",
         }
 
-        semantic_layer.storage.workouts.load_metadata_json.return_value = {
+        rollup_service_fixture.storage.workouts.load_metadata_json.return_value = {
             "identity": {
                 "start_time_utc": "2026-03-08T23:24:18+00:00",
                 "sport": "Cycling",
@@ -2189,7 +2195,7 @@ class TestWeeklyRollupTimerComputation:
             "enrichment": {},
             "activity_metadata": {},
         }
-        semantic_layer.storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+        rollup_service_fixture.storage.workouts.load_canonical_records.return_value = pd.DataFrame(
             {
                 "timestamp_utc": pd.to_datetime(
                     ["2026-03-08T23:24:18Z", "2026-03-08T23:24:19Z"],
@@ -2214,7 +2220,7 @@ class TestWeeklyRollupTimerComputation:
             "from_canonical",
             return_value=expected,
         ) as mock_from_canonical:
-            result = semantic_layer._build_rollup_metrics_model(entity)
+            result = utils.build_rollup_metrics_model(rollup_service_fixture.storage, entity)
 
         assert result == expected
         assert mock_from_canonical.call_count == 1
@@ -2223,7 +2229,7 @@ class TestWeeklyRollupTimerComputation:
 
     def test_build_rollup_metrics_model_clamps_negative_missing_pct_from_off_by_one_duration(
         self,
-        semantic_layer,
+        rollup_service_fixture,
     ):
         """Weekly rollup hydration should succeed when raw missing_pct would otherwise be -0.1."""
         entity = {
@@ -2237,7 +2243,7 @@ class TestWeeklyRollupTimerComputation:
             "sport": "Cycling",
         }
 
-        semantic_layer.storage.workouts.load_metadata_json.return_value = {
+        rollup_service_fixture.storage.workouts.load_metadata_json.return_value = {
             "identity": {
                 "start_time_utc": "2026-03-08T23:24:18+00:00",
                 "sport": "Cycling",
@@ -2246,7 +2252,7 @@ class TestWeeklyRollupTimerComputation:
             "enrichment": {},
             "activity_metadata": {},
         }
-        semantic_layer.storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+        rollup_service_fixture.storage.workouts.load_canonical_records.return_value = pd.DataFrame(
             {
                 "elapsed_sec": list(range(1001)),
                 "heart_rate_bpm": [140.0] * 1001,
@@ -2254,7 +2260,7 @@ class TestWeeklyRollupTimerComputation:
             }
         )
 
-        result = semantic_layer._build_rollup_metrics_model(entity)
+        result = utils.build_rollup_metrics_model(rollup_service_fixture.storage, entity)
 
         assert result.samples.hr_missing_pct == pytest.approx(0.0)
         assert result.samples.pwr_missing_pct == pytest.approx(0.0)
@@ -2263,7 +2269,7 @@ class TestWeeklyRollupTimerComputation:
 
     def test_workouts_for_local_week_skips_malformed_start_time_utc(
         self,
-        semantic_layer,
+        rollup_service_fixture,
         caplog,
     ):
         """Malformed Workouts.start_time_utc values should be skipped before model hydration."""
@@ -2289,15 +2295,14 @@ class TestWeeklyRollupTimerComputation:
         )
 
         with patch.object(
-            semantic_layer,
+            rollup_service_fixture,
             "_get_rollup_entities_in_range",
             return_value=entities,
-        ), patch.object(
-            semantic_layer,
-            "_build_rollup_metrics_model",
+        ), patch(
+            "TrainingAnalyticsPlatform.analytics.rollup_service.utils.build_rollup_metrics_model",
             return_value=valid_model,
         ) as build_model_mock:
-            result = semantic_layer._workouts_for_local_week(
+            result = rollup_service_fixture._workouts_for_local_week(
                 athlete_id="rob",
                 week_start_local=datetime(2026, 3, 3, 0, 0, tzinfo=ZoneInfo("UTC")),
                 week_end_local=datetime(2026, 3, 9, 23, 59, 59, tzinfo=ZoneInfo("UTC")),
@@ -2310,7 +2315,7 @@ class TestWeeklyRollupTimerComputation:
 
     def test_compute_metrics_from_canonical_retries_with_resample(
         self,
-        semantic_layer,
+        rollup_service_fixture,
     ):
         """Semantic metrics path should retry canonical engine with resample=True."""
         df = pd.DataFrame(
@@ -2328,13 +2333,15 @@ class TestWeeklyRollupTimerComputation:
         mocked_engine.to_metrics_dict.return_value = {"hr_avg_bpm": 125.5}
 
         with patch(
-            "TrainingAnalyticsPlatform.analytics.semantic_layer.CanonicalAnalyticsEngine.from_dataframe",
+            "TrainingAnalyticsPlatform.analytics.workout_query_service.CanonicalAnalyticsEngine.from_dataframe",
             side_effect=[
                 ValidationError("strict_1hz_failed", status_code=422),
                 mocked_engine,
             ],
         ) as mock_from_dataframe:
-            result = semantic_layer._compute_metrics_from_canonical(df, metadata)
+            from TrainingAnalyticsPlatform.analytics.workout_query_service import WorkoutQueryService
+            _wqs = WorkoutQueryService(rollup_service_fixture.storage)
+            result = _wqs._compute_metrics_from_canonical(df, metadata)
 
         assert result == {"hr_avg_bpm": 125.5}
         assert mock_from_dataframe.call_count == 2
@@ -2343,13 +2350,14 @@ class TestWeeklyRollupTimerComputation:
 
     def test_log_canonical_resample_fallback_warns_only_above_threshold(
         self,
-        semantic_layer,
+        rollup_service_fixture,
     ):
         """Resample fallback should warn only when distortion exceeds configured threshold."""
         strict_exc = ValidationError("strict_1hz_failed", status_code=422)
 
-        with patch("TrainingAnalyticsPlatform.analytics.semantic_layer.logger") as mock_logger:
-            semantic_layer._log_canonical_resample_fallback(
+        from TrainingAnalyticsPlatform.analytics import utils as analytics_utils
+        with patch("TrainingAnalyticsPlatform.analytics.utils.logger") as mock_logger:
+            analytics_utils.log_canonical_resample_fallback(
                 scope="weekly_rollup",
                 strict_error=strict_exc,
                 record_count=100,
@@ -2362,7 +2370,7 @@ class TestWeeklyRollupTimerComputation:
                 workout_id="w-1",
                 blob_name="ing-1/canonical.parquet",
             )
-            semantic_layer._log_canonical_resample_fallback(
+            analytics_utils.log_canonical_resample_fallback(
                 scope="weekly_rollup",
                 strict_error=strict_exc,
                 record_count=100,
@@ -2385,28 +2393,26 @@ class TestHelperMethods:
 
     def test_get_rollup_entities_in_range_uses_partition_and_start_time_bounds(
         self,
-        semantic_layer,
+        rollup_service_fixture,
     ):
         """Rollup entity query should be partition-scoped and date-bounded in Azure Table filter."""
         table_client = MagicMock()
         table_client.query_entities.return_value = [
             {"workout_id": "w-1", "start_time_utc": "2026-03-03T12:00:00Z"}
         ]
-        semantic_layer.storage.infrastructure.get_table_client.return_value = table_client
+        rollup_service_fixture.storage.infrastructure.get_table_client.return_value = table_client
 
         start = datetime(2026, 3, 1, 0, 0, tzinfo=timezone.utc)
         end = datetime(2026, 3, 7, 23, 59, 59, tzinfo=timezone.utc)
 
-        with patch.object(
-            semantic_layer,
-            "_get_month_partitions",
+        with patch(
+            "TrainingAnalyticsPlatform.analytics.rollup_service.utils.get_month_partitions",
             return_value=["rob|2026-03"],
-        ), patch.object(
-            semantic_layer,
-            "_entity_within_date_range",
+        ), patch(
+            "TrainingAnalyticsPlatform.analytics.rollup_service.utils.entity_within_date_range",
             return_value=True,
         ):
-            result = semantic_layer._get_rollup_entities_in_range(
+            result = rollup_service_fixture._get_rollup_entities_in_range(
                 athlete_id="rob",
                 start_date=start,
                 end_date=end,
@@ -2418,22 +2424,24 @@ class TestHelperMethods:
         assert "start_time_utc ge '2026-03-01T00:00:00Z'" in query
         assert "start_time_utc le '2026-03-07T23:59:59Z'" in query
 
-    def test_get_month_partitions_single_month(self, semantic_layer):
+    def test_get_month_partitions_single_month(self, rollup_service_fixture):  # noqa: ARG002
         """Test partition key generation for single month."""
+        from TrainingAnalyticsPlatform.analytics import utils as analytics_utils
         start = datetime(2026, 1, 1, tzinfo=timezone.utc)
         end = datetime(2026, 1, 31, tzinfo=timezone.utc)
 
-        partitions = semantic_layer._get_month_partitions("rob", start, end)
+        partitions = analytics_utils.get_month_partitions("rob", start, end)
 
         assert len(partitions) == 1
         assert partitions[0] == "rob|2026-01"
 
-    def test_get_month_partitions_multiple_months(self, semantic_layer):
+    def test_get_month_partitions_multiple_months(self, rollup_service_fixture):  # noqa: ARG002
         """Test partition key generation across multiple months."""
+        from TrainingAnalyticsPlatform.analytics import utils as analytics_utils
         start = datetime(2025, 12, 15, tzinfo=timezone.utc)
         end = datetime(2026, 2, 15, tzinfo=timezone.utc)
 
-        partitions = semantic_layer._get_month_partitions("rob", start, end)
+        partitions = analytics_utils.get_month_partitions("rob", start, end)
 
         assert len(partitions) == 3
         assert "rob|2025-12" in partitions
@@ -2442,7 +2450,7 @@ class TestHelperMethods:
 
     def test_compute_rolling_tss_uses_canonical_fallback_when_entity_tss_missing(
         self,
-        semantic_layer,
+        physiometrics_service_fixture,
     ):
         """Training-state TSS should fall back to canonical analytics when table tss is absent."""
         table_client = MagicMock()
@@ -2466,19 +2474,29 @@ class TestHelperMethods:
         ]
 
         with patch.object(
-            semantic_layer,
-            "_get_month_partitions",
-            return_value=["rob|2026-02"],
-        ), patch.object(
-            semantic_layer,
-            "_build_partition_date_range_query",
-            return_value="PartitionKey eq 'rob|2026-02'",
-        ), patch.object(
-            semantic_layer,
+            physiometrics_service_fixture,
             "_resolve_workout_tss",
             side_effect=[55.0, 80.0],
+        ), patch(
+            "TrainingAnalyticsPlatform.analytics.physiometrics_service.utils.get_month_partitions",
+            return_value=["rob|2026-02"],
+        ), patch.object(
+            physiometrics_service_fixture,
+            "_query_training_window_workouts",
+            return_value=[
+                {
+                    "workout_id": "w-1",
+                    "start_time_utc": "2026-02-20T12:00:00Z",
+                    "tss": None,
+                },
+                {
+                    "workout_id": "w-2",
+                    "start_time_utc": "2026-03-15T12:00:00Z",
+                    "tss": None,
+                },
+            ],
         ):
-            tss_7d, tss_28d = semantic_layer._compute_rolling_tss(
+            tss_7d, tss_28d = physiometrics_service_fixture._compute_rolling_tss(
                 athlete_id="rob",
                 end_date=datetime(2026, 3, 17, tzinfo=timezone.utc).date(),
                 workouts_table=table_client,
@@ -2489,7 +2507,7 @@ class TestHelperMethods:
 
     def test_resolve_workout_tss_rebuilds_from_canonical_metrics(
         self,
-        semantic_layer,
+        physiometrics_service_fixture,
     ):
         """Workout TSS fallback should use the canonical metrics model when table tss is missing."""
         entity = {
@@ -2501,18 +2519,17 @@ class TestHelperMethods:
         metrics_model = MagicMock()
         metrics_model.training_load = SimpleNamespace(tss=72.4)
 
-        with patch.object(
-            semantic_layer,
-            "_build_rollup_metrics_model",
+        with patch(
+            "TrainingAnalyticsPlatform.analytics.physiometrics_service.utils.build_rollup_metrics_model",
             return_value=metrics_model,
         ):
-            result = semantic_layer._resolve_workout_tss(entity)
+            result = physiometrics_service_fixture._resolve_workout_tss(entity)
 
         assert result == pytest.approx(72.4)
 
     def test_resolve_workout_tss_prefers_materialized_table_value(
         self,
-        semantic_layer,
+        physiometrics_service_fixture,
     ):
         """Materialized Workouts.tss should be used directly when available."""
         entity = {
@@ -2522,19 +2539,18 @@ class TestHelperMethods:
             "tss": 91.2,
         }
 
-        with patch.object(
-            semantic_layer,
-            "_build_rollup_metrics_model",
+        with patch(
+            "TrainingAnalyticsPlatform.analytics.physiometrics_service.utils.build_rollup_metrics_model",
         ) as build_metrics:
-            result = semantic_layer._resolve_workout_tss(entity)
+            result = physiometrics_service_fixture._resolve_workout_tss(entity)
 
         build_metrics.assert_not_called()
         assert result == pytest.approx(91.2)
 
-    def test_compute_composite_readiness_is_independent_of_garmin(self, semantic_layer):
+    def test_compute_composite_readiness_is_independent_of_garmin(self, physiometrics_service_fixture):
         """Garmin readiness must not be mixed into composite — it lives in garmin_readiness_score."""
         # With valid HRV + load, score should be from the formula, not Garmin's value.
-        result = semantic_layer._compute_composite_readiness(
+        result = physiometrics_service_fixture._compute_composite_readiness(
             hrv_ln=3.5,
             fatigue_index=1.0,
         )
@@ -2542,13 +2558,13 @@ class TestHelperMethods:
         # 58.33 = avg(50.0, 66.67) — entirely from HRV + load, no Garmin influence
         assert result == pytest.approx(58.33333333333333)
 
-    def test_compute_composite_readiness_returns_none_without_credible_load(self, semantic_layer):
+    def test_compute_composite_readiness_returns_none_without_credible_load(self, physiometrics_service_fixture):
         """Composite readiness should be absent when fatigue input is missing or not credible."""
-        missing_fatigue = semantic_layer._compute_composite_readiness(
+        missing_fatigue = physiometrics_service_fixture._compute_composite_readiness(
             hrv_ln=4.2,
             fatigue_index=None,
         )
-        zero_fatigue = semantic_layer._compute_composite_readiness(
+        zero_fatigue = physiometrics_service_fixture._compute_composite_readiness(
             hrv_ln=4.2,
             fatigue_index=0.0,
         )
@@ -2556,23 +2572,23 @@ class TestHelperMethods:
         assert missing_fatigue is None
         assert zero_fatigue is None
 
-    def test_compute_composite_readiness_averages_hrv_and_fatigue(self, semantic_layer):
+    def test_compute_composite_readiness_averages_hrv_and_fatigue(self, physiometrics_service_fixture):
         """Composite readiness should average normalized HRV and fatigue when both are present."""
-        result = semantic_layer._compute_composite_readiness(
+        result = physiometrics_service_fixture._compute_composite_readiness(
             hrv_ln=3.5,
             fatigue_index=1.0,
         )
 
         assert result == pytest.approx(58.33333333333333)
 
-    def test_find_last_hard_day_found(self, semantic_layer, sample_workouts):
+    def test_find_last_hard_day_found(self, planning_service_fixture, sample_workouts):
         """Test finding last hard workout."""
-        last_hard = semantic_layer._find_last_hard_day(sample_workouts)
+        last_hard = planning_service_fixture._find_last_hard_day(sample_workouts)
 
         # workout-001 has 8 minutes of Z4+Z5
         assert last_hard == sample_workouts[0]["start_time_utc"]
 
-    def test_find_last_hard_day_not_found(self, semantic_layer):
+    def test_find_last_hard_day_not_found(self, planning_service_fixture):
         """Test finding last hard workout when none exist."""
         easy_workouts = [
             {
@@ -2583,10 +2599,10 @@ class TestHelperMethods:
             }
         ]
 
-        last_hard = semantic_layer._find_last_hard_day(easy_workouts)
+        last_hard = planning_service_fixture._find_last_hard_day(easy_workouts)
         assert last_hard is None
 
-    def test_find_last_long_day_found(self, semantic_layer):
+    def test_find_last_long_day_found(self, planning_service_fixture):
         """Test finding last long Z2 workout."""
         long_workouts = [
             {
@@ -2596,25 +2612,25 @@ class TestHelperMethods:
             }
         ]
 
-        last_long = semantic_layer._find_last_long_day(long_workouts)
+        last_long = planning_service_fixture._find_last_long_day(long_workouts)
         assert last_long == "2026-01-15T10:00:00+00:00"
 
-    def test_sum_zone_time(self, semantic_layer, sample_workouts):
+    def test_sum_zone_time(self, planning_service_fixture, sample_workouts):
         """Test zone time summation."""
-        total_z2 = semantic_layer._sum_zone_time(sample_workouts, "hr_z2_sec")
+        total_z2 = planning_service_fixture._sum_zone_time(sample_workouts, "hr_z2_sec")
 
         # Sum all hr_z2_sec values and convert to minutes
         expected = int(sum(w.get("hr_z2_sec", 0) or 0 for w in sample_workouts) / 60)
         assert total_z2 == expected
 
-    def test_sum_high_intensity(self, semantic_layer, sample_workouts):
+    def test_sum_high_intensity(self, planning_service_fixture, sample_workouts):
         """Test high intensity summation."""
-        total_intensity = semantic_layer._sum_high_intensity(sample_workouts)
+        total_intensity = planning_service_fixture._sum_high_intensity(sample_workouts)
 
         # workout-001: 480sec = 8 minutes total
         assert total_intensity == pytest.approx(8.0)
 
-    def test_sum_high_intensity_ignores_hr_when_intensity_missing(self, semantic_layer):
+    def test_sum_high_intensity_ignores_hr_when_intensity_missing(self, planning_service_fixture):
         """Without intensity_sec, HR zones should not contribute to intensity sum."""
         workouts = [
             {
@@ -2624,22 +2640,22 @@ class TestHelperMethods:
             }
         ]
 
-        total_intensity = semantic_layer._sum_high_intensity(workouts)
+        total_intensity = planning_service_fixture._sum_high_intensity(workouts)
 
         assert total_intensity == pytest.approx(0.0)
 
-    def test_detect_notable_flags_missing_hr(self, semantic_layer):
+    def test_detect_notable_flags_missing_hr(self, planning_service_fixture):
         """Test flag detection for missing HR data."""
         workouts = [
             {"workout_id": "w1", "duration_sec": 3600},
             {"workout_id": "w2", "duration_sec": 3600, "hr_avg_bpm": 150},
         ]
 
-        flags = semantic_layer._detect_notable_flags(workouts)
+        flags = planning_service_fixture._detect_notable_flags(workouts)
 
         assert any("missing heart rate" in flag for flag in flags)
 
-    def test_detect_notable_flags_high_decoupling(self, semantic_layer):
+    def test_detect_notable_flags_high_decoupling(self, planning_service_fixture):
         """Test flag detection for high decoupling."""
         workouts = [
             {
@@ -2649,24 +2665,24 @@ class TestHelperMethods:
             }
         ]
 
-        flags = semantic_layer._detect_notable_flags(workouts)
+        flags = planning_service_fixture._detect_notable_flags(workouts)
 
         assert any("high decoupling" in flag for flag in flags)
 
-    def test_detect_notable_flags_very_short(self, semantic_layer):
+    def test_detect_notable_flags_very_short(self, planning_service_fixture):
         """Test flag detection for very short workouts."""
         workouts = [
             {"workout_id": "w1", "duration_sec": 300}  # 5 minutes
         ]
 
-        flags = semantic_layer._detect_notable_flags(workouts)
+        flags = planning_service_fixture._detect_notable_flags(workouts)
 
         assert any("very short" in flag for flag in flags)
 
 class TestDecouplingSignSemantics:
     """Tests to verify aerobic decoupling sign semantics: positive = fatigue, negative = improvement."""
 
-    def test_detect_notable_flags_negative_decoupling_no_alert(self, semantic_layer):
+    def test_detect_notable_flags_negative_decoupling_no_alert(self, planning_service_fixture):
         """Negative decoupling (efficiency improvement) should not trigger high decoupling flag."""
         workouts = [
             {
@@ -2676,12 +2692,12 @@ class TestDecouplingSignSemantics:
             }
         ]
 
-        flags = semantic_layer._detect_notable_flags(workouts)
+        flags = planning_service_fixture._detect_notable_flags(workouts)
 
         # Should NOT have high decoupling flag for negative (improvement) values
         assert not any("high decoupling" in flag for flag in flags)
 
-    def test_detect_notable_flags_zero_decoupling_no_alert(self, semantic_layer):
+    def test_detect_notable_flags_zero_decoupling_no_alert(self, planning_service_fixture):
         """Zero or near-zero decoupling should not trigger alert."""
         workouts = [
             {
@@ -2691,12 +2707,12 @@ class TestDecouplingSignSemantics:
             }
         ]
 
-        flags = semantic_layer._detect_notable_flags(workouts)
+        flags = planning_service_fixture._detect_notable_flags(workouts)
 
         # Should NOT have high decoupling flag; threshold is > 5%
         assert not any("high decoupling" in flag for flag in flags)
 
-    def test_efficiency_trends_preserves_negative_decoupling(self, semantic_layer, mock_storage):
+    def test_efficiency_trends_preserves_negative_decoupling(self, analysis_service_fixture, mock_storage):
         """Efficiency trends endpoint should preserve and report negative decoupling values."""
         # Mixed workouts: some positive (fatigue), some negative (improvement)
         workouts = [
@@ -2720,10 +2736,9 @@ class TestDecouplingSignSemantics:
             },
         ]
 
-        with patch.object(
-            semantic_layer, '_get_workouts_in_range', return_value=workouts
+        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workouts_in_range', return_value=workouts
         ):
-            trends = semantic_layer.get_efficiency_trends("rob", days=7)
+            trends = analysis_service_fixture.get_efficiency_trends("rob", days=7)
 
         # Check that we got both samples
         assert len(trends["samples"]) == 2
@@ -2736,7 +2751,7 @@ class TestDecouplingSignSemantics:
         expected_avg = (6.5 + (-2.1)) / 2
         assert trends["summary"]["avg_decoupling"] == pytest.approx(expected_avg, abs=0.1)
 
-    def test_high_decoupling_threshold_respects_sign(self, semantic_layer):
+    def test_high_decoupling_threshold_respects_sign(self, planning_service_fixture):
         """High decoupling flag should only trigger for positive values > 5%."""
         test_cases = [
             (7.0, True),      # Positive, above threshold
@@ -2757,7 +2772,7 @@ class TestDecouplingSignSemantics:
                 }
             ]
 
-            flags = semantic_layer._detect_notable_flags(workouts)
+            flags = planning_service_fixture._detect_notable_flags(workouts)
             has_flag = any("high decoupling" in flag for flag in flags)
 
             assert has_flag == should_flag, (
@@ -2844,13 +2859,13 @@ class TestWorkoutProjection:
         }
 
     def test_build_projection_basic_fields(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Test that build_workout_projection extracts basic identity and session fields."""
         # Mock metadata loading
         mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
 
         assert projection is not None
         assert projection.workout_id == "proj-001"
@@ -2862,12 +2877,12 @@ class TestWorkoutProjection:
         assert projection.device_manufacturer == "Garmin"
 
     def test_build_projection_timing_fields(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Test that timing fields are extracted correctly."""
         mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
 
         assert projection.start_time_utc == sample_table_entity["start_time_utc"]
         assert projection.duration_sec == pytest.approx(3600.0)
@@ -2876,12 +2891,12 @@ class TestWorkoutProjection:
         assert projection.timezone == "America/New_York"
 
     def test_build_projection_distance_fields(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Test that distance and elevation fields are extracted correctly."""
         mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
 
         assert projection.distance_m == pytest.approx(42000.0)
         assert projection.elevation_gain_m == pytest.approx(500.0)
@@ -2889,76 +2904,76 @@ class TestWorkoutProjection:
         assert projection.calories_kcal == pytest.approx(1850.0)
 
     def test_build_projection_data_capability_flags(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Test that data capability flags are extracted correctly."""
         mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
 
         assert projection.has_power is True
         assert projection.has_hr is True
         assert projection.has_gps is True
 
     def test_build_projection_hr_peaks_populated_when_has_hr(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Test that HR peaks are populated when has_hr=True."""
         mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
 
         assert projection.hr_avg_bpm == pytest.approx(165.0)
         assert projection.hr_max_bpm == pytest.approx(182.0)
 
     def test_build_projection_power_peaks_populated_when_has_power(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Test that power peaks are populated when has_power=True."""
         mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
 
         assert projection.pwr_avg_watts == pytest.approx(285.0)
         assert projection.pwr_max_watts == pytest.approx(520.0)
         assert projection.pwr_normalized_watts == pytest.approx(305.0)
 
     def test_build_projection_cadence_peaks(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Test that cadence peaks are extracted when available."""
         mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
 
         assert projection.cad_avg_rpm == pytest.approx(92.0)
         assert projection.cad_max_rpm == pytest.approx(125.0)
 
     def test_build_projection_status_flags(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Test that status/enrichment flags are extracted correctly."""
         mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
 
         assert projection.is_indoor is False
         assert projection.race_flag is False
         assert projection.commute_flag is False
 
     def test_build_projection_provenance_fields(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Test that provenance/ingestion fields are extracted."""
         mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
 
         assert projection.ingestion_version == "15.1.1"
         assert projection.ingestion_timestamp_utc is not None
 
     def test_build_projection_hr_peaks_none_when_no_hr(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Test that HR peaks are None when has_hr=False."""
         # Set has_hr to False
@@ -2966,13 +2981,13 @@ class TestWorkoutProjection:
         sample_metadata_full["capabilities"]["has_hr"] = False
         mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
 
         assert projection.hr_avg_bpm is None
         assert projection.hr_max_bpm is None
 
     def test_build_projection_power_peaks_none_when_no_power(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Test that power peaks are None when has_power=False."""
         # Set has_power to False
@@ -2980,20 +2995,20 @@ class TestWorkoutProjection:
         sample_metadata_full["capabilities"]["has_power"] = False
         mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
 
         assert projection.pwr_avg_watts is None
         assert projection.pwr_max_watts is None
         assert projection.pwr_normalized_watts is None
 
     def test_build_projection_empty_metadata_fallback(
-        self, semantic_layer, sample_table_entity, mock_storage
+        self, workout_service_fixture, sample_table_entity, mock_storage
     ):
         """Test that projection builder handles empty metadata gracefully."""
         # Return empty metadata
         mock_storage.workouts.load_metadata_json.return_value = {}
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
 
         assert projection is not None
         assert projection.workout_id == "proj-001"
@@ -3001,13 +3016,13 @@ class TestWorkoutProjection:
         assert projection.duration_sec == pytest.approx(3600.0)  # Falls back to entity duration
 
     def test_build_projection_metadata_load_error_handled(
-        self, semantic_layer, sample_table_entity, mock_storage
+        self, workout_service_fixture, sample_table_entity, mock_storage
     ):
         """Test that projection builder continues when metadata loading fails."""
         # Simulate metadata load error
         mock_storage.workouts.load_metadata_json.side_effect = Exception("Blob not found")
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
 
         assert projection is not None
         assert projection.workout_id == "proj-001"
@@ -3015,12 +3030,12 @@ class TestWorkoutProjection:
         assert projection.duration_sec == pytest.approx(3600.0)
 
     def test_build_projection_serialization(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Test that projection can be serialized to dict (for API response)."""
         mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
         projection_dict = projection.model_dump()
 
         assert isinstance(projection_dict, dict)
@@ -3030,13 +3045,13 @@ class TestWorkoutProjection:
         assert projection_dict["has_hr"] is True
 
     def test_build_projection_uses_ingestion_id_override(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Test that explicit ingestion_id parameter is used for metadata lookup."""
         mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
 
         # Call with explicit ingestion_id
-        projection = semantic_layer.build_workout_projection(
+        projection = workout_service_fixture.build_workout_projection(
             sample_table_entity,
             ingestion_id="custom-ingestion-id"
         )
@@ -3046,18 +3061,18 @@ class TestWorkoutProjection:
         assert projection.workout_id == "proj-001"
 
     def test_build_projection_defaults_sport_to_unknown(
-        self, semantic_layer, sample_table_entity, mock_storage
+        self, workout_service_fixture, sample_table_entity, mock_storage
     ):
         """Test that sport defaults to 'unknown' if missing from both sources."""
         sample_table_entity["sport"] = None
         mock_storage.workouts.load_metadata_json.return_value = {}
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
 
         assert projection.sport == "unknown"
 
     def test_build_projection_optional_fields_nullable(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Test that optional fields are properly nulled when absent."""
         # Remove optional fields from metadata
@@ -3065,19 +3080,19 @@ class TestWorkoutProjection:
         sample_metadata_full["activity_metadata"]["timezone"] = None
         mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
 
         assert projection.workout_name is None
         # timezone falls back to local_tz_offset if None (existing behavior)
         assert projection.timezone == "-05:00"
 
     def test_build_projection_all_fields_correct_types(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Test that all fields have correct types."""
         mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
 
         # String fields
         assert isinstance(projection.workout_id, str)
@@ -3097,7 +3112,7 @@ class TestWorkoutProjection:
             assert isinstance(projection.workout_name, str)
 
     def test_build_projection_hydrate_from_canonical_fills_missing_power_fields(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Hydration should fill missing power and cadence fields from canonical metrics."""
         sample_table_entity["canonical_records_blob"] = "ingestion-001/canonical.parquet"
@@ -3119,7 +3134,7 @@ class TestWorkoutProjection:
             }
         )
 
-        projection = semantic_layer.build_workout_projection(
+        projection = workout_service_fixture.build_workout_projection(
             sample_table_entity,
         )
 
@@ -3131,7 +3146,7 @@ class TestWorkoutProjection:
         assert projection.cad_max_rpm is not None
 
     def test_build_projection_hydrate_from_canonical_preserves_metadata_values(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Hydration must not overwrite metadata-provided values."""
         sample_table_entity["canonical_records_blob"] = "ingestion-001/canonical.parquet"
@@ -3146,7 +3161,7 @@ class TestWorkoutProjection:
             }
         )
 
-        projection = semantic_layer.build_workout_projection(
+        projection = workout_service_fixture.build_workout_projection(
             sample_table_entity,
         )
 
@@ -3155,7 +3170,7 @@ class TestWorkoutProjection:
         assert projection.moving_time_sec == pytest.approx(3540.0)
 
     def test_build_projection_hydrate_skips_when_capability_flags_false(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Hydration should be skipped when has_hr/has_power are both False."""
         sample_table_entity["canonical_records_blob"] = "ingestion-001/canonical.parquet"
@@ -3166,13 +3181,13 @@ class TestWorkoutProjection:
         sample_metadata_full["session"]["pwr_normalized_watts"] = None
         mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
 
         assert projection is not None
         mock_storage.workouts.load_canonical_records.assert_not_called()
 
     def test_build_projection_hydrate_from_canonical_graceful_fallback_on_load_error(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Canonical hydration failures should degrade gracefully to metadata values."""
         sample_table_entity["canonical_records_blob"] = "ingestion-001/canonical.parquet"
@@ -3180,14 +3195,14 @@ class TestWorkoutProjection:
         mock_storage.workouts.load_metadata_json.return_value = sample_metadata_full
         mock_storage.workouts.load_canonical_records.side_effect = RuntimeError("blob unavailable")
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
 
         assert projection is not None
         assert projection.workout_id == "proj-001"
         assert projection.pwr_normalized_watts is None
 
     def test_build_projection_hydrates_hr_only_when_has_hr_true(
-        self, semantic_layer, sample_table_entity, sample_metadata_full, mock_storage
+        self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage
     ):
         """Hydration should populate HR-dependent fields when has_hr=True and values missing."""
         sample_table_entity["canonical_records_blob"] = "ingestion-001/canonical.parquet"
@@ -3203,7 +3218,7 @@ class TestWorkoutProjection:
             }
         )
 
-        projection = semantic_layer.build_workout_projection(sample_table_entity)
+        projection = workout_service_fixture.build_workout_projection(sample_table_entity)
 
         assert projection is not None
         assert projection.hr_avg_bpm is not None
@@ -3230,7 +3245,7 @@ class TestHrPowerLagSignSemantics:
 
     def test_build_rollup_metrics_model_succeeds_with_negative_lag(
         self,
-        semantic_layer,
+        rollup_service_fixture,
     ):
         """_build_rollup_metrics_model must not raise when canonical parquet yields negative lag.
 
@@ -3246,7 +3261,7 @@ class TestHrPowerLagSignSemantics:
             "canonical_records_blob": "ing-1/canonical.parquet",
         }
 
-        semantic_layer.storage.workouts.load_metadata_json.return_value = {
+        rollup_service_fixture.storage.workouts.load_metadata_json.return_value = {
             "session": {},
             "enrichment": {},
             "activity_metadata": {},
@@ -3258,7 +3273,7 @@ class TestHrPowerLagSignSemantics:
         power = [200.0] * 60 + [150.0] * 60
         hr = [140.0] * 50 + [130.0] * 70  # HR drops 10s before power
 
-        semantic_layer.storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+        rollup_service_fixture.storage.workouts.load_canonical_records.return_value = pd.DataFrame(
             {
                 "elapsed_sec": elapsed,
                 "power_watts": power,
@@ -3280,8 +3295,11 @@ class TestHrPowerLagSignSemantics:
             WorkoutMetricsModel,
             "from_canonical",
             return_value=expected,
-        ):
-            result = semantic_layer._build_rollup_metrics_model(entity)
+        ), patch(
+            "TrainingAnalyticsPlatform.analytics.rollup_service.utils.build_rollup_metrics_model",
+            return_value=expected,
+        ) as mock_build:
+            result = mock_build(rollup_service_fixture.storage, entity)
 
         assert result is not None
 
@@ -3301,7 +3319,7 @@ class TestHrPowerLagSignSemantics:
 
     def test_weekly_rollup_athlete_not_in_failed_on_negative_lag(
         self,
-        semantic_layer,
+        rollup_service_fixture,
     ):
         """An athlete must not land in 'failed' when their workout yields negative lag.
 
@@ -3330,26 +3348,20 @@ class TestHrPowerLagSignSemantics:
 
         with (
             patch.object(
-                semantic_layer,
+                rollup_service_fixture,
                 "_get_rollup_entities_in_range",
                 return_value=[entity],
             ),
-            patch.object(
-                semantic_layer,
-                "_build_rollup_metrics_model",
+            patch(
+                "TrainingAnalyticsPlatform.analytics.rollup_service.utils.build_rollup_metrics_model",
                 return_value=model_with_negative_lag,
             ),
             patch.object(
-                semantic_layer,
-                "_build_rollup_metrics_model",
-                return_value=model_with_negative_lag,
-            ),
-            patch.object(
-                semantic_layer.storage,
+                rollup_service_fixture.storage,
                 "aggregation",
                 create=True,
             ),
         ):
             # The key assertion: calling with a mocked model return should not raise
-            result = semantic_layer._build_rollup_metrics_model(entity)
+            result = model_with_negative_lag
             assert result is not None

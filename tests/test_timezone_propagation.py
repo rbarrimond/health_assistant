@@ -4,7 +4,8 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
-from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.analytics.workout_query_service import WorkoutQueryService
+from TrainingAnalyticsPlatform.analytics.utils import prepare_rollup_metadata_for_canonical
 from TrainingAnalyticsPlatform.ingestion.fit_models import PayloadFitModel
 from TrainingAnalyticsPlatform.models.core import WorkoutMetricsModel
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import WorkoutEntity
@@ -74,7 +75,7 @@ def test_build_session_falls_back_to_offset_when_timezone_missing() -> None:
 
 def test_semantic_base_dict_prefers_activity_timezone() -> None:
     """Semantic-layer workout base dict should preserve canonical timezone."""
-    semantic_layer = SemanticLayer(MagicMock())
+    workout_service = WorkoutQueryService(MagicMock())
     workout_entity = WorkoutEntity.from_table_entity(
         {
             "PartitionKey": "rob|2026-01",
@@ -90,7 +91,7 @@ def test_semantic_base_dict_prefers_activity_timezone() -> None:
         }
     )
 
-    result = semantic_layer._build_workout_base_dict(
+    result = workout_service._build_workout_base_dict(
         workout_entity=workout_entity,
         identity={},
         session={},
@@ -130,7 +131,7 @@ def test_prepare_rollup_metadata_promotes_timezone_with_fallback() -> None:
         "activity_metadata": {"local_tz_offset": "UTC-05:00"},
     }
 
-    promoted = SemanticLayer._prepare_rollup_metadata_for_canonical(
+    promoted = prepare_rollup_metadata_for_canonical(
         metadata_blob,
         workout_entity,
     )

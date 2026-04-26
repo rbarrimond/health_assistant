@@ -2,7 +2,7 @@
 
 import pytest
 from unittest.mock import MagicMock
-from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.analytics.physiometrics_service import PhysiometricsService
 
 
 class TestCurrentPhysiometricsConsolidation:
@@ -10,8 +10,8 @@ class TestCurrentPhysiometricsConsolidation:
 
     @pytest.fixture
     def layer(self):
-        """Create semantic layer with mocked storage."""
-        layer = SemanticLayer(MagicMock())
+        """Create physiometrics service with mocked storage."""
+        layer = PhysiometricsService(MagicMock())
         return layer
 
     def test_consolidate_latest_per_source(self, layer):

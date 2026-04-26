@@ -38,6 +38,20 @@ def mock_semantic_layer():
     return MagicMock()
 
 
+@pytest.fixture(autouse=True)
+def _patch_all_query_services(mock_semantic_layer):
+    """Ensure all four QueryHandler services are always patched with MagicMock.
+
+    Individual tests override specific services by adding their own patch.object
+    *inside* their test body, which takes precedence because it is applied later.
+    """
+    with patch.object(FunctionAppDependencies, "workout_service", new=PropertyMock(return_value=mock_semantic_layer)), \
+         patch.object(FunctionAppDependencies, "planning_service", new=PropertyMock(return_value=mock_semantic_layer)), \
+         patch.object(FunctionAppDependencies, "rollup_service", new=PropertyMock(return_value=mock_semantic_layer)), \
+         patch.object(FunctionAppDependencies, "analysis_service", new=PropertyMock(return_value=mock_semantic_layer)):
+        yield
+
+
 class TestPlanningContextEndpoint:
     """Tests for /api/planning/context endpoint."""
 
@@ -48,7 +62,7 @@ class TestPlanningContextEndpoint:
         mock_presync = MagicMock()
         mock_presync.run.return_value = {"status": "all_succeeded", "sources": []}
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)), \
+        with patch.object(FunctionAppDependencies, "planning_service", new=PropertyMock(return_value=mock_semantic_layer)), \
              patch.object(FunctionAppDependencies, "planning_context_pre_sync_service", new=PropertyMock(return_value=mock_presync)):
             response = planning_context(mock_request)
 
@@ -72,7 +86,7 @@ class TestPlanningContextEndpoint:
         mock_presync = MagicMock()
         mock_presync.run.return_value = {"status": "all_succeeded", "sources": []}
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)), \
+        with patch.object(FunctionAppDependencies, "planning_service", new=PropertyMock(return_value=mock_semantic_layer)), \
              patch.object(FunctionAppDependencies, "planning_context_pre_sync_service", new=PropertyMock(return_value=mock_presync)):
             response = planning_context(mock_request)
 
@@ -90,7 +104,7 @@ class TestPlanningContextEndpoint:
         mock_presync = MagicMock()
         mock_presync.run.return_value = {"status": "all_succeeded", "sources": []}
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)), \
+        with patch.object(FunctionAppDependencies, "planning_service", new=PropertyMock(return_value=mock_semantic_layer)), \
              patch.object(FunctionAppDependencies, "planning_context_pre_sync_service", new=PropertyMock(return_value=mock_presync)):
             planning_context(mock_request)
 
@@ -115,7 +129,7 @@ class TestPlanningContextEndpoint:
         mock_presync = MagicMock()
         mock_presync.run.return_value = {"status": "all_succeeded", "sources": []}
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)), \
+        with patch.object(FunctionAppDependencies, "planning_service", new=PropertyMock(return_value=mock_semantic_layer)), \
              patch.object(FunctionAppDependencies, "planning_context_pre_sync_service", new=PropertyMock(return_value=mock_presync)):
             response = planning_context(mock_request)
 
@@ -133,7 +147,7 @@ class TestListWorkoutsEndpoint:
         """Test endpoint defaults to 'rob' when athlete_id not provided."""
         mock_semantic_layer.get_workouts.return_value = []
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        with patch.object(FunctionAppDependencies, "workout_service", new=PropertyMock(return_value=mock_semantic_layer)):
             response = list_workouts(mock_request)
 
         assert response.status_code == 200
@@ -155,7 +169,7 @@ class TestListWorkoutsEndpoint:
         ]
         mock_semantic_layer.get_workouts.return_value = mock_workouts
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        with patch.object(FunctionAppDependencies, "workout_service", new=PropertyMock(return_value=mock_semantic_layer)):
             response = list_workouts(mock_request)
 
         assert response.status_code == 200
@@ -177,7 +191,7 @@ class TestListWorkoutsEndpoint:
 
         mock_semantic_layer.get_workouts.return_value = []
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        with patch.object(FunctionAppDependencies, "workout_service", new=PropertyMock(return_value=mock_semantic_layer)):
             list_workouts(mock_request)
 
         mock_semantic_layer.get_workouts.assert_called_once_with(
@@ -203,7 +217,7 @@ class TestGetWorkoutEndpoint:
         }
         mock_semantic_layer.get_workout_detail.return_value = mock_workout
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        with patch.object(FunctionAppDependencies, "workout_service", new=PropertyMock(return_value=mock_semantic_layer)):
             response = get_workout_detail(mock_request)
 
         assert response.status_code == 200
@@ -228,7 +242,7 @@ class TestGetWorkoutEndpoint:
         }
         mock_semantic_layer.get_workout_detail.return_value = mock_workout
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        with patch.object(FunctionAppDependencies, "workout_service", new=PropertyMock(return_value=mock_semantic_layer)):
             response = get_workout_detail(mock_request)
 
         assert response.status_code == 200
@@ -248,7 +262,7 @@ class TestGetWorkoutEndpoint:
 
         mock_semantic_layer.get_workout_detail.return_value = None
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        with patch.object(FunctionAppDependencies, "workout_service", new=PropertyMock(return_value=mock_semantic_layer)):
             response = get_workout_detail(mock_request)
 
         assert response.status_code == 404
@@ -270,7 +284,7 @@ class TestGetWorkoutEndpoint:
         }
         mock_semantic_layer.get_workout_detail.return_value = mock_workout
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        with patch.object(FunctionAppDependencies, "workout_service", new=PropertyMock(return_value=mock_semantic_layer)):
             response = get_workout_detail(mock_request)
 
         assert response.status_code == 200
@@ -297,7 +311,7 @@ class TestGetWorkoutLapEndpoint:
         }
         mock_semantic_layer.get_workout_lap_detail.return_value = mock_lap
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        with patch.object(FunctionAppDependencies, "workout_service", new=PropertyMock(return_value=mock_semantic_layer)):
             response = get_workout_lap_detail(mock_request)
 
         assert response.status_code == 200
@@ -312,7 +326,7 @@ class TestGetWorkoutLapEndpoint:
         mock_request.params = {"athlete_id": "rob"}
         mock_request.route_params = {"workout_id": "abc123", "lap_index": "abc"}
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        with patch.object(FunctionAppDependencies, "workout_service", new=PropertyMock(return_value=mock_semantic_layer)):
             response = get_workout_lap_detail(mock_request)
 
         assert response.status_code == 400
@@ -325,7 +339,7 @@ class TestWeeklyRollupsEndpoint:
         """Test endpoint defaults to 'rob' when athlete_id not provided."""
         mock_semantic_layer.get_weekly_rollups.return_value = []
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        with patch.object(FunctionAppDependencies, "rollup_service", new=PropertyMock(return_value=mock_semantic_layer)):
             response = weekly_rollups(mock_request)
 
         assert response.status_code == 200
@@ -345,7 +359,7 @@ class TestWeeklyRollupsEndpoint:
         ]
         mock_semantic_layer.get_weekly_rollups.return_value = mock_rollups
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        with patch.object(FunctionAppDependencies, "rollup_service", new=PropertyMock(return_value=mock_semantic_layer)):
             response = weekly_rollups(mock_request)
 
         assert response.status_code == 200
@@ -362,7 +376,7 @@ class TestWeeklyRollupsEndpoint:
 
         mock_semantic_layer.get_weekly_rollups.return_value = []
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        with patch.object(FunctionAppDependencies, "rollup_service", new=PropertyMock(return_value=mock_semantic_layer)):
             weekly_rollups(mock_request)
 
         # Should cap at 52
@@ -376,7 +390,7 @@ class TestZoneDistributionEndpoint:
         """Test endpoint defaults to 'rob' when athlete_id not provided."""
         mock_semantic_layer.get_zone_distribution.return_value = {"athlete_id": "rob"}
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        with patch.object(FunctionAppDependencies, "analysis_service", new=PropertyMock(return_value=mock_semantic_layer)):
             response = zone_distribution(mock_request)
 
         assert response.status_code == 200
@@ -394,7 +408,7 @@ class TestZoneDistributionEndpoint:
         }
         mock_semantic_layer.get_zone_distribution.return_value = mock_distribution
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        with patch.object(FunctionAppDependencies, "analysis_service", new=PropertyMock(return_value=mock_semantic_layer)):
             response = zone_distribution(mock_request)
 
         assert response.status_code == 200
@@ -411,7 +425,7 @@ class TestEfficiencyTrendsEndpoint:
         """Test endpoint defaults to 'rob' when athlete_id not provided."""
         mock_semantic_layer.get_efficiency_trends.return_value = {"athlete_id": "rob"}
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        with patch.object(FunctionAppDependencies, "analysis_service", new=PropertyMock(return_value=mock_semantic_layer)):
             response = efficiency_trends(mock_request)
 
         assert response.status_code == 200
@@ -430,7 +444,7 @@ class TestEfficiencyTrendsEndpoint:
         }
         mock_semantic_layer.get_efficiency_trends.return_value = mock_trends
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        with patch.object(FunctionAppDependencies, "analysis_service", new=PropertyMock(return_value=mock_semantic_layer)):
             response = efficiency_trends(mock_request)
 
         assert response.status_code == 200
@@ -445,7 +459,7 @@ class TestEfficiencyTrendsEndpoint:
 
         mock_semantic_layer.get_efficiency_trends.return_value = {}
 
-        with patch.object(FunctionAppDependencies, "semantic_layer", new=PropertyMock(return_value=mock_semantic_layer)):
+        with patch.object(FunctionAppDependencies, "analysis_service", new=PropertyMock(return_value=mock_semantic_layer)):
             efficiency_trends(mock_request)
 
         # Should cap at 365

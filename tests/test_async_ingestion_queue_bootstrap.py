@@ -155,7 +155,7 @@ class TestWarmupQueueBootstrap:
         mock_deferred = MagicMock(spec=DeferredRetryQueue)
 
         with self._patch_dep("storage", MagicMock()):
-            with self._patch_dep("semantic_layer", MagicMock()):
+            with self._patch_dep("workout_service", MagicMock()):
                 with self._patch_dep("onedrive_async_queue", mock_onedrive):
                     with self._patch_dep("garmin_async_queue", mock_garmin):
                         with self._patch_dep("deferred_retry_queue", mock_deferred):
@@ -200,7 +200,7 @@ class TestAsyncQueueNameResolution:
         mock_deferred = MagicMock(spec=DeferredRetryQueue)
 
         with self._patch_dep("storage", MagicMock()):
-            with self._patch_dep("semantic_layer", MagicMock()):
+            with self._patch_dep("workout_service", MagicMock()):
                 with self._patch_dep("onedrive_async_queue", None):
                     with self._patch_dep("garmin_async_queue", None):
                         with self._patch_dep("deferred_retry_queue", mock_deferred):
@@ -219,7 +219,7 @@ class TestAsyncQueueNameResolution:
         mock_deferred = MagicMock(spec=DeferredRetryQueue)
 
         with self._patch_dep("storage", MagicMock()):
-            with self._patch_dep("semantic_layer", MagicMock()):
+            with self._patch_dep("workout_service", MagicMock()):
                 with self._patch_dep("onedrive_async_queue", mock_onedrive):
                     with self._patch_dep("garmin_async_queue", mock_garmin):
                         with self._patch_dep("deferred_retry_queue", mock_deferred):

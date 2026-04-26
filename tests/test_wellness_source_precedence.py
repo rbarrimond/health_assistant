@@ -100,8 +100,8 @@ def test_consolidation_handles_data_sources_csv_and_alias_fields():
     assert consolidated.data_sources == "garmin,intervals"
 
 
-def test_training_state_consolidation_delegates_to_semantic_layer():
-    """Training-state consolidation should use the semantic-layer canonical path."""
+def test_training_state_consolidation_delegates_to_physiometrics_service():
+    """Training-state consolidation should use the physiometrics service canonical path."""
     snapshot = TrainingStateSnapshot(
         athlete_id="rob",
         effective_date="2026-03-17",
@@ -117,17 +117,17 @@ def test_training_state_consolidation_delegates_to_semantic_layer():
         data_sources="workouts,physiometrics",
         canonical_version="4.0.0",
     )
-    semantic_layer = MagicMock()
-    semantic_layer._compute_training_state_for_date.return_value = snapshot
+    physiometrics_service = MagicMock()
+    physiometrics_service._compute_training_state_for_date.return_value = snapshot
 
     handler = TrainingStateConsolidationHandler(
         _FakeStorageClient([]),
-        semantic_layer=semantic_layer,
+        physiometrics_service=physiometrics_service,
     )
 
     result = handler.compute_day("rob", "2026-03-17")
 
-    semantic_layer._compute_training_state_for_date.assert_called_once_with(
+    physiometrics_service._compute_training_state_for_date.assert_called_once_with(
         "rob",
         date(2026, 3, 17),
     )

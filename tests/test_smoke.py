@@ -27,7 +27,13 @@ from TrainingAnalyticsPlatform.handlers import (
     OneDriveSyncHandler,
     OneDriveSyncConfig,
 )
-from TrainingAnalyticsPlatform.analytics.semantic_layer import SemanticLayer
+from TrainingAnalyticsPlatform.analytics import (
+    WorkoutQueryService,
+    PlanningService,
+    RollupService,
+    AnalysisService,
+    PhysiometricsService,
+)
 from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordinator
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import StorageInfrastructure
 
@@ -133,8 +139,8 @@ def test_storage_instantiation() -> None:
         assert storage is not None
 
 
-def test_semantic_layer_instantiation() -> None:
-    """SemanticLayer should instantiate with StorageCoordinator."""
+def test_services_instantiation() -> None:
+    """All 5 analytics services should instantiate with StorageCoordinator."""
     with (
         patch.object(StorageInfrastructure, "_ensure_tables_exist"),
         patch.object(StorageInfrastructure, "_ensure_blob_containers"),
@@ -145,9 +151,11 @@ def test_semantic_layer_instantiation() -> None:
                 "EndpointSuffix=core.windows.net"
             )
         )
-        layer = SemanticLayer(storage)
-        assert isinstance(layer, SemanticLayer)
-        assert layer.storage == storage
+        assert isinstance(WorkoutQueryService(storage), WorkoutQueryService)
+        assert isinstance(RollupService(storage), RollupService)
+        assert isinstance(AnalysisService(storage), AnalysisService)
+        assert isinstance(PhysiometricsService(storage), PhysiometricsService)
+        assert isinstance(PlanningService(storage, MagicMock()), PlanningService)
 
 
 def test_onedrive_sync_handler_instantiation() -> None:
