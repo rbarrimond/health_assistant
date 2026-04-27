@@ -151,74 +151,14 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
             },
         )
 
-        missing_core_fields = activity_contract.missing_required_core_fields()
-        if missing_core_fields:
-            logger.warning(
-                "Garmin normalization missing required core fields",
-                extra={
-                    "athlete_id": athlete_id,
-                    "source_system": "garmin",
-                    "activity_id": activity_id or None,
-                    "activity_type": activity_contract.activity_type_key,
-                    "missing_core_fields": list(missing_core_fields),
-                },
-            )
-
-        if activity_contract.has_unknown_activity_type():
-            logger.warning(
-                "Garmin normalization encountered unknown activity type",
-                extra={
-                    "athlete_id": athlete_id,
-                    "source_system": "garmin",
-                    "activity_id": activity_id or None,
-                    "activity_type": activity_contract.activity_type_key,
-                },
-            )
-
-        unknown_interesting_fields = activity_contract.unknown_interesting_fields(limit=5)
-        if unknown_interesting_fields:
-            logger.warning(
-                "Garmin normalization found unmapped interesting payload fields",
-                extra={
-                    "athlete_id": athlete_id,
-                    "source_system": "garmin",
-                    "activity_id": activity_id or None,
-                    "activity_type": activity_contract.activity_type_key,
-                    "unmapped_interesting_fields": list(unknown_interesting_fields),
-                },
-            )
+        self._log_contract_warnings(athlete_id, activity_id, activity_contract)
 
         try:
             # Build source info for ingestion tracking
             source_info = self._build_source_info(activity)
             source_info["ingestion_id"] = self._resolve_ingestion_id(source_info)
 
-            # Pre-download manufacturer pre-filter (uses cached Garmin list metadata)
-            cached_manufacturer_code = source_info.get("source_manufacturer_code")
-            if (
-                cached_manufacturer_code is not None
-                and cached_manufacturer_code not in GARMIN_API_ALLOWED_MANUFACTURERS
-            ):
-                reason = "manufacturer_not_allowed"
-                allowed = sorted(GARMIN_API_ALLOWED_MANUFACTURERS)
-                message = (
-                    f"Filtered Garmin activity pre-download: cached manufacturer_code "
-                    f"{cached_manufacturer_code} not in allowlist {allowed}"
-                )
-                self._record_filtered_ingestion(
-                    athlete_id,
-                    source_info,
-                    filter_message=message,
-                    reason=reason,
-                )
-                raise DeviceFilteredError(
-                    message,
-                    device_name=source_info.get("source_manufacturer"),
-                    manufacturer_code=cached_manufacturer_code,
-                    reason=reason,
-                )
-
-            # Download FIT file
+            self._apply_manufacturer_prefilter(athlete_id, source_info)
             fit_bytes = self._client.download_activity_fit(activity_id)
         except DeviceFilteredError as exc:
             logger.info(
@@ -283,53 +223,13 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
             ingestion_id=source_info.get("ingestion_id"),
             ingestion_key=ingestion_key,
         )
-        skipped, workout_id = self._skip_if_unchanged(
-            athlete_id,
-            source_info,
-            ingestion_key=context.ingestion_key,
-            existing_state=context.existing_state,
-            force=force,
-        )
-        if skipped:
-            workout_id = (
-                context.existing_state.get("workout_id")
-                if context.existing_state
-                else None
-            )
-            logger.debug(
-                "Skipping unchanged Garmin FIT with existing ingested state",
-                extra={
-                    "athlete_id": athlete_id,
-                    "source_system": "garmin",
-                    "activity_id": activity_id,
-                    "ingestion_key": context.ingestion_key,
-                    "workout_id": workout_id,
-                    "status": "skipped_unchanged",
-                },
-            )
-            return {
-                "status": "skipped",
-                "workout_id": workout_id,
-                "message": "Unchanged content",
-            }, 200
+        early_response = self._check_unchanged_skip(athlete_id, activity_id, source_info, context, force)
+        if early_response:
+            return early_response
 
-        duplicate_workout_id = self._find_near_duplicate_workout(athlete_id, activity)
-        if duplicate_workout_id and not force:
-            self.storage.workouts.record_ingestion_state(
-                athlete_id,
-                source_info,
-                status="skipped_duplicate",
-                workout_id=duplicate_workout_id,
-                ingestion_id=source_info.get("ingestion_id"),
-                ingestion_key=context.ingestion_key,
-                existing_state=context.existing_state,
-                error=f"duplicate_of:{duplicate_workout_id}",
-            )
-            return {
-                "status": "skipped_duplicate",
-                "workout_id": duplicate_workout_id,
-                "message": "Potential duplicate workout detected by start-time window",
-            }, 200
+        early_response = self._check_near_duplicate(athlete_id, source_info, context, activity, force)
+        if early_response:
+            return early_response
 
         # Parse and store
         try:
@@ -391,6 +291,132 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
             )
         
         return {"status": "success", "workout_id": workout_id}, 200
+
+    def _log_contract_warnings(
+        self,
+        athlete_id: str,
+        activity_id: Optional[str],
+        activity_contract: GarminActivityContract,
+    ) -> None:
+        missing_core_fields = activity_contract.missing_required_core_fields()
+        if missing_core_fields:
+            logger.warning(
+                "Garmin normalization missing required core fields",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "activity_id": activity_id or None,
+                    "activity_type": activity_contract.activity_type_key,
+                    "missing_core_fields": list(missing_core_fields),
+                },
+            )
+        if activity_contract.has_unknown_activity_type():
+            logger.warning(
+                "Garmin normalization encountered unknown activity type",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "activity_id": activity_id or None,
+                    "activity_type": activity_contract.activity_type_key,
+                },
+            )
+        unknown_interesting_fields = activity_contract.unknown_interesting_fields(limit=5)
+        if unknown_interesting_fields:
+            logger.warning(
+                "Garmin normalization found unmapped interesting payload fields",
+                extra={
+                    "athlete_id": athlete_id,
+                    "source_system": "garmin",
+                    "activity_id": activity_id or None,
+                    "activity_type": activity_contract.activity_type_key,
+                    "unmapped_interesting_fields": list(unknown_interesting_fields),
+                },
+            )
+
+    def _apply_manufacturer_prefilter(self, athlete_id: str, source_info: Dict) -> None:
+        """Raises DeviceFilteredError if the cached manufacturer code is not in the allow-list."""
+        cached_manufacturer_code = source_info.get("source_manufacturer_code")
+        if cached_manufacturer_code is not None and cached_manufacturer_code not in GARMIN_API_ALLOWED_MANUFACTURERS:
+            reason = "manufacturer_not_allowed"
+            allowed = sorted(GARMIN_API_ALLOWED_MANUFACTURERS)
+            message = (
+                f"Filtered Garmin activity pre-download: cached manufacturer_code "
+                f"{cached_manufacturer_code} not in allowlist {allowed}"
+            )
+            self._record_filtered_ingestion(
+                athlete_id,
+                source_info,
+                filter_message=message,
+                reason=reason,
+            )
+            raise DeviceFilteredError(
+                message,
+                device_name=source_info.get("source_manufacturer"),
+                manufacturer_code=cached_manufacturer_code,
+                reason=reason,
+            )
+
+    def _check_unchanged_skip(
+        self,
+        athlete_id: str,
+        activity_id: Optional[str],
+        source_info: Dict,
+        context: IngestionContext,
+        force: bool,
+    ) -> Optional[tuple[Dict, int]]:
+        skipped, _ = self._skip_if_unchanged(
+            athlete_id,
+            source_info,
+            ingestion_key=context.ingestion_key,
+            existing_state=context.existing_state,
+            force=force,
+        )
+        if not skipped:
+            return None
+        workout_id = (
+            context.existing_state.get("workout_id")
+            if context.existing_state
+            else None
+        )
+        logger.debug(
+            "Skipping unchanged Garmin FIT with existing ingested state",
+            extra={
+                "athlete_id": athlete_id,
+                "source_system": "garmin",
+                "activity_id": activity_id,
+                "ingestion_key": context.ingestion_key,
+                "workout_id": workout_id,
+                "status": "skipped_unchanged",
+            },
+        )
+        return {"status": "skipped", "workout_id": workout_id, "message": "Unchanged content"}, 200
+
+    def _check_near_duplicate(
+        self,
+        athlete_id: str,
+        source_info: Dict,
+        context: IngestionContext,
+        activity: Dict,
+        force: bool,
+    ) -> Optional[tuple[Dict, int]]:
+        duplicate_workout_id = self._find_near_duplicate_workout(athlete_id, activity)
+        if not duplicate_workout_id or force:
+            return None
+        self.storage.workouts.record_ingestion_state(
+            athlete_id,
+            source_info,
+            status="skipped_duplicate",
+            workout_id=duplicate_workout_id,
+            ingestion_id=source_info.get("ingestion_id"),
+            ingestion_key=context.ingestion_key,
+            existing_state=context.existing_state,
+            error=f"duplicate_of:{duplicate_workout_id}",
+        )
+        return {
+            "status": "skipped_duplicate",
+            "workout_id": duplicate_workout_id,
+            "message": "Potential duplicate workout detected by start-time window",
+        }, 200
 
     def _build_source_info(self, activity: Dict) -> Dict:
         """Build source info metadata for ingestion state tracking."""

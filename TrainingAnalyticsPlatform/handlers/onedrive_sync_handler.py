@@ -892,7 +892,7 @@ class OneDriveSyncHandler:
         delta_link = tokens.get("delta_token") or None
 
         effective_delta_link = None if force else delta_link
-        delta_mode = "force_full" if force else ("incremental" if delta_link else "seed")
+        delta_mode = self._resolve_delta_mode(force, delta_link)
         try:
             files, next_delta_link = self._client.list_files_delta(
                 access_token=access_token,
@@ -973,7 +973,19 @@ class OneDriveSyncHandler:
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 self._record_error_result(results, item, exc)
 
-        # Update status based on results
+        self._finalize_sync_status(results)
+        return results
+
+    @staticmethod
+    def _resolve_delta_mode(force: bool, delta_link: Optional[str]) -> str:
+        if force:
+            return "force_full"
+        if delta_link:
+            return "incremental"
+        return "seed"
+
+    @staticmethod
+    def _finalize_sync_status(results: Dict) -> None:
         if results["failed"] > 0:
             if results["ingested"] > 0 or results["skipped"] > 0:
                 results["status"] = "partial"
@@ -981,8 +993,6 @@ class OneDriveSyncHandler:
                 results["status"] = "failed"
         elif results["ingested"] == 0:
             results["status"] = "skipped"
-
-        return results
 
     def _record_ingest_result(
         self,
