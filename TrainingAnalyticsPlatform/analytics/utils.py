@@ -548,10 +548,9 @@ def build_workout_summaries_from_entities(
 ) -> List[Dict[str, Any]]:
     """Build workout summary dicts from a pre-fetched entity list using parallel blob reads."""
     workouts: List[Dict[str, Any]] = []
-    ctx = copy_context()
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
-            executor.submit(ctx.run, build_rollup_metrics_model, storage, entity): entity
+            executor.submit(copy_context().run, build_rollup_metrics_model, storage, entity): entity
             for entity in entities
         }
         for future in as_completed(futures):

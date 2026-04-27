@@ -8,6 +8,14 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-04-26
+
+### TypedDict Response Contract Formalization and Context Concurrency Fix [application v3.15.1]
+
+- **Why this is a PATCH bump**: both changes are internal quality and correctness fixes with no externally observable API or schema differences.
+- **Changed (handler response types)**: sync handler return values are now expressed as explicit `TypedDict` shapes (`GarminSyncSummaryResponse`, `OneDriveSyncSummaryResponse`, `IngestionSuccessResponse`, `IngestionSkipResponse`, `AsyncQueueResponse`, `OneDriveResetResponse`) and `@dataclass` mutable accumulators (`GarminSyncAccumulator`, `OneDriveSyncAccumulator`) defined in a new `response_models` module. Since `TypedDict` is a plain `dict` at runtime, no HTTP response JSON shape changed.
+- **Fixed (analytics concurrency)**: `build_workout_summaries_from_entities` in `analytics/utils.py` now calls `copy_context()` once per executor task rather than sharing a single `Context` object across all concurrent threads. The previous pattern caused `RuntimeError: cannot enter context: ... is already entered` when two or more worker threads invoked `ctx.run(...)` simultaneously.
+
 ## 2026-04-25
 
 ### Training-State History Range Support and Query-Time Performance Hardening [application v3.15.0]
