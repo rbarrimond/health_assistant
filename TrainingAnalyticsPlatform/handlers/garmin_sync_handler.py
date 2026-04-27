@@ -37,6 +37,14 @@ from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordin
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import IngestionContext
 
 from .ingestion_base_handler import FitIngestionBaseHandler
+from .response_models import (
+    AsyncQueueResponse,
+    GarminSyncAccumulator,
+    GarminSyncItemResult,
+    GarminSyncSummaryResponse,
+    IngestionSkipResponse,
+    IngestionSuccessResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -290,7 +298,7 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
                 include_message_alias=True,
             )
         
-        return {"status": "success", "workout_id": workout_id}, 200
+        return IngestionSuccessResponse(status="success", workout_id=workout_id), 200
 
     def _log_contract_warnings(
         self,
@@ -389,7 +397,11 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
                 "status": "skipped_unchanged",
             },
         )
-        return {"status": "skipped", "workout_id": workout_id, "message": "Unchanged content"}, 200
+        return IngestionSkipResponse(
+            status="skipped",
+            workout_id=workout_id,
+            message="Unchanged content",
+        ), 200
 
     def _check_near_duplicate(
         self,
@@ -412,11 +424,11 @@ class GarminSyncIngestionHandler(FitIngestionBaseHandler):
             existing_state=context.existing_state,
             error=f"duplicate_of:{duplicate_workout_id}",
         )
-        return {
-            "status": "skipped_duplicate",
-            "workout_id": duplicate_workout_id,
-            "message": "Potential duplicate workout detected by start-time window",
-        }, 200
+        return IngestionSkipResponse(
+            status="skipped_duplicate",
+            workout_id=duplicate_workout_id,
+            message="Potential duplicate workout detected by start-time window",
+        ), 200
 
     def _build_source_info(self, activity: Dict) -> Dict:
         """Build source info metadata for ingestion state tracking."""
@@ -851,22 +863,15 @@ class GarminSyncHandler:
             },
         )
 
-        results = {
-            "status": "success",
-            "lookback_days": lookback_days,
-            "force": force,
-            "found": len(activities),
-            "ingested": 0,
-            "skipped": 0,
-            "skipped_by_id": 0,
-            "failed": 0,
-            "errors": [],
-            "items": [],
-            "list_window_days_used": candidate_selection_meta["list_window_days_used"],
-            "list_calls_made": candidate_selection_meta["list_calls_made"],
-            "cache_hit_count": candidate_selection_meta["cache_hit_count"],
-            "cache_miss_days": candidate_selection_meta["cache_miss_days"],
-        }
+        acc = GarminSyncAccumulator(
+            lookback_days=lookback_days,
+            force=force,
+            found=len(activities),
+            list_window_days_used=candidate_selection_meta["list_window_days_used"],
+            list_calls_made=candidate_selection_meta["list_calls_made"],
+            cache_hit_count=candidate_selection_meta["cache_hit_count"],
+            cache_miss_days=candidate_selection_meta["cache_miss_days"],
+        )
 
         for index, activity in enumerate(activities):
             activity_id = str(activity.get("activityId", ""))
@@ -874,15 +879,15 @@ class GarminSyncHandler:
                 athlete_id,
                 activity_id,
             ):
-                results["skipped"] += 1
-                results["skipped_by_id"] += 1
-                results["items"].append(
-                    {
-                        "activity_id": activity_id,
-                        "activity_name": activity.get("activityName", "Unknown"),
-                        "status": "skipped_seen_id",
-                        "workout_id": None,
-                    }
+                acc.skipped += 1
+                acc.skipped_by_id += 1
+                acc.items.append(
+                    GarminSyncItemResult(
+                        activity_id=activity_id,
+                        activity_name=activity.get("activityName", "Unknown"),
+                        status="skipped_seen_id",
+                        workout_id=None,
+                    )
                 )
                 logger.debug(
                     "Skipping Garmin activity with previously processed activity_id",
@@ -901,7 +906,7 @@ class GarminSyncHandler:
                     activity=activity,
                     force=force,
                 )
-                self._record_ingest_result(results, activity, body, status_code)
+                self._record_ingest_result(acc, activity, body, status_code)
                 if (
                     index < len(activities) - 1
                     and body.get("status") == "success"
@@ -920,7 +925,7 @@ class GarminSyncHandler:
                     },
                     exc_info=True,
                 )
-                self._record_error_result(results, activity, exc)
+                self._record_error_result(acc, activity, exc)
 
         # Persist tokens after sync so future invocations skip the SSO round-trip.
         # This also captures any OAuth2 refresh that garth performed during the sync.
@@ -943,7 +948,7 @@ class GarminSyncHandler:
                 },
             )
 
-        return results
+        return acc.to_response()
 
     def _select_candidate_activities(
         self,
@@ -1259,15 +1264,15 @@ class GarminSyncHandler:
                 "mode": "async_queue",
             }, 500
 
-        return {
-            "status": "queued",
-            "athlete_id": athlete_id,
-            "lookback_days": lookback_days,
-            "force": force,
-            "mode": "async_queue",
-            "operation_id": operation_id,
-            "queued_at_utc": queued_at_utc,
-        }, 202
+        return AsyncQueueResponse(
+            status="queued",
+            athlete_id=athlete_id,
+            lookback_days=lookback_days,
+            force=force,
+            mode="async_queue",
+            operation_id=operation_id,
+            queued_at_utc=queued_at_utc,
+        ), 202
 
     def _handle_async_thread(
         self,
@@ -1368,15 +1373,15 @@ class GarminSyncHandler:
             daemon=True,
         )
         thread.start()
-        return {
-            "status": "queued",
-            "athlete_id": athlete_id,
-            "lookback_days": lookback_days,
-            "force": force,
-            "mode": "async_thread",
-            "operation_id": operation_id,
-            "queued_at_utc": queued_at_utc,
-        }, 202
+        return AsyncQueueResponse(
+            status="queued",
+            athlete_id=athlete_id,
+            lookback_days=lookback_days,
+            force=force,
+            mode="async_thread",
+            operation_id=operation_id,
+            queued_at_utc=queued_at_utc,
+        ), 202
 
     def _was_activity_previously_processed(
         self,
@@ -1424,7 +1429,7 @@ class GarminSyncHandler:
 
     def _record_ingest_result(
         self,
-        results: Dict,
+        acc: GarminSyncAccumulator,
         activity: Dict,
         body: Dict,
         status_code: int,
@@ -1435,7 +1440,7 @@ class GarminSyncHandler:
         
         if status_code == 200:
             if body.get("status") == "skipped":
-                results["skipped"] += 1
+                acc.skipped += 1
                 logger.info(
                     "Skipped Garmin activity",
                     extra={
@@ -1446,7 +1451,7 @@ class GarminSyncHandler:
                     },
                 )
             else:
-                results["ingested"] += 1
+                acc.ingested += 1
                 logger.info(
                     "Ingested Garmin activity",
                     extra={
@@ -1458,9 +1463,9 @@ class GarminSyncHandler:
                     },
                 )
         else:
-            results["failed"] += 1
+            acc.failed += 1
             error_msg = body.get("message", "Unknown error")
-            results["errors"].append(f"{activity_id}: {error_msg}")
+            acc.errors.append(f"{activity_id}: {error_msg}")
             logger.error(
                 "Failed to ingest Garmin activity",
                 extra={
@@ -1472,15 +1477,15 @@ class GarminSyncHandler:
                 },
             )
 
-        results["items"].append({
-            "activity_id": activity_id,
-            "activity_name": activity_name,
-            "status": body.get("status"),
-            "workout_id": body.get("workout_id"),
-        })
+        acc.items.append(GarminSyncItemResult(
+            activity_id=activity_id,
+            activity_name=activity_name,
+            status=body.get("status"),
+            workout_id=body.get("workout_id"),
+        ))
 
-    def _record_error_result(self, results: Dict, activity: Dict, exc: Exception) -> None:
+    def _record_error_result(self, acc: GarminSyncAccumulator, activity: Dict, exc: Exception) -> None:
         """Record an exception during activity ingestion."""
         activity_id = str(activity.get("activityId", "unknown"))
-        results["failed"] += 1
-        results["errors"].append(f"{activity_id}: {str(exc)}")
+        acc.failed += 1
+        acc.errors.append(f"{activity_id}: {str(exc)}")

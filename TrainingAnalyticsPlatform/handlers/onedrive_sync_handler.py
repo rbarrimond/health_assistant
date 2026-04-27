@@ -33,6 +33,15 @@ from TrainingAnalyticsPlatform.storage.storage_coordinator import StorageCoordin
 from TrainingAnalyticsPlatform.storage.storage_infrastructure import IngestionContext
 
 from .ingestion_base_handler import FitIngestionBaseHandler
+from .response_models import (
+    AsyncQueueResponse,
+    IngestionSkipResponse,
+    IngestionSuccessResponse,
+    OneDriveResetResponse,
+    OneDriveSyncAccumulator,
+    OneDriveSyncItemResult,
+    OneDriveSyncSummaryResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +178,7 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
             source_info,
             file_bytes=preprocessed.content,
         )
-        return source_info, ({"status": "success", "workout_id": workout_id}, 200)
+        return source_info, (IngestionSuccessResponse(status="success", workout_id=workout_id), 200)
 
     def _build_skip_response(
         self,
@@ -193,11 +202,11 @@ class OneDriveSyncIngestionHandler(FitIngestionBaseHandler):
                 "status": "skipped_unchanged",
             },
         )
-        return {
-            "status": "skipped",
-            "workout_id": workout_id,
-            "message": "Unchanged content",
-        }, 200
+        return IngestionSkipResponse(
+            status="skipped",
+            workout_id=workout_id,
+            message="Unchanged content",
+        ), 200
 
     def _handle_ingestion_exception(
         self,
@@ -502,12 +511,12 @@ class OneDriveSyncHandler:
         if req.reset_all:
             try:
                 reset_count = self._storage.oauth_tokens.reset_all_onedrive_delta_states()
-                return {
-                    "status": "success",
-                    "scope": "bulk",
-                    "reset_count": reset_count,
-                    "reset_at_utc": reset_at_utc,
-                }, 200
+                return OneDriveResetResponse(
+                    status="success",
+                    scope="bulk",
+                    reset_count=reset_count,
+                    reset_at_utc=reset_at_utc,
+                ), 200
             except HealthAssistantError as exc:
                 logger.error(
                     "OneDrive bulk delta reset failed with typed error",
@@ -545,14 +554,14 @@ class OneDriveSyncHandler:
             reset_applied = self._storage.oauth_tokens.reset_onedrive_delta_state(
                 athlete_id
             )
-            return {
-                "status": "success",
-                "scope": "single",
-                "athlete_id": athlete_id,
-                "reset_count": 1 if reset_applied else 0,
-                "reset_applied": reset_applied,
-                "reset_at_utc": reset_at_utc,
-            }, 200
+            return OneDriveResetResponse(
+                status="success",
+                scope="single",
+                athlete_id=athlete_id,
+                reset_count=1 if reset_applied else 0,
+                reset_applied=reset_applied,
+                reset_at_utc=reset_at_utc,
+            ), 200
         except HealthAssistantError as exc:
             logger.error(
                 "OneDrive delta reset failed with typed error",
@@ -766,15 +775,15 @@ class OneDriveSyncHandler:
                 "mode": "async_queue",
             }, 500
 
-        return {
-            "status": "queued",
-            "athlete_id": athlete_id,
-            "lookback_days": lookback_days,
-            "force": force,
-            "mode": "async_queue",
-            "operation_id": operation_id,
-            "queued_at_utc": queued_at_utc,
-        }, 202
+        return AsyncQueueResponse(
+            status="queued",
+            athlete_id=athlete_id,
+            lookback_days=lookback_days,
+            force=force,
+            mode="async_queue",
+            operation_id=operation_id,
+            queued_at_utc=queued_at_utc,
+        ), 202
 
     def _handle_async_thread(
         self,
@@ -866,15 +875,15 @@ class OneDriveSyncHandler:
         ctx = copy_context()
         threading.Thread(target=ctx.run, args=(_run_background_sync,), daemon=True).start()
 
-        return {
-            "status": "queued",
-            "athlete_id": athlete_id,
-            "lookback_days": lookback_days,
-            "force": force,
-            "mode": "async_thread",
-            "operation_id": operation_id,
-            "queued_at_utc": queued_at_utc,
-        }, 202
+        return AsyncQueueResponse(
+            status="queued",
+            athlete_id=athlete_id,
+            lookback_days=lookback_days,
+            force=force,
+            mode="async_thread",
+            operation_id=operation_id,
+            queued_at_utc=queued_at_utc,
+        ), 202
 
     def _extract_request(self, args: tuple, kwargs: dict) -> OneDriveSyncRequest:
         req = kwargs.get("req")
@@ -946,19 +955,13 @@ class OneDriveSyncHandler:
                 delta_sync_state="active",
             )
 
-        results = {
-            "status": "success",
-            "lookback_days": lookback_days,
-            "folder_path": self._config.folder_path,
-            "sync_mode": delta_mode,
-            "force": force,
-            "found": len(files),
-            "ingested": 0,
-            "skipped": 0,
-            "failed": 0,
-            "errors": [],
-            "items": [],
-        }
+        acc = OneDriveSyncAccumulator(
+            lookback_days=lookback_days,
+            folder_path=self._config.folder_path,
+            sync_mode=delta_mode,
+            force=force,
+            found=len(files),
+        )
 
         for item in files:
             try:
@@ -969,12 +972,12 @@ class OneDriveSyncHandler:
                     drive_id=drive_id,
                     force=force,
                 )
-                self._record_ingest_result(results, item, body, status_code)
+                self._record_ingest_result(acc, item, body, status_code)
             except Exception as exc:  # pylint: disable=broad-exception-caught
-                self._record_error_result(results, item, exc)
+                self._record_error_result(acc, item, exc)
 
-        self._finalize_sync_status(results)
-        return results
+        self._finalize_sync_status(acc)
+        return acc.to_response()
 
     @staticmethod
     def _resolve_delta_mode(force: bool, delta_link: Optional[str]) -> str:
@@ -985,45 +988,46 @@ class OneDriveSyncHandler:
         return "seed"
 
     @staticmethod
-    def _finalize_sync_status(results: Dict) -> None:
-        if results["failed"] > 0:
-            if results["ingested"] > 0 or results["skipped"] > 0:
-                results["status"] = "partial"
+    def _finalize_sync_status(acc: OneDriveSyncAccumulator) -> None:
+        if acc.failed > 0:
+            if acc.ingested > 0 or acc.skipped > 0:
+                acc.status = "partial"
             else:
-                results["status"] = "failed"
-        elif results["ingested"] == 0:
-            results["status"] = "skipped"
+                acc.status = "failed"
+        elif acc.ingested == 0:
+            acc.status = "skipped"
 
     def _record_ingest_result(
         self,
-        results: Dict,
+        acc: OneDriveSyncAccumulator,
         item: Dict,
         body: Dict,
         status_code: int,
     ) -> None:
         if status_code == 200 and body.get("status") == "success":
-            results["ingested"] += 1
+            acc.ingested += 1
         elif status_code == 200 and body.get("status") == "skipped":
-            results["skipped"] += 1
+            acc.skipped += 1
         else:
-            results["failed"] += 1
-        results["items"].append({
-            "name": item.get("name"),
-            "id": item.get("id"),
-            "status": body.get("status", "error"),
-            "message": body.get("message") or body.get("error"),
-            "workout_id": body.get("workout_id"),
-        })
+            acc.failed += 1
+        acc.items.append(OneDriveSyncItemResult(
+            name=item.get("name"),
+            id=item.get("id"),
+            status=body.get("status", "error"),
+            message=body.get("message") or body.get("error"),
+            workout_id=body.get("workout_id"),
+        ))
 
-    def _record_error_result(self, results: Dict, item: Dict, exc: Exception) -> None:
-        results["failed"] += 1
-        results["errors"].append(str(exc))
-        results["items"].append({
-            "name": item.get("name"),
-            "id": item.get("id"),
-            "status": "error",
-            "message": str(exc),
-        })
+    def _record_error_result(self, acc: OneDriveSyncAccumulator, item: Dict, exc: Exception) -> None:
+        acc.failed += 1
+        acc.errors.append(str(exc))
+        acc.items.append(OneDriveSyncItemResult(
+            name=item.get("name"),
+            id=item.get("id"),
+            status="error",
+            message=str(exc),
+            workout_id=None,
+        ))
 
     def _get_tokens(self, athlete_id: str) -> Dict:
         """Load stored OneDrive tokens for the athlete."""
