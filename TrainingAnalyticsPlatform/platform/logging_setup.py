@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Any, Dict
+
+current_correlation_id: ContextVar[str] = ContextVar("correlation_id", default="")
 
 
 class JsonLogFormatter(logging.Formatter):
@@ -51,6 +54,9 @@ class JsonLogFormatter(logging.Formatter):
                 payload[key] = value
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
+        correlation_id = current_correlation_id.get()
+        if correlation_id and "correlation_id" not in payload:
+            payload["correlation_id"] = correlation_id
         return json.dumps(payload, default=str)
 
 

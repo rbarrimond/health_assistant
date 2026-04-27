@@ -9,6 +9,7 @@ import threading
 import time
 import uuid
 from collections.abc import Iterable
+from contextvars import copy_context
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -1304,6 +1305,7 @@ class GarminSyncHandler:
                         "force": force,
                         "source_system": "garmin",
                         "operation_id": operation_id,
+                        "correlation_id": correlation_id,
                         "status": result.get("status"),
                         "found": result.get("found"),
                         "ingested": result.get("ingested"),
@@ -1326,16 +1328,17 @@ class GarminSyncHandler:
                         "force": force,
                         "source_system": "garmin",
                         "operation_id": operation_id,
+                        "correlation_id": correlation_id,
                         "error_type": type(exc).__name__,
                         "error": str(exc),
                     },
                     exc_info=True,
                 )
 
+        ctx = copy_context()
         thread = threading.Thread(
-            target=_run_background_sync,
-            kwargs={
-            },
+            target=ctx.run,
+            args=(_run_background_sync,),
             daemon=True,
         )
         thread.start()

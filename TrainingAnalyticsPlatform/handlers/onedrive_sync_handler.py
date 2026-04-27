@@ -7,6 +7,7 @@ import os
 import re
 import threading
 import uuid
+from contextvars import copy_context
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
@@ -833,6 +834,7 @@ class OneDriveSyncHandler:
                         "force": force,
                         "source_system": "onedrive",
                         "operation_id": operation_id,
+                        "correlation_id": correlation_id,
                         "found": result.get("found"),
                         "ingested": result.get("ingested"),
                         "skipped": result.get("skipped"),
@@ -854,13 +856,15 @@ class OneDriveSyncHandler:
                         "force": force,
                         "source_system": "onedrive",
                         "operation_id": operation_id,
+                        "correlation_id": correlation_id,
                         "error_type": type(exc).__name__,
                         "error": str(exc),
                     },
                     exc_info=True,
                 )
 
-        threading.Thread(target=_run_background_sync, daemon=True).start()
+        ctx = copy_context()
+        threading.Thread(target=ctx.run, args=(_run_background_sync,), daemon=True).start()
 
         return {
             "status": "queued",

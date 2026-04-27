@@ -6,8 +6,11 @@ No class or service state — all functions are pure or take explicit storage ar
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 from datetime import datetime, time, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+
+from azure.core.exceptions import HttpResponseError
 
 import pandas as pd
 
@@ -505,8 +508,6 @@ def get_workouts_in_range(
     end_date: datetime,
 ) -> List[Dict[str, Any]]:
     """Retrieve workouts within a date range as summary dicts."""
-    from azure.core.exceptions import HttpResponseError  # local import to avoid top-level dep
-
     try:
         table_client = storage.infrastructure.get_table_client("Workouts")
         months = get_month_partitions(athlete_id, start_date, end_date)
@@ -538,7 +539,7 @@ def get_workouts_in_range(
             },
             exc_info=True,
         )
-        return []
+        raise StorageError("Failed to query workouts from Table Storage") from exc
 
 
 def build_workout_summaries_from_entities(
@@ -547,9 +548,10 @@ def build_workout_summaries_from_entities(
 ) -> List[Dict[str, Any]]:
     """Build workout summary dicts from a pre-fetched entity list using parallel blob reads."""
     workouts: List[Dict[str, Any]] = []
+    ctx = copy_context()
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
-            executor.submit(build_rollup_metrics_model, storage, entity): entity
+            executor.submit(ctx.run, build_rollup_metrics_model, storage, entity): entity
             for entity in entities
         }
         for future in as_completed(futures):
@@ -564,6 +566,18 @@ def build_workout_summaries_from_entities(
                         "partition_key": entity.get("PartitionKey"),
                         "error": str(exc),
                     },
+                    exc_info=True,
+                )
+                continue
+            except ValidationError as exc:
+                logger.warning(
+                    "Skipping workout in range: validation error in metrics model",
+                    extra={
+                        "workout_id": entity.get("workout_id"),
+                        "partition_key": entity.get("PartitionKey"),
+                        "error": str(exc),
+                    },
+                    exc_info=True,
                 )
                 continue
             workouts.append(workout_summary_from_metrics_model(entity, metrics_model))
@@ -613,8 +627,6 @@ def get_workout_projections_in_range(
     workout_service: Any,
 ) -> List[WorkoutProjection]:
     """Retrieve WorkoutProjection objects for a date range."""
-    from azure.core.exceptions import HttpResponseError  # local import
-
     try:
         table_client = storage.infrastructure.get_table_client("Workouts")
         months = get_month_partitions(athlete_id, start_date, end_date)
@@ -640,7 +652,7 @@ def get_workout_projections_in_range(
             },
             exc_info=True,
         )
-        return []
+        raise StorageError("Failed to query workout projections from Table Storage") from exc
 
 
 def collect_workout_projections(

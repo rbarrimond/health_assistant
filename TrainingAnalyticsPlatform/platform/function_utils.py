@@ -24,6 +24,7 @@ from TrainingAnalyticsPlatform.platform.http_utils import (
     gzip_encode_response_body,
     json_response,
 )
+from TrainingAnalyticsPlatform.platform.logging_setup import current_correlation_id
 
 logger = logging.getLogger(__name__)
 
@@ -600,6 +601,7 @@ def _execute_endpoint(
     log = config.logger_override or logger
     request = _resolve_http_request(args, kwargs)
     correlation = extract_correlation_context(request)
+    current_correlation_id.set(correlation.get("correlation_id", ""))
     started = time.perf_counter()
     try:
         result = inner_fn(*args, **kwargs)
