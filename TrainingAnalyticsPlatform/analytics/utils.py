@@ -413,7 +413,7 @@ def build_rollup_metrics_model(
         distortion = canonical_sampling_distortion(df)
         try:
             model = WorkoutMetricsModel.from_canonical(df, metadata, resample=True)
-        except ValidationError as resample_exc:
+        except ValidationError:
             logger.error(
                 "Weekly rollup canonical validation failed",
                 extra={
@@ -619,7 +619,6 @@ def get_workout_projections_in_range(
         table_client = storage.infrastructure.get_table_client("Workouts")
         months = get_month_partitions(athlete_id, start_date, end_date)
         projections = collect_workout_projections(
-            storage=storage,
             workout_service=workout_service,
             table_client=table_client,
             months=months,
@@ -645,69 +644,6 @@ def get_workout_projections_in_range(
 
 
 def collect_workout_projections(
-    storage: "StorageCoordinator",
-    workout_service: Any,
-    table_client: Any,
-    months: List[str],
-    start_date: datetime,
-    end_date: datetime,
-) -> List[WorkoutProjection]:
-    """Collect projections for entities that fall in the requested date window."""
-    projections: List[WorkoutProjection] = []
-    for partition_key in months:
-        query = build_partition_date_range_query(partition_key, start_date, end_date)
-        entities = table_client.query_entities(query)
-        for entity in entities:
-            if not entity_within_date_range(entity, start_date, end_date):
-                continue
-            projection = workout_service.build_workout_projection(entity)
-            if projection is not None:
-                projections.append(projection)
-    return projections
-
-
-
-def get_workout_projections_in_range(
-    storage: "StorageCoordinator",
-    athlete_id: str,
-    start_date: datetime,
-    end_date: datetime,
-    workout_service: Any,
-) -> List[WorkoutProjection]:
-    """Retrieve WorkoutProjection objects for a date range."""
-    from azure.core.exceptions import HttpResponseError  # local import
-
-    try:
-        table_client = storage.infrastructure.get_table_client("Workouts")
-        months = get_month_partitions(athlete_id, start_date, end_date)
-        projections = collect_workout_projections(
-            storage=storage,
-            workout_service=workout_service,
-            table_client=table_client,
-            months=months,
-            start_date=start_date,
-            end_date=end_date,
-        )
-        projections.sort(key=lambda p: p.start_time_utc or "", reverse=True)
-        return projections
-
-    except HttpResponseError as exc:
-        logger.error(
-            "Error querying workout projections",
-            extra={
-                "athlete_id": athlete_id,
-                "start_date": start_date.isoformat() if start_date else None,
-                "end_date": end_date.isoformat() if end_date else None,
-                "error_type": "HttpResponseError",
-                "error": str(exc),
-            },
-            exc_info=True,
-        )
-        return []
-
-
-def collect_workout_projections(
-    storage: "StorageCoordinator",
     workout_service: Any,
     table_client: Any,
     months: List[str],
