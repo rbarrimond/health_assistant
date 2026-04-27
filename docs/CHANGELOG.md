@@ -8,6 +8,16 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-04-27
+
+### Physiometrics Multi-Source Consolidation and Wellness Handler Extraction [application v3.16.0, semantic API v8.2.0]
+
+- **Why this is a MINOR bump**: `GET /api/physiometrics/current` now applies explicit multi-source source precedence rather than latest-wins, a backward-compatible behavioral addition. The OpenAPI spec version is also corrected from 8.0.0 to 8.2.0 to reflect two MINOR API additions documented in prior changelog entries (climb artifact localization in v3.14.0 and training-state history range support in v3.15.0) that were applied to the spec but whose version field was not advanced.
+- **Added (wellness consolidation)**: new `wellness_consolidation` module introduces `SourcePrecedenceResolver`, `PhysiometricsConsolidationHandler` (schema v4.2.0), and `TrainingStateConsolidationHandler` with field ownership rules: Withings exclusive for body composition; Intervals exclusive for resting_hr_bpm, steps, and nutrition; Garmin exclusive for training state, performance metrics, training_status_label, and load_focus_*_pct fields; FTP/LTHR resolved recency-aware across Garmin/manual/chatgpt with Garmin tie-break.
+- **Changed (physiometrics current)**: `GET /api/physiometrics/current` now guarantees `data_sources` (list of contributing sources) and `source_effective_dates` (source → date map) fields in all responses via the consolidation handler. The `PhysiometricSnapshot` schema already documented these fields.
+- **Fixed (OpenAPI spec version)**: advanced from 8.0.0 to 8.2.0 to reflect climb artifact localization (→8.1.0) and training-state history range support (→8.2.0) already present in the spec.
+- **Added (tests)**: `test_wellness_source_precedence`, `test_physiometrics_current_consolidated`, `test_physiometrics_timeseries`, `test_timezone_propagation` cover consolidation precedence, multi-source current snapshot, timeseries storage, and timezone propagation respectively.
+
 ## 2026-04-26
 
 ### TypedDict Response Contract Formalization and Context Concurrency Fix [application v3.15.1]
