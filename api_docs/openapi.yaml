@@ -426,6 +426,13 @@ paths:
           schema:
             type: boolean
             default: false
+        - name: developer_fields
+          in: query
+          required: false
+          description: Include FIT developer fields summary (Garmin-specific per-lap metrics). Adds `developer_fields_summary` to the response when present.
+          schema:
+            type: boolean
+            default: false
       responses:
         '200':
           description: Workout detail
