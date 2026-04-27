@@ -5,6 +5,7 @@ No class or service state — all functions are pure or take explicit storage ar
 """
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, time, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -540,6 +541,53 @@ def get_workouts_in_range(
         return []
 
 
+def build_workout_summaries_from_entities(
+    storage: "StorageCoordinator",
+    entities: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Build workout summary dicts from a pre-fetched entity list using parallel blob reads."""
+    workouts: List[Dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {
+            executor.submit(build_rollup_metrics_model, storage, entity): entity
+            for entity in entities
+        }
+        for future in as_completed(futures):
+            entity = futures[future]
+            try:
+                metrics_model = future.result()
+            except StorageError as exc:
+                logger.warning(
+                    "Skipping workout in range: canonical metrics unavailable",
+                    extra={
+                        "workout_id": entity.get("workout_id"),
+                        "partition_key": entity.get("PartitionKey"),
+                        "error": str(exc),
+                    },
+                )
+                continue
+            workouts.append(workout_summary_from_metrics_model(entity, metrics_model))
+    return workouts
+
+
+def collect_all_workout_entities(
+    storage: "StorageCoordinator",
+    athlete_id: str,
+    start_date: datetime,
+    end_date: datetime,
+) -> List[Dict[str, Any]]:
+    """Return all raw Workouts table entities for the athlete in the date range."""
+    table_client = storage.infrastructure.get_table_client("Workouts")
+    months = get_month_partitions(athlete_id, start_date, end_date)
+    entities: List[Dict[str, Any]] = []
+    for partition_key in months:
+        query = build_partition_date_range_query(partition_key, start_date, end_date)
+        for entity in table_client.query_entities(query):
+            if entity_within_date_range(entity, start_date, end_date):
+                entities.append(dict(entity))
+    return entities
+
+
 def collect_partition_workout_metrics(
     storage: "StorageCoordinator",
     table_client: Any,
@@ -549,28 +597,74 @@ def collect_partition_workout_metrics(
 ) -> List[Dict[str, Any]]:
     """Collect workouts for a single partition constrained to date window."""
     query = build_partition_date_range_query(partition_key, start_date, end_date)
-    entities = table_client.query_entities(query)
+    entities = [
+        entity
+        for entity in table_client.query_entities(query)
+        if entity_within_date_range(entity, start_date, end_date)
+    ]
+    return build_workout_summaries_from_entities(storage, entities)
 
-    workouts: List[Dict[str, Any]] = []
-    for entity in entities:
-        if not entity_within_date_range(entity, start_date, end_date):
-            continue
 
-        try:
-            metrics_model = build_rollup_metrics_model(storage, entity)
-        except StorageError as exc:
-            logger.warning(
-                "Skipping workout in range: canonical metrics unavailable",
-                extra={
-                    "workout_id": entity.get("workout_id"),
-                    "partition_key": partition_key,
-                    "error": str(exc),
-                },
-            )
-            continue
-        workouts.append(workout_summary_from_metrics_model(entity, metrics_model))
+def get_workout_projections_in_range(
+    storage: "StorageCoordinator",
+    athlete_id: str,
+    start_date: datetime,
+    end_date: datetime,
+    workout_service: Any,
+) -> List[WorkoutProjection]:
+    """Retrieve WorkoutProjection objects for a date range."""
+    from azure.core.exceptions import HttpResponseError  # local import
 
-    return workouts
+    try:
+        table_client = storage.infrastructure.get_table_client("Workouts")
+        months = get_month_partitions(athlete_id, start_date, end_date)
+        projections = collect_workout_projections(
+            storage=storage,
+            workout_service=workout_service,
+            table_client=table_client,
+            months=months,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        projections.sort(key=lambda p: p.start_time_utc or "", reverse=True)
+        return projections
+
+    except HttpResponseError as exc:
+        logger.error(
+            "Error querying workout projections",
+            extra={
+                "athlete_id": athlete_id,
+                "start_date": start_date.isoformat() if start_date else None,
+                "end_date": end_date.isoformat() if end_date else None,
+                "error_type": "HttpResponseError",
+                "error": str(exc),
+            },
+            exc_info=True,
+        )
+        return []
+
+
+def collect_workout_projections(
+    storage: "StorageCoordinator",
+    workout_service: Any,
+    table_client: Any,
+    months: List[str],
+    start_date: datetime,
+    end_date: datetime,
+) -> List[WorkoutProjection]:
+    """Collect projections for entities that fall in the requested date window."""
+    projections: List[WorkoutProjection] = []
+    for partition_key in months:
+        query = build_partition_date_range_query(partition_key, start_date, end_date)
+        entities = table_client.query_entities(query)
+        for entity in entities:
+            if not entity_within_date_range(entity, start_date, end_date):
+                continue
+            projection = workout_service.build_workout_projection(entity)
+            if projection is not None:
+                projections.append(projection)
+    return projections
+
 
 
 def get_workout_projections_in_range(

@@ -104,12 +104,20 @@ class WorkoutQueryService:
             default_value=end_date - timedelta(days=90),
             is_end=False,
         )
-        projections = utils.get_workout_projections_in_range(
-            self.storage, athlete_id, start_date, end_date, self
-        )
+        # Fetch raw entities (no blob reads) then sort, filter, and limit BEFORE
+        # building projections so we only read metadata blobs for the final set.
+        entities = utils.collect_all_workout_entities(self.storage, athlete_id, start_date, end_date)
+        entities.sort(key=lambda e: e.get("start_time_utc", ""), reverse=True)
         if sport:
-            projections = [p for p in projections if p.sport == sport]
-        return [p.model_dump() for p in projections[:limit]]
+            entities = [e for e in entities if e.get("sport") == sport]
+        entities = entities[:limit]
+
+        projections = [
+            p
+            for entity in entities
+            if (p := self.build_workout_projection(entity)) is not None
+        ]
+        return [p.model_dump() for p in projections]
 
     def get_workout_detail(
         self,

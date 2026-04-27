@@ -401,6 +401,8 @@ class PhysiometricsService:
         snapshots = []
         current_date = start_date
 
+        prefetched_physio_rows = self._prefetch_physiometrics_rows(athlete_id)
+
         while current_date <= end_date:
             current_index = (current_date - full_window_start).days
             tss_7d = cumulative_tss[current_index + 1] - cumulative_tss[current_index - 7]
@@ -410,6 +412,7 @@ class PhysiometricsService:
                 current_date,
                 tss_7d,
                 tss_28d,
+                prefetched_rows=prefetched_physio_rows,
             )
             snapshots.append({
                 "effective_date": snapshot.effective_date,
@@ -483,12 +486,14 @@ class PhysiometricsService:
         date: Any,
         tss_7d: float,
         tss_28d: float,
+        prefetched_rows: Optional[List[Dict[str, Any]]] = None,
     ) -> TrainingStateSnapshot:
         """Build a training-state snapshot from precomputed rolling TSS values."""
         training_load = self._compute_training_load_components(tss_7d, tss_28d)
         training_state_physiometrics = self._resolve_training_state_physiometrics_as_of(
             athlete_id,
             date.isoformat(),
+            prefetched_rows=prefetched_rows,
         )
         hrv_ln = training_state_physiometrics.get("hrv_ln_rmssd")
         garmin_readiness = training_state_physiometrics.get("readiness_score")
@@ -564,11 +569,13 @@ class PhysiometricsService:
         self,
         athlete_id: str,
         target_date: str,
+        prefetched_rows: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Resolve as-of physiometrics inputs needed by training-state projections."""
         source_rows_by_source = self._get_source_rows_by_source(
             athlete_id,
             target_date=target_date,
+            prefetched_rows=prefetched_rows,
         )
         resolved: Dict[str, Any] = {}
 
@@ -771,14 +778,23 @@ class PhysiometricsService:
     # Physiometrics resolution helpers
     # -------------------------------------------------------------------------
 
+    def _prefetch_physiometrics_rows(self, athlete_id: str) -> List[Dict[str, Any]]:
+        """Fetch all Physiometrics rows for an athlete in one table scan."""
+        table_client = self.storage.infrastructure.get_table_client("Physiometrics")
+        return [dict(row) for row in table_client.query_entities(f"PartitionKey eq '{athlete_id}'")]
+
     def _get_source_rows_by_source(
         self,
         athlete_id: str,
         target_date: Optional[str] = None,
+        prefetched_rows: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """Get physiometrics rows grouped by source, sorted newest-first."""
-        table_client = self.storage.infrastructure.get_table_client("Physiometrics")
-        rows = list(table_client.query_entities(f"PartitionKey eq '{athlete_id}'"))
+        if prefetched_rows is not None:
+            rows = prefetched_rows
+        else:
+            table_client = self.storage.infrastructure.get_table_client("Physiometrics")
+            rows = list(table_client.query_entities(f"PartitionKey eq '{athlete_id}'"))
         tracked_sources = {"intervals", "garmin", "withings", "manual", "chatgpt"}
         grouped = build_source_rows_by_source(
             rows,

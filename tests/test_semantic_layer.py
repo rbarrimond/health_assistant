@@ -250,12 +250,13 @@ class TestPlanningContext:
         self, planning_service_fixture, sample_workouts, mock_storage
     ):
         """Test detection of last high-intensity workout."""
-        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workouts_in_range', return_value=sample_workouts
-        ):
-            with patch.object(
-                planning_service_fixture, '_get_weekly_rollups', return_value=[]
-            ):
-                context = planning_service_fixture.get_planning_context("rob", days=30)
+        planning_service_fixture._workout_service.build_workout_projection.return_value = None
+        with patch('TrainingAnalyticsPlatform.analytics.utils.collect_all_workout_entities', return_value=sample_workouts):
+            with patch('TrainingAnalyticsPlatform.analytics.utils.build_workout_summaries_from_entities', return_value=sample_workouts):
+                with patch.object(
+                    planning_service_fixture, '_get_weekly_rollups', return_value=[]
+                ):
+                    context = planning_service_fixture.get_planning_context("rob", days=30)
 
         # workout-001 has 480 seconds (8 minutes) of intensity > 300 sec threshold
         assert context["summary"]["last_hard_day"] == sample_workouts[0]["start_time_utc"]
@@ -268,12 +269,13 @@ class TestPlanningContext:
         workouts = sample_workouts.copy()
         workouts[1]["hr_z2_sec"] = 4500  # 75 minutes in seconds
 
-        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workouts_in_range', return_value=workouts
-        ):
-            with patch.object(
-                planning_service_fixture, '_get_weekly_rollups', return_value=[]
-            ):
-                context = planning_service_fixture.get_planning_context("rob", days=30)
+        planning_service_fixture._workout_service.build_workout_projection.return_value = None
+        with patch('TrainingAnalyticsPlatform.analytics.utils.collect_all_workout_entities', return_value=workouts):
+            with patch('TrainingAnalyticsPlatform.analytics.utils.build_workout_summaries_from_entities', return_value=workouts):
+                with patch.object(
+                    planning_service_fixture, '_get_weekly_rollups', return_value=[]
+                ):
+                    context = planning_service_fixture.get_planning_context("rob", days=30)
 
         assert context["summary"]["last_long_day"] == workouts[1]["start_time_utc"]
 
@@ -281,12 +283,13 @@ class TestPlanningContext:
         self, planning_service_fixture, sample_workouts, mock_storage
     ):
         """Test cumulative zone minutes calculation."""
-        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workouts_in_range', return_value=sample_workouts
-        ):
-            with patch.object(
-                planning_service_fixture, '_get_weekly_rollups', return_value=[]
-            ):
-                context = planning_service_fixture.get_planning_context("rob", days=30)
+        planning_service_fixture._workout_service.build_workout_projection.return_value = None
+        with patch('TrainingAnalyticsPlatform.analytics.utils.collect_all_workout_entities', return_value=sample_workouts):
+            with patch('TrainingAnalyticsPlatform.analytics.utils.build_workout_summaries_from_entities', return_value=sample_workouts):
+                with patch.object(
+                    planning_service_fixture, '_get_weekly_rollups', return_value=[]
+                ):
+                    context = planning_service_fixture.get_planning_context("rob", days=30)
 
         # Sum all HR Z2 seconds and convert to minutes
         # workout-001: 3000sec = 50min, workout-002: 2700sec = 45min, workout-003: 300sec = 5min
@@ -313,12 +316,13 @@ class TestPlanningContext:
             # No hr_avg_bpm
         })
 
-        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workouts_in_range', return_value=workouts
-        ):
-            with patch.object(
-                planning_service_fixture, '_get_weekly_rollups', return_value=[]
-            ):
-                context = planning_service_fixture.get_planning_context("rob", days=30)
+        planning_service_fixture._workout_service.build_workout_projection.return_value = None
+        with patch('TrainingAnalyticsPlatform.analytics.utils.collect_all_workout_entities', return_value=workouts):
+            with patch('TrainingAnalyticsPlatform.analytics.utils.build_workout_summaries_from_entities', return_value=workouts):
+                with patch.object(
+                    planning_service_fixture, '_get_weekly_rollups', return_value=[]
+                ):
+                    context = planning_service_fixture.get_planning_context("rob", days=30)
 
         flags = context["notable_flags"]
         assert any("missing heart rate" in flag for flag in flags)
@@ -353,12 +357,13 @@ class TestPlanningContext:
             },
         ]
 
-        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workouts_in_range', return_value=workouts_with_sec_fields
-        ):
-            with patch.object(
-                planning_service_fixture, '_get_weekly_rollups', return_value=[]
-            ):
-                context = planning_service_fixture.get_planning_context("rob", days=30)
+        planning_service_fixture._workout_service.build_workout_projection.return_value = None
+        with patch('TrainingAnalyticsPlatform.analytics.utils.collect_all_workout_entities', return_value=workouts_with_sec_fields):
+            with patch('TrainingAnalyticsPlatform.analytics.utils.build_workout_summaries_from_entities', return_value=workouts_with_sec_fields):
+                with patch.object(
+                    planning_service_fixture, '_get_weekly_rollups', return_value=[]
+                ):
+                    context = planning_service_fixture.get_planning_context("rob", days=30)
 
         # Verify last_long_day detected (workout-001 has 65min Z2 > 60min threshold)
         assert context["summary"]["last_long_day"] == "2026-03-01T10:00:00+00:00"
@@ -380,9 +385,21 @@ class TestWorkoutQueries:
 
     def test_get_workouts_basic(self, workout_service_fixture, sample_workout_projections, mock_storage):
         """Test basic workout listing."""
-        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workout_projections_in_range', return_value=sample_workout_projections
-        ):
-            workouts = workout_service_fixture.get_workouts("rob", limit=50)
+        base_date = datetime(2026, 1, 15, tzinfo=timezone.utc)
+        entities = [
+            {"sport": "Cycling", "start_time_utc": base_date.isoformat(), "athlete_id": "rob"},
+            {"sport": "Running", "start_time_utc": (base_date - timedelta(days=2)).isoformat(), "athlete_id": "rob"},
+            {"sport": "Cycling", "start_time_utc": (base_date - timedelta(days=5)).isoformat(), "athlete_id": "rob"},
+        ]
+
+        def mock_projection(entity):
+            proj = MagicMock()
+            proj.model_dump.return_value = {"athlete_id": entity["athlete_id"], "sport": entity["sport"]}
+            return proj
+
+        with patch('TrainingAnalyticsPlatform.analytics.utils.collect_all_workout_entities', return_value=entities):
+            with patch.object(workout_service_fixture, 'build_workout_projection', side_effect=mock_projection):
+                workouts = workout_service_fixture.get_workouts("rob", limit=50)
 
         assert len(workouts) == 3
         assert all(w["athlete_id"] == "rob" for w in workouts)
@@ -391,9 +408,21 @@ class TestWorkoutQueries:
         self, workout_service_fixture, sample_workout_projections, mock_storage
     ):
         """Test workout filtering by sport."""
-        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workout_projections_in_range', return_value=sample_workout_projections
-        ):
-            workouts = workout_service_fixture.get_workouts("rob", sport="Cycling")
+        base_date = datetime(2026, 1, 15, tzinfo=timezone.utc)
+        entities = [
+            {"sport": "Cycling", "start_time_utc": base_date.isoformat(), "athlete_id": "rob"},
+            {"sport": "Running", "start_time_utc": (base_date - timedelta(days=2)).isoformat(), "athlete_id": "rob"},
+            {"sport": "Cycling", "start_time_utc": (base_date - timedelta(days=5)).isoformat(), "athlete_id": "rob"},
+        ]
+
+        def mock_projection(entity):
+            proj = MagicMock()
+            proj.model_dump.return_value = {"athlete_id": entity["athlete_id"], "sport": entity["sport"]}
+            return proj
+
+        with patch('TrainingAnalyticsPlatform.analytics.utils.collect_all_workout_entities', return_value=entities):
+            with patch.object(workout_service_fixture, 'build_workout_projection', side_effect=mock_projection):
+                workouts = workout_service_fixture.get_workouts("rob", sport="Cycling")
 
         assert len(workouts) == 2
         assert all(w["sport"] == "Cycling" for w in workouts)
@@ -402,9 +431,21 @@ class TestWorkoutQueries:
         self, workout_service_fixture, sample_workout_projections, mock_storage
     ):
         """Test workout limit parameter."""
-        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workout_projections_in_range', return_value=sample_workout_projections
-        ):
-            workouts = workout_service_fixture.get_workouts("rob", limit=1)
+        base_date = datetime(2026, 1, 15, tzinfo=timezone.utc)
+        entities = [
+            {"sport": "Cycling", "start_time_utc": base_date.isoformat(), "athlete_id": "rob"},
+            {"sport": "Running", "start_time_utc": (base_date - timedelta(days=2)).isoformat(), "athlete_id": "rob"},
+            {"sport": "Cycling", "start_time_utc": (base_date - timedelta(days=5)).isoformat(), "athlete_id": "rob"},
+        ]
+
+        def mock_projection(entity):
+            proj = MagicMock()
+            proj.model_dump.return_value = {"athlete_id": entity["athlete_id"], "sport": entity["sport"]}
+            return proj
+
+        with patch('TrainingAnalyticsPlatform.analytics.utils.collect_all_workout_entities', return_value=entities):
+            with patch.object(workout_service_fixture, 'build_workout_projection', side_effect=mock_projection):
+                workouts = workout_service_fixture.get_workouts("rob", limit=1)
 
         assert len(workouts) == 1
 
@@ -412,8 +453,8 @@ class TestWorkoutQueries:
         self, workout_service_fixture, sample_workout_projections, mock_storage
     ):
         """Date-only workout filters should become inclusive UTC-aware bounds."""
-        with patch('TrainingAnalyticsPlatform.analytics.utils.get_workout_projections_in_range', return_value=sample_workout_projections
-        ) as get_range:
+        with patch('TrainingAnalyticsPlatform.analytics.utils.collect_all_workout_entities', return_value=[]
+        ) as collect_entities:
             workout_service_fixture.get_workouts(
                 "rob",
                 since="2026-01-01",
@@ -421,8 +462,8 @@ class TestWorkoutQueries:
                 limit=50,
             )
 
-        get_range.assert_called_once()
-        _storage, _athlete_id, start_date, end_date = get_range.call_args.args[:4]
+        collect_entities.assert_called_once()
+        _storage, _athlete_id, start_date, end_date = collect_entities.call_args.args[:4]
         assert start_date == datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         assert end_date == datetime(2026, 1, 31, 23, 59, 59, 999999, tzinfo=timezone.utc)
 

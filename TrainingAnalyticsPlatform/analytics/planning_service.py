@@ -57,15 +57,19 @@ class PlanningService:
         end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=days)
 
-        full_workouts = utils.get_workouts_in_range(self.storage, athlete_id, start_date, end_date)
+        # Single table scan — derive both full workout metrics and projections from
+        # the same entity batch to avoid redundant partition queries.
+        entities = utils.collect_all_workout_entities(self.storage, athlete_id, start_date, end_date)
 
-        projections = utils.get_workout_projections_in_range(
-            self.storage,
-            athlete_id,
-            start_date,
-            end_date,
-            self._workout_service,
-        )
+        full_workouts = utils.build_workout_summaries_from_entities(self.storage, entities)
+        full_workouts.sort(key=lambda w: w.get("start_time_utc", ""), reverse=True)
+
+        projections = [
+            p
+            for entity in entities
+            if (p := self._workout_service.build_workout_projection(entity)) is not None
+        ]
+        projections.sort(key=lambda p: p.start_time_utc or "", reverse=True)
 
         last_hard_day = self._find_last_hard_day(full_workouts)
         last_long_day = self._find_last_long_day(full_workouts)
