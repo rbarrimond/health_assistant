@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 import logging
 import os
+import threading
+import uuid
 from typing import Any, Dict, Optional
 
 from TrainingAnalyticsPlatform.handlers.presync_core import (
@@ -17,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_RETRY_MAX_ATTEMPTS = 3
 DEFAULT_RETRY_BASE_DELAY_SEC = 1.0
+DEFAULT_PARALLEL_MAX_WORKERS = 8
 ENV_PLANNING_PRESYNC_GARMIN_ACTIVITIES_ENABLED = (
     "PLANNING_PRESYNC_GARMIN_ACTIVITIES_ENABLED"
 )
@@ -127,21 +132,12 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
         The caller always receives a non-raising result dictionary.
         """
         lookback_days = max(1, int(days))
-        source_results = []
-
-        for operation in self._build_operations(athlete_id, lookback_days):
-            result = self._execute_with_retry(operation)
-            source_results.append(result)
-            if result["status"] != "success":
-                logger.warning(
-                    "Planning context pre-sync source failed; continuing with remaining sources",
-                    extra={
-                        "source": result["source"],
-                        "athlete_id": athlete_id,
-                        "http_status": result.get("http_status"),
-                        "source_message": result.get("message"),
-                    },
-                )
+        operations = self._build_operations(athlete_id, lookback_days)
+        source_results = self._execute_operations_parallel(
+            operations=operations,
+            athlete_id=athlete_id,
+            lookback_days=lookback_days,
+        )
 
         succeeded = sum(1 for r in source_results if r["status"] == "success")
         total = len(source_results)
@@ -215,6 +211,107 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
             filtered_operations.append(operation)
 
         return filtered_operations
+
+    def _execute_operations_parallel(
+        self,
+        *,
+        operations: list[PreSyncOperation],
+        athlete_id: str,
+        lookback_days: int,
+    ) -> list[Dict[str, Any]]:
+        """Execute operations concurrently while preserving source order."""
+        if not operations:
+            return []
+
+        max_workers = min(len(operations), DEFAULT_PARALLEL_MAX_WORKERS)
+        presync_execution_id = str(uuid.uuid4())
+        results_by_index: dict[int, Dict[str, Any]] = {}
+
+        logger.info(
+            "Planning context pre-sync parallel execution started",
+            extra={
+                "athlete_id": athlete_id,
+                "lookback_days": lookback_days,
+                "source_count": len(operations),
+                "max_workers": max_workers,
+                "presync_execution_id": presync_execution_id,
+            },
+        )
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_meta = {
+                executor.submit(
+                    copy_context().run,
+                    self._execute_operation_worker,
+                    operation,
+                    athlete_id,
+                    lookback_days,
+                    presync_execution_id,
+                    index,
+                ): (index, operation.source)
+                for index, operation in enumerate(operations)
+            }
+
+            for future in as_completed(future_to_meta):
+                index, source = future_to_meta[future]
+                result = future.result()
+                results_by_index[index] = result
+                if result["status"] != "success":
+                    logger.warning(
+                        "Planning context pre-sync source failed; continuing with remaining sources",
+                        extra={
+                            "source": source,
+                            "athlete_id": athlete_id,
+                            "http_status": result.get("http_status"),
+                            "source_message": result.get("message"),
+                            "presync_execution_id": presync_execution_id,
+                            "operation_index": index,
+                        },
+                    )
+
+        return [results_by_index[index] for index in range(len(operations))]
+
+    def _execute_operation_worker(
+        self,
+        operation: PreSyncOperation,
+        athlete_id: str,
+        lookback_days: int,
+        presync_execution_id: str,
+        operation_index: int,
+    ) -> Dict[str, Any]:
+        """Execute one operation inside a worker thread with traceable logs."""
+        thread_name = threading.current_thread().name
+        thread_id = threading.get_ident()
+
+        logger.info(
+            "Planning context pre-sync worker started",
+            extra={
+                "source": operation.source,
+                "athlete_id": athlete_id,
+                "lookback_days": lookback_days,
+                "presync_execution_id": presync_execution_id,
+                "operation_index": operation_index,
+                "worker_thread_name": thread_name,
+                "worker_thread_id": thread_id,
+            },
+        )
+        result = self._execute_with_retry(operation)
+        logger.info(
+            "Planning context pre-sync worker completed",
+            extra={
+                "source": operation.source,
+                "athlete_id": athlete_id,
+                "lookback_days": lookback_days,
+                "status": result.get("status"),
+                "http_status": result.get("http_status"),
+                "duration_ms": result.get("duration_ms"),
+                "presync_execution_id": presync_execution_id,
+                "operation_index": operation_index,
+                "worker_thread_name": thread_name,
+                "worker_thread_id": thread_id,
+            },
+        )
+        return result
 
     def _run_intervals_sync(
         self, *, athlete_id: str, lookback_days: int

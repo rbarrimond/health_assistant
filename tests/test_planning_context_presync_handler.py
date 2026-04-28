@@ -2,6 +2,7 @@
 
 # pylint: disable=missing-function-docstring,missing-class-docstring,protected-access
 
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -9,6 +10,7 @@ import pytest
 from TrainingAnalyticsPlatform.handlers.planning_context_presync_handler import (
     PlanningContextPreSyncHandler,
 )
+from TrainingAnalyticsPlatform.platform.logging_setup import current_correlation_id
 
 
 def _make_handler(**overrides) -> PlanningContextPreSyncHandler:
@@ -76,6 +78,57 @@ class TestPlanningContextPreSyncHandlerAllSucceeded:
         assert garmin_result["list_calls_made"] == 1
         assert garmin_result["cache_hit_count"] == 22
         assert garmin_result["cache_miss_days"] == 0
+
+    def test_parallel_execution_preserves_source_order(self):
+        handler = _make_handler()
+
+        def delayed_response(source: str, delay_sec: float):
+            time.sleep(delay_sec)
+            return {"status": "ok", "message": source}, 200
+
+        handler._onedrive_service.handle.side_effect = lambda _: delayed_response("onedrive", 0.02)
+        handler._garmin_service.handle.side_effect = lambda _: delayed_response("garmin", 0.04)
+        handler._garmin_physiometrics_service.handle.side_effect = (
+            lambda *_: delayed_response("garmin_physiometrics", 0.01)
+        )
+        handler._withings_service.sync_metrics.side_effect = (
+            lambda *_: delayed_response("withings", 0.03)
+        )
+        handler._intervals_service.handle.side_effect = lambda **_: delayed_response("intervals", 0.005)
+
+        result = handler.run(athlete_id="rob", days=30)
+
+        assert [source["source"] for source in result["sources"]] == [
+            "onedrive_workouts",
+            "garmin_activities",
+            "garmin_physiometrics",
+            "withings_physiometrics",
+            "intervals_physiometrics",
+        ]
+
+    def test_parallel_workers_preserve_correlation_context(self):
+        handler = _make_handler()
+        expected_correlation_id = "corr-planning-123"
+        observed = []
+
+        def capture_and_succeed(*_args, **_kwargs):
+            observed.append(current_correlation_id.get())
+            return {"status": "ok", "message": "synced"}, 200
+
+        handler._onedrive_service.handle.side_effect = capture_and_succeed
+        handler._garmin_service.handle.side_effect = capture_and_succeed
+        handler._garmin_physiometrics_service.handle.side_effect = capture_and_succeed
+        handler._withings_service.sync_metrics.side_effect = capture_and_succeed
+        handler._intervals_service.handle.side_effect = capture_and_succeed
+
+        token = current_correlation_id.set(expected_correlation_id)
+        try:
+            result = handler.run(athlete_id="rob", days=30)
+        finally:
+            current_correlation_id.reset(token)
+
+        assert result["status"] == "all_succeeded"
+        assert observed == [expected_correlation_id] * 5
 
 
 class TestPlanningContextPreSyncHandlerPartialSuccess:

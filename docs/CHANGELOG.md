@@ -14,6 +14,8 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 - **Why this is a PATCH bump**: this release extends pre-sync dependency hydration coverage using an already-supported backend integration without changing response schema shape or persisted storage semantics.
 - **Changed (planning context pre-sync)**: `PlanningContextPreSyncHandler` now includes `withings_physiometrics` in the best-available source execution list for `GET /api/planning/context` hydration.
+- **Changed (planning context execution model)**: planning-context pre-sync source operations now execute in parallel worker threads with deterministic source-order result assembly.
+- **Changed (observability/correlation)**: planning-context worker execution now propagates logging context into threads and emits per-worker trace metadata (`presync_execution_id`, source index, worker thread identity) for Azure log traceability.
 - **Changed (weekly rollup pre-sync)**: `WeeklyRollupPreSyncHandler` now includes `withings_physiometrics` in the fail-fast source execution list before weekly rollup computation.
 - **Changed (deferred retry execution)**: deferred retry source registry now includes `withings_physiometrics` so deferred pre-sync retries can re-execute Withings hydration when applicable.
 - **Added (tests)**: planning-context and weekly-rollup pre-sync unit tests now cover Withings source participation and failure behavior.
