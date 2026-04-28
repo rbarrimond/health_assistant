@@ -41,6 +41,7 @@ def build_presync_operations(
     onedrive_service: Any,
     garmin_service: Any,
     garmin_physiometrics_service: Any,
+    withings_service: Any,
     intervals_execute: Callable[[], PreSyncResponse],
 ) -> list[PreSyncOperation]:
     """Build ordered source sync operations for a given athlete and window."""
@@ -83,6 +84,15 @@ def build_presync_operations(
                 athlete_id,
                 lookback_days,
                 force=False,
+            ),
+        ),
+        PreSyncOperation(
+            source="withings_physiometrics",
+            athlete_id=athlete_id,
+            lookback_days=lookback_days,
+            execute=lambda: withings_service.sync_metrics(
+                athlete_id,
+                lookback_days,
             ),
         ),
         PreSyncOperation(

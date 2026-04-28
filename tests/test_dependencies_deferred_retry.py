@@ -61,17 +61,18 @@ class TestPreSyncServicesWithDeferredRetryDisabled:
         with _patch_dep("onedrive_service", MagicMock()):
             with _patch_dep("garmin_service", MagicMock()):
                 with _patch_dep("garmin_physiometrics_service", MagicMock()):
-                    with _patch_dep("intervals_service", MagicMock()):
-                        with patch.object(
-                            FunctionAppDependencies,
-                            "deferred_retry_queue",
-                            new=PropertyMock(side_effect=AssertionError("queue should not be accessed")),
-                        ):
-                            with patch(
-                                "TrainingAnalyticsPlatform.platform.dependencies.PlanningContextPreSyncHandler.from_env",
-                                return_value=sentinel_handler,
-                            ) as from_env_mock:
-                                handler = dependencies.planning_context_pre_sync_service
+                    with _patch_dep("withings_service", MagicMock()):
+                        with _patch_dep("intervals_service", MagicMock()):
+                            with patch.object(
+                                FunctionAppDependencies,
+                                "deferred_retry_queue",
+                                new=PropertyMock(side_effect=AssertionError("queue should not be accessed")),
+                            ):
+                                with patch(
+                                    "TrainingAnalyticsPlatform.platform.dependencies.PlanningContextPreSyncHandler.from_env",
+                                    return_value=sentinel_handler,
+                                ) as from_env_mock:
+                                    handler = dependencies.planning_context_pre_sync_service
 
         assert handler is sentinel_handler
         assert from_env_mock.call_args.kwargs["deferred_retry_coordinator"] is None

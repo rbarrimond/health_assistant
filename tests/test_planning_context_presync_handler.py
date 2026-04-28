@@ -16,6 +16,7 @@ def _make_handler(**overrides) -> PlanningContextPreSyncHandler:
         "onedrive_service": MagicMock(),
         "garmin_service": MagicMock(),
         "garmin_physiometrics_service": MagicMock(),
+        "withings_service": MagicMock(),
         "intervals_service": MagicMock(),
         "intervals_athlete_id": "athlete123",
         "planning_presync_garmin_activities_enabled": True,
@@ -35,13 +36,14 @@ class TestPlanningContextPreSyncHandlerAllSucceeded:
         handler._onedrive_service.handle.return_value = success_response
         handler._garmin_service.handle.return_value = success_response
         handler._garmin_physiometrics_service.handle.return_value = success_response
+        handler._withings_service.sync_metrics.return_value = success_response
         handler._intervals_service.handle.return_value = success_response
 
         result = handler.run(athlete_id="rob", days=30)
 
         assert result["status"] == "all_succeeded"
         assert result["lookback_days"] == 30
-        assert len(result["sources"]) == 4
+        assert len(result["sources"]) == 5
         assert all(s["status"] == "success" for s in result["sources"])
 
     def test_garmin_source_result_includes_cache_execution_metadata(self):
@@ -62,6 +64,7 @@ class TestPlanningContextPreSyncHandlerAllSucceeded:
         handler._onedrive_service.handle.return_value = onedrive_response
         handler._garmin_service.handle.return_value = garmin_response
         handler._garmin_physiometrics_service.handle.return_value = onedrive_response
+        handler._withings_service.sync_metrics.return_value = onedrive_response
         handler._intervals_service.handle.return_value = onedrive_response
 
         result = handler.run(athlete_id="rob", days=30)
@@ -85,15 +88,40 @@ class TestPlanningContextPreSyncHandlerPartialSuccess:
         handler._onedrive_service.handle.return_value = success_response
         handler._garmin_service.handle.return_value = fail_response
         handler._garmin_physiometrics_service.handle.return_value = success_response
+        handler._withings_service.sync_metrics.return_value = success_response
         handler._intervals_service.handle.return_value = success_response
 
         result = handler.run(athlete_id="rob", days=45)
 
         assert result["status"] == "partial"
-        assert len(result["sources"]) == 4
+        assert len(result["sources"]) == 5
         failed = [s for s in result["sources"] if s["status"] == "failed"]
         assert len(failed) == 1
         assert failed[0]["source"] == "garmin_activities"
+
+    def test_withings_not_connected_continues_others(self):
+        handler = _make_handler()
+
+        success_response = ({"status": "ok", "message": "synced"}, 200)
+        withings_not_connected = (
+            {"error": "Withings account is not connected for this athlete"},
+            404,
+        )
+
+        handler._onedrive_service.handle.return_value = success_response
+        handler._garmin_service.handle.return_value = success_response
+        handler._garmin_physiometrics_service.handle.return_value = success_response
+        handler._withings_service.sync_metrics.return_value = withings_not_connected
+        handler._intervals_service.handle.return_value = success_response
+
+        result = handler.run(athlete_id="rob", days=45)
+
+        assert result["status"] == "partial"
+        failed = next(
+            source for source in result["sources"] if source["source"] == "withings_physiometrics"
+        )
+        assert failed["status"] == "failed"
+        assert failed["http_status"] == 404
 
     def test_rate_limited_source_includes_retry_after(self):
         handler = _make_handler()
@@ -108,6 +136,7 @@ class TestPlanningContextPreSyncHandlerPartialSuccess:
         handler._onedrive_service.handle.return_value = success_response
         handler._garmin_service.handle.return_value = fail_response
         handler._garmin_physiometrics_service.handle.return_value = success_response
+        handler._withings_service.sync_metrics.return_value = success_response
         handler._intervals_service.handle.return_value = success_response
 
         result = handler.run(athlete_id="rob", days=45)
@@ -164,6 +193,7 @@ class TestPlanningContextPreSyncHandlerPartialSuccess:
         handler._onedrive_service.handle.return_value = success_response
         handler._garmin_service.handle.return_value = success_response
         handler._garmin_physiometrics_service.handle.return_value = garmin_physio_fail_response
+        handler._withings_service.sync_metrics.return_value = success_response
         handler._intervals_service.handle.return_value = success_response
 
         result = handler.run(athlete_id="rob", days=45)
@@ -186,6 +216,7 @@ class TestPlanningContextPreSyncHandlerAllFailed:
         handler._onedrive_service.handle.return_value = fail_response
         handler._garmin_service.handle.return_value = fail_response
         handler._garmin_physiometrics_service.handle.return_value = fail_response
+        handler._withings_service.sync_metrics.return_value = fail_response
         handler._intervals_service.handle.return_value = fail_response
 
         result = handler.run(athlete_id="rob", days=14)
@@ -203,14 +234,16 @@ class TestPlanningContextPreSyncHandlerGarminSourcesDisabled:
 
         success_response = ({"status": "ok", "message": "synced"}, 200)
         handler._onedrive_service.handle.return_value = success_response
+        handler._withings_service.sync_metrics.return_value = success_response
         handler._intervals_service.handle.return_value = success_response
 
         result = handler.run(athlete_id="rob", days=21)
 
         assert result["status"] == "all_succeeded"
-        assert len(result["sources"]) == 2
+        assert len(result["sources"]) == 3
         assert {source["source"] for source in result["sources"]} == {
             "onedrive_workouts",
+            "withings_physiometrics",
             "intervals_physiometrics",
         }
         handler._garmin_service.handle.assert_not_called()
@@ -225,6 +258,7 @@ class TestPlanningContextPreSyncHandlerIntervalsMissing:
         handler._onedrive_service.handle.return_value = success_response
         handler._garmin_service.handle.return_value = success_response
         handler._garmin_physiometrics_service.handle.return_value = success_response
+        handler._withings_service.sync_metrics.return_value = success_response
 
         result = handler.run(athlete_id="rob", days=30)
 
@@ -249,6 +283,7 @@ class TestPlanningContextPreSyncHandlerFromEnv:
             onedrive_service=MagicMock(),
             garmin_service=MagicMock(),
             garmin_physiometrics_service=MagicMock(),
+            withings_service=MagicMock(),
             intervals_service=MagicMock(),
         )
 
@@ -266,6 +301,7 @@ class TestPlanningContextPreSyncHandlerFromEnv:
             onedrive_service=MagicMock(),
             garmin_service=MagicMock(),
             garmin_physiometrics_service=MagicMock(),
+            withings_service=MagicMock(),
             intervals_service=MagicMock(),
         )
 

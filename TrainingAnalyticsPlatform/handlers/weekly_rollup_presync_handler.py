@@ -29,6 +29,7 @@ class WeeklyRollupPreSyncHandler(PreSyncExecutionMixin):
         onedrive_service: Any,
         garmin_service: Any,
         garmin_physiometrics_service: Any,
+        withings_service: Any,
         intervals_service: Any,
         intervals_athlete_id: Optional[str],
         deferred_retry_coordinator: Optional[Any] = None,
@@ -39,6 +40,7 @@ class WeeklyRollupPreSyncHandler(PreSyncExecutionMixin):
         self._onedrive_service = onedrive_service
         self._garmin_service = garmin_service
         self._garmin_physiometrics_service = garmin_physiometrics_service
+        self._withings_service = withings_service
         self._intervals_service = intervals_service
         self._intervals_athlete_id = intervals_athlete_id
         self._deferred_retry_coordinator = deferred_retry_coordinator
@@ -53,6 +55,7 @@ class WeeklyRollupPreSyncHandler(PreSyncExecutionMixin):
         onedrive_service: Any,
         garmin_service: Any,
         garmin_physiometrics_service: Any,
+        withings_service: Any,
         intervals_service: Any,
         deferred_retry_coordinator: Optional[Any] = None,
     ) -> "WeeklyRollupPreSyncHandler":
@@ -61,6 +64,7 @@ class WeeklyRollupPreSyncHandler(PreSyncExecutionMixin):
             onedrive_service=onedrive_service,
             garmin_service=garmin_service,
             garmin_physiometrics_service=garmin_physiometrics_service,
+            withings_service=withings_service,
             intervals_service=intervals_service,
             intervals_athlete_id=os.getenv("INTERVALS_ATHLETE_ID"),
             deferred_retry_coordinator=deferred_retry_coordinator,
@@ -124,6 +128,7 @@ class WeeklyRollupPreSyncHandler(PreSyncExecutionMixin):
             onedrive_service=self._onedrive_service,
             garmin_service=self._garmin_service,
             garmin_physiometrics_service=self._garmin_physiometrics_service,
+            withings_service=self._withings_service,
             intervals_execute=lambda: run_intervals_sync(
                 intervals_service=self._intervals_service,
                 intervals_athlete_id=self._intervals_athlete_id,

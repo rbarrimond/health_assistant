@@ -8,6 +8,16 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-04-28
+
+### Withings Added to Pre-Sync Hydration Source List [application v3.16.1]
+
+- **Why this is a PATCH bump**: this release extends pre-sync dependency hydration coverage using an already-supported backend integration without changing response schema shape or persisted storage semantics.
+- **Changed (planning context pre-sync)**: `PlanningContextPreSyncHandler` now includes `withings_physiometrics` in the best-available source execution list for `GET /api/planning/context` hydration.
+- **Changed (weekly rollup pre-sync)**: `WeeklyRollupPreSyncHandler` now includes `withings_physiometrics` in the fail-fast source execution list before weekly rollup computation.
+- **Changed (deferred retry execution)**: deferred retry source registry now includes `withings_physiometrics` so deferred pre-sync retries can re-execute Withings hydration when applicable.
+- **Added (tests)**: planning-context and weekly-rollup pre-sync unit tests now cover Withings source participation and failure behavior.
+
 ## 2026-04-27
 
 ### Physiometrics Multi-Source Consolidation and Wellness Handler Extraction [application v3.16.0, semantic API v8.2.0]

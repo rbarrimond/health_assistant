@@ -13,6 +13,7 @@ class TestWeeklyRollupPreSyncHandler:
             onedrive_service=MagicMock(),
             garmin_service=MagicMock(),
             garmin_physiometrics_service=MagicMock(),
+            withings_service=MagicMock(),
             intervals_service=MagicMock(),
             intervals_athlete_id="i508584",
         )
@@ -42,6 +43,9 @@ class TestWeeklyRollupPreSyncHandler:
         garmin_physiometrics = MagicMock()
         garmin_physiometrics.handle.return_value = ({"message": "ok"}, 200)
 
+        withings = MagicMock()
+        withings.sync_metrics.return_value = ({"message": "ok"}, 200)
+
         intervals = MagicMock()
         intervals.handle.return_value = ({"message": "ok"}, 200)
 
@@ -49,6 +53,7 @@ class TestWeeklyRollupPreSyncHandler:
             onedrive_service=onedrive,
             garmin_service=garmin,
             garmin_physiometrics_service=garmin_physiometrics,
+            withings_service=withings,
             intervals_service=intervals,
             intervals_athlete_id="i508584",
             lookback_days=8,
@@ -57,7 +62,7 @@ class TestWeeklyRollupPreSyncHandler:
         result = handler.run("rob", enabled=True)
 
         assert result["status"] == "success"
-        assert len(result["sources"]) == 4
+        assert len(result["sources"]) == 5
         assert intervals.handle.call_args.kwargs["lookback_days"] == 8
         garmin_result = next(
             source for source in result["sources"] if source["source"] == "garmin_activities"
@@ -77,6 +82,9 @@ class TestWeeklyRollupPreSyncHandler:
         garmin_physiometrics = MagicMock()
         garmin_physiometrics.handle.return_value = ({"message": "ok"}, 200)
 
+        withings = MagicMock()
+        withings.sync_metrics.return_value = ({"message": "ok"}, 200)
+
         intervals = MagicMock()
         intervals.handle.return_value = ({"message": "ok"}, 200)
 
@@ -84,6 +92,7 @@ class TestWeeklyRollupPreSyncHandler:
             onedrive_service=onedrive,
             garmin_service=garmin,
             garmin_physiometrics_service=garmin_physiometrics,
+            withings_service=withings,
             intervals_service=intervals,
             intervals_athlete_id="i508584",
             retry_max_attempts=1,
@@ -94,6 +103,40 @@ class TestWeeklyRollupPreSyncHandler:
         assert result["status"] == "failed"
         assert len(result["sources"]) == 2
         garmin_physiometrics.handle.assert_not_called()
+        withings.sync_metrics.assert_not_called()
+        intervals.handle.assert_not_called()
+
+    def test_fail_fast_stops_when_withings_fails(self):
+        onedrive = MagicMock()
+        onedrive.handle.return_value = ({"message": "ok"}, 200)
+
+        garmin = MagicMock()
+        garmin.handle.return_value = ({"message": "ok"}, 200)
+
+        garmin_physiometrics = MagicMock()
+        garmin_physiometrics.handle.return_value = ({"message": "ok"}, 200)
+
+        withings = MagicMock()
+        withings.sync_metrics.return_value = ({"error": "not connected"}, 404)
+
+        intervals = MagicMock()
+        intervals.handle.return_value = ({"message": "ok"}, 200)
+
+        handler = WeeklyRollupPreSyncHandler(
+            onedrive_service=onedrive,
+            garmin_service=garmin,
+            garmin_physiometrics_service=garmin_physiometrics,
+            withings_service=withings,
+            intervals_service=intervals,
+            intervals_athlete_id="i508584",
+            retry_max_attempts=1,
+        )
+
+        result = handler.run("rob", enabled=True)
+
+        assert result["status"] == "failed"
+        assert len(result["sources"]) == 4
+        assert result["sources"][-1]["source"] == "withings_physiometrics"
         intervals.handle.assert_not_called()
 
     def test_retryable_status_retries_then_succeeds(self):
@@ -109,6 +152,9 @@ class TestWeeklyRollupPreSyncHandler:
         garmin_physiometrics = MagicMock()
         garmin_physiometrics.handle.return_value = ({"message": "ok"}, 200)
 
+        withings = MagicMock()
+        withings.sync_metrics.return_value = ({"message": "ok"}, 200)
+
         intervals = MagicMock()
         intervals.handle.return_value = ({"message": "ok"}, 200)
 
@@ -116,6 +162,7 @@ class TestWeeklyRollupPreSyncHandler:
             onedrive_service=onedrive,
             garmin_service=garmin,
             garmin_physiometrics_service=garmin_physiometrics,
+            withings_service=withings,
             intervals_service=intervals,
             intervals_athlete_id="i508584",
             retry_max_attempts=2,
@@ -140,6 +187,7 @@ class TestWeeklyRollupPreSyncHandler:
             onedrive_service=onedrive,
             garmin_service=MagicMock(),
             garmin_physiometrics_service=MagicMock(),
+            withings_service=MagicMock(),
             intervals_service=MagicMock(),
             intervals_athlete_id="i508584",
             retry_max_attempts=1,
@@ -161,12 +209,16 @@ class TestWeeklyRollupPreSyncHandler:
         garmin_physiometrics = MagicMock()
         garmin_physiometrics.handle.return_value = ({"message": "ok"}, 200)
 
+        withings = MagicMock()
+        withings.sync_metrics.return_value = ({"message": "ok"}, 200)
+
         intervals = MagicMock()
 
         handler = WeeklyRollupPreSyncHandler(
             onedrive_service=onedrive,
             garmin_service=garmin,
             garmin_physiometrics_service=garmin_physiometrics,
+            withings_service=withings,
             intervals_service=intervals,
             intervals_athlete_id=None,
             retry_max_attempts=1,
@@ -197,6 +249,7 @@ class TestWeeklyRollupPreSyncHandler:
             onedrive_service=onedrive,
             garmin_service=MagicMock(),
             garmin_physiometrics_service=MagicMock(),
+            withings_service=MagicMock(),
             intervals_service=MagicMock(),
             intervals_athlete_id="i508584",
             retry_max_attempts=3,
@@ -221,6 +274,9 @@ class TestWeeklyRollupPreSyncHandler:
         garmin_physiometrics = MagicMock()
         garmin_physiometrics.handle.return_value = ({"message": "ok"}, 200)
 
+        withings = MagicMock()
+        withings.sync_metrics.return_value = ({"message": "ok"}, 200)
+
         intervals = MagicMock()
         intervals.handle.return_value = (
             {"error": "Rate limited", "retry_after": "7200"},
@@ -240,6 +296,7 @@ class TestWeeklyRollupPreSyncHandler:
             onedrive_service=onedrive,
             garmin_service=garmin,
             garmin_physiometrics_service=garmin_physiometrics,
+            withings_service=withings,
             intervals_service=intervals,
             intervals_athlete_id="i508584",
             retry_max_attempts=3,
@@ -263,6 +320,7 @@ class TestWeeklyRollupPreSyncHandler:
             onedrive_service=MagicMock(),
             garmin_service=MagicMock(),
             garmin_physiometrics_service=MagicMock(),
+            withings_service=MagicMock(),
             intervals_service=MagicMock(),
             intervals_athlete_id="i508584",
             retry_max_attempts=2,

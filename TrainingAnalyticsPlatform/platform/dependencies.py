@@ -309,6 +309,10 @@ class FunctionAppDependencies:
                     lookback_days,
                     force=False,
                 ),
+                "withings_physiometrics": lambda athlete_id, lookback_days: self.withings_service.sync_metrics(
+                    athlete_id,
+                    lookback_days,
+                ),
                 "intervals_physiometrics": self._execute_intervals_physiometrics_retry,
             }
         )
@@ -374,6 +378,7 @@ class FunctionAppDependencies:
             onedrive_service=self.onedrive_service,
             garmin_service=self.garmin_service,
             garmin_physiometrics_service=self.garmin_physiometrics_service,
+            withings_service=self.withings_service,
             intervals_service=self.intervals_service,
             deferred_retry_coordinator=self.deferred_retry_coordinator,
         )
@@ -387,6 +392,7 @@ class FunctionAppDependencies:
             onedrive_service=self.onedrive_service,
             garmin_service=self.garmin_service,
             garmin_physiometrics_service=self.garmin_physiometrics_service,
+            withings_service=self.withings_service,
             intervals_service=self.intervals_service,
             deferred_retry_coordinator=self.deferred_retry_coordinator,
         )
