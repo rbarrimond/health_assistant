@@ -23,6 +23,7 @@ def _make_handler(**overrides) -> PlanningContextPreSyncHandler:
         "intervals_athlete_id": "athlete123",
         "planning_presync_garmin_activities_enabled": True,
         "planning_presync_garmin_physiometrics_enabled": True,
+        "planning_presync_freshness_ttl_sec": 3600,
         "retry_max_attempts": 1,
         "retry_base_delay_sec": 0.01,
     }
@@ -261,6 +262,56 @@ class TestPlanningContextPreSyncHandlerPartialSuccess:
         assert failed["deferred_operation_id"] == "op-garmin-physio"
 
 
+class TestPlanningContextPreSyncHandlerFreshness:
+    def test_repeated_call_skips_fresh_sources_when_not_forced(self):
+        handler = _make_handler(planning_presync_freshness_ttl_sec=3600)
+
+        success_response = ({"status": "ok", "message": "synced"}, 200)
+        handler._onedrive_service.handle.return_value = success_response
+        handler._garmin_service.handle.return_value = success_response
+        handler._garmin_physiometrics_service.handle.return_value = success_response
+        handler._withings_service.sync_metrics.return_value = success_response
+        handler._intervals_service.handle.return_value = success_response
+
+        first = handler.run(athlete_id="rob", days=30)
+        second = handler.run(athlete_id="rob", days=30)
+
+        assert first["status"] == "all_succeeded"
+        assert second["status"] == "all_succeeded"
+        assert all(source["status"] == "skipped" for source in second["sources"])
+        assert {
+            source.get("reason") for source in second["sources"]
+        } == {"fresh_within_ttl"}
+
+        handler._onedrive_service.handle.assert_called_once()
+        handler._garmin_service.handle.assert_called_once()
+        handler._garmin_physiometrics_service.handle.assert_called_once()
+        handler._withings_service.sync_metrics.assert_called_once()
+        handler._intervals_service.handle.assert_called_once()
+
+    def test_force_true_bypasses_freshness_skip(self):
+        handler = _make_handler(planning_presync_freshness_ttl_sec=3600)
+
+        success_response = ({"status": "ok", "message": "synced"}, 200)
+        handler._onedrive_service.handle.return_value = success_response
+        handler._garmin_service.handle.return_value = success_response
+        handler._garmin_physiometrics_service.handle.return_value = success_response
+        handler._withings_service.sync_metrics.return_value = success_response
+        handler._intervals_service.handle.return_value = success_response
+
+        handler.run(athlete_id="rob", days=30)
+        forced = handler.run(athlete_id="rob", days=30, force=True)
+
+        assert forced["status"] == "all_succeeded"
+        assert all(source["status"] == "success" for source in forced["sources"])
+
+        assert handler._onedrive_service.handle.call_count == 2
+        assert handler._garmin_service.handle.call_count == 2
+        assert handler._garmin_physiometrics_service.handle.call_count == 2
+        assert handler._withings_service.sync_metrics.call_count == 2
+        assert handler._intervals_service.handle.call_count == 2
+
+
 class TestPlanningContextPreSyncHandlerAllFailed:
     def test_all_sources_fail_returns_failed(self):
         handler = _make_handler()
@@ -328,6 +379,7 @@ class TestPlanningContextPreSyncHandlerFromEnv:
     def test_from_env_reads_retry_settings(self, monkeypatch):
         monkeypatch.setenv("PLANNING_PRESYNC_RETRY_MAX_ATTEMPTS", "5")
         monkeypatch.setenv("PLANNING_PRESYNC_RETRY_BASE_DELAY_SEC", "2.0")
+        monkeypatch.setenv("PLANNING_PRESYNC_FRESHNESS_TTL_SEC", "900")
         monkeypatch.setenv("PLANNING_PRESYNC_GARMIN_ACTIVITIES_ENABLED", "true")
         monkeypatch.setenv("PLANNING_PRESYNC_GARMIN_PHYSIOMETRICS_ENABLED", "yes")
         monkeypatch.setenv("INTERVALS_ATHLETE_ID", "envathlete")
@@ -342,6 +394,7 @@ class TestPlanningContextPreSyncHandlerFromEnv:
 
         assert handler._retry_max_attempts == 5
         assert handler._retry_base_delay_sec == pytest.approx(2.0)
+        assert handler._planning_presync_freshness_ttl_sec == 900
         assert handler._intervals_athlete_id == "envathlete"
         assert handler._planning_presync_garmin_activities_enabled is True
         assert handler._planning_presync_garmin_physiometrics_enabled is True

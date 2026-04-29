@@ -530,7 +530,45 @@ class TestPlanningContextEndpoint:
             response = function_app.planning_context(req)
 
         assert response.status_code == 200
-        mock_presync.run.assert_called_once_with(athlete_id="rob", days=30)
+        mock_presync.run.assert_called_once_with(
+            athlete_id="rob",
+            days=30,
+            force=False,
+        )
+        mock_handler.query_planning_context.assert_called_once_with("rob", 30)
+
+    def test_planning_context_endpoint_forwards_force_true(self):
+        req = MagicMock(spec=func.HttpRequest)
+        req.params = {"athlete_id": "rob", "days": "30", "force": "true"}
+
+        mock_presync = MagicMock()
+        mock_presync.run.return_value = {
+            "lookback_days": 30,
+            "status": "all_succeeded",
+            "message": "Planning context pre-sync completed successfully",
+            "sources": [],
+        }
+
+        with _patch_dependency("planning_context_pre_sync_service", mock_presync), \
+             _patch_dependency("planning_service", MagicMock()), \
+             _patch_dependency("workout_service", MagicMock()), \
+             _patch_dependency("rollup_service", MagicMock()), \
+             _patch_dependency("analysis_service", MagicMock()), \
+             patch("function_app.QueryHandler") as handler_cls:
+            mock_handler = MagicMock()
+            mock_handler.query_planning_context.return_value = (
+                {"athlete_id": "rob"},
+                200,
+            )
+            handler_cls.return_value = mock_handler
+            response = function_app.planning_context(req)
+
+        assert response.status_code == 200
+        mock_presync.run.assert_called_once_with(
+            athlete_id="rob",
+            days=30,
+            force=True,
+        )
         mock_handler.query_planning_context.assert_called_once_with("rob", 30)
 
     def test_planning_context_endpoint_continues_on_presync_failure(self):
@@ -570,7 +608,11 @@ class TestPlanningContextEndpoint:
 
         # Endpoint must return 200 regardless of pre-sync failure (best-available)
         assert response.status_code == 200
-        mock_presync.run.assert_called_once_with(athlete_id="rob", days=45)
+        mock_presync.run.assert_called_once_with(
+            athlete_id="rob",
+            days=45,
+            force=False,
+        )
         mock_handler.query_planning_context.assert_called_once_with("rob", 45)
 
 

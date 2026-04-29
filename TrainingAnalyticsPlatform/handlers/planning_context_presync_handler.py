@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import copy_context
+from datetime import datetime, timedelta, timezone
 import logging
 import os
 import threading
@@ -22,12 +23,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_RETRY_MAX_ATTEMPTS = 3
 DEFAULT_RETRY_BASE_DELAY_SEC = 1.0
 DEFAULT_PARALLEL_MAX_WORKERS = 8
+DEFAULT_FRESHNESS_TTL_SEC = 3600
 ENV_PLANNING_PRESYNC_GARMIN_ACTIVITIES_ENABLED = (
     "PLANNING_PRESYNC_GARMIN_ACTIVITIES_ENABLED"
 )
 ENV_PLANNING_PRESYNC_GARMIN_PHYSIOMETRICS_ENABLED = (
     "PLANNING_PRESYNC_GARMIN_PHYSIOMETRICS_ENABLED"
 )
+ENV_PLANNING_PRESYNC_FRESHNESS_TTL_SEC = "PLANNING_PRESYNC_FRESHNESS_TTL_SEC"
 
 
 class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
@@ -35,11 +38,11 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
 
     Unlike the fail-fast ``WeeklyRollupPreSyncHandler``, this handler uses
     best-available tolerance: every source is attempted regardless of prior
-    source failures.  Partial success is surfaced in the result rather than
+    source failures. Partial success is surfaced in the result rather than
     causing the read to abort.
 
     The lookback window (``days``) is supplied at call time so it matches the
-    planning context request parameter — it is not fixed at construction.
+    planning context request parameter - it is not fixed at construction.
     """
 
     def __init__(
@@ -56,6 +59,7 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
         deferred_retry_coordinator: Optional[Any] = None,
         retry_max_attempts: int = DEFAULT_RETRY_MAX_ATTEMPTS,
         retry_base_delay_sec: float = DEFAULT_RETRY_BASE_DELAY_SEC,
+        planning_presync_freshness_ttl_sec: int = DEFAULT_FRESHNESS_TTL_SEC,
     ) -> None:
         self._onedrive_service = onedrive_service
         self._garmin_service = garmin_service
@@ -72,6 +76,11 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
         self._deferred_retry_coordinator = deferred_retry_coordinator
         self._retry_max_attempts = max(1, int(retry_max_attempts))
         self._retry_base_delay_sec = max(0.1, float(retry_base_delay_sec))
+        self._planning_presync_freshness_ttl_sec = max(
+            0, int(planning_presync_freshness_ttl_sec)
+        )
+        self._freshness_lock = threading.Lock()
+        self._freshness_registry: dict[tuple[str, int, str], datetime] = {}
 
     @staticmethod
     def _parse_bool_env(value: str) -> bool:
@@ -122,9 +131,15 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
                     str(DEFAULT_RETRY_BASE_DELAY_SEC),
                 )
             ),
+            planning_presync_freshness_ttl_sec=int(
+                os.getenv(
+                    ENV_PLANNING_PRESYNC_FRESHNESS_TTL_SEC,
+                    str(DEFAULT_FRESHNESS_TTL_SEC),
+                )
+            ),
         )
 
-    def run(self, athlete_id: str, *, days: int) -> Dict[str, Any]:
+    def run(self, athlete_id: str, *, days: int, force: bool = False) -> Dict[str, Any]:
         """Run all dependency syncs with best-available tolerance.
 
         All sources are attempted; individual failures produce a warning log
@@ -133,19 +148,64 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
         """
         lookback_days = max(1, int(days))
         operations = self._build_operations(athlete_id, lookback_days)
-        source_results = self._execute_operations_parallel(
-            operations=operations,
-            athlete_id=athlete_id,
-            lookback_days=lookback_days,
-        )
+        presync_execution_id = str(uuid.uuid4())
+        results_by_index: dict[int, Dict[str, Any]] = {}
+        runnable_operations: list[tuple[int, PreSyncOperation]] = []
 
-        succeeded = sum(1 for r in source_results if r["status"] == "success")
+        for index, operation in enumerate(operations):
+            if not force:
+                should_skip, last_success_at = self._is_source_fresh(
+                    athlete_id=athlete_id,
+                    lookback_days=lookback_days,
+                    source=operation.source,
+                )
+                if should_skip and last_success_at is not None:
+                    logger.info(
+                        "Planning context pre-sync source skipped due to freshness window",
+                        extra={
+                            "source": operation.source,
+                            "athlete_id": athlete_id,
+                            "lookback_days": lookback_days,
+                            "reason": "fresh_within_ttl",
+                            "last_success_at_utc": last_success_at.isoformat(),
+                            "freshness_ttl_sec": self._planning_presync_freshness_ttl_sec,
+                            "force": force,
+                            "presync_execution_id": presync_execution_id,
+                            "operation_index": index,
+                        },
+                    )
+                    results_by_index[index] = {
+                        "source": operation.source,
+                        "status": "skipped",
+                        "http_status": 200,
+                        "message": "Skipped: source is fresh within TTL window",
+                        "reason": "fresh_within_ttl",
+                        "freshness_ttl_sec": self._planning_presync_freshness_ttl_sec,
+                        "last_success_at_utc": last_success_at.isoformat(),
+                        "duration_ms": 0,
+                        "attempts": 0,
+                    }
+                    continue
+
+            runnable_operations.append((index, operation))
+
+        results_by_index.update(
+            self._execute_operations_parallel(
+                operations=runnable_operations,
+                athlete_id=athlete_id,
+                lookback_days=lookback_days,
+                presync_execution_id=presync_execution_id,
+            )
+        )
+        source_results = [results_by_index[index] for index in range(len(operations))]
+
+        failed = sum(1 for r in source_results if r["status"] == "failed")
         total = len(source_results)
 
-        if succeeded == total:
+        if failed == 0:
             status = "all_succeeded"
             message = "Planning context pre-sync completed successfully"
-        elif succeeded > 0:
+        elif failed < total:
             status = "partial"
             message = "Planning context pre-sync completed with partial failures"
         else:
@@ -215,16 +275,16 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
     def _execute_operations_parallel(
         self,
         *,
-        operations: list[PreSyncOperation],
+        operations: list[tuple[int, PreSyncOperation]],
         athlete_id: str,
         lookback_days: int,
-    ) -> list[Dict[str, Any]]:
+        presync_execution_id: str,
+    ) -> dict[int, Dict[str, Any]]:
         """Execute operations concurrently while preserving source order."""
         if not operations:
-            return []
+            return {}
 
         max_workers = min(len(operations), DEFAULT_PARALLEL_MAX_WORKERS)
-        presync_execution_id = str(uuid.uuid4())
         results_by_index: dict[int, Dict[str, Any]] = {}
 
         logger.info(
@@ -247,15 +307,23 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
                     athlete_id,
                     lookback_days,
                     presync_execution_id,
-                    index,
-                ): (index, operation.source)
-                for index, operation in enumerate(operations)
+                    original_index,
+                ): (original_index, operation.source)
+                for original_index, operation in operations
             }
 
             for future in as_completed(future_to_meta):
-                index, source = future_to_meta[future]
+                original_index, source = future_to_meta[future]
                 result = future.result()
-                results_by_index[index] = result
+                results_by_index[original_index] = result
+
+                if result["status"] == "success":
+                    self._record_source_success(
+                        athlete_id=athlete_id,
+                        lookback_days=lookback_days,
+                        source=source,
+                    )
+
                 if result["status"] != "success":
                     logger.warning(
                         "Planning context pre-sync source failed; continuing with remaining sources",
@@ -265,11 +333,11 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
                             "http_status": result.get("http_status"),
                             "source_message": result.get("message"),
                             "presync_execution_id": presync_execution_id,
-                            "operation_index": index,
+                            "operation_index": original_index,
                         },
                     )
 
-        return [results_by_index[index] for index in range(len(operations))]
+        return results_by_index
 
     def _execute_operation_worker(
         self,
@@ -312,6 +380,45 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
             },
         )
         return result
+
+    def _is_source_fresh(
+        self,
+        *,
+        athlete_id: str,
+        lookback_days: int,
+        source: str,
+    ) -> tuple[bool, Optional[datetime]]:
+        """Return whether the source succeeded recently enough to skip execution."""
+        if self._planning_presync_freshness_ttl_sec <= 0:
+            return False, None
+
+        freshness_key = (athlete_id, lookback_days, source)
+        with self._freshness_lock:
+            last_success_at = self._freshness_registry.get(freshness_key)
+
+        if last_success_at is None:
+            return False, None
+
+        now_utc = datetime.now(timezone.utc)
+        is_fresh = (now_utc - last_success_at) < timedelta(
+            seconds=self._planning_presync_freshness_ttl_sec
+        )
+        return is_fresh, last_success_at
+
+    def _record_source_success(
+        self,
+        *,
+        athlete_id: str,
+        lookback_days: int,
+        source: str,
+    ) -> None:
+        """Record successful source execution timestamp for freshness gating."""
+        if self._planning_presync_freshness_ttl_sec <= 0:
+            return
+
+        freshness_key = (athlete_id, lookback_days, source)
+        with self._freshness_lock:
+            self._freshness_registry[freshness_key] = datetime.now(timezone.utc)
 
     def _run_intervals_sync(
         self, *, athlete_id: str, lookback_days: int

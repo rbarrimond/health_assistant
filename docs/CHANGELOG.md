@@ -10,6 +10,14 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-04-28
 
+### Planning Context Pre-Sync Freshness Gate and Force Override [application v3.17.0]
+
+- **Why this is a MINOR bump**: this release adds a backward-compatible query parameter (`force`) and new pre-sync orchestration behavior that reduces repeated backend calls without changing persisted schema.
+- **Added (planning endpoint contract)**: `GET /api/planning/context` now accepts optional `force=true|false` to control pre-sync freshness bypass behavior.
+- **Changed (anti-slamming pre-sync behavior)**: planning pre-sync now skips sources whose last successful hydration for the same `(athlete_id, lookback_days, source)` occurred within a 60-minute freshness window.
+- **Changed (operator override)**: when `force=true`, planning pre-sync bypasses freshness gating and executes all enabled sources.
+- **Changed (source result semantics)**: freshness-skipped sources are now surfaced in source results with `status="skipped"` and reason `fresh_within_ttl` for traceability.
+
 ### Withings Added to Pre-Sync Hydration Source List [application v3.16.1]
 
 - **Why this is a PATCH bump**: this release extends pre-sync dependency hydration coverage using an already-supported backend integration without changing response schema shape or persisted storage semantics.

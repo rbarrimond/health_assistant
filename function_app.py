@@ -478,15 +478,24 @@ def planning_context(req: func.HttpRequest) -> func.HttpResponse:
     athlete_id = req.params.get("athlete_id", "rob")
     days = int(req.params.get("days", "45"))
     days = max(1, min(days, 365))
+    force = req.params.get("force", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
     pre_sync = dependencies.planning_context_pre_sync_service.run(
-        athlete_id=athlete_id, days=days
+        athlete_id=athlete_id,
+        days=days,
+        force=force,
     )
     logger.info(
         "Planning context JIT pre-sync completed",
         extra={
             "athlete_id": athlete_id,
             "days": days,
+            "force": force,
             "pre_sync_status": pre_sync.get("status"),
         },
     )
