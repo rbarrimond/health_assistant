@@ -391,6 +391,7 @@ class FunctionAppDependencies:
         handler = PlanningContextPreSyncHandler.from_env(
             onedrive_service=self.onedrive_service,
             garmin_service=self.garmin_service,
+            garmin_activity_index_storage=self.storage.garmin_activity_index,
             garmin_physiometrics_service=self.garmin_physiometrics_service,
             withings_service=self.withings_service,
             intervals_service=self.intervals_service,

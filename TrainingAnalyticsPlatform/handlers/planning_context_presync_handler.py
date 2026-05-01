@@ -11,6 +11,8 @@ import threading
 import uuid
 from typing import Any, Dict, Optional
 
+from TrainingAnalyticsPlatform.storage.garmin_activity_index_storage import GarminActivityIndexStorage
+
 from TrainingAnalyticsPlatform.handlers.presync_core import (
     PreSyncOperation,
     PreSyncExecutionMixin,
@@ -24,6 +26,7 @@ DEFAULT_RETRY_MAX_ATTEMPTS = 3
 DEFAULT_RETRY_BASE_DELAY_SEC = 1.0
 DEFAULT_PARALLEL_MAX_WORKERS = 8
 DEFAULT_FRESHNESS_TTL_SEC = 3600
+DEFAULT_GARMIN_PRESYNC_FALLBACK_LOOKBACK_DAYS = 7
 ENV_PLANNING_PRESYNC_GARMIN_ACTIVITIES_ENABLED = (
     "PLANNING_PRESYNC_GARMIN_ACTIVITIES_ENABLED"
 )
@@ -60,6 +63,7 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
         retry_max_attempts: int = DEFAULT_RETRY_MAX_ATTEMPTS,
         retry_base_delay_sec: float = DEFAULT_RETRY_BASE_DELAY_SEC,
         planning_presync_freshness_ttl_sec: int = DEFAULT_FRESHNESS_TTL_SEC,
+        garmin_activity_index_storage: Optional[GarminActivityIndexStorage] = None,
     ) -> None:
         self._onedrive_service = onedrive_service
         self._garmin_service = garmin_service
@@ -79,6 +83,7 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
         self._planning_presync_freshness_ttl_sec = max(
             0, int(planning_presync_freshness_ttl_sec)
         )
+        self._garmin_activity_index_storage = garmin_activity_index_storage
         self._freshness_lock = threading.Lock()
         self._freshness_registry: dict[tuple[str, int, str], datetime] = {}
 
@@ -93,6 +98,7 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
         *,
         onedrive_service: Any,
         garmin_service: Any,
+        garmin_activity_index_storage: Optional[GarminActivityIndexStorage] = None,
         garmin_physiometrics_service: Any,
         withings_service: Any,
         intervals_service: Any,
@@ -102,6 +108,7 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
         return cls(
             onedrive_service=onedrive_service,
             garmin_service=garmin_service,
+            garmin_activity_index_storage=garmin_activity_index_storage,
             garmin_physiometrics_service=garmin_physiometrics_service,
             withings_service=withings_service,
             intervals_service=intervals_service,
@@ -219,10 +226,54 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
             "sources": source_results,
         }
 
+    def _compute_garmin_lookback_days(self, athlete_id: str, max_days: int) -> int:
+        """Derive the Garmin lookback window from the last indexed activity.
+
+        Returns the number of days between now and the most recent indexed
+        Garmin activity, plus one to ensure the boundary day is included.
+        If no activity is indexed yet, falls back to
+        ``DEFAULT_GARMIN_PRESYNC_FALLBACK_LOOKBACK_DAYS``.  The result is
+        capped at ``max_days`` so it never exceeds the caller's context window.
+        """
+        if self._garmin_activity_index_storage is None:
+            return min(DEFAULT_GARMIN_PRESYNC_FALLBACK_LOOKBACK_DAYS, max_days)
+        try:
+            latest_iso = self._garmin_activity_index_storage.get_latest_indexed_start_time_utc(
+                athlete_id=athlete_id
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Planning context pre-sync could not read Garmin activity index; "
+                "falling back to default Garmin lookback window",
+                extra={
+                    "athlete_id": athlete_id,
+                    "fallback_days": DEFAULT_GARMIN_PRESYNC_FALLBACK_LOOKBACK_DAYS,
+                },
+                exc_info=True,
+            )
+            return min(DEFAULT_GARMIN_PRESYNC_FALLBACK_LOOKBACK_DAYS, max_days)
+        if latest_iso is None:
+            return min(DEFAULT_GARMIN_PRESYNC_FALLBACK_LOOKBACK_DAYS, max_days)
+        try:
+            latest_dt = datetime.fromisoformat(latest_iso)
+            if latest_dt.tzinfo is None:
+                latest_dt = latest_dt.replace(tzinfo=timezone.utc)
+            days_since = (datetime.now(timezone.utc) - latest_dt).days + 1
+            return max(1, min(days_since, max_days))
+        except (ValueError, TypeError):
+            return min(DEFAULT_GARMIN_PRESYNC_FALLBACK_LOOKBACK_DAYS, max_days)
+
     def _build_operations(
         self, athlete_id: str, lookback_days: int
     ) -> list[PreSyncOperation]:
-        """Build ordered source sync operations for the given window."""
+        """Build ordered source sync operations for the given window.
+
+        OneDrive is excluded because it is kept current by delta-token
+        incremental sync and does not benefit from a redundant lookback-window
+        call here.  The Garmin lookback window is derived from the most recent
+        indexed activity rather than mirroring the full context ``lookback_days``.
+        """
+        garmin_lookback = self._compute_garmin_lookback_days(athlete_id, lookback_days)
         operations = build_presync_operations(
             athlete_id=athlete_id,
             lookback_days=lookback_days,
@@ -234,6 +285,8 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
                 athlete_id=athlete_id,
                 lookback_days=lookback_days,
             ),
+            include_onedrive=False,
+            garmin_lookback_days=garmin_lookback,
         )
 
         filtered_operations: list[PreSyncOperation] = []

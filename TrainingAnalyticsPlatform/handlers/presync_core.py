@@ -43,33 +43,52 @@ def build_presync_operations(
     garmin_physiometrics_service: Any,
     withings_service: Any,
     intervals_execute: Callable[[], PreSyncResponse],
+    include_onedrive: bool = True,
+    garmin_lookback_days: Optional[int] = None,
 ) -> list[PreSyncOperation]:
-    """Build ordered source sync operations for a given athlete and window."""
-    return [
-        PreSyncOperation(
-            source="onedrive_workouts",
-            athlete_id=athlete_id,
-            lookback_days=lookback_days,
-            execute=lambda: onedrive_service.handle(
-                OneDriveSyncRequest(
-                    {
-                        "athlete_id": athlete_id,
-                        "days": lookback_days,
-                        "async": False,
-                    },
-                    {},
-                )
-            ),
-        ),
+    """Build ordered source sync operations for a given athlete and window.
+
+    ``include_onedrive`` controls whether the OneDrive source is included.
+    Set to ``False`` when OneDrive is already kept current via delta-token
+    incremental sync and a redundant lookback-window call would add no value.
+
+    ``garmin_lookback_days`` overrides the Garmin-specific lookback window.
+    When omitted, ``lookback_days`` is used for all sources.  Callers that
+    can derive a tighter window from the last indexed Garmin activity should
+    pass the computed value here so Garmin is not asked to re-pull data that
+    has already been ingested.
+    """
+    effective_garmin_days = garmin_lookback_days if garmin_lookback_days is not None else lookback_days
+    operations: list[PreSyncOperation] = []
+    if include_onedrive:
+        operations.append(
+            PreSyncOperation(
+                source="onedrive_workouts",
+                athlete_id=athlete_id,
+                lookback_days=lookback_days,
+                execute=lambda: onedrive_service.handle(
+                    OneDriveSyncRequest(
+                        {
+                            "athlete_id": athlete_id,
+                            "days": lookback_days,
+                            "async": False,
+                        },
+                        {},
+                    )
+                ),
+            )
+        )
+    _garmin_days = effective_garmin_days  # capture for closures
+    operations += [
         PreSyncOperation(
             source="garmin_activities",
             athlete_id=athlete_id,
-            lookback_days=lookback_days,
+            lookback_days=_garmin_days,
             execute=lambda: garmin_service.handle(
                 GarminSyncRequest(
                     {
                         "athlete_id": athlete_id,
-                        "lookback_days": lookback_days,
+                        "lookback_days": _garmin_days,
                         "async": False,
                     },
                     {},
@@ -79,10 +98,10 @@ def build_presync_operations(
         PreSyncOperation(
             source="garmin_physiometrics",
             athlete_id=athlete_id,
-            lookback_days=lookback_days,
+            lookback_days=_garmin_days,
             execute=lambda: garmin_physiometrics_service.handle(
                 athlete_id,
-                lookback_days,
+                _garmin_days,
                 force=False,
             ),
         ),
@@ -102,6 +121,7 @@ def build_presync_operations(
             execute=intervals_execute,
         ),
     ]
+    return operations
 
 
 class PreSyncExecutionMixin:
