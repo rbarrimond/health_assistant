@@ -8,6 +8,17 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-05-01
+
+### Garmin Pre-Sync Lookback Anchored to Last Indexed Activity; OneDrive Excluded from Planning Pre-Sync [application v3.18.0]
+
+- **Why this is a MINOR bump**: this release changes Garmin pre-sync lookback behavior for the planning context endpoint in a backward-compatible way, and removes OneDrive from planning pre-sync operations. No persisted schema changes; all changes are operational/behavioral.
+- **Changed (planning pre-sync Garmin lookback)**: `PlanningContextPreSyncHandler` no longer uses the planning context's full lookback window as the Garmin lookback. It now anchors Garmin lookback to the most recent activity in the `garmin_activity_index` table, capped at a configurable maximum (`DEFAULT_GARMIN_PRESYNC_FALLBACK_LOOKBACK_DAYS = 7`). This avoids redundantly re-requesting activity ranges already indexed.
+- **Changed (planning pre-sync OneDrive exclusion)**: `PlanningContextPreSyncHandler` no longer triggers an OneDrive pre-sync. OneDrive is already kept fresh via incremental change polling and does not benefit from JIT pre-sync before context reads.
+- **Added (storage injection)**: `PlanningContextPreSyncHandler` now accepts an optional `garmin_activity_index_storage` parameter to support lookback computation. `dependencies.py` wires this from the shared storage layer.
+- **Changed (presync_core constitutional cleanup)**: all deprecated `typing` generic aliases (`Dict`, `Tuple`, `Optional`) replaced with builtin equivalents (`dict[...]`, `tuple[...]`, `X | None`). Retry log level promoted from `INFO` to `WARNING` per logging-level semantics (degraded but non-fatal scenario).
+- **Enabled (Terraform)**: `PLANNING_PRESYNC_GARMIN_ACTIVITIES_ENABLED` and `PLANNING_PRESYNC_GARMIN_PHYSIOMETRICS_ENABLED` set to `true` in production infrastructure.
+
 ## 2026-04-28
 
 ### Planning Context Pre-Sync Freshness Gate and Force Override [application v3.17.0]

@@ -6,7 +6,7 @@ import logging
 import random
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable
 
 from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import GarminSyncRequest
 from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import OneDriveSyncRequest
@@ -19,8 +19,8 @@ GARMIN_PRESYNC_METADATA_KEYS = (
     "cache_miss_days",
 )
 PreSyncResponse = (
-    tuple[Dict[str, Any], int]
-    | tuple[Dict[str, Any], int, Dict[str, Any]]
+    tuple[dict[str, Any], int]
+    | tuple[dict[str, Any], int, dict[str, Any]]
 )
 
 
@@ -44,7 +44,7 @@ def build_presync_operations(
     withings_service: Any,
     intervals_execute: Callable[[], PreSyncResponse],
     include_onedrive: bool = True,
-    garmin_lookback_days: Optional[int] = None,
+    garmin_lookback_days: int | None = None,
 ) -> list[PreSyncOperation]:
     """Build ordered source sync operations for a given athlete and window.
 
@@ -137,11 +137,11 @@ class PreSyncExecutionMixin:
         logger: logging.Logger,
         exception_log_message: str,
         retry_log_message: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Execute one source operation with bounded retry/backoff."""
         attempts = 0
-        last_status_code = 500
-        last_message = "Source pre-sync failed"
+        last_status_code: int = 500
+        last_message: str = "Source pre-sync failed"
         last_retry_after: str | None = None
         start = time.monotonic()
 
@@ -260,7 +260,7 @@ class PreSyncExecutionMixin:
         retry_after_raw: str | None,
         started_at: float,
         status_code: int,
-        body: Dict[str, Any],
+        body: dict[str, Any],
     ) -> dict[str, Any] | None:
         """Evaluate timeout-risk deferral decision via optional coordinator."""
         coordinator = getattr(self, "_deferred_retry_coordinator", None)
@@ -296,7 +296,7 @@ class PreSyncExecutionMixin:
         *,
         source: str,
         status_code: int,
-        body: Dict[str, Any],
+        body: dict[str, Any],
     ) -> bool:
         """Return True when timeout-risk deferral should be evaluated."""
         if source != "garmin_activities":
@@ -318,14 +318,14 @@ class PreSyncExecutionMixin:
     @staticmethod
     def _extract_source_metadata(
         *,
-        body: Dict[str, Any],
+        body: dict[str, Any],
         source: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Extract source-specific execution metadata for result payloads."""
         if source != "garmin_activities" or not isinstance(body, dict):
             return {}
 
-        metadata: Dict[str, Any] = {}
+        metadata: dict[str, Any] = {}
         for key in GARMIN_PRESYNC_METADATA_KEYS:
             value = body.get(key)
             if value is not None:
@@ -333,7 +333,7 @@ class PreSyncExecutionMixin:
         return metadata
 
     @staticmethod
-    def _normalize_response(response: PreSyncResponse) -> tuple[Dict[str, Any], int, Dict[str, Any]]:
+    def _normalize_response(response: PreSyncResponse) -> tuple[dict[str, Any], int, dict[str, Any]]:
         """Normalize source responses to (body, status_code, headers)."""
         if len(response) == 2:
             body, status_code = response
@@ -345,7 +345,7 @@ class PreSyncExecutionMixin:
         return body, status_code, headers
 
     @staticmethod
-    def _extract_retry_after(headers: Dict[str, Any], body: Dict[str, Any]) -> str | None:
+    def _extract_retry_after(headers: dict[str, Any], body: dict[str, Any]) -> str | None:
         """Extract Retry-After guidance from headers (preferred) or body fallback."""
         header_retry_after = PreSyncExecutionMixin._extract_retry_after_from_headers(headers)
         if header_retry_after is not None:
@@ -354,7 +354,7 @@ class PreSyncExecutionMixin:
         return PreSyncExecutionMixin._extract_retry_after_from_body(body)
 
     @staticmethod
-    def _extract_retry_after_from_headers(headers: Dict[str, Any]) -> str | None:
+    def _extract_retry_after_from_headers(headers: dict[str, Any]) -> str | None:
         """Extract Retry-After from response headers."""
         if not isinstance(headers, dict):
             return None
@@ -367,7 +367,7 @@ class PreSyncExecutionMixin:
         return None
 
     @staticmethod
-    def _extract_retry_after_from_body(body: Dict[str, Any]) -> str | None:
+    def _extract_retry_after_from_body(body: dict[str, Any]) -> str | None:
         """Extract Retry-After style values from response body fallbacks."""
         if not isinstance(body, dict):
             return None
@@ -389,7 +389,7 @@ class PreSyncExecutionMixin:
         """Sleep with exponential backoff between retries."""
         base_delay = self._retry_base_delay_sec * (2 ** (attempt - 1))
         delay = (base_delay / 2.0) + (random.random() * (base_delay / 2.0))
-        logger.info(
+        logger.warning(
             retry_log_message,
             extra={
                 "source": source,
@@ -400,7 +400,7 @@ class PreSyncExecutionMixin:
         time.sleep(delay)
 
     @staticmethod
-    def _extract_message(body: Dict[str, Any]) -> str:
+    def _extract_message(body: dict[str, Any]) -> str:
         """Extract a stable message from source response body."""
         if not isinstance(body, dict):
             return "Source pre-sync completed"
@@ -448,11 +448,11 @@ class PreSyncExecutionMixin:
         deferred: bool = False,
         safe_to_retry_at_utc: str | None = None,
         deferred_operation_id: str | None = None,
-        source_metadata: Dict[str, Any] | None = None,
-    ) -> Dict[str, Any]:
+        source_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Build source-level result payload."""
         duration_ms = int((time.monotonic() - started_at) * 1000)
-        result = {
+        result: dict[str, Any] = {
             "source": source,
             "status": status,
             "http_status": http_status,
@@ -476,11 +476,11 @@ class PreSyncExecutionMixin:
 def run_intervals_sync(
     *,
     intervals_service: Any,
-    intervals_athlete_id: Optional[str],
+    intervals_athlete_id: str | None,
     athlete_id: str,
     lookback_days: int,
     missing_identity_error: str,
-) -> Tuple[Dict[str, Any], int]:
+) -> tuple[dict[str, Any], int]:
     """Run Intervals sync with required identity validation."""
     if not intervals_athlete_id:
         return {"error": missing_identity_error}, 424
