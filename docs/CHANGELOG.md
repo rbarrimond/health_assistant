@@ -8,6 +8,16 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-05-06
+
+### OneDrive Always-On Planning Pre-Sync Restoration [application v3.19.0]
+
+- **Why this is a MINOR bump**: this release changes planning pre-sync runtime behavior in a backward-compatible way by restoring OneDrive hydration before context reads and enforcing always-attempt semantics for OneDrive. No persisted schema changes; all changes are operational/orchestration behavior.
+- **Changed (planning pre-sync source set)**: `PlanningContextPreSyncHandler` now includes `onedrive_workouts` in planning pre-sync operations for every `GET /api/planning/context` request.
+- **Changed (OneDrive freshness policy)**: OneDrive pre-sync is now always attempted during planning-context hydration and is no longer skipped by freshness TTL gating; non-OneDrive sources retain existing freshness gating behavior.
+- **Changed (shared OneDrive invocation path)**: OneDrive request construction is centralized via `build_onedrive_sync_request` and reused by both timer-triggered OneDrive sync and planning pre-sync orchestration to preserve one canonical invocation path.
+- **Added (tests)**: planning pre-sync unit tests now assert OneDrive inclusion, source-order placement, and OneDrive always-attempt behavior across repeated calls.
+
 ## 2026-05-01
 
 ### Garmin Pre-Sync Lookback Anchored to Last Indexed Activity; OneDrive Excluded from Planning Pre-Sync [application v3.18.0]

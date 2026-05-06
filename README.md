@@ -162,6 +162,7 @@ Read Interfaces
 - `ONEDRIVE_FOLDER_PATH`: Target folder path (default: `'/Apps/HealthFit'`)
 - `ONEDRIVE_SYNC_LOOKBACK_DAYS`: Sync window in days (default: `30`)
 - `ONEDRIVE_SYNC_TIMER_SCHEDULE`: Safety-net timer cron for OneDrive sync (default: `0 0 0 * * 1`)
+- `PLANNING_PRESYNC_FRESHNESS_TTL_SEC`: Freshness skip window for planning pre-sync sources except OneDrive (default: `3600`)
 
 **Withings Integration** (see [BACKENDS.md](./docs/devops/BACKENDS.md) for setup):
 
@@ -181,6 +182,11 @@ Read Interfaces
 - `WEEKLY_ROLLUP_PRESYNC_LOOKBACK_DAYS`: JIT pre-sync lookback window before weekly rollup compute (default: `8`)
 - `WEEKLY_ROLLUP_PRESYNC_RETRY_MAX_ATTEMPTS`: Max retries per pre-sync source (default: `3`)
 - `WEEKLY_ROLLUP_PRESYNC_RETRY_BASE_DELAY_SEC`: Exponential backoff base delay in seconds (default: `1`)
+
+Planning-context note:
+
+- `GET /api/planning/context` always attempts OneDrive incremental pre-sync so latest OneDrive deltas are applied before semantic reads.
+- `ONEDRIVE_SYNC_TIMER_SCHEDULE` remains a safety net and does not replace request-time OneDrive planning hydration.
 
 **API Documentation** (for ChatGPT plugin):
 

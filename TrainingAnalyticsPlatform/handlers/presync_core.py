@@ -9,7 +9,9 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from TrainingAnalyticsPlatform.handlers.garmin_sync_handler import GarminSyncRequest
-from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import OneDriveSyncRequest
+from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import (
+    build_onedrive_sync_request,
+)
 
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 GARMIN_PRESYNC_METADATA_KEYS = (
@@ -49,8 +51,8 @@ def build_presync_operations(
     """Build ordered source sync operations for a given athlete and window.
 
     ``include_onedrive`` controls whether the OneDrive source is included.
-    Set to ``False`` when OneDrive is already kept current via delta-token
-    incremental sync and a redundant lookback-window call would add no value.
+    Planning-context pre-sync keeps OneDrive enabled so the latest incremental
+    delta is applied before reads.
 
     ``garmin_lookback_days`` overrides the Garmin-specific lookback window.
     When omitted, ``lookback_days`` is used for all sources.  Callers that
@@ -67,13 +69,10 @@ def build_presync_operations(
                 athlete_id=athlete_id,
                 lookback_days=lookback_days,
                 execute=lambda: onedrive_service.handle(
-                    OneDriveSyncRequest(
-                        {
-                            "athlete_id": athlete_id,
-                            "days": lookback_days,
-                            "async": False,
-                        },
-                        {},
+                    build_onedrive_sync_request(
+                        athlete_id=athlete_id,
+                        lookback_days=lookback_days,
+                        async_mode=False,
                     )
                 ),
             )

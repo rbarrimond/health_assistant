@@ -15,6 +15,7 @@ from TrainingAnalyticsPlatform.handlers.onedrive_sync_handler import (
     OneDriveResetRequest,
     OneDriveSyncHandler,
     OneDriveSyncRequest,
+    build_onedrive_sync_request,
 )
 from TrainingAnalyticsPlatform.platform.exceptions import StorageError
 from TrainingAnalyticsPlatform.platform.exceptions import IngestionIdResolutionError
@@ -146,6 +147,29 @@ class TestOneDriveSyncRequest:
         req = OneDriveSyncRequest({}, {})
         assert req.request_id is None
         assert req.correlation_id is None
+
+
+class TestBuildOneDriveSyncRequest:
+    def test_build_sync_request_defaults_to_sync_mode(self):
+        req = build_onedrive_sync_request(athlete_id="athlete1")
+
+        assert req.athlete_id == "athlete1"
+        assert req.async_mode is False
+        assert req.lookback_days is None
+        assert req.force is False
+
+    def test_build_sync_request_populates_lookback_and_force(self):
+        req = build_onedrive_sync_request(
+            athlete_id="athlete1",
+            lookback_days=14,
+            force=True,
+            async_mode=False,
+        )
+
+        assert req.athlete_id == "athlete1"
+        assert req.lookback_days == 14
+        assert req.force is True
+        assert req.async_mode is False
 
 
 class TestOneDriveResetRequest:

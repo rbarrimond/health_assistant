@@ -8,6 +8,7 @@ from .onedrive_sync_handler import (
     OneDriveResetRequest,
     OneDriveSyncIngestionHandler,
     OneDriveSyncConfig,
+    build_onedrive_sync_request,
 )
 from .garmin_sync_handler import (
     GarminSyncHandler,
@@ -33,6 +34,7 @@ __all__ = [
     "OneDriveResetRequest",
     "OneDriveSyncIngestionHandler",
     "OneDriveSyncConfig",
+    "build_onedrive_sync_request",
     "GarminSyncHandler",
     "GarminSyncRequest",
     "GarminSyncIngestionHandler",

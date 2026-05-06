@@ -620,6 +620,8 @@ Operational notes:
 - `GARMIN_ACTIVITY_INDEX_FRESHNESS_HOURS` defaults to `24` and defines the target staleness horizon for indexed Garmin activity list payloads.
 - `PLANNING_PRESYNC_GARMIN_ACTIVITIES_ENABLED` defaults to `false`; when `false`, `GET /api/planning/context` does not execute Garmin activity pre-sync.
 - `PLANNING_PRESYNC_GARMIN_PHYSIOMETRICS_ENABLED` defaults to `false`; when `false`, `GET /api/planning/context` does not execute Garmin physiometrics pre-sync.
+- `GET /api/planning/context` always executes OneDrive incremental pre-sync (`onedrive_workouts`) so latest OneDrive deltas are applied before context reads.
+- Planning pre-sync freshness TTL (`PLANNING_PRESYNC_FRESHNESS_TTL_SEC`) applies to non-OneDrive sources; OneDrive is always-attempted per request.
 - Planning-context and weekly-rollup pre-sync hydration both include Withings physiometrics execution via `WithingsWellnessService.sync_metrics` when athlete tokens exist; athletes without a connected Withings account will surface source-level non-success status according to each pre-sync handler's tolerance mode.
 
 #### 2. Run Sync

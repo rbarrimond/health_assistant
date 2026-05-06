@@ -160,6 +160,10 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
         runnable_operations: list[tuple[int, PreSyncOperation]] = []
 
         for index, operation in enumerate(operations):
+            if operation.source == "onedrive_workouts":
+                runnable_operations.append((index, operation))
+                continue
+
             if not force:
                 should_skip, last_success_at = self._is_source_fresh(
                     athlete_id=athlete_id,
@@ -268,10 +272,10 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
     ) -> list[PreSyncOperation]:
         """Build ordered source sync operations for the given window.
 
-        OneDrive is excluded because it is kept current by delta-token
-        incremental sync and does not benefit from a redundant lookback-window
-        call here.  The Garmin lookback window is derived from the most recent
-        indexed activity rather than mirroring the full context ``lookback_days``.
+        OneDrive is always included for planning reads so the latest incremental
+        delta is applied before semantic context is queried. Garmin lookback is
+        derived from the most recent indexed activity rather than mirroring the
+        full context ``lookback_days``.
         """
         garmin_lookback = self._compute_garmin_lookback_days(athlete_id, lookback_days)
         operations = build_presync_operations(
@@ -285,7 +289,7 @@ class PlanningContextPreSyncHandler(PreSyncExecutionMixin):
                 athlete_id=athlete_id,
                 lookback_days=lookback_days,
             ),
-            include_onedrive=False,
+            include_onedrive=True,
             garmin_lookback_days=garmin_lookback,
         )
 

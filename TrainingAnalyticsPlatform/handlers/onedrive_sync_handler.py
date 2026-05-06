@@ -423,6 +423,29 @@ class OneDriveSyncRequest:
         return False
 
 
+def build_onedrive_sync_request(
+    *,
+    athlete_id: str,
+    lookback_days: int | None = None,
+    force: bool = False,
+    async_mode: bool = False,
+) -> OneDriveSyncRequest:
+    """Build a canonical OneDrive sync request payload.
+
+    This helper centralizes request construction so timer-triggered sync and
+    planning pre-sync reuse the same OneDrive invocation path.
+    """
+    body: dict[str, Any] = {
+        "athlete_id": athlete_id,
+        "async": async_mode,
+    }
+    if lookback_days is not None:
+        body["days"] = lookback_days
+    if force:
+        body["force"] = True
+    return OneDriveSyncRequest(body, {})
+
+
 class OneDriveResetRequest:
     """Encapsulates OneDrive delta reset request parsing."""
 
