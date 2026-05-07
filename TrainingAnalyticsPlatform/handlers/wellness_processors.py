@@ -90,7 +90,7 @@ class BaseWellnessProcessor(ABC):
         entity = {
             "PartitionKey": snapshot.athlete_id,
             "RowKey": snapshot.effective_date,
-            **snapshot.dict(),
+            **snapshot.model_dump(),
         }
         table_client.upsert_entity(entity)
 
@@ -104,7 +104,7 @@ class BaseWellnessProcessor(ABC):
         entity = {
             "PartitionKey": snapshot.athlete_id,
             "RowKey": snapshot.effective_date,
-            **snapshot.dict(),
+            **snapshot.model_dump(),
         }
         table_client.upsert_entity(entity)
 
