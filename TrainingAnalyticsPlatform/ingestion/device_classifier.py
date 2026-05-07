@@ -16,7 +16,7 @@ HealthKit-Synced Pattern (REJECTED on OneDrive):
     
     Detection uses dual mechanism:
         - Sentinel: device_name containing "iphone" (case-insensitive)
-        - Model ID: device_model matching pattern r"iphone\d+,\d+" (e.g., "iPhone17,1", "iPhone14,2")
+        - Model ID: device_model matching pattern r"iphone\\d+,\\d+" (e.g., "iPhone17,1", "iPhone14,2")
     
     Rationale: Catches both direct HealthFit exports (device_name="iPhone") AND
     third-party app syncs where device_name is app name but device_model contains
@@ -34,7 +34,7 @@ Actual Device Pattern (ACCEPTED on OneDrive):
 
 Classification Strategy:
     - device_name AND device_model string matching (case-insensitive)
-    - "iphone" in device_name OR device_model matching r"iphone\d+,\d+" → HealthKit-synced (reject)
+    - "iphone" in device_name OR device_model matching r"iphone\\d+,\\d+" → HealthKit-synced (reject)
     - "watch" in device_name → Apple Watch with model ID like "Watch7,12" (accept)
     - Real Apple devices have model identifiers (e.g., "iPhone17,1", "Watch8,1", "Watch7,12")
     - No manufacturer code checks (Apple uses "development" for everything)
