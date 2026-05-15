@@ -141,6 +141,32 @@ def test_maps_running_vo2max_from_modern_training_status_context():
     assert snapshot.running_vo2max_ml_kg_min == pytest.approx(57.4)
 
 
+def test_maps_generic_vo2max_into_running_field_when_running_specific_missing():
+    adapter = GarminTrainingStateAdapter()
+    raw = {
+        "summary": {
+            "calendarDate": "2026-03-03",
+            "stats": {
+                "functionThreshold": 300,
+                "maxHeartRate": 196,
+                "readiness": {"score": 82},
+            },
+        },
+        "training_status": {
+            "mostRecentVO2Max": {
+                "generic": {"vo2MaxPreciseValue": 55.9},
+            },
+            "trainingLoad": {"load": 87},
+            "trainingEffect": {"aerobic": 3.2, "anaerobic": 1.4},
+        },
+    }
+
+    snapshot = adapter.adapt(raw, athlete_id="rob")
+
+    assert snapshot.cycling_vo2max_ml_kg_min is None
+    assert snapshot.running_vo2max_ml_kg_min == pytest.approx(55.9)
+
+
 def test_extracts_training_status_label_and_load_focus():
     """Test extraction of new Garmin training status + load focus fields (v4.2.0)."""
     adapter = GarminTrainingStateAdapter()
