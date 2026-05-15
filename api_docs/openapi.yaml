@@ -623,7 +623,7 @@ paths:
     get:
       summary: Get physiometric time series
       operationId: getPhysiometricsHistory
-      description: Returns physiometrics trend points for the requested lookback window and optional metric filter.
+      description: Returns physiometrics trend points for the requested lookback window and optional metric filter. Use canonical metric identifiers such as `weight_kg`, `cycling_vo2max_ml_kg_min`, `hr_lthr_bpm`, and `hr_lthr_cycling_bpm`; legacy aliases are normalized to canonical response keys.
       parameters:
         - name: athlete_id
           in: query
@@ -644,7 +644,7 @@ paths:
         - name: metrics
           in: query
           required: false
-          description: Comma-separated list of metric identifiers
+          description: Comma-separated list of canonical metric identifiers
           style: form
           explode: false
           schema:
@@ -1048,6 +1048,7 @@ components:
         heart_rate:
           basis: rolling_30d
           lthr_bpm: 170
+          lthr_cycling_bpm: 173
           hr_max_bpm: 188
           resting_hr_bpm: 46
           hrv_ln_rmssd: 4.12
@@ -1527,6 +1528,8 @@ components:
             basis:
               type: string
             lthr_bpm:
+              type: [number, "null"]
+            lthr_cycling_bpm:
               type: [number, "null"]
             hr_max_bpm:
               type: [number, "null"]

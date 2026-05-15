@@ -1675,6 +1675,8 @@ components:
               type: string
             lthr_bpm:
               type: [number, "null"]
+            lthr_cycling_bpm:
+              type: [number, "null"]
             hr_max_bpm:
               type: [number, "null"]
             resting_hr_bpm:

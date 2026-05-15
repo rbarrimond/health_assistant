@@ -314,7 +314,7 @@ This partitioning strategy enables efficient range queries for monthly rollups w
 athlete_id: str                # Athlete identifier
 effective_date: str            # YYYY-MM-DD (local athlete timezone)
 data_sources: str              # CSV of contributing sources (e.g., "withings,intervals,garmin")
-canonical_version: str         # Schema version (default: "4.2.0")
+canonical_version: str         # Schema version (default: "4.3.0")
 last_updated_utc: datetime     # Timestamp of last upsert
 
 # Body composition (Withings exclusive) - 5 fields
@@ -342,10 +342,11 @@ fat_g: Optional[float]                  # Fat intake
 # Extended recovery/body metrics - 1 field
 spo2_pct: Optional[float]               # Blood oxygen saturation percentage
 
-# Performance baselines (Garmin primary; manual/chatgpt fallback for gaps) - 4 fields
+# Performance baselines (Garmin primary; manual/chatgpt fallback for selected gaps) - 5 fields
 ftp_watts: Optional[float]                     # Functional threshold power
 cycling_vo2max_ml_kg_min: Optional[float]      # Cycling VO2Max estimate
 hr_lthr_bpm: Optional[float]                   # Lactate threshold heart rate
+hr_lthr_cycling_bpm: Optional[float]           # Cycling-specific lactate threshold heart rate
 hr_max_bpm: Optional[float]                    # Maximum heart rate
 
 # Training state (Garmin exclusive) - 7 fields
@@ -365,7 +366,7 @@ training_stress_balance: Optional[float]        # Training stress balance
 atp_probability: Optional[float]                # ATP/energy availability (0-100)
 ```
 
-**Total**: 31 metric fields + 4 metadata fields = 35 fields
+**Total**: 32 metric fields + 4 metadata fields = 36 fields
 
 ### Source Precedence: Metric Ownership with Explicit Fallbacks
 
@@ -378,7 +379,7 @@ Most fields use single-source ownership. A small set of training baseline metric
 | **Activity** (1) | Intervals | Garmin step count less accurate |
 | **Nutrition** (4) | Intervals | Explicit nutrition logging |
 | **Extended recovery/body** (1) | Intervals (primary), Garmin (fallback) | Preserve oxygen saturation for wellness context |
-| **Performance baselines** (4) | Garmin for VO2max, recency-aware Garmin/chatgpt/manual for FTP/LTHR, Garmin primary for HRmax fallback | Preserve config-originated baseline values until newer Garmin baseline rows arrive |
+| **Performance baselines** (5) | Garmin for VO2max and cycling LTHR, recency-aware Garmin/chatgpt/manual for FTP/generic LTHR, Garmin primary for HRmax fallback | Preserve config-originated baseline values until newer Garmin baseline rows arrive |
 | **Training state** (3) | Garmin | Proprietary training load algorithms |
 | **Extended training** (5) | Garmin | Proprietary recovery/readiness models |
 
@@ -388,6 +389,7 @@ Most fields use single-source ownership. A small set of training baseline metric
 - **Intervals steps take precedence** over Garmin (Garmin values ignored)
 - **Withings body composition primary** with Intervals fallback for `weight_kg` and `body_fat_pct`
 - **FTP/LTHR are recency-aware across source-qualified rows**: compare `effective_date` first, then `updated_at_utc`; use `garmin -> chatgpt -> manual` only as a tie-breaker when timestamps are equivalent
+- **Cycling LTHR is Garmin-exclusive**: captured as `hr_lthr_cycling_bpm` and exposed separately from generic `hr_lthr_bpm`
 - **HRmax still uses limited fallback**: `garmin -> chatgpt -> manual`
 
 ### Ingestion Pathways: Direct Fetch Pattern

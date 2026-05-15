@@ -8,7 +8,31 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-05-14
+
+### Garmin Metric Rationalization + Cycling LTHR Canonicalization [application v3.20.0, physiometrics schema v4.3.0, ingest v15.8.3]
+
+- **Why this is a MINOR bump**: this release adds a new backward-compatible canonical physiometrics field (`hr_lthr_cycling_bpm`) and updates current physiometrics projections to expose cycling LTHR without removing existing generic LTHR fields.
+- **Added (canonical model)**: `PhysiometricsSnapshot` now includes `hr_lthr_cycling_bpm` with schema version default `4.3.0`.
+- **Changed (Garmin adapter parsing)**: Garmin physiometrics extraction now parses generic LTHR (`speed_and_heart_rate.heartRate`) and cycling LTHR (`speed_and_heart_rate.heartRateCycling`) independently.
+- **Changed (LTHR precedence semantics)**: generic LTHR remains the primary canonical baseline (`hr_lthr_bpm`) and still falls back to cycling value only when generic value is absent.
+- **Changed (storage write contract)**: physiometrics storage no longer writes duplicated legacy alias columns for LTHR (`lactate_threshold_hr_bpm`) on new rows.
+- **Added (storage write contract)**: cycling-specific LTHR now writes to canonical nested column `heart_rate_lthr_cycling_bpm` and hydrates to `hr_lthr_cycling_bpm`.
+- **Preserved (read compatibility)**: alias resolution still reads historical `lactate_threshold_hr_bpm` and legacy LTHR aliases from existing entities.
+- **Changed (current physiometrics projection)**: `GET /api/physiometrics/current` now includes `heart_rate.lthr_cycling_bpm` while preserving `heart_rate.lthr_bpm`.
+- **Updated (consolidation)**: wellness consolidation schema/version surfaces now include cycling LTHR in source precedence and alias resolution.
+- **Added (tests)**: adapter, sync-handler, model, timeseries, and storage regression tests now validate dual LTHR extraction plus no-duplicate-write behavior.
+
 ## 2026-05-06
+
+### Resting HR Source-Ownership Integrity Fix [application v3.19.1]
+
+- **Why this is a PATCH bump**: this release fixes storage-layer defaulting that polluted source-qualified rows without changing API contracts or schema shape.
+- **Fixed (storage write-path)**: `PhysiometricsStorage.store_physiometrics()` no longer injects a default `heart_rate_resting_bpm=60` when a source payload omits resting HR.
+- **Fixed (storage reconstruction path)**: `_get_heart_rate()` no longer defaults missing `heart_rate_resting_bpm` to `60` during entity hydration.
+- **Preserved (runtime config fallback)**: `Config.hr_config()` continues to apply `env_rest or 60` fallback for runtime zone calculation, without mutating persisted source rows.
+- **Aligned with architecture docs**: restores documented ownership where Intervals is the authoritative source for `resting_hr_bpm` and Garmin rows must not synthesize this metric.
+- **Added (tests)**: storage regression tests now assert Garmin/missing-source resting HR remains `null` in persisted/history rows.
 
 ### OneDrive Always-On Planning Pre-Sync Restoration [application v3.19.0]
 
