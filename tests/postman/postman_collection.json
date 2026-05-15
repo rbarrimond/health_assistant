@@ -321,8 +321,8 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{base_url}}/api/physiometrics/history?athlete_id={{athlete_id}}&days=30&metrics=weight_kg,cycling_vo2max_ml_kg_min&code={{function_key}}",
-            "description": "Time-series physiometrics with optional metric filter."
+            "url": "{{base_url}}/api/physiometrics/history?athlete_id={{athlete_id}}&days=30&metrics=weight_kg,cycling_vo2max_ml_kg_min,hr_lthr_bpm,hr_lthr_cycling_bpm&code={{function_key}}",
+            "description": "Time-series physiometrics with optional canonical metric filter. Legacy aliases are accepted but responses use canonical metric keys."
           },
           "response": []
         },
