@@ -64,6 +64,7 @@ class SourcePrecedenceResolver:
         "cycling_vo2max_ml_kg_min": ["garmin"],
         "running_vo2max_ml_kg_min": ["garmin"],
         "hr_lthr_bpm": ["garmin", "chatgpt", "manual"],
+        "hr_lthr_cycling_bpm": ["garmin"],
         "hr_max_bpm": ["garmin"],
         
         # Training state (Garmin exclusive)
@@ -99,12 +100,13 @@ class PhysiometricsConsolidationHandler:
     applies source precedence rules, and optionally writes consolidated view.
     """
 
-    CONSOLIDATED_VERSION = "4.2.0"
+    CONSOLIDATED_VERSION = "4.3.0"
     METADATA_FIELDS = {"athlete_id", "effective_date", "data_sources", "canonical_version", "last_updated_utc"}
     STORAGE_FIELD_ALIASES = {
         # Legacy nested storage format aliases
         "ftp_watts": ["ftp_watts", "power_ftp_watts"],
         "hr_lthr_bpm": ["hr_lthr_bpm", "heart_rate_lthr_bpm", "lactate_threshold_hr_bpm"],
+        "hr_lthr_cycling_bpm": ["hr_lthr_cycling_bpm", "heart_rate_lthr_cycling_bpm", "lthr_cycling_bpm"],
         "hr_max_bpm": ["hr_max_bpm", "heart_rate_hr_max_bpm"],
         "resting_hr_bpm": ["resting_hr_bpm", "heart_rate_resting_bpm"],
         # Prefixed nutrition fields from older schemas
@@ -211,6 +213,7 @@ class PhysiometricsConsolidationHandler:
             cycling_vo2max_ml_kg_min=None,
             running_vo2max_ml_kg_min=None,
             hr_lthr_bpm=None,
+            hr_lthr_cycling_bpm=None,
             hr_max_bpm=None,
             # Training state (Garmin)
             training_load=None,
@@ -229,7 +232,7 @@ class PhysiometricsConsolidationHandler:
             load_focus_anaerobic_pct=None,
             # Metadata
             data_sources="",
-            canonical_version="4.2.0",
+            canonical_version="4.3.0",
         )
 
     def _apply_precedence_rules(

@@ -143,28 +143,28 @@ class GarminConnectClient:
             logger.info("Successfully authenticated with Garmin Connect")
         except GarminConnectAuthenticationError as exc:
             self.client = None
-            logger.error("Garmin authentication failed: %s", exc)
+            logger.exception("Garmin authentication failed")
             raise GarminConnectError("Authentication failed - check credentials") from exc
         except GarminConnectTooManyRequestsError as exc:
             self.client = None
             self._mark_rate_limited()
-            logger.error("Garmin login throttled: %s", exc)
+            logger.exception("Garmin login throttled")
             raise GarminConnectRateLimitError(
                 "Garmin Connect rate limited this login attempt"
             ) from exc
         except GarminConnectConnectionError as exc:
             self.client = None
-            logger.error("Garmin connection failed: %s", exc)
+            logger.exception("Garmin connection failed")
             raise GarminConnectError("Connection to Garmin Connect failed") from exc
         except Exception as exc:
             self.client = None
             if self._is_rate_limited_exception(exc):
                 self._mark_rate_limited()
-                logger.error("Garmin login throttled: %s", exc)
+                logger.exception("Garmin login throttled")
                 raise GarminConnectRateLimitError(
                     "Garmin Connect rate limited this login attempt"
                 ) from exc
-            logger.error("Unexpected error during Garmin login: %s", exc)
+            logger.exception("Unexpected error during Garmin login")
             raise GarminConnectError("Failed to authenticate with Garmin Connect") from exc
 
     def list_activities(
@@ -206,7 +206,7 @@ class GarminConnectClient:
 
             return activities
         except Exception as exc:
-            logger.error("Failed to list Garmin activities: %s", exc)
+            logger.exception("Failed to list Garmin activities")
             raise GarminConnectError(f"Failed to fetch activity list: {exc}") from exc
 
     def dump_tokens(self) -> str:
@@ -223,7 +223,7 @@ class GarminConnectClient:
         try:
             return self.client.garth.dumps()
         except Exception as exc:
-            logger.error("Failed to serialize Garmin tokens: %s", exc)
+            logger.exception("Failed to serialize Garmin tokens")
             raise GarminConnectError("Failed to serialize Garmin tokens") from exc
 
     @staticmethod
@@ -344,7 +344,7 @@ class GarminConnectClient:
         try:
             return cast(Dict[str, Any], client.get_user_summary(date_str))
         except Exception as exc:
-            logger.error("Failed to fetch Garmin user summary for %s: %s", date_str, exc)
+            logger.exception("Failed to fetch Garmin user summary for %s", date_str)
             raise GarminConnectError(
                 f"Failed to fetch Garmin user summary: {exc}"
             ) from exc
@@ -355,9 +355,7 @@ class GarminConnectClient:
         try:
             return cast(Dict[str, Any], client.get_training_status(date_str))
         except Exception as exc:
-            logger.error(
-                "Failed to fetch Garmin training status for %s: %s", date_str, exc
-            )
+            logger.exception("Failed to fetch Garmin training status for %s", date_str)
             raise GarminConnectError(
                 f"Failed to fetch Garmin training status: {exc}"
             ) from exc
@@ -383,9 +381,7 @@ class GarminConnectClient:
             )
             return None
         except Exception as exc:
-            logger.error(
-                "Failed to fetch Garmin training readiness for %s: %s", date_str, exc
-            )
+            logger.exception("Failed to fetch Garmin training readiness for %s", date_str)
             raise GarminConnectError(
                 f"Failed to fetch Garmin training readiness: {exc}"
             ) from exc
@@ -399,10 +395,9 @@ class GarminConnectClient:
                 return None
             return cast(Dict[str, Any], value)
         except Exception as exc:
-            logger.error(
-                "Failed to fetch Garmin morning training readiness for %s: %s",
+            logger.exception(
+                "Failed to fetch Garmin morning training readiness for %s",
                 date_str,
-                exc,
             )
             raise GarminConnectError(
                 f"Failed to fetch Garmin morning training readiness: {exc}"
@@ -426,7 +421,7 @@ class GarminConnectClient:
             )
             return None
         except Exception as exc:
-            logger.error("Failed to fetch Garmin cycling FTP: %s", exc)
+            logger.exception("Failed to fetch Garmin cycling FTP")
             raise GarminConnectError(f"Failed to fetch Garmin cycling FTP: {exc}") from exc
 
     def get_lactate_threshold(self) -> Optional[Dict[str, Any]]:
@@ -444,8 +439,124 @@ class GarminConnectClient:
             )
             return None
         except Exception as exc:
-            logger.error("Failed to fetch Garmin lactate threshold: %s", exc)
+            logger.exception("Failed to fetch Garmin lactate threshold")
             raise GarminConnectError(f"Failed to fetch Garmin lactate threshold: {exc}") from exc
+
+    def get_recovery_metrics(self, date_str: str) -> Optional[Dict[str, Any]]:
+        """Fetch Garmin recovery metrics for a specific date.
+        
+        Recovery metrics often include lactate threshold HR, recovery time,
+        recovery heart rate, and other baseline HR information.
+        
+        Args:
+            date_str: Date in YYYY-MM-DD format
+            
+        Returns:
+            Recovery metrics dict or None if unavailable
+            
+        Raises:
+            GarminConnectError: If fetch fails
+        """
+        client = self._ensure_authenticated_client()
+        try:
+            value = client.get_recovery_metrics(date_str)  # type: ignore[attr-defined]
+            if value is None:
+                return None
+            if isinstance(value, dict):
+                return cast(Dict[str, Any], value)
+            if isinstance(value, list):
+                # Some endpoints return lists; take first element if present
+                first = value[0] if value else None
+                return cast(Optional[Dict[str, Any]], first if isinstance(first, dict) else None)
+            logger.warning(
+                "Unexpected Garmin recovery metrics payload type",
+                extra={"payload_type": type(value).__name__, "date": date_str},
+            )
+            return None
+        except Exception as exc:
+            logger.debug(
+                "Failed to fetch Garmin recovery metrics for %s: %s",
+                date_str,
+                exc,
+            )
+            # Don't raise; recovery metrics are optional
+            return None
+
+    def get_wellness(self, date_str: str) -> Optional[Dict[str, Any]]:
+        """Fetch Garmin wellness metrics for a specific date.
+        
+        Wellness data includes daily HR metrics, activity level, sleep,
+        and other baseline measurements.
+        
+        Args:
+            date_str: Date in YYYY-MM-DD format
+            
+        Returns:
+            Wellness dict or None if unavailable
+            
+        Raises:
+            GarminConnectError: If fetch fails
+        """
+        client = self._ensure_authenticated_client()
+        try:
+            value = client.get_wellness(date_str)  # type: ignore[attr-defined]
+            if value is None:
+                return None
+            if isinstance(value, dict):
+                return cast(Dict[str, Any], value)
+            if isinstance(value, list):
+                first = value[0] if value else None
+                return cast(Optional[Dict[str, Any]], first if isinstance(first, dict) else None)
+            logger.warning(
+                "Unexpected Garmin wellness payload type",
+                extra={"payload_type": type(value).__name__, "date": date_str},
+            )
+            return None
+        except Exception as exc:
+            logger.debug(
+                "Failed to fetch Garmin wellness for %s: %s",
+                date_str,
+                exc,
+            )
+            return None
+
+    def get_heart_rate_variability(self, date_str: str) -> Optional[Dict[str, Any]]:
+        """Fetch Garmin heart rate variability (HRV) data for a specific date.
+        
+        HRV data includes resting heart rate, HRV values, and other HR baselines.
+        
+        Args:
+            date_str: Date in YYYY-MM-DD format
+            
+        Returns:
+            HRV dict or None if unavailable
+            
+        Raises:
+            GarminConnectError: If fetch fails
+        """
+        client = self._ensure_authenticated_client()
+        try:
+            # Try the direct HRV endpoint first
+            value = client.get_heart_rate_variability(date_str)  # type: ignore[attr-defined]
+            if value is None:
+                return None
+            if isinstance(value, dict):
+                return cast(Dict[str, Any], value)
+            if isinstance(value, list):
+                first = value[0] if value else None
+                return cast(Optional[Dict[str, Any]], first if isinstance(first, dict) else None)
+            logger.warning(
+                "Unexpected Garmin HRV payload type",
+                extra={"payload_type": type(value).__name__, "date": date_str},
+            )
+            return None
+        except Exception as exc:
+            logger.debug(
+                "Failed to fetch Garmin HRV for %s: %s",
+                date_str,
+                exc,
+            )
+            return None
 
     def download_activity_fit(self, activity_id: str) -> bytes:
         """Download FIT file for a specific activity.
@@ -473,11 +584,7 @@ class GarminConnectClient:
         except GarminConnectError:
             raise  # Re-raise authentication or connection errors as-is
         except Exception as exc:
-            logger.error(
-                "Garmin API call failed for activity %s: %s",
-                activity_id,
-                exc,
-            )
+            logger.exception("Garmin API call failed for activity %s", activity_id)
             raise GarminConnectError(
                 f"Failed to download activity {activity_id} from Garmin API: {exc}"
             ) from exc

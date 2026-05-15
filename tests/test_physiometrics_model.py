@@ -55,6 +55,7 @@ class TestPhysiometricsSnapshotToStorageDict:
             effective_date="2026-03-04",
             resting_hr_bpm=52.0,
             hr_lthr_bpm=175.0,
+            hr_lthr_cycling_bpm=178.0,
             hr_max_bpm=195.0,
         )
 
@@ -62,6 +63,7 @@ class TestPhysiometricsSnapshotToStorageDict:
 
         assert storage_dict["resting_hr_bpm"] == pytest.approx(52.0)
         assert storage_dict["hr_lthr_bpm"] == pytest.approx(175.0)
+        assert storage_dict["hr_lthr_cycling_bpm"] == pytest.approx(178.0)
         assert storage_dict["hr_max_bpm"] == pytest.approx(195.0)
 
     def test_to_storage_dict_power_field(self) -> None:

@@ -142,6 +142,7 @@ class TestStorePhysiometrics:
             data_sources="garmin",
             ftp_watts=224,
             hr_lthr_bpm=173,
+            hr_lthr_cycling_bpm=176,
             hr_max_bpm=195,
             training_status_label="RECOVERY_2",
             load_focus_low_aerobic_pct=66.7,
@@ -156,6 +157,8 @@ class TestStorePhysiometrics:
         assert entity["RowKey"] == "2026-03-16|garmin"
         assert entity["power_ftp_watts"] == 224
         assert entity["heart_rate_lthr_bpm"] == 173
+        assert entity["heart_rate_lthr_cycling_bpm"] == 176
+        assert "lactate_threshold_hr_bpm" not in entity
         assert entity["heart_rate_hr_max_bpm"] == 195
         assert entity["training_status_label"] == "RECOVERY_2"
         assert entity["load_focus_low_aerobic_pct"] == pytest.approx(66.7)
@@ -280,7 +283,7 @@ class TestGetPhysiometricsHistoryRange:
     """Tests for date-range physiometrics history queries."""
 
     def test_get_physiometrics_history_exposes_canonical_aliases(self) -> None:
-        """Verify unfiltered history rows expose canonical FTP and HR fields."""
+        """Verify unfiltered history rows expose canonical FTP and HR fields only."""
         mock_table_client = MagicMock()
         mock_table_client.query_entities.return_value = [
             {
@@ -292,6 +295,8 @@ class TestGetPhysiometricsHistoryRange:
                 "power_ftp_watts": 224,
                 "heart_rate_hr_max_bpm": 195,
                 "heart_rate_lthr_bpm": 173,
+                "heart_rate_lthr_cycling_bpm": 176,
+                "lactate_threshold_hr_bpm": 173,
             }
         ]
         storage = _make_storage(mock_table_client)
@@ -301,6 +306,10 @@ class TestGetPhysiometricsHistoryRange:
         assert result[0]["ftp_watts"] == 224
         assert result[0]["hr_max_bpm"] == 195
         assert result[0]["hr_lthr_bpm"] == 173
+        assert result[0]["hr_lthr_cycling_bpm"] == 176
+        assert "lactate_threshold_hr_bpm" not in result[0]
+        assert "heart_rate_lthr_bpm" not in result[0]
+        assert "heart_rate_lthr_cycling_bpm" not in result[0]
 
     def test_get_physiometrics_history_filters_with_canonical_metric_names(self) -> None:
         """Verify metric filters resolve canonical names from storage alias columns."""
@@ -315,6 +324,7 @@ class TestGetPhysiometricsHistoryRange:
                 "power_ftp_watts": 224,
                 "heart_rate_hr_max_bpm": 195,
                 "heart_rate_lthr_bpm": 173,
+                "heart_rate_lthr_cycling_bpm": 176,
             }
         ]
         storage = _make_storage(mock_table_client)
@@ -323,7 +333,7 @@ class TestGetPhysiometricsHistoryRange:
             "rob",
             "2026-04-10",
             "2026-04-10",
-            metrics=["ftp_watts", "hr_max_bpm", "hr_lthr_bpm"],
+            metrics=["ftp_watts", "hr_max_bpm", "lactate_threshold_hr_bpm", "heart_rate_lthr_cycling_bpm"],
         )
 
         assert result == [
@@ -334,6 +344,7 @@ class TestGetPhysiometricsHistoryRange:
                 "ftp_watts": 224,
                 "hr_max_bpm": 195,
                 "hr_lthr_bpm": 173,
+                "hr_lthr_cycling_bpm": 176,
             }
         ]
 
@@ -579,8 +590,8 @@ class TestWellnessFieldsPersistence:
         # Should use flat key, not default 60
         assert entity["heart_rate_resting_bpm"] == pytest.approx(52)
 
-    def test_store_physiometrics_resting_hr_defaults_to_60_when_absent(self) -> None:
-        """Verify resting HR defaults to 60 only when no source provides value."""
+    def test_store_physiometrics_resting_hr_remains_none_when_absent(self) -> None:
+        """Verify resting HR is stored as None when upstream source omits it."""
         mock_table_client = MagicMock()
         storage = _make_storage(mock_table_client)
 
@@ -590,11 +601,31 @@ class TestWellnessFieldsPersistence:
             "sleep_duration_sec": 28800.0,
         }
 
-        storage.store_physiometrics("athlete123", physiometrics_data)
+        storage.store_physiometrics("athlete123", physiometrics_data, data_source="garmin")
 
         entity = mock_table_client.upsert_entity.call_args[0][0]
-        # Should fall back to default 60
-        assert entity["heart_rate_resting_bpm"] == 60
+        assert entity["heart_rate_resting_bpm"] is None
+
+    def test_get_physiometrics_history_preserves_null_resting_hr_for_garmin(self) -> None:
+        """Verify history rows do not synthesize resting HR for Garmin rows."""
+        mock_table_client = MagicMock()
+        mock_table_client.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "2026-05-13|garmin",
+                "effective_date": "2026-05-13",
+                "updated_at_utc": "2026-05-14T19:17:46.496066+00:00",
+                "data_source": "garmin",
+                "heart_rate_resting_bpm": None,
+                "heart_rate_lthr_bpm": 165,
+            }
+        ]
+        storage = _make_storage(mock_table_client)
+
+        result = storage.get_physiometrics_history("rob", "2026-05-13", "2026-05-13")
+
+        assert result[0]["resting_hr_bpm"] is None
+        assert result[0]["hr_lthr_bpm"] == 165
 
     def test_store_physiometrics_nutrition_macros_persisted(self) -> None:
         """Verify nutrition macro columns are persisted when present."""

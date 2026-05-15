@@ -172,7 +172,7 @@ class TestPhysiometricsTimeSeries:
 
             entity = mock_table.upsert_entity.call_args[0][0]
             assert entity["heart_rate_lthr_bpm"] == 178
-            assert entity["lactate_threshold_hr_bpm"] == 178
+            assert "lactate_threshold_hr_bpm" not in entity
             assert entity["RowKey"] == "2026-01-19|manual"
 
     def test_get_physiometrics_history(self, storage):

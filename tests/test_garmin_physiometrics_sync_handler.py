@@ -92,6 +92,7 @@ def test_sync_handler_stores_combined_metrics():
     assert kwargs["physiometrics_data"]["training_load"] == 76
     assert kwargs["physiometrics_data"]["ftp_watts"] == 312
     assert kwargs["physiometrics_data"]["hr_lthr_bpm"] == 165
+    assert kwargs["physiometrics_data"]["hr_lthr_cycling_bpm"] == 173
     assert kwargs["physiometrics_data"]["cycling_vo2max_ml_kg_min"] == pytest.approx(58.3)
     assert kwargs["physiometrics_data"]["running_vo2max_ml_kg_min"] == pytest.approx(55.1)
     assert kwargs["physiometrics_data"]["readiness_score"] == 84

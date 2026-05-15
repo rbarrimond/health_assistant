@@ -40,6 +40,7 @@ class PhysiometricsStorage:
         "training_stress_balance",
         "atp_probability",
         "recovery_time_minutes",
+        "hr_lthr_cycling_bpm",
         "lactate_threshold_hr_bpm",
         "training_status_label",
         "load_focus_low_aerobic_pct",
@@ -78,8 +79,28 @@ class PhysiometricsStorage:
         "ftp_watts": ["ftp_watts", "power_ftp_watts"],
         "lthr_bpm": ["lthr_bpm", "hr_lthr_bpm", "heart_rate_lthr_bpm", "lactate_threshold_hr_bpm"],
         "hr_lthr_bpm": ["hr_lthr_bpm", "heart_rate_lthr_bpm", "lactate_threshold_hr_bpm", "lthr_bpm"],
+        "hr_lthr_cycling_bpm": [
+            "hr_lthr_cycling_bpm",
+            "heart_rate_lthr_cycling_bpm",
+            "lthr_cycling_bpm",
+        ],
         "hr_max_bpm": ["hr_max_bpm", "heart_rate_hr_max_bpm"],
         "resting_hr_bpm": ["resting_hr_bpm", "heart_rate_resting_bpm"],
+    }
+    _HISTORY_METRIC_CANONICAL_NAMES = {
+        "ftp_watts": "ftp_watts",
+        "power_ftp_watts": "ftp_watts",
+        "hr_lthr_bpm": "hr_lthr_bpm",
+        "lthr_bpm": "hr_lthr_bpm",
+        "heart_rate_lthr_bpm": "hr_lthr_bpm",
+        "lactate_threshold_hr_bpm": "hr_lthr_bpm",
+        "hr_lthr_cycling_bpm": "hr_lthr_cycling_bpm",
+        "lthr_cycling_bpm": "hr_lthr_cycling_bpm",
+        "heart_rate_lthr_cycling_bpm": "hr_lthr_cycling_bpm",
+        "hr_max_bpm": "hr_max_bpm",
+        "heart_rate_hr_max_bpm": "hr_max_bpm",
+        "resting_hr_bpm": "resting_hr_bpm",
+        "heart_rate_resting_bpm": "resting_hr_bpm",
     }
 
     @staticmethod
@@ -164,7 +185,14 @@ class PhysiometricsStorage:
         for metric_name in cls._BASELINE_FIELD_ALIASES:
             if metric_name not in normalized:
                 normalized[metric_name] = cls._resolve_metric_value(normalized, metric_name)
+        for legacy_name in ("lactate_threshold_hr_bpm", "heart_rate_lthr_bpm", "heart_rate_lthr_cycling_bpm", "lthr_bpm", "lthr_cycling_bpm"):
+            normalized.pop(legacy_name, None)
         return normalized
+
+    @classmethod
+    def _canonical_history_metric_name(cls, metric_name: str) -> str:
+        """Map history request/response metric names to canonical names."""
+        return cls._HISTORY_METRIC_CANONICAL_NAMES.get(metric_name, metric_name)
     @classmethod
     def _sorted_entities(
         cls,
@@ -251,13 +279,18 @@ class PhysiometricsStorage:
 
         payload["resting_hr_bpm"] = payload.get("resting_hr_bpm") or heart_rate.get("resting_hr_bpm")
         payload["hr_lthr_bpm"] = payload.get("hr_lthr_bpm") or heart_rate.get("lthr_bpm") or canonical.get("lactate_threshold_hr_bpm")
+        payload["hr_lthr_cycling_bpm"] = (
+            payload.get("hr_lthr_cycling_bpm")
+            or heart_rate.get("lthr_cycling_bpm")
+            or canonical.get("heart_rate_lthr_cycling_bpm")
+        )
         payload["hr_max_bpm"] = payload.get("hr_max_bpm") or heart_rate.get("hr_max_bpm")
         payload["ftp_watts"] = payload.get("ftp_watts") or power.get("ftp_watts")
         payload["athlete_id"] = payload.get("athlete_id") or canonical.get("athlete_id") or canonical.get("PartitionKey")
         payload["effective_date"] = payload.get("effective_date") or canonical.get("effective_date")
         payload["last_updated_utc"] = payload.get("last_updated_utc") or canonical.get("updated_at_utc")
         payload["data_sources"] = payload.get("data_sources") or canonical.get("data_source") or ""
-        payload["canonical_version"] = payload.get("canonical_version") or "4.2.0"
+        payload["canonical_version"] = payload.get("canonical_version") or "4.3.0"
 
         return payload
 
@@ -274,16 +307,26 @@ class PhysiometricsStorage:
         try:
             return PhysiometricsSnapshot(**payload)
         except PydanticValidationError as exc:
-            logger.error(
+            logger.exception(
                 "Failed to hydrate physiometrics snapshot",
                 extra={
                     "athlete_id": latest.get("PartitionKey"),
                     "effective_date": latest.get("effective_date"),
                     "data_source": latest.get("data_source"),
                 },
-                exc_info=True,
             )
             raise StorageError("Failed to hydrate physiometrics snapshot") from exc
+
+    @staticmethod
+    def _resolve_resting_hr_bpm(payload: Mapping[str, Any]) -> Any:
+        """Resolve resting HR from source payload without synthesizing defaults."""
+        resting_hr_bpm = payload.get("resting_hr_bpm")
+        if resting_hr_bpm is not None:
+            return resting_hr_bpm
+        heart_rate_payload = payload.get("heart_rate")
+        if isinstance(heart_rate_payload, Mapping):
+            return heart_rate_payload.get("resting_hr_bpm")
+        return None
 
     def store_physiometrics(
         self,
@@ -309,6 +352,13 @@ class PhysiometricsStorage:
             effective_date = datetime.now(timezone.utc).date().isoformat()
 
         ext_json_payload = self._build_ext_json_payload(payload)
+        heart_rate_payload = payload.get("heart_rate") or {}
+        resting_hr_bpm = self._resolve_resting_hr_bpm(payload)
+        lthr_bpm = heart_rate_payload.get("lthr_bpm") or payload.get("hr_lthr_bpm")
+        lthr_cycling_bpm = (
+            heart_rate_payload.get("lthr_cycling_bpm")
+            or payload.get("hr_lthr_cycling_bpm")
+        )
 
         entity = {
             "PartitionKey": athlete_id,
@@ -316,18 +366,12 @@ class PhysiometricsStorage:
             "updated_at_utc": timestamp,
             "effective_date": effective_date,
             "data_source": normalized_source,
-            "heart_rate_basis": payload.get("heart_rate", {}).get("basis"),
-            "heart_rate_lthr_bpm": payload.get("heart_rate", {}).get("lthr_bpm") or payload.get("hr_lthr_bpm"),
-            "heart_rate_hr_max_bpm": payload.get("heart_rate", {}).get("hr_max_bpm") or payload.get("hr_max_bpm"),
-            "heart_rate_resting_bpm": (
-                # Try flat key first (from PhysiometricsSnapshot.to_storage_dict)
-                payload.get("resting_hr_bpm")
-                # Fall back to nested structure for backward compatibility
-                or payload.get("heart_rate", {}).get("resting_hr_bpm")
-                # Final default only if no source provided value
-                or 60
-            ),
-            "power_ftp_watts": payload.get("power", {}).get("ftp_watts") or payload.get("ftp_watts"),
+            "heart_rate_basis": heart_rate_payload.get("basis"),
+            "heart_rate_lthr_bpm": lthr_bpm,
+            "heart_rate_lthr_cycling_bpm": lthr_cycling_bpm,
+            "heart_rate_hr_max_bpm": heart_rate_payload.get("hr_max_bpm") or payload.get("hr_max_bpm"),
+            "heart_rate_resting_bpm": resting_hr_bpm,
+            "power_ftp_watts": (payload.get("power") or {}).get("ftp_watts") or payload.get("ftp_watts"),
             "weight_kg": payload.get("weight_kg"),
             "fat_mass_kg": payload.get("fat_mass_kg"),
             "muscle_mass_kg": payload.get("muscle_mass_kg"),
@@ -348,7 +392,6 @@ class PhysiometricsStorage:
             "training_stress_balance": payload.get("training_stress_balance"),
             "atp_probability": payload.get("atp_probability"),
             "recovery_time_minutes": payload.get("recovery_time_minutes"),
-            "lactate_threshold_hr_bpm": payload.get("lactate_threshold_hr_bpm") or payload.get("hr_lthr_bpm"),
             "training_status_label": payload.get("training_status_label"),
             "load_focus_low_aerobic_pct": payload.get("load_focus_low_aerobic_pct"),
             "load_focus_high_aerobic_pct": payload.get("load_focus_high_aerobic_pct"),
@@ -396,7 +439,7 @@ class PhysiometricsStorage:
             )
             return timestamp
         except HttpResponseError as e:
-            logger.error(
+            logger.exception(
                 "Error storing physiometrics",
                 extra={
                     "athlete_id": athlete_id,
@@ -404,7 +447,6 @@ class PhysiometricsStorage:
                     "error_type": "HttpResponseError",
                     "error": str(e),
                 },
-                exc_info=True,
             )
             raise StorageError("Failed to store physiometrics") from e
 
@@ -438,8 +480,9 @@ class PhysiometricsStorage:
         return {
             "basis": entity.get("heart_rate_basis"),
             "lthr_bpm": entity.get("heart_rate_lthr_bpm"),
+            "lthr_cycling_bpm": entity.get("heart_rate_lthr_cycling_bpm"),
             "hr_max_bpm": entity.get("heart_rate_hr_max_bpm"),
-            "resting_hr_bpm": entity.get("heart_rate_resting_bpm") or 60,
+            "resting_hr_bpm": entity.get("heart_rate_resting_bpm"),
         }
 
     def _get_power(self, entity: Mapping[str, Any]) -> Dict[str, Any]:
@@ -483,14 +526,13 @@ class PhysiometricsStorage:
         except ResourceNotFoundError:
             return None
         except HttpResponseError as e:
-            logger.error(
+            logger.exception(
                 "Error retrieving physiometrics",
                 extra={
                     "athlete_id": athlete_id,
                     "error_type": "HttpResponseError",
                     "error": str(e),
                 },
-                exc_info=True,
             )
             raise StorageError("Failed to retrieve physiometrics") from e
 
@@ -525,7 +567,7 @@ class PhysiometricsStorage:
             )
 
         except HttpResponseError as e:
-            logger.error(
+            logger.exception(
                 "Error retrieving physiometrics as of date",
                 extra={
                     "athlete_id": athlete_id,
@@ -533,7 +575,6 @@ class PhysiometricsStorage:
                     "error_type": "HttpResponseError",
                     "error": str(e),
                 },
-                exc_info=True,
             )
             raise StorageError("Failed to retrieve physiometrics history point") from e
 
@@ -568,7 +609,7 @@ class PhysiometricsStorage:
 
             return self._hydrate_entity_snapshot(latest)
         except HttpResponseError as e:
-            logger.error(
+            logger.exception(
                 "Error retrieving physiometrics snapshot as of date",
                 extra={
                     "athlete_id": athlete_id,
@@ -576,7 +617,6 @@ class PhysiometricsStorage:
                     "error_type": "HttpResponseError",
                     "error": str(e),
                 },
-                exc_info=True,
             )
             raise StorageError("Failed to retrieve typed physiometrics history point") from e
 
@@ -597,7 +637,7 @@ class PhysiometricsStorage:
             entities = self._sorted_entities(entities, reverse=True)
             return entities[:limit]
         except HttpResponseError as e:
-            logger.error(
+            logger.exception(
                 "Error retrieving physiometrics history",
                 extra={
                     "athlete_id": athlete_id,
@@ -605,7 +645,6 @@ class PhysiometricsStorage:
                     "error_type": "HttpResponseError",
                     "error": str(e),
                 },
-                exc_info=True,
             )
             raise StorageError("Failed to list physiometrics history") from e
 
@@ -634,6 +673,7 @@ class PhysiometricsStorage:
                 for entity in self._sorted_entities(entities)
             ]
             if metrics:
+                canonical_metrics = [self._canonical_history_metric_name(metric) for metric in metrics]
                 result = []
                 for entity in entities:
                     data_point = {
@@ -641,7 +681,7 @@ class PhysiometricsStorage:
                         "updated_at_utc": entity.get("updated_at_utc"),
                         "data_source": entity.get("data_source"),
                     }
-                    for metric in metrics:
+                    for metric in canonical_metrics:
                         data_point[metric] = self._resolve_metric_value(entity, metric)
                     result.append(data_point)
                 return result
@@ -649,7 +689,7 @@ class PhysiometricsStorage:
             return entities
 
         except HttpResponseError as e:
-            logger.error(
+            logger.exception(
                 "Error retrieving physiometrics history range",
                 extra={
                     "athlete_id": athlete_id,
@@ -659,7 +699,6 @@ class PhysiometricsStorage:
                     "error_type": "HttpResponseError",
                     "error": str(e),
                 },
-                exc_info=True,
             )
             raise StorageError("Failed to retrieve physiometrics history") from e
 
@@ -677,6 +716,9 @@ class PhysiometricsStorage:
             latest_config.setdefault("power", {})[metric_name] = value
         elif metric_name == "hr_lthr_bpm":
             latest_config.setdefault("heart_rate", {})["lthr_bpm"] = value
+            latest_config[metric_name] = value
+        elif metric_name == "hr_lthr_cycling_bpm":
+            latest_config.setdefault("heart_rate", {})["lthr_cycling_bpm"] = value
             latest_config[metric_name] = value
         elif metric_name == "hr_max_bpm":
             latest_config.setdefault("heart_rate", {})[metric_name] = value

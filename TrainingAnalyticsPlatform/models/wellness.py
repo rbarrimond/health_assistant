@@ -89,6 +89,9 @@ class PhysiometricsSnapshot(BaseModel):
     hr_lthr_bpm: Optional[float] = Field(
         None, ge=0, description="Lactate threshold heart rate in beats/minute"
     )
+    hr_lthr_cycling_bpm: Optional[float] = Field(
+        None, ge=0, description="Cycling-specific lactate threshold heart rate in beats/minute"
+    )
     hr_max_bpm: Optional[float] = Field(
         None, ge=0, description="Maximum heart rate in beats/minute"
     )
@@ -140,7 +143,7 @@ class PhysiometricsSnapshot(BaseModel):
         default="", description="CSV of sources: withings,garmin,intervals"
     )
     canonical_version: str = Field(
-        default="4.2.0", description="Schema version (4.2.0 = training status + load focus fields; 4.1.0 = running VO2Max promotion; 4.0.0 = SDNN/SpO2 promotion, Intervals body fallback, load-field removal)"
+        default="4.3.0", description="Schema version (4.3.0 = cycling LTHR field + Garmin metric alias dedupe; 4.2.0 = training status + load focus fields; 4.1.0 = running VO2Max promotion; 4.0.0 = SDNN/SpO2 promotion, Intervals body fallback, load-field removal)"
     )
     last_updated_utc: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
@@ -190,6 +193,7 @@ class PhysiometricsSnapshot(BaseModel):
             "cycling_vo2max_ml_kg_min": self.cycling_vo2max_ml_kg_min,
             "running_vo2max_ml_kg_min": self.running_vo2max_ml_kg_min,
             "hr_lthr_bpm": self.hr_lthr_bpm,
+            "hr_lthr_cycling_bpm": self.hr_lthr_cycling_bpm,
             "hr_max_bpm": self.hr_max_bpm,
             
             # Training state (Garmin exclusive)

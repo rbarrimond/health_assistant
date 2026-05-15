@@ -191,6 +191,7 @@ class WithingsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             cycling_vo2max_ml_kg_min=None,
             running_vo2max_ml_kg_min=None,
             hr_lthr_bpm=None,
+            hr_lthr_cycling_bpm=None,
             hr_max_bpm=None,
             # Training state (Garmin exclusive)
             training_load=None,
@@ -209,7 +210,7 @@ class WithingsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             load_focus_anaerobic_pct=None,
             # Metadata
             data_sources="withings",
-            canonical_version="4.2.0",
+            canonical_version="4.3.0",
         )
 
 
@@ -463,6 +464,8 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
                 "has_ftp": parsed.get("ftp") is not None,
                 "has_vo2max_cycling": parsed.get("vo2max_cycling") is not None,
                 "has_vo2max_running": parsed.get("vo2max_running") is not None,
+                "has_lthr": parsed.get("lactate_threshold_hr_bpm") is not None,
+                "has_lthr_cycling": parsed.get("lactate_threshold_hr_cycling_bpm") is not None,
                 "has_training_load": parsed.get("training_load") is not None,
                 "has_training_stress_score": parsed.get("training_stress_score") is not None,
                 "has_readiness": parsed.get("readiness") is not None,
@@ -474,6 +477,74 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             },
         )
 
+    def _extract_lactate_threshold_hr(
+        self,
+        lactate_threshold: Dict[str, Any],
+        training_status: Dict[str, Any],
+        recovery_metrics: Dict[str, Any],
+        wellness: Dict[str, Any],
+    ) -> tuple[Any, Any, Optional[str]]:
+        """Extract generic and cycling LTHR with ordered endpoint fallbacks."""
+        cycling_lthr = self._extract_first(
+            lactate_threshold,
+            [
+                ("speed_and_heart_rate", "heartRateCycling"),
+            ],
+        )
+
+        extraction_plan = [
+            (
+                lactate_threshold,
+                [
+                    # Prefer the current device-reported threshold HR when both fields exist.
+                    # Edge 1050 payloads can retain a stale cycling-specific value alongside the
+                    # actively reported threshold in speed_and_heart_rate.heartRate.
+                    ("speed_and_heart_rate", "heartRate"),
+                ],
+                "lactate_threshold_endpoint",
+            ),
+            (
+                training_status,
+                [
+                    ("lactateThresholdHeartRate",),
+                    ("lactateThreshold", "heartRate"),
+                    ("recoveryMetrics", "lactateThresholdHeartRate"),
+                    ("recoveryMetrics", "lthr"),
+                ],
+                "training_status_fallback",
+            ),
+            (
+                recovery_metrics,
+                [
+                    ("lactateThresholdHeartRate",),
+                    ("lactateThreshold",),
+                    ("lthr",),
+                    ("recovery", "lactateThresholdHeartRate"),
+                ],
+                "recovery_metrics_endpoint",
+            ),
+            (
+                wellness,
+                [
+                    ("lactateThresholdHeartRate",),
+                    ("lactateThreshold",),
+                    ("lthr",),
+                    ("heartRateMetrics", "lactateThresholdHeartRate"),
+                ],
+                "wellness_endpoint",
+            ),
+        ]
+
+        for payload, paths, source in extraction_plan:
+            value = self._extract_first(payload, paths)
+            if value is not None:
+                return value, cycling_lthr, source
+
+        if cycling_lthr is not None:
+            return cycling_lthr, cycling_lthr, "lactate_threshold_endpoint_cycling_fallback"
+
+        return None, cycling_lthr, None
+
     def _do_parse(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """Extract queryable Garmin metrics from summary and training status payloads."""
         summary = raw_data.get("summary", raw_data)
@@ -482,6 +553,8 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
         morning_training_readiness = raw_data.get("morning_training_readiness")
         cycling_ftp = raw_data.get("cycling_ftp") or {}
         lactate_threshold = raw_data.get("lactate_threshold") or {}
+        recovery_metrics = raw_data.get("recovery_metrics") or {}
+        wellness = raw_data.get("wellness") or {}
         stats = summary.get("stats", summary)
         context = self._extract_training_context(training_status)
         most_recent_vo2max = context["most_recent_vo2max"]
@@ -499,26 +572,25 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             ],
         ) or {}
 
-        lactate_threshold_hr = self._extract_first(
-            lactate_threshold,
-            [
-                # Prefer the current device-reported threshold HR when both fields exist.
-                # Edge 1050 payloads can retain a stale cycling-specific value alongside the
-                # actively reported threshold in speed_and_heart_rate.heartRate.
-                ("speed_and_heart_rate", "heartRate"),
-                ("speed_and_heart_rate", "heartRateCycling"),
-            ],
+        lactate_threshold_hr, lactate_threshold_cycling_hr, lthr_source = self._extract_lactate_threshold_hr(
+            lactate_threshold=lactate_threshold,
+            training_status=training_status,
+            recovery_metrics=recovery_metrics,
+            wellness=wellness,
         )
-        if lactate_threshold_hr is None:
-            lactate_threshold_hr = self._extract_first(
-                training_status,
-                [
-                ("lactateThresholdHeartRate",),
-                ("lactateThreshold", "heartRate"),
-                ("recoveryMetrics", "lactateThresholdHeartRate"),
-                ("recoveryMetrics", "lthr"),
-                ],
-            )
+        
+        logger.debug(
+            "Extracted lactate threshold HR from Garmin payloads",
+            extra={
+                "lactate_threshold_hr": lactate_threshold_hr,
+                "lactate_threshold_cycling_hr": lactate_threshold_cycling_hr,
+                "lthr_source": lthr_source,
+                "has_lactate_threshold_payload": bool(lactate_threshold),
+                "has_training_status_payload": bool(training_status),
+                "has_recovery_metrics_payload": bool(recovery_metrics),
+                "has_wellness_payload": bool(wellness),
+            },
+        )
 
         training_status_label = self._extract_training_status_label(latest_training_status)
         load_focus_metrics = self._extract_load_focus_metrics(
@@ -628,6 +700,7 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             ),
             "recovery_time_minutes": readiness_recovery["recovery_time_minutes"],
             "lactate_threshold_hr_bpm": lactate_threshold_hr,
+            "lactate_threshold_hr_cycling_bpm": lactate_threshold_cycling_hr,
             "training_status_label": training_status_label,
             "load_focus_low_aerobic_pct": load_focus_metrics["load_focus_low_aerobic_pct"],
             "load_focus_high_aerobic_pct": load_focus_metrics["load_focus_high_aerobic_pct"],
@@ -668,6 +741,7 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             ("training_effect_anaerobic", 0, 5, "Anaerobic training effect"),
             ("atp_probability", 0, 100, "ATP probability"),
             ("lactate_threshold_hr_bpm", 80, 220, "Lactate threshold HR"),
+            ("lactate_threshold_hr_cycling_bpm", 80, 220, "Cycling lactate threshold HR"),
         ]
         for key, minimum, maximum, label in checks:
             self._validate_range(parsed, key, minimum, maximum, label)
@@ -685,6 +759,7 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
         lthr = parsed.get("lactate_threshold_hr_bpm") or (
             int(max_hr * 0.85) if max_hr else None
         )
+        lthr_cycling = parsed.get("lactate_threshold_hr_cycling_bpm")
 
         return PhysiometricsSnapshot(
             athlete_id=athlete_id,
@@ -715,6 +790,7 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             cycling_vo2max_ml_kg_min=parsed.get("vo2max_cycling"),
             running_vo2max_ml_kg_min=parsed.get("vo2max_running"),
             hr_lthr_bpm=lthr,
+            hr_lthr_cycling_bpm=lthr_cycling,
             hr_max_bpm=max_hr,
             # Training state (Garmin exclusive)
             training_load=parsed.get("training_load"),
@@ -733,7 +809,7 @@ class GarminTrainingStateAdapter(BaseWellnessSourceAdapter):
             load_focus_anaerobic_pct=parsed.get("load_focus_anaerobic_pct"),
             # Metadata
             data_sources="garmin",
-            canonical_version="4.2.0",
+            canonical_version="4.3.0",
         )
 
 
@@ -828,6 +904,7 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             cycling_vo2max_ml_kg_min=None,
             running_vo2max_ml_kg_min=None,
             hr_lthr_bpm=None,
+            hr_lthr_cycling_bpm=None,
             hr_max_bpm=None,
             # Training state (Garmin exclusive)
             training_load=None,
@@ -846,7 +923,7 @@ class IntervalsPhysiometricsAdapter(BaseWellnessSourceAdapter):
             load_focus_anaerobic_pct=None,
             # Metadata
             data_sources="intervals",
-            canonical_version="4.2.0",
+            canonical_version="4.3.0",
         )
 
 

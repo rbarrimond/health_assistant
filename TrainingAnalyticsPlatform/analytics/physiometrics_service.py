@@ -62,6 +62,7 @@ PHYSIOMETRICS_SOURCE_PRECEDENCE = {
     "cycling_vo2max_ml_kg_min": ["garmin", "intervals"],
     "running_vo2max_ml_kg_min": ["garmin", "intervals"],
     "hr_lthr_bpm": ["garmin", "chatgpt", "manual"],
+    "hr_lthr_cycling_bpm": ["garmin"],
     "hr_max_bpm": ["garmin", "chatgpt", "manual"],
     "load": ["garmin"],
     "readiness_score": ["garmin", "intervals"],
@@ -72,7 +73,6 @@ PHYSIOMETRICS_SOURCE_PRECEDENCE = {
     "training_stress_balance": ["garmin"],
     "atp_probability": ["garmin"],
     "recovery_time_minutes": ["garmin"],
-    "lactate_threshold_hr_bpm": ["garmin"],
     "training_status_label": ["garmin"],
     "load_focus_low_aerobic_pct": ["garmin"],
     "load_focus_high_aerobic_pct": ["garmin"],
@@ -91,7 +91,7 @@ TRAINING_STATE_PHYSIOMETRICS_SOURCES = {
 }
 
 PHYSIOMETRICS_CANONICAL_SECTIONS = {
-    "heart_rate": ["lthr_bpm", "hr_max_bpm", "resting_hr_bpm", "hrv_ln_rmssd", "hrv_sdnn_ms"],
+    "heart_rate": ["lthr_bpm", "lthr_cycling_bpm", "hr_max_bpm", "resting_hr_bpm", "hrv_ln_rmssd", "hrv_sdnn_ms"],
     "power": ["ftp_watts"],
     "vo2max": ["cycling_vo2max_ml_kg_min", "running_vo2max_ml_kg_min"],
     "body_composition": ["weight_kg", "fat_mass_kg", "muscle_mass_kg", "bone_mass_kg", "body_fat_pct"],
@@ -129,12 +129,12 @@ PHYSIOMETRICS_OPTIONAL_METRICS = [
     "vo2max_ml_kg_min",
     "menstrual_phase",
     "menstrual_phase_predicted",
-    "lactate_threshold_hr_bpm",
 ]
 
 PHYSIOMETRICS_STORAGE_FIELD_ALIASES = {
     "ftp_watts": ["ftp_watts", "power_ftp_watts"],
     "hr_lthr_bpm": ["hr_lthr_bpm", "heart_rate_lthr_bpm", "lactate_threshold_hr_bpm"],
+    "hr_lthr_cycling_bpm": ["hr_lthr_cycling_bpm", "heart_rate_lthr_cycling_bpm", "lthr_cycling_bpm"],
     "hr_max_bpm": ["hr_max_bpm", "heart_rate_hr_max_bpm"],
     "resting_hr_bpm": ["resting_hr_bpm", "heart_rate_resting_bpm"],
     "soreness": ["soreness", "subjective_soreness"],
@@ -193,6 +193,7 @@ class PhysiometricsService:
             "heart_rate": {
                 "basis": merged.get("heart_rate_basis"),
                 "lthr_bpm": merged.get("hr_lthr_bpm"),
+                "lthr_cycling_bpm": merged.get("hr_lthr_cycling_bpm"),
                 "hr_max_bpm": merged.get("hr_max_bpm"),
                 "resting_hr_bpm": merged.get("resting_hr_bpm"),
                 "hrv_ln_rmssd": merged.get("hrv_ln_rmssd"),
@@ -320,7 +321,7 @@ class PhysiometricsService:
             }
 
         except Exception as e:  # pylint: disable=broad-exception-caught
-            logger.error(
+            logger.exception(
                 "Error updating physiometric",
                 extra={
                     "athlete_id": athlete_id,
@@ -329,7 +330,6 @@ class PhysiometricsService:
                     "error_type": type(e).__name__,
                     "error": str(e),
                 },
-                exc_info=True,
             )
             return {
                 "status": "error",
@@ -893,7 +893,7 @@ class PhysiometricsService:
             if metric_value is None:
                 continue
             resolved[metric_name] = metric_value
-            if metric_name in {"hr_lthr_bpm", "hr_max_bpm", "resting_hr_bpm"}:
+            if metric_name in {"hr_lthr_bpm", "hr_lthr_cycling_bpm", "hr_max_bpm", "resting_hr_bpm"}:
                 if isinstance(basis, str) and basis.strip():
                     resolved["heart_rate_basis"] = basis
 

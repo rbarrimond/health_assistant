@@ -519,12 +519,11 @@ class GarminPhysiometricsSyncHandler(WellnessSourceSyncContract):
             logger.warning("Garmin physiometrics sync error: %s", issue["message"])
             self._record_blob_failure(blob_name, str(issue["message"]))
             if self._is_fatal_garmin_error(exc):
-                logger.error(
+                logger.exception(
                     "Garmin physiometrics sync aborted due to fatal Garmin error",
                     extra={
                         "athlete_id": athlete_id,
                         "effective_date": date_str,
-                        "error": str(exc),
                     },
                 )
                 return False, issue, True
@@ -548,7 +547,7 @@ class GarminPhysiometricsSyncHandler(WellnessSourceSyncContract):
                 category=type(exc).__name__,
                 recoverable=False,
             )
-            logger.error("Garmin physiometrics sync unexpected error", exc_info=True)
+            logger.exception("Garmin physiometrics sync unexpected error")
             self._record_blob_failure(blob_name, str(issue["message"]))
             return False, issue, False
 
@@ -609,28 +608,24 @@ class GarminPhysiometricsSyncHandler(WellnessSourceSyncContract):
         except GarminConnectError as exc:
             if self._is_rate_limited_error(exc):
                 self._persist_rate_limit_cooldown(athlete_id)
-                logger.error(
+                logger.exception(
                     "Garmin login rate limited for physiometrics sync",
                     extra={
                         "athlete_id": athlete_id,
                         "source_system": "garmin",
-                        "error": str(exc),
                     },
-                    exc_info=True,
                 )
                 return {
                     "error": str(exc),
                     "error_code": "GARMIN_RATE_LIMITED",
                 }, 429
-            logger.error(
+            logger.exception(
                 "Failed to authenticate with Garmin Connect for physiometrics sync",
                 extra={
                     "athlete_id": athlete_id,
                     "source_system": "garmin",
                     "error_type": "GarminConnectError",
-                    "error": str(exc),
                 },
-                exc_info=True,
             )
             return {
                 "error": f"Authentication failed: {exc}",
@@ -793,12 +788,14 @@ class GarminPhysiometricsSyncHandler(WellnessSourceSyncContract):
         summary = self.client.get_user_summary(date_str)
         training_status = self.client.get_training_status(date_str)
         training_readiness, morning_training_readiness = self._fetch_training_readiness_payloads(date_str)
-        cycling_ftp, lactate_threshold = self._fetch_training_baseline_payloads()
+        cycling_ftp, lactate_threshold, recovery_metrics, wellness, hrv = self._fetch_training_baseline_payloads(date_str)
         date_scoped_cycling_ftp = self._baseline_payload_for_date(
             baseline_payload=cycling_ftp,
             effective_date=date_str,
             date_paths=(("calendarDate",),),
         )
+        # Keep future-dated baseline records from contaminating historical rows when
+        # the payload carries an explicit date. If no date is provided, keep payload.
         date_scoped_lactate_threshold = self._baseline_payload_for_date(
             baseline_payload=lactate_threshold,
             effective_date=date_str,
@@ -814,6 +811,9 @@ class GarminPhysiometricsSyncHandler(WellnessSourceSyncContract):
             morning_training_readiness=morning_training_readiness,
             cycling_ftp=date_scoped_cycling_ftp,
             lactate_threshold=date_scoped_lactate_threshold,
+            recovery_metrics=recovery_metrics,
+            wellness=wellness,
+            hrv=hrv,
         )
         self.ingestion_state.record_blob_fetched(
             source_name="garmin",
@@ -829,6 +829,9 @@ class GarminPhysiometricsSyncHandler(WellnessSourceSyncContract):
                 "morning_training_readiness": morning_training_readiness,
                 "cycling_ftp": date_scoped_cycling_ftp,
                 "lactate_threshold": date_scoped_lactate_threshold,
+                "recovery_metrics": recovery_metrics,
+                "wellness": wellness,
+                "hrv": hrv,
             }
         )
         self.adapter.validate_semantic_contract(parsed)
@@ -884,10 +887,20 @@ class GarminPhysiometricsSyncHandler(WellnessSourceSyncContract):
 
     def _fetch_training_baseline_payloads(
         self,
-    ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
-        """Fetch dedicated Garmin baseline payloads; degrade gracefully when unavailable."""
+        date_str: str,
+    ) -> Tuple[
+        Optional[Dict[str, Any]],
+        Optional[Dict[str, Any]],
+        Optional[Dict[str, Any]],
+        Optional[Dict[str, Any]],
+        Optional[Dict[str, Any]],
+    ]:
+        """Fetch dedicated Garmin baseline and recovery payloads; degrade gracefully when unavailable."""
         cycling_ftp: Optional[Dict[str, Any]] = None
         lactate_threshold: Optional[Dict[str, Any]] = None
+        recovery_metrics: Optional[Dict[str, Any]] = None
+        wellness: Optional[Dict[str, Any]] = None
+        hrv: Optional[Dict[str, Any]] = None
 
         try:
             cycling_ftp = self.client.get_cycling_ftp()
@@ -905,7 +918,31 @@ class GarminPhysiometricsSyncHandler(WellnessSourceSyncContract):
                 exc_info=True,
             )
 
-        return cycling_ftp, lactate_threshold
+        try:
+            recovery_metrics = self.client.get_recovery_metrics(date_str)
+        except GarminConnectError:
+            logger.debug(
+                "Garmin recovery metrics unavailable for date",
+                extra={"effective_date": date_str},
+            )
+
+        try:
+            wellness = self.client.get_wellness(date_str)
+        except GarminConnectError:
+            logger.debug(
+                "Garmin wellness data unavailable for date",
+                extra={"effective_date": date_str},
+            )
+
+        try:
+            hrv = self.client.get_heart_rate_variability(date_str)
+        except GarminConnectError:
+            logger.debug(
+                "Garmin HRV data unavailable for date",
+                extra={"effective_date": date_str},
+            )
+
+        return cycling_ftp, lactate_threshold, recovery_metrics, wellness, hrv
 
     @staticmethod
     def _baseline_payload_for_date(
@@ -985,6 +1022,9 @@ class GarminPhysiometricsSyncHandler(WellnessSourceSyncContract):
         morning_training_readiness: Optional[Dict[str, Any]],
         cycling_ftp: Optional[Dict[str, Any]],
         lactate_threshold: Optional[Dict[str, Any]],
+        recovery_metrics: Optional[Dict[str, Any]] = None,
+        wellness: Optional[Dict[str, Any]] = None,
+        hrv: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Persist one Garmin daily physiometrics fetch envelope to blob storage."""
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
@@ -1004,6 +1044,9 @@ class GarminPhysiometricsSyncHandler(WellnessSourceSyncContract):
                 "morning_training_readiness": morning_training_readiness,
                 "cycling_ftp": cycling_ftp,
                 "lactate_threshold": lactate_threshold,
+                "recovery_metrics": recovery_metrics,
+                "wellness": wellness,
+                "hrv": hrv,
             },
         }
         self.storage.infrastructure.upload_external_source_json(blob_name, envelope)
@@ -1169,30 +1212,26 @@ class IntervalsSyncHandler(WellnessSourceSyncContract):
             }, status
 
         except ExternalServiceError as exc:
-            logger.error(
+            logger.exception(
                 "Intervals.icu API error",
                 extra={
                     "intervals_athlete_id": intervals_athlete_id,
                     "athlete_id": athlete_id,
                     "source_system": "intervals",
                     "error_type": type(exc).__name__,
-                    "error": str(exc),
                 },
-                exc_info=True,
             )
             return exc.to_response()
 
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger.error(
+            logger.exception(
                 "Unexpected error in Intervals sync",
                 extra={
                     "intervals_athlete_id": intervals_athlete_id,
                     "athlete_id": athlete_id,
                     "source_system": "intervals",
                     "error_type": type(exc).__name__,
-                    "error": str(exc),
                 },
-                exc_info=True,
             )
             return {"error": str(exc)}, 500
 
@@ -1235,7 +1274,7 @@ class IntervalsSyncHandler(WellnessSourceSyncContract):
                 errors.append(msg)
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 msg = f"Unexpected error processing measurement: {exc}"
-                logger.error(msg, exc_info=True)
+                logger.exception(msg)
                 errors.append(msg)
 
         return stored_count, errors, len(measurement_list)

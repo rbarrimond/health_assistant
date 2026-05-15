@@ -70,6 +70,7 @@ def test_maps_summary_and_training_status_fields():
     assert snapshot.atp_probability == pytest.approx(71.0)
     assert snapshot.recovery_time_minutes == 820
     assert snapshot.hr_lthr_bpm == 165
+    assert snapshot.hr_lthr_cycling_bpm == 173
 
 
 def test_lthr_prefers_current_threshold_value_when_available():
@@ -78,6 +79,7 @@ def test_lthr_prefers_current_threshold_value_when_available():
     snapshot = adapter.adapt(_raw_payload(include_lthr=False), athlete_id="rob")
 
     assert snapshot.hr_lthr_bpm == 165
+    assert snapshot.hr_lthr_cycling_bpm == 173
 
 
 def test_lthr_falls_back_to_cycling_threshold_when_generic_missing():
@@ -88,6 +90,7 @@ def test_lthr_falls_back_to_cycling_threshold_when_generic_missing():
     snapshot = adapter.adapt(raw, athlete_id="rob")
 
     assert snapshot.hr_lthr_bpm == 173
+    assert snapshot.hr_lthr_cycling_bpm == 173
 
 
 def test_falls_back_to_legacy_ftp_and_lthr_when_dedicated_payloads_missing():
