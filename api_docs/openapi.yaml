@@ -314,7 +314,7 @@ paths:
   /api/planning/context:
     get:
       summary: Get planning context for training decisions
-      description: Returns planning-ready context for short-horizon coaching decisions. Treat this as the primary endpoint for "what should I do next?" reasoning. Zone totals are stored in seconds but surfaced as minutes in summary fields. Before computing the response, the endpoint runs best-available read-repair hydration across OneDrive workouts, Garmin activities, Garmin physiometrics, Withings physiometrics, and Intervals physiometrics sources. To protect backend endpoints from repetitive pre-sync bursts, successful source hydrations are considered fresh for 60 minutes and are skipped unless `force=true` is provided.
+      description: Returns short-horizon coaching context for planning decisions. Zone totals are stored in seconds but surfaced as minutes. The endpoint read-repairs OneDrive, Garmin, Withings, and Intervals sources; hydrated sources stay fresh for 60 minutes unless `force=true`.
       operationId: planningContext
       security:
         - FunctionKey: []
