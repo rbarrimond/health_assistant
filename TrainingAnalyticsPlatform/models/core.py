@@ -1718,31 +1718,17 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
         hr_cfg = Config.hr_config()
         zone_basis = hr_cfg.basis
         metadata = metadata or {}
-        heart_rate = metadata.get("heart_rate") or {}
-
-        hr_rest = (
-            cls._as_float(metadata.get("hr_resting_bpm"))
-            or cls._as_float(heart_rate.get("resting_hr_bpm"))
-            or hr_cfg.resting_hr_bpm
+        hr_rest, lthr_bpm, lthr_cycling_bpm, hr_max_bpm = cls._resolve_hr_zone_reference_inputs(
+            metadata,
+            hr_cfg,
         )
-        lthr_bpm = (
-            cls._as_float(metadata.get("hr_lthr_bpm"))
-            or cls._as_float(metadata.get("lthr_bpm"))
-            or cls._as_float(heart_rate.get("lthr_bpm"))
-            or hr_cfg.lthr_bpm
+        ref_bpm = cls._select_hr_zone_reference_bpm(
+            zone_basis=zone_basis,
+            metadata=metadata,
+            lthr_bpm=lthr_bpm,
+            lthr_cycling_bpm=lthr_cycling_bpm,
+            hr_max_bpm=hr_max_bpm,
         )
-        hr_max_bpm = (
-            cls._as_float(metadata.get("hr_max_bpm"))
-            or cls._as_float(heart_rate.get("hr_max_bpm"))
-            or hr_cfg.hr_max_bpm
-        )
-
-        if zone_basis == "LTHR":
-            ref_bpm = lthr_bpm
-        elif zone_basis == "HRR":
-            ref_bpm = hr_max_bpm
-        else:
-            ref_bpm = hr_max_bpm
 
         if not ref_bpm:
             ref_bpm = float(hr.max()) if not hr.empty else None
@@ -1777,6 +1763,63 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
             "coggan" if zone_basis == "LTHR" else "karvonen"
         )
         return metrics
+
+    @classmethod
+    def _resolve_hr_zone_reference_inputs(
+        cls,
+        metadata: Dict[str, Any],
+        hr_cfg: Any,
+    ) -> tuple[float, Optional[float], Optional[float], Optional[float]]:
+        heart_rate = metadata.get("heart_rate") or {}
+        hr_rest = (
+            cls._as_float(metadata.get("hr_resting_bpm"))
+            or cls._as_float(heart_rate.get("resting_hr_bpm"))
+            or hr_cfg.resting_hr_bpm
+        )
+        lthr_bpm = (
+            cls._as_float(metadata.get("hr_lthr_bpm"))
+            or cls._as_float(metadata.get("lthr_bpm"))
+            or cls._as_float(heart_rate.get("lthr_bpm"))
+            or hr_cfg.lthr_bpm
+        )
+        lthr_cycling_bpm = (
+            cls._as_float(metadata.get("hr_lthr_cycling_bpm"))
+            or cls._as_float(metadata.get("lthr_cycling_bpm"))
+            or cls._as_float(heart_rate.get("lthr_cycling_bpm"))
+        )
+        hr_max_bpm = (
+            cls._as_float(metadata.get("hr_max_bpm"))
+            or cls._as_float(heart_rate.get("hr_max_bpm"))
+            or hr_cfg.hr_max_bpm
+        )
+        return hr_rest, lthr_bpm, lthr_cycling_bpm, hr_max_bpm
+
+    @classmethod
+    def _select_hr_zone_reference_bpm(
+        cls,
+        *,
+        zone_basis: str,
+        metadata: Dict[str, Any],
+        lthr_bpm: Optional[float],
+        lthr_cycling_bpm: Optional[float],
+        hr_max_bpm: Optional[float],
+    ) -> Optional[float]:
+        if zone_basis == "LTHR":
+            if cls._is_cycling_workout(metadata) and lthr_cycling_bpm is not None:
+                return lthr_cycling_bpm
+            return lthr_bpm
+        if zone_basis == "HRR":
+            return hr_max_bpm
+        return hr_max_bpm
+
+    @staticmethod
+    def _is_cycling_workout(metadata: Dict[str, Any]) -> bool:
+        sport = str(metadata.get("sport") or "").strip().lower()
+        sub_sport = str(metadata.get("sub_sport") or "").strip().lower()
+        cycling_tokens = ("cycl", "bike", "bik", "ride")
+        return any(token in sport for token in cycling_tokens) or any(
+            token in sub_sport for token in cycling_tokens
+        )
 
     @staticmethod
     def _get_hr_zones(

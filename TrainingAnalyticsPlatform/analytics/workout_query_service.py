@@ -139,7 +139,7 @@ class WorkoutQueryService:
                 include_developer_fields=include_developer_fields,
             )
         except HttpResponseError as exc:
-            logger.error(
+            logger.exception(
                 "Error retrieving workout detail",
                 extra={
                     "workout_id": workout_id,
@@ -147,7 +147,6 @@ class WorkoutQueryService:
                     "error_type": "HttpResponseError",
                     "error": str(exc),
                 },
-                exc_info=True,
             )
             return None
 
@@ -194,7 +193,7 @@ class WorkoutQueryService:
             return response.model_dump(exclude_none=True)
 
         except HttpResponseError as exc:
-            logger.error(
+            logger.exception(
                 "Error retrieving lap",
                 extra={
                     "workout_id": workout_id,
@@ -203,7 +202,6 @@ class WorkoutQueryService:
                     "error_type": "HttpResponseError",
                     "error": str(exc),
                 },
-                exc_info=True,
             )
             return None
 
@@ -230,13 +228,12 @@ class WorkoutQueryService:
             return WorkoutProjection(**projection_kwargs)
 
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger.error(
+            logger.exception(
                 "Error building workout projection",
                 extra={
                     "error_type": type(exc).__name__,
                     "error": str(exc),
                 },
-                exc_info=True,
             )
             return None
 
@@ -431,6 +428,7 @@ class WorkoutQueryService:
         heart_rate = _get_physio_section(physiometrics, "heart_rate")
         for resolved_key, nested_key in (
             ("hr_lthr_bpm", "lthr_bpm"),
+            ("hr_lthr_cycling_bpm", "lthr_cycling_bpm"),
             ("hr_max_bpm", "hr_max_bpm"),
             ("hr_resting_bpm", "resting_hr_bpm"),
         ):
@@ -821,7 +819,7 @@ class WorkoutQueryService:
             try:
                 canonical = CanonicalAnalyticsEngine.from_dataframe(df, metadata, resample=True)
             except ValidationError as resample_exc:
-                logger.error(
+                logger.exception(
                     "Workout detail canonical validation failed",
                     extra={
                         "error_type": type(exc).__name__,
@@ -831,7 +829,6 @@ class WorkoutQueryService:
                         "is_1hz_validation_failure": True,
                         **distortion,
                     },
-                    exc_info=True,
                 )
                 raise WorkoutDetailUnavailableError() from resample_exc
 

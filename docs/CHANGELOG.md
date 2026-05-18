@@ -8,7 +8,18 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
-## 2026-05-14
+## 2026-05-18
+
+### Cycling Workout LTHR Reference Selection in Canonical Analytics [application v3.21.0]
+
+- **Why this is a MINOR bump**: this release changes analytics-time zone-reference semantics for cycling workouts without removing fields or contracts.
+- **Changed (canonical HR zones)**: when HR zone basis is `LTHR`, cycling workouts now prefer `hr_lthr_cycling_bpm` as the zone reference.
+- **Changed (fallback logic)**: cycling workouts now use `hr_lthr_cycling_bpm -> hr_lthr_bpm -> existing runtime fallback` for LTHR reference selection.
+- **Preserved (non-cycling behavior)**: non-cycling workouts continue using generic `hr_lthr_bpm` semantics.
+- **Changed (workout detail parity)**: workout-detail as-of physiometrics baseline projection now includes cycling LTHR override, ensuring HR zone reference parity with canonical engine behavior.
+- **Changed (weekly rollup parity)**: weekly rollup canonical metrics now apply as-of physiometrics baseline overrides (including cycling LTHR) before zone computation.
+- **Preserved (planning hard-day semantics)**: hard-day detection remains power-intensity-based (`intensity_sec`) and is not redefined by HR fallback.
+- **Added (tests)**: canonical-validation and semantic-layer regressions now cover cycling LTHR preference, generic fallback, non-cycling invariance, and rollup metadata override wiring.
 
 ### Garmin Metric Rationalization + Cycling LTHR Canonicalization [application v3.20.0, physiometrics schema v4.3.0, ingest v15.8.3]
 

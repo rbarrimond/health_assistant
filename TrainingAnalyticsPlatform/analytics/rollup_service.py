@@ -18,6 +18,21 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def _get_physio_section(physiometrics: Dict[str, Any], key: str) -> Dict[str, Any]:
+    section = physiometrics.get(key) or {}
+    return section if isinstance(section, dict) else {}
+
+
+def _resolve_physio_value(
+    nested: Dict[str, Any],
+    nested_key: str,
+    physiometrics: Dict[str, Any],
+    fallback_key: str,
+) -> Any:
+    value = nested.get(nested_key)
+    return value if value is not None else physiometrics.get(fallback_key)
+
 # ---------------------------------------------------------------------------
 # Frozen schema invariants — NEVER modify these tuples without a MAJOR version
 # bump and a corresponding CHANGELOG / schema-documentation update.
@@ -231,10 +246,9 @@ class RollupService:
                         athletes.add(partition_key.split("|", 1)[0])
             return sorted(athletes)
         except HttpResponseError as exc:
-            logger.error(
+            logger.exception(
                 "Error listing athletes from workouts",
                 extra={"error_type": "HttpResponseError", "error": str(exc)},
-                exc_info=True,
             )
             return []
 
@@ -294,7 +308,7 @@ class RollupService:
             return normalized_rollups
 
         except HttpResponseError as exc:
-            logger.error(
+            logger.exception(
                 "Error retrieving weekly rollups",
                 extra={
                     "athlete_id": athlete_id,
@@ -302,7 +316,6 @@ class RollupService:
                     "error_type": "HttpResponseError",
                     "error": str(exc),
                 },
-                exc_info=True,
             )
             return []
 
@@ -431,7 +444,12 @@ class RollupService:
                 candidate_entities.append(entity)
 
         for entity in candidate_entities:
-            included.append(utils.build_rollup_metrics_model(self.storage, entity))
+            included.append(
+                self._build_rollup_metrics_model_for_entity(
+                    athlete_id=athlete_id,
+                    entity=entity,
+                )
+            )
 
         if skipped_missing_start or skipped_invalid_start:
             logger.warning(
@@ -598,12 +616,95 @@ class RollupService:
             start_date=start_date,
             end_date=end_date,
         )
-        metrics_models = [utils.build_rollup_metrics_model(self.storage, entity) for entity in entities]
+        metrics_models = [
+            self._build_rollup_metrics_model_for_entity(
+                athlete_id=athlete_id,
+                entity=entity,
+            )
+            for entity in entities
+        ]
         metrics_models.sort(
             key=lambda model: model.session.start_time_utc or "",
             reverse=True,
         )
         return metrics_models
+
+    def _build_rollup_metrics_model_for_entity(
+        self,
+        athlete_id: str,
+        entity: Dict[str, Any],
+    ) -> WorkoutMetricsModel:
+        metadata_overrides = self._resolve_rollup_workout_physiometrics_context(
+            athlete_id=athlete_id,
+            entity=entity,
+        )
+        return utils.build_rollup_metrics_model(
+            self.storage,
+            entity,
+            metadata_overrides=metadata_overrides,
+        )
+
+    def _resolve_rollup_workout_physiometrics_context(
+        self,
+        athlete_id: str,
+        entity: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        start_time = entity.get("start_time_utc")
+        if not start_time:
+            return None
+
+        try:
+            target_date = datetime.fromisoformat(
+                str(start_time).replace("Z", utils.UTC_OFFSET)
+            ).date().isoformat()
+        except (ValueError, AttributeError):
+            return None
+
+        try:
+            physiometrics = self.storage.physiometrics.get_physiometrics_as_of(
+                athlete_id=athlete_id,
+                target_date=target_date,
+            )
+        except StorageError:
+            return None
+
+        if not isinstance(physiometrics, dict):
+            return None
+
+        return self._extract_rollup_baseline_overrides(physiometrics)
+
+    @staticmethod
+    def _extract_rollup_baseline_overrides(
+        physiometrics: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        resolved: Dict[str, Any] = {}
+
+        ftp_watts = _resolve_physio_value(
+            _get_physio_section(physiometrics, "power"),
+            "ftp_watts",
+            physiometrics,
+            "ftp_watts",
+        )
+        if ftp_watts is not None:
+            resolved["ftp_watts"] = ftp_watts
+
+        heart_rate = _get_physio_section(physiometrics, "heart_rate")
+        for resolved_key, nested_key in (
+            ("hr_lthr_bpm", "lthr_bpm"),
+            ("hr_lthr_cycling_bpm", "lthr_cycling_bpm"),
+            ("hr_max_bpm", "hr_max_bpm"),
+            ("hr_resting_bpm", "resting_hr_bpm"),
+        ):
+            value = _resolve_physio_value(
+                heart_rate,
+                nested_key,
+                physiometrics,
+                resolved_key,
+            )
+            if value is not None:
+                resolved[resolved_key] = value
+
+        return resolved or None
 
     def _get_rollup_entities_in_range(
         self,
@@ -632,7 +733,7 @@ class RollupService:
             return entities_in_range
 
         except HttpResponseError as exc:
-            logger.error(
+            logger.exception(
                 "Error querying rollup entities",
                 extra={
                     "athlete_id": athlete_id,
@@ -641,7 +742,6 @@ class RollupService:
                     "error_type": "HttpResponseError",
                     "error": str(exc),
                 },
-                exc_info=True,
             )
             return []
 
@@ -711,7 +811,7 @@ class RollupService:
                 "rollup": rollup,
             }
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger.error(
+            logger.exception(
                 "Failed weekly rollup persistence for athlete week",
                 extra={
                     "athlete_id": athlete_id,
@@ -719,7 +819,6 @@ class RollupService:
                     "error_type": type(exc).__name__,
                     "error": str(exc),
                 },
-                exc_info=True,
             )
             return {
                 "weeks_ago": weeks_ago,

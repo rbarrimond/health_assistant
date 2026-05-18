@@ -367,6 +367,7 @@ def prepare_rollup_metadata_for_canonical(
 def build_rollup_metrics_model(
     storage: "StorageCoordinator",
     entity: Dict[str, Any],
+    metadata_overrides: Optional[Dict[str, Any]] = None,
 ) -> WorkoutMetricsModel:
     """Build WorkoutMetricsModel from canonical records for rollup/analytics use.
 
@@ -391,7 +392,7 @@ def build_rollup_metrics_model(
     try:
         df = storage.workouts.load_canonical_records(blob_name)
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error(
+        logger.exception(
             "Failed to load canonical records for weekly rollup",
             extra={
                 "workout_id": workout_entity.workout_id,
@@ -400,7 +401,6 @@ def build_rollup_metrics_model(
                 "error": str(exc),
                 "failure_category": "canonical_load_failure",
             },
-            exc_info=True,
         )
         raise StorageError(
             f"Failed to load canonical records for workout {workout_entity.workout_id}"
@@ -408,6 +408,8 @@ def build_rollup_metrics_model(
 
     metadata = load_metadata_blob(storage, workout_entity.ingestion_id or workout_entity.workout_id, workout_entity.workout_id)
     metadata = prepare_rollup_metadata_for_canonical(metadata, workout_entity)
+    if metadata_overrides:
+        metadata.update(metadata_overrides)
 
     try:
         model = WorkoutMetricsModel.from_canonical(df, metadata, resample=False)
@@ -417,7 +419,7 @@ def build_rollup_metrics_model(
         try:
             model = WorkoutMetricsModel.from_canonical(df, metadata, resample=True)
         except ValidationError:
-            logger.error(
+            logger.exception(
                 "Weekly rollup canonical validation failed",
                 extra={
                     "workout_id": workout_entity.workout_id,
@@ -429,7 +431,6 @@ def build_rollup_metrics_model(
                     "status_code": exc.status_code,
                     **distortion,
                 },
-                exc_info=True,
             )
             raise ValidationError(
                 "Weekly rollup canonical validation failed for workout "
@@ -447,7 +448,7 @@ def build_rollup_metrics_model(
         )
         return model
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.error(
+        logger.exception(
             "Failed to build WorkoutMetricsModel for weekly rollup",
             extra={
                 "workout_id": workout_entity.workout_id,
@@ -457,7 +458,6 @@ def build_rollup_metrics_model(
                 "failure_category": "workout_metrics_model_build",
                 "is_1hz_validation_failure": False,
             },
-            exc_info=True,
         )
         raise StorageError("Failed to build WorkoutMetricsModel for weekly rollup") from exc
 
@@ -528,7 +528,7 @@ def get_workouts_in_range(
         return workouts
 
     except HttpResponseError as exc:
-        logger.error(
+        logger.exception(
             "Error querying workouts",
             extra={
                 "athlete_id": athlete_id,
@@ -537,7 +537,6 @@ def get_workouts_in_range(
                 "error_type": "HttpResponseError",
                 "error": str(exc),
             },
-            exc_info=True,
         )
         raise StorageError("Failed to query workouts from Table Storage") from exc
 
@@ -640,7 +639,7 @@ def get_workout_projections_in_range(
         return projections
 
     except HttpResponseError as exc:
-        logger.error(
+        logger.exception(
             "Error querying workout projections",
             extra={
                 "athlete_id": athlete_id,
@@ -649,7 +648,6 @@ def get_workout_projections_in_range(
                 "error_type": "HttpResponseError",
                 "error": str(exc),
             },
-            exc_info=True,
         )
         raise StorageError("Failed to query workout projections from Table Storage") from exc
 

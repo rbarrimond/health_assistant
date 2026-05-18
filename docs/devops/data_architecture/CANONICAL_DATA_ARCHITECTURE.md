@@ -390,6 +390,7 @@ Most fields use single-source ownership. A small set of training baseline metric
 - **Withings body composition primary** with Intervals fallback for `weight_kg` and `body_fat_pct`
 - **FTP/LTHR are recency-aware across source-qualified rows**: compare `effective_date` first, then `updated_at_utc`; use `garmin -> chatgpt -> manual` only as a tie-breaker when timestamps are equivalent
 - **Cycling LTHR is Garmin-exclusive**: captured as `hr_lthr_cycling_bpm` and exposed separately from generic `hr_lthr_bpm`
+- **Cycling HR-zone reference semantics**: when canonical analytics use `LTHR` basis for a cycling workout, zone reference precedence is `hr_lthr_cycling_bpm -> hr_lthr_bpm -> runtime fallback`; non-cycling workouts continue using generic `hr_lthr_bpm`
 - **HRmax still uses limited fallback**: `garmin -> chatgpt -> manual`
 
 ### Ingestion Pathways: Direct Fetch Pattern
@@ -518,6 +519,7 @@ This storage identity is intentionally source-qualified. Daily rows from differe
     "ftp_watts": ["garmin", "chatgpt", "manual"],  # tie-breaker order after recency
     "cycling_vo2max_ml_kg_min": ["garmin"],
     "hr_lthr_bpm": ["garmin", "chatgpt", "manual"],  # tie-breaker order after recency
+    "hr_lthr_cycling_bpm": ["garmin"],
     "hr_max_bpm": ["garmin", "chatgpt", "manual"],
     
     "training_load": ["garmin"],

@@ -619,6 +619,66 @@ class TestWorkoutQueries:
         assert workout["metrics"]["zones_hr"]["hr_zone_reference_bpm"] == pytest.approx(191.0)
         assert workout["metrics"]["zones_hr"]["hr_z1_low_bpm"] == pytest.approx(119.0)
 
+    def test_get_workout_detail_prefers_cycling_lthr_for_cycling_workouts(
+        self,
+        workout_service_fixture,
+        mock_storage,
+    ):
+        """Cycling workout detail should prefer cycling LTHR when LTHR basis is active."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+
+        mock_entity = {
+            "PartitionKey": "rob",
+            "RowKey": "workout-cycling-lthr-001",
+            "workout_id": "workout-cycling-lthr-001",
+            "athlete_id": "rob",
+            "ingestion_id": "ingest-cycling-lthr-001",
+            "canonical_records_blob": "ingest-cycling-lthr-001/canonical.parquet",
+            "source_system": "garmin",
+            "sport": "Cycling",
+            "start_time_utc": "2026-02-22T01:51:12+00:00",
+            "duration_sec": 3600,
+        }
+        mock_table_client.query_entities.return_value = [mock_entity]
+        mock_storage.workouts.load_metadata_json.return_value = {
+            "session": {},
+            "enrichment": {},
+            "activity_metadata": {},
+        }
+        mock_storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+            {
+                "timestamp_utc": pd.date_range("2026-02-22T01:51:12Z", periods=240, freq="s"),
+                "elapsed_sec": pd.Series(range(240), dtype=float),
+                "heart_rate_bpm": 145.0,
+                "power_watts": 210.0,
+            }
+        )
+        mock_storage.physiometrics.get_physiometrics_as_of.return_value = {
+            "heart_rate": {
+                "lthr_bpm": 165,
+                "lthr_cycling_bpm": 172,
+                "hr_max_bpm": 191,
+                "resting_hr_bpm": 47,
+            },
+            "updated_at_utc": "2026-02-22T00:00:00+00:00",
+        }
+
+        with patch(
+            "TrainingAnalyticsPlatform.models.core.Config.hr_config",
+            return_value=SimpleNamespace(
+                basis="LTHR",
+                lthr_bpm=160,
+                hr_max_bpm=200,
+                resting_hr_bpm=50,
+            ),
+        ):
+            workout = workout_service_fixture.get_workout_detail("rob", "workout-cycling-lthr-001")
+
+        assert workout is not None
+        assert workout["metrics"]["zones_hr"]["hr_zone_basis"] == "LTHR"
+        assert workout["metrics"]["zones_hr"]["hr_zone_reference_bpm"] == pytest.approx(172.0)
+
     def test_get_workout_detail_includes_full_metric_families_when_canonical_complete(
         self,
         workout_service_fixture,
@@ -2074,6 +2134,58 @@ class TestWeeklyRollupTimerComputation:
         assert rollup is not None
         assert rollup["total_intensity_min"] == pytest.approx(10.0)
         assert rollup["hard_days_count"] == 1
+
+    def test_rollup_metrics_builder_receives_physiometrics_overrides(
+        self,
+        rollup_service_fixture,
+        mock_storage,
+    ):
+        """Rollup canonical build should receive as-of physiometrics baselines for each workout."""
+        entity = {
+            "PartitionKey": "rob|2026-03",
+            "RowKey": "2026-03-03#workout-001",
+            "workout_id": "workout-001",
+            "athlete_id": "rob",
+            "sport": "Cycling",
+            "start_time_utc": "2026-03-03T12:00:00+00:00",
+        }
+        mock_storage.physiometrics.get_physiometrics_as_of.return_value = {
+            "heart_rate": {
+                "lthr_bpm": 165,
+                "lthr_cycling_bpm": 172,
+                "hr_max_bpm": 191,
+                "resting_hr_bpm": 47,
+            },
+            "power": {
+                "ftp_watts": 245,
+            },
+        }
+        sentinel_model = build_rollup_metrics_model(
+            {
+                "workout_id": "workout-001",
+                "start_time_utc": "2026-03-03T12:00:00+00:00",
+                "duration_sec": 3600,
+            }
+        )
+
+        with patch(
+            "TrainingAnalyticsPlatform.analytics.rollup_service.utils.build_rollup_metrics_model",
+            return_value=sentinel_model,
+        ) as build_model_mock:
+            model = rollup_service_fixture._build_rollup_metrics_model_for_entity(
+                athlete_id="rob",
+                entity=entity,
+            )
+
+        assert model is sentinel_model
+        build_model_mock.assert_called_once()
+        assert build_model_mock.call_args.kwargs["metadata_overrides"] == {
+            "ftp_watts": 245,
+            "hr_lthr_bpm": 165,
+            "hr_lthr_cycling_bpm": 172,
+            "hr_max_bpm": 191,
+            "hr_resting_bpm": 47,
+        }
 
     def test_compute_and_persist_previous_week_rollups_batch(self, rollup_service_fixture):
         """Batch wrapper should classify succeeded/skipped/failed athletes."""

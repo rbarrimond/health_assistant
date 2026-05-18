@@ -132,6 +132,89 @@ def test_hr_zone_total_sec_edge_clamps_out_of_range_samples(monkeypatch):
     assert metrics["hr_zone_total_sec"] == 5
 
 
+def test_hr_zones_use_cycling_lthr_for_cycling_workouts(monkeypatch):
+    """Cycling workouts should use cycling-specific LTHR when present."""
+
+    class _MockHrConfig:
+        basis = "LTHR"
+        resting_hr_bpm = 60
+        lthr_bpm = 165
+        hr_max_bpm = 200
+
+    monkeypatch.setattr(
+        "TrainingAnalyticsPlatform.models.core.Config.hr_config",
+        lambda: _MockHrConfig(),
+    )
+
+    hr_series = pd.Series([140.0, 150.0, 160.0], dtype=float)
+    metrics = CanonicalAnalyticsEngine._compute_hr_zones_from_series(
+        hr_series,
+        metadata={
+            "sport": "Cycling",
+            "hr_lthr_bpm": 165,
+            "hr_lthr_cycling_bpm": 172,
+        },
+    )
+
+    assert metrics["hr_zone_basis"] == "LTHR"
+    assert metrics["hr_zone_reference_bpm"] == pytest.approx(172.0)
+
+
+def test_hr_zones_fall_back_to_generic_lthr_when_cycling_lthr_missing(monkeypatch):
+    """Cycling workouts should fall back to generic LTHR when cycling-specific value is absent."""
+
+    class _MockHrConfig:
+        basis = "LTHR"
+        resting_hr_bpm = 60
+        lthr_bpm = 165
+        hr_max_bpm = 200
+
+    monkeypatch.setattr(
+        "TrainingAnalyticsPlatform.models.core.Config.hr_config",
+        lambda: _MockHrConfig(),
+    )
+
+    hr_series = pd.Series([140.0, 150.0, 160.0], dtype=float)
+    metrics = CanonicalAnalyticsEngine._compute_hr_zones_from_series(
+        hr_series,
+        metadata={
+            "sport": "cycling",
+            "hr_lthr_bpm": 166,
+        },
+    )
+
+    assert metrics["hr_zone_basis"] == "LTHR"
+    assert metrics["hr_zone_reference_bpm"] == pytest.approx(166.0)
+
+
+def test_hr_zones_keep_generic_lthr_for_non_cycling_workouts(monkeypatch):
+    """Non-cycling workouts should continue using generic LTHR even if cycling value exists."""
+
+    class _MockHrConfig:
+        basis = "LTHR"
+        resting_hr_bpm = 60
+        lthr_bpm = 165
+        hr_max_bpm = 200
+
+    monkeypatch.setattr(
+        "TrainingAnalyticsPlatform.models.core.Config.hr_config",
+        lambda: _MockHrConfig(),
+    )
+
+    hr_series = pd.Series([140.0, 150.0, 160.0], dtype=float)
+    metrics = CanonicalAnalyticsEngine._compute_hr_zones_from_series(
+        hr_series,
+        metadata={
+            "sport": "Running",
+            "hr_lthr_bpm": 164,
+            "hr_lthr_cycling_bpm": 172,
+        },
+    )
+
+    assert metrics["hr_zone_basis"] == "LTHR"
+    assert metrics["hr_zone_reference_bpm"] == pytest.approx(164.0)
+
+
 def test_model_dump_returns_metrics_only(df_1hz):
     """model_dump should return the metrics dict without raw fields."""
     metrics = CanonicalAnalyticsEngine(df=df_1hz, metadata={})
