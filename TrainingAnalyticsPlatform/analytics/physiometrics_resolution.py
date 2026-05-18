@@ -14,6 +14,7 @@ UTC_OFFSET = "+00:00"
 BASELINE_SOURCE_PRECEDENCE: Dict[str, List[str]] = {
     "ftp_watts": ["manual", "chatgpt", "garmin"],
     "hr_lthr_bpm": ["manual", "chatgpt", "garmin"],
+    "hr_lthr_cycling_bpm": ["manual", "chatgpt", "garmin"],
     # Max HR is treated as a zone-anchor baseline, not daily observed telemetry.
     # Until Garmin exposes the auto-detected anchor value reliably, only manual/chatgpt
     # overrides are eligible for semantic baseline resolution here.

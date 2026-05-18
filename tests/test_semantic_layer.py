@@ -679,6 +679,70 @@ class TestWorkoutQueries:
         assert workout["metrics"]["zones_hr"]["hr_zone_basis"] == "LTHR"
         assert workout["metrics"]["zones_hr"]["hr_zone_reference_bpm"] == pytest.approx(172.0)
 
+    def test_get_workout_detail_prefers_cycling_lthr_when_top_level_metadata_sport_is_stale(
+        self,
+        workout_service_fixture,
+        mock_storage,
+    ):
+        """Workout identity sport must override stale top-level metadata sport for HR zone selection."""
+        mock_table_client = MagicMock()
+        mock_storage.infrastructure.get_table_client.return_value = mock_table_client
+
+        mock_entity = {
+            "PartitionKey": "rob",
+            "RowKey": "workout-cycling-lthr-stale-sport-001",
+            "workout_id": "workout-cycling-lthr-stale-sport-001",
+            "athlete_id": "rob",
+            "ingestion_id": "ingest-cycling-lthr-stale-sport-001",
+            "canonical_records_blob": "ingest-cycling-lthr-stale-sport-001/canonical.parquet",
+            "source_system": "garmin",
+            "sport": "cycling",
+            "start_time_utc": "2026-02-22T01:51:12+00:00",
+            "duration_sec": 3600,
+        }
+        mock_table_client.query_entities.return_value = [mock_entity]
+        mock_storage.workouts.load_metadata_json.return_value = {
+            "sport": "training",
+            "identity": {"sport": "cycling", "sub_sport": "road"},
+            "session": {},
+            "enrichment": {},
+            "activity_metadata": {},
+        }
+        mock_storage.workouts.load_canonical_records.return_value = pd.DataFrame(
+            {
+                "timestamp_utc": pd.date_range("2026-02-22T01:51:12Z", periods=240, freq="s"),
+                "elapsed_sec": pd.Series(range(240), dtype=float),
+                "heart_rate_bpm": 145.0,
+                "power_watts": 210.0,
+            }
+        )
+        mock_storage.physiometrics.get_physiometrics_as_of.return_value = {
+            "heart_rate": {
+                "lthr_bpm": 165,
+                "lthr_cycling_bpm": 172,
+                "hr_max_bpm": 191,
+                "resting_hr_bpm": 47,
+            },
+            "updated_at_utc": "2026-02-22T00:00:00+00:00",
+        }
+
+        with patch(
+            "TrainingAnalyticsPlatform.models.core.Config.hr_config",
+            return_value=SimpleNamespace(
+                basis="LTHR",
+                lthr_bpm=160,
+                hr_max_bpm=200,
+                resting_hr_bpm=50,
+            ),
+        ):
+            workout = workout_service_fixture.get_workout_detail(
+                "rob", "workout-cycling-lthr-stale-sport-001"
+            )
+
+        assert workout is not None
+        assert workout["metrics"]["zones_hr"]["hr_zone_basis"] == "LTHR"
+        assert workout["metrics"]["zones_hr"]["hr_zone_reference_bpm"] == pytest.approx(172.0)
+
     def test_get_workout_detail_includes_full_metric_families_when_canonical_complete(
         self,
         workout_service_fixture,

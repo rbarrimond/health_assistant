@@ -264,6 +264,15 @@ class PhysiometricsStorage:
         if lthr_bpm is not None:
             payload.setdefault("heart_rate", {})["lthr_bpm"] = lthr_bpm
 
+        lthr_cycling_bpm, _, _ = resolve_latest_metric_across_sources(
+            "hr_lthr_cycling_bpm",
+            source_rows_by_source,
+            field_aliases=self._BASELINE_FIELD_ALIASES,
+            source_precedence=BASELINE_SOURCE_PRECEDENCE,
+        )
+        if lthr_cycling_bpm is not None:
+            payload.setdefault("heart_rate", {})["lthr_cycling_bpm"] = lthr_cycling_bpm
+
         return payload
 
     @staticmethod

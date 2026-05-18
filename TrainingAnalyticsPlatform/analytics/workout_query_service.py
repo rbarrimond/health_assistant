@@ -337,6 +337,19 @@ class WorkoutQueryService:
         canonical_metadata = utils.prepare_rollup_metadata_for_canonical(
             metadata_blob, workout_entity
         )
+        # Ensure canonical analytics use authoritative workout identity classification.
+        # Some legacy metadata blobs can contain stale top-level sport fields.
+        canonical_metadata["sport"] = (
+            workout_entity.sport
+            or metadata_blob.get("identity", {}).get("sport")
+            or canonical_metadata.get("sport")
+        )
+        canonical_metadata["sub_sport"] = (
+            workout_entity.sub_sport
+            or metadata_blob.get("identity", {}).get("sub_sport")
+            or metadata_blob.get("enrichment", {}).get("sub_sport")
+            or canonical_metadata.get("sub_sport")
+        )
 
         # Resolve physiometrics baselines before analytics so HR/power zone
         # computations use the values effective on the workout date.
@@ -1016,6 +1029,17 @@ class WorkoutQueryService:
 
         canonical_metadata = utils.prepare_rollup_metadata_for_canonical(
             metadata_blob, workout_entity
+        )
+        canonical_metadata["sport"] = (
+            workout_entity.sport
+            or metadata_blob.get("identity", {}).get("sport")
+            or canonical_metadata.get("sport")
+        )
+        canonical_metadata["sub_sport"] = (
+            workout_entity.sub_sport
+            or metadata_blob.get("identity", {}).get("sub_sport")
+            or metadata_blob.get("enrichment", {}).get("sub_sport")
+            or canonical_metadata.get("sub_sport")
         )
 
         try:

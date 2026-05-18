@@ -317,6 +317,47 @@ class TestPhysiometricsTimeSeries:
             assert config["power"]["ftp_watts"] == 290
             assert config["heart_rate"]["lthr_bpm"] == 176
 
+    def test_get_physiometrics_as_of_resolves_cycling_lthr_baseline(self, storage):
+        """As-of config should surface resolved cycling LTHR baseline across source rows."""
+        with patch.object(storage.physiometrics.infra, "get_table_client") as mock_client:
+            mock_table = MagicMock()
+            mock_client.return_value = mock_table
+            mock_table.query_entities.return_value = [
+                {
+                    "PartitionKey": "rob",
+                    "RowKey": "2026-01-15|manual",
+                    "effective_date": "2026-01-15",
+                    "updated_at_utc": "2026-01-15T08:00:00+00:00",
+                    "data_source": "manual",
+                    "full_config_json": json.dumps({
+                        "heart_rate": {
+                            "basis": "LTHR",
+                            "lthr_bpm": 165,
+                            "lthr_cycling_bpm": 171,
+                        },
+                    }),
+                    "heart_rate_basis": "LTHR",
+                    "heart_rate_lthr_bpm": 165,
+                    "heart_rate_lthr_cycling_bpm": 171,
+                },
+                {
+                    "PartitionKey": "rob",
+                    "RowKey": "2026-01-18|garmin",
+                    "effective_date": "2026-01-18",
+                    "updated_at_utc": "2026-01-18T08:00:00+00:00",
+                    "data_source": "garmin",
+                    "heart_rate_lthr_cycling_bpm": 172,
+                },
+            ]
+
+            config = storage.physiometrics.get_physiometrics_as_of(
+                athlete_id="rob", target_date="2026-01-18"
+            )
+
+            assert config is not None
+            assert config["heart_rate"]["lthr_bpm"] == 165
+            assert config["heart_rate"]["lthr_cycling_bpm"] == 172
+
     def test_withings_token_storage(self, storage):
         """Test storing and retrieving Withings OAuth tokens."""
         with patch.object(storage.oauth_tokens.infra, "get_table_client") as mock_client:
