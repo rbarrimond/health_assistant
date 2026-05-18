@@ -10,6 +10,14 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-05-18
 
+### Workout Reporting Canonical Sport-Identity Hardening [application v3.21.1]
+
+- **Why this is a PATCH bump**: this release fixes workout-reporting runtime metadata selection so existing cycling LTHR semantics are applied consistently, without changing API shape or persisted schema.
+- **Fixed (workout detail canonicalization)**: workout reporting now forces canonical `sport` and `sub_sport` from authoritative workout identity metadata before HR zone-reference selection.
+- **Fixed (stale metadata resilience)**: stale or conflicting top-level activity metadata no longer causes cycling workouts to be misclassified for LTHR basis selection.
+- **Preserved (contracts and storage)**: no ingestion parser, storage schema, or response-envelope contract changes.
+- **Added (tests)**: semantic-layer regression coverage now verifies authoritative identity classification is used when top-level workout metadata is stale.
+
 ### Cycling Workout LTHR Reference Selection in Canonical Analytics [application v3.21.0]
 
 - **Why this is a MINOR bump**: this release changes analytics-time zone-reference semantics for cycling workouts without removing fields or contracts.
