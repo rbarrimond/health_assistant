@@ -315,6 +315,46 @@ class TestWeeklyRollupPreSyncHandler:
         assert intervals_result["deferred_operation_id"] == "op-intervals-123"
         assert intervals.handle.call_count == 1
 
+    def test_intervals_partial_207_with_processed_records_counts_as_success(self):
+        onedrive = MagicMock()
+        onedrive.handle.return_value = ({"message": "ok"}, 200)
+
+        garmin = MagicMock()
+        garmin.handle.return_value = ({"message": "ok"}, 200)
+
+        garmin_physiometrics = MagicMock()
+        garmin_physiometrics.handle.return_value = ({"message": "ok"}, 200)
+
+        withings = MagicMock()
+        withings.sync_metrics.return_value = ({"message": "ok"}, 200)
+
+        intervals = MagicMock()
+        intervals.handle.return_value = (
+            {
+                "message": "Synced 6 wellness records",
+                "records_processed": 6,
+                "records_failed": 2,
+            },
+            207,
+        )
+
+        handler = WeeklyRollupPreSyncHandler(
+            onedrive_service=onedrive,
+            garmin_service=garmin,
+            garmin_physiometrics_service=garmin_physiometrics,
+            withings_service=withings,
+            intervals_service=intervals,
+            intervals_athlete_id="i508584",
+            retry_max_attempts=1,
+        )
+
+        result = handler.run("rob", enabled=True)
+
+        assert result["status"] == "success"
+        assert result["sources"][-1]["source"] == "intervals_physiometrics"
+        assert result["sources"][-1]["status"] == "success"
+        assert result["sources"][-1]["http_status"] == 207
+
     def test_sleep_with_backoff_uses_equal_jitter(self):
         handler = WeeklyRollupPreSyncHandler(
             onedrive_service=MagicMock(),

@@ -156,7 +156,7 @@ class PreSyncExecutionMixin:
                     source=operation.source,
                 )
 
-                if status_code == 200:
+                if self._is_success_response(status_code, body):
                     return self._build_result(
                         operation.source,
                         "success",
@@ -413,6 +413,26 @@ class PreSyncExecutionMixin:
             return f"Source pre-sync returned status={status}"
 
         return "Source pre-sync completed"
+
+    @staticmethod
+    def _is_success_response(status_code: int, body: dict[str, Any]) -> bool:
+        """Return True when source response should be treated as successful pre-sync."""
+        if status_code == 200:
+            return True
+
+        if status_code != 207 or not isinstance(body, dict):
+            return False
+
+        status_value = str(body.get("status") or "").strip().lower()
+        if status_value in {"success", "partial", "all_succeeded", "skipped"}:
+            return True
+
+        for key in ("records_processed", "count"):
+            value = body.get(key)
+            if isinstance(value, (int, float)) and value > 0:
+                return True
+
+        return False
 
     @staticmethod
     def _is_retryable_exception(exc: Exception) -> bool:
