@@ -1,22 +1,28 @@
 # GPT Actions Guide — Workout Intelligence Agent
 
-Version: 4.1.0
+Version: 4.2.0
 
 > **Document role:** Operational procedure only. This file defines API call ordering and usage flow.
-> Behavior, safety, and interpretation authority live in [INSTRUCTIONS.md](./INSTRUCTIONS.md).
+> Behavior, safety, and interpretation authority live in the **Custom GPT Control Layer Instructions**.
 >
-> **Contract authority:** Exact endpoint paths, methods, parameters, auth, and payload examples are normative in [`openapi.yaml`](../../api_docs/openapi.yaml).
+> **Contract authority:** Exact endpoint paths, methods, parameters, auth, and payload examples are normative in the **configured Custom GPT Actions schema**.
 
 This guide defines how a custom GPT should use the Health Assistant Semantic Access Layer.
 It is the operational companion to:
 
-- [WORKOUT_INTELLIGENCE_AGENT_VISION.md](./WORKOUT_INTELLIGENCE_AGENT_VISION.md)
-- [SEMANTIC_LAYER_API.md](./SEMANTIC_LAYER_API.md)
-- [WORKOUT_SCHEMA.md](./WORKOUT_SCHEMA.md)
+- `WORKOUT_INTELLIGENCE_AGENT_VISION.md`
+- `SEMANTIC_LAYER_API.md`
+- `WORKOUT_SCHEMA.md`
+
+## Knowledge Base Constraints
+
+- The Custom GPT knowledge base is a flat uploaded document set.
+- Repo-relative links are not reliable at runtime.
+- Cross-references should use uploaded document names.
 
 ## Behavioral Rules
 
-Behavioral rules and reasoning constraints live in [INSTRUCTIONS.md](./INSTRUCTIONS.md). Use this guide for operational API usage and endpoint ordering.
+Behavioral rules and reasoning constraints are governed by the **Custom GPT Control Layer Instructions**. Use this guide for operational API usage and endpoint ordering.
 
 ---
 
@@ -31,7 +37,7 @@ If these are not called, you only have static schema/vision context, not current
 
 ## ChatGPT Integration Examples
 
-These examples are sequencing illustrations only. For exact request shapes and canonical examples, use [`openapi.yaml`](../../api_docs/openapi.yaml).
+These examples are sequencing illustrations only. For exact request shapes and canonical examples, use the configured Custom GPT Actions schema.
 
 "What should I do tomorrow?"
 
@@ -132,4 +138,4 @@ ChatGPT responds: "Your current FTP is 295 W and LTHR is 178 bpm (per the latest
 
 ## Actions Auth (Azure Functions)
 
-Auth is defined in [`openapi.yaml`](../../api_docs/openapi.yaml) under `securitySchemes.FunctionKey`. Pass `?code=<function_key>` as a query parameter on every request.
+Auth is defined in the configured Custom GPT Actions schema under `securitySchemes.FunctionKey`. Pass `?code=<function_key>` as a query parameter on every request.

@@ -1,11 +1,17 @@
 # Agent Memory System
 
-Version: 2.2.0
+Version: 2.2.1
 
 > **Document role:** Memory architecture and behavioral storage guidance.
-> Endpoint contracts (paths, parameters, payload schemas, auth) are normative in [`openapi.yaml`](../../api_docs/openapi.yaml).
+> Endpoint contracts (paths, parameters, payload schemas, auth) are normative in the **configured Custom GPT Actions schema**.
 >
-> **Behavior authority:** Reasoning and safety rules are governed by [`INSTRUCTIONS.md`](./INSTRUCTIONS.md).
+> **Behavior authority:** Reasoning and safety rules are governed by the **Custom GPT Control Layer Instructions**.
+
+## Knowledge Base Constraints
+
+- The Custom GPT knowledge base is a flat uploaded document set.
+- Repo-relative links are not reliable at runtime.
+- Cross-references should use uploaded document names.
 
 ## Overview
 
@@ -15,8 +21,8 @@ The Agent Memory System provides lightweight external memory for the GPT Workout
 
 This document covers memory storage semantics. Behavior authority lives in:
 
-- [`INSTRUCTIONS.md`](./INSTRUCTIONS.md) for reasoning and safety rules
-- [`GPT_ACTIONS_GUIDE.md`](./GPT_ACTIONS_GUIDE.md) for operational call order
+- Custom GPT Control Layer Instructions for reasoning and safety rules
+- `GPT_ACTIONS_GUIDE.md` for operational call order
 
 ## Architecture
 
@@ -90,7 +96,7 @@ This document covers memory storage semantics. Behavior authority lives in:
 
 ## API Contract Source
 
-For endpoint paths, HTTP methods, and payload contracts, use [`openapi.yaml`](../../api_docs/openapi.yaml).
+For endpoint paths, HTTP methods, and payload contracts, use the configured Custom GPT Actions schema.
 
 Memory endpoint families:
 

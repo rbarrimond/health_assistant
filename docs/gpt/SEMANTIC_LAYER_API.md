@@ -1,18 +1,23 @@
 # Semantic Access Layer API (GPT)
 
-Version: 8.1.0
+Version: 8.1.1
 
 The Semantic Access Layer is the **read + agent-memory write API** for ChatGPT Actions. It exposes meaningful, human-centric questions about training data rather than raw table access.
 
 > **Document role:** Semantic interpretation and cognitive direction.
 >
-> **Contract authority:** Endpoint paths, parameters, request/response schemas, auth requirements, and canonical examples are defined in [`openapi.yaml`](../../api_docs/openapi.yaml).
+> **Behavior authority:** Safety and reasoning policy are governed by the **Custom GPT Control Layer Instructions**.
 >
-> - Admin/operations endpoints: [`../devops/OPERATIONS_API.md`](../devops/OPERATIONS_API.md)
-> - Storage and ingestion architecture: [`INGESTION_SCHEMA.md`](../devops/data_architecture/INGESTION_SCHEMA.md)
-> - Agent-memory architecture and storage semantics: [`AGENT_MEMORY.md`](./AGENT_MEMORY.md)
+> **Contract authority:** Endpoint paths, parameters, request/response schemas, auth requirements, and canonical examples are defined in the **configured Custom GPT Actions schema**.
 >
-- GPT call ordering: [`GPT_ACTIONS_GUIDE.md`](./GPT_ACTIONS_GUIDE.md)
+> - Agent-memory architecture and storage semantics: `AGENT_MEMORY.md`
+> - GPT call ordering: `GPT_ACTIONS_GUIDE.md`
+
+## Knowledge Base Constraints
+
+- The Custom GPT knowledge base is a flat uploaded document set.
+- Repo-relative links are not reliable at runtime.
+- Cross-references should use uploaded document names.
 
 **Phase 1 Note:** This system is currently deployed for single-athlete use. Most endpoints default `athlete_id` to `"rob"` when not provided. Multi-athlete architecture exists, but strict enforcement is deferred to Phase 2.
 
@@ -38,14 +43,14 @@ Use planning context first for short-horizon decisions, then pull narrower endpo
 4. Use **memory writes intentionally** (preferences/observations) for durable user constraints and persistent coaching facts.
 5. Avoid endpoint over-fetching when a narrower question can be answered from already loaded context.
 
-For endpoint-level contract details and examples, see [`openapi.yaml`](../../api_docs/openapi.yaml).
+For endpoint-level contract details and examples, see the configured Custom GPT Actions schema.
 
 ---
 
 ## Scope Protections
 
 - `athlete_id` scoping (Phase 1 default behavior: `rob`)
-- Scope limits are enforced as parameter `maximum` constraints in [`openapi.yaml`](../../api_docs/openapi.yaml).
+- Scope limits are enforced as parameter `maximum` constraints in the configured Custom GPT Actions schema.
 - Summary-first response philosophy (time series requested explicitly)
 - Prefer bounded windows over broad historical sweeps unless the user asks for longitudinal analysis.
 
@@ -103,7 +108,7 @@ This layer:
 
 - **Date handling**: use ISO date/time inputs; assume UTC unless offset is explicit.
 - **Error semantics**: invalid parameters return 4xx; unexpected failures return 5xx.
-- **Projection strategy**: endpoint-level projection behavior is defined in [`openapi.yaml`](../../api_docs/openapi.yaml).
+- **Projection strategy**: endpoint-level projection behavior is defined in the configured Custom GPT Actions schema.
 - **Agent memory usage**: preference/observation records are intended for persistent context grounding, not derived analytics.
 
 ## Out of Scope For This Document
@@ -112,6 +117,6 @@ This layer:
 - method/parameter contract details
 - request/response payload examples
 
-Those remain canonical in [`openapi.yaml`](../../api_docs/openapi.yaml).
+Those remain canonical in the configured Custom GPT Actions schema.
 
-For schema details and concrete payload examples, use [`openapi.yaml`](../../api_docs/openapi.yaml).
+For schema details and concrete payload examples, use the configured Custom GPT Actions schema.
