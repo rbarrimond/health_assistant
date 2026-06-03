@@ -7,10 +7,11 @@ The Semantic Access Layer is the **read + agent-memory write API** for ChatGPT A
 > **Document role:** Semantic interpretation and cognitive direction.
 >
 > **Contract authority:** Endpoint paths, parameters, request/response schemas, auth requirements, and canonical examples are defined in [`openapi.yaml`](../../api_docs/openapi.yaml).
-
+>
 > - Admin/operations endpoints: [`../devops/OPERATIONS_API.md`](../devops/OPERATIONS_API.md)
 > - Storage and ingestion architecture: [`INGESTION_SCHEMA.md`](../devops/data_architecture/INGESTION_SCHEMA.md)
 > - Agent-memory architecture and storage semantics: [`AGENT_MEMORY.md`](./AGENT_MEMORY.md)
+>
 - GPT call ordering: [`GPT_ACTIONS_GUIDE.md`](./GPT_ACTIONS_GUIDE.md)
 
 **Phase 1 Note:** This system is currently deployed for single-athlete use. Most endpoints default `athlete_id` to `"rob"` when not provided. Multi-athlete architecture exists, but strict enforcement is deferred to Phase 2.
