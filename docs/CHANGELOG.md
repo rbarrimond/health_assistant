@@ -10,6 +10,15 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 
 ## 2026-06-03
 
+### Documentation Rationalization: OpenAPI-First Contract Authority [docs v1.0.0]
+
+- **Why this is a docs governance update**: this change clarifies where API contracts vs. semantic guidance are maintained, reducing drift between markdown and OpenAPI specifications.
+- **Added (authority matrix)**: introduced `docs/gpt/README.md` as the GPT documentation architecture and authority hierarchy reference.
+- **Changed (semantic docs role)**: `docs/gpt/SEMANTIC_LAYER_API.md` now focuses on semantic interpretation and cognitive direction, not endpoint inventory mirroring.
+- **Changed (operations docs role)**: `docs/devops/OPERATIONS_API.md` is now a workflow/runbook playbook and no longer duplicates request/response contract examples.
+- **Changed (actions/memory clarity)**: `docs/gpt/GPT_ACTIONS_GUIDE.md` and `docs/gpt/AGENT_MEMORY.md` now explicitly defer transport contracts to OpenAPI.
+- **Changed (docs governance)**: `docs/README.md` now documents OpenAPI-first contract ownership and anti-duplication rules for markdown docs.
+
 ### OpenAPI OperationId Rationalization [semantic API v8.2.1, operations API v4.8.1]
 
 - **Why this is a PATCH bump**: this release standardizes OpenAPI `operationId` naming for endpoint-method clarity without changing endpoint paths, request/response payloads, or storage semantics.

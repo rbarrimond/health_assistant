@@ -1,9 +1,11 @@
 # GPT Actions Guide — Workout Intelligence Agent
 
-Version: 4.0.1
+Version: 4.1.0
 
 > **Document role:** Operational procedure only. This file defines API call ordering and usage flow.
 > Behavior, safety, and interpretation authority live in [INSTRUCTIONS.md](./INSTRUCTIONS.md).
+>
+> **Contract authority:** Exact endpoint paths, methods, parameters, auth, and payload examples are normative in [`openapi.yaml`](../../api_docs/openapi.yaml).
 
 This guide defines how a custom GPT should use the Health Assistant Semantic Access Layer.
 It is the operational companion to:
@@ -28,6 +30,8 @@ Before the first natural-language response in every session, the agent must auto
 If these are not called, you only have static schema/vision context, not current preferences, observations, workload, or readiness signals. The first user-facing response must wait until both calls complete.
 
 ## ChatGPT Integration Examples
+
+These examples are sequencing illustrations only. For exact request shapes and canonical examples, use [`openapi.yaml`](../../api_docs/openapi.yaml).
 
 "What should I do tomorrow?"
 
@@ -82,7 +86,7 @@ ChatGPT responds: "Your current FTP is 295 W and LTHR is 178 bpm (per the latest
 4. **Workout detail**
 
 - `GET /api/workouts/{workout_id}?laps=true`
-- Use for deep dives into a specific session. Response now returns top-level identity fields plus nested `metrics` (`WorkoutMetricsModel`).
+- Use for deep dives into a specific session when list projections are insufficient.
 - Add `laps=true` when you need lap summaries.
 - For per-lap records, call `GET /api/workouts/{workout_id}/laps/{lap_index}`.
 

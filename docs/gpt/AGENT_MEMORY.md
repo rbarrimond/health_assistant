@@ -1,9 +1,11 @@
 # Agent Memory System
 
-Version: 2.1.1
+Version: 2.2.0
 
 > **Document role:** Memory architecture and behavioral storage guidance.
 > Endpoint contracts (paths, parameters, payload schemas, auth) are normative in [`openapi.yaml`](../../api_docs/openapi.yaml).
+>
+> **Behavior authority:** Reasoning and safety rules are governed by [`INSTRUCTIONS.md`](./INSTRUCTIONS.md).
 
 ## Overview
 
@@ -88,11 +90,13 @@ This document covers memory storage semantics. Behavior authority lives in:
 
 ## API Contract Source
 
-For endpoint details and payload contracts, use [`openapi.yaml`](../../api_docs/openapi.yaml):
+For endpoint paths, HTTP methods, and payload contracts, use [`openapi.yaml`](../../api_docs/openapi.yaml).
 
-- `/api/agent/context`
-- `/api/agent/preferences` and `/api/agent/preferences/{preference_id}`
-- `/api/agent/observations` and `/api/agent/observations/{observation_id}`
+Memory endpoint families:
+
+- agent context retrieval
+- preference item lifecycle operations
+- observation lifecycle operations
 
 ## Future Enhancements
 

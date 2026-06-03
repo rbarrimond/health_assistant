@@ -16,11 +16,12 @@ Documentation is organized by audience:
 
 Core agent behavior and API contracts for ChatGPT:
 
+- **[gpt/README.md](./gpt/README.md)** — GPT documentation architecture, authority hierarchy, and routing map
 - **[gpt/INSTRUCTIONS.md](./gpt/INSTRUCTIONS.md)** — Behavioral rules, reasoning constraints, and safety guidelines
 - **[gpt/GPT_ACTIONS_GUIDE.md](./gpt/GPT_ACTIONS_GUIDE.md)** — Operational API usage patterns, endpoint call order
 - **[gpt/WORKOUT_INTELLIGENCE_AGENT_VISION.md](./gpt/WORKOUT_INTELLIGENCE_AGENT_VISION.md)** — Philosophy, design principles, operating model
 - **[gpt/AGENT_MEMORY.md](./gpt/AGENT_MEMORY.md)** — Memory system mechanics, storage contracts
-- **[gpt/SEMANTIC_LAYER_API.md](./gpt/SEMANTIC_LAYER_API.md)** — GPT-facing endpoint inventory (mirrors `openapi.yaml`)
+- **[gpt/SEMANTIC_LAYER_API.md](./gpt/SEMANTIC_LAYER_API.md)** — Semantic interpretation and cognitive guidance for training decisions
 - **[gpt/WORKOUT_SCHEMA.md](./gpt/WORKOUT_SCHEMA.md)** — Workout data model and field definitions
 
 ---
@@ -41,11 +42,16 @@ Athlete-specific and training-specific knowledge:
 
 ### Operations & Infrastructure
 
-- **[devops/OPERATIONS_API.md](./devops/OPERATIONS_API.md)** — Admin/write endpoints (mirrors `openapi.operations.yaml`)
+- **[devops/OPERATIONS_API.md](./devops/OPERATIONS_API.md)** — Operations workflow playbook (runbook guidance)
 - **[devops/DEPLOYMENT.md](./devops/DEPLOYMENT.md)** — Deployment procedures and infrastructure setup
 - **[devops/MONITORING.md](./devops/MONITORING.md)** — Monitoring, logging, observability
 - **[devops/CHAOS.md](./devops/CHAOS.md)** — Chaos engineering and reliability testing
 - **[devops/BACKENDS.md](./devops/BACKENDS.md)** — Backend services and integrations
+
+### API Contract Source of Truth
+
+- **`api_docs/openapi.yaml`** — Normative GPT-facing API contract (paths, params, schemas, auth, canonical examples)
+- **`api_docs/openapi.operations.yaml`** — Normative operations/admin API contract
 
 ### Development
 
@@ -65,17 +71,28 @@ Athlete-specific and training-specific knowledge:
 
 ### For Custom GPT Setup
 
-1. Upload all files from `gpt/` folder (6 core files)
+1. Upload all files from `gpt/` folder (7 core files)
 2. Optionally upload files from `gpt/context/` folder (3 context files)
 3. Configure ChatGPT Actions using `api_docs/openapi.yaml`
 
 ### For Developers
 
 1. Start with [gpt/WORKOUT_INTELLIGENCE_AGENT_VISION.md](./gpt/WORKOUT_INTELLIGENCE_AGENT_VISION.md) for system design
-2. Review [gpt/SEMANTIC_LAYER_API.md](./gpt/SEMANTIC_LAYER_API.md) for GPT-facing API reference
-3. See [devops/OPERATIONS_API.md](./devops/OPERATIONS_API.md) for admin endpoints
-4. Follow [devops/DEPLOYMENT.md](./devops/DEPLOYMENT.md) for getting started
-5. Check module docstrings in `config/constants.py` and `TrainingAnalyticsPlatform/models/constants.py` for constants architecture
+2. Review [gpt/README.md](./gpt/README.md) for authority boundaries before editing docs
+3. Use `api_docs/openapi.yaml` and `api_docs/openapi.operations.yaml` for contract updates
+4. Review [gpt/SEMANTIC_LAYER_API.md](./gpt/SEMANTIC_LAYER_API.md) for semantic interpretation guidance
+5. See [devops/OPERATIONS_API.md](./devops/OPERATIONS_API.md) for workflow/runbook guidance
+6. Follow [devops/DEPLOYMENT.md](./devops/DEPLOYMENT.md) for getting started
+7. Check module docstrings in `config/constants.py` and `TrainingAnalyticsPlatform/models/constants.py` for constants architecture
+
+---
+
+## Documentation Governance
+
+- Update OpenAPI first for any API contract change.
+- Keep markdown docs contract-light and cognition/operations focused.
+- Do not duplicate request/response schema examples outside OpenAPI.
+- If semantic behavior changes, update both OpenAPI descriptions/examples and GPT semantic guidance docs.
 
 ---
 
