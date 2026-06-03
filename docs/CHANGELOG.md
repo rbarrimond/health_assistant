@@ -8,6 +8,23 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-06-03
+
+### OpenAPI OperationId Rationalization [semantic API v8.2.1, operations API v4.8.1]
+
+- **Why this is a PATCH bump**: this release standardizes OpenAPI `operationId` naming for endpoint-method clarity without changing endpoint paths, request/response payloads, or storage semantics.
+- **Changed (semantic spec)**: aligned read endpoint operation IDs to method-first naming in `api_docs/openapi.yaml`:
+  - `planningContext` -> `getPlanningContext`
+  - `weeklyRollups` -> `listWeeklyRollups`
+  - `zoneDistribution` -> `getZoneDistribution`
+  - `efficiencyTrends` -> `getEfficiencyTrends`
+- **Changed (operations spec)**: aligned operational endpoint operation IDs in `api_docs/openapi.operations.yaml`:
+  - `getPluginManifest` -> `getAiPluginManifest`
+  - `withingsWebhookGet` -> `getWithingsWebhook`
+  - `withingsWebhook` -> `postWithingsWebhook`
+  - `configHistory` -> `getConfigHistory`
+- **Documented (migration)**: recorded old->new operationId mapping in this changelog entry to keep change history authoritative under `docs/`.
+
 ## 2026-05-18
 
 ### Workout Reporting Canonical Sport-Identity Hardening [application v3.21.1]

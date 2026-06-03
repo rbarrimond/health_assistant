@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Semantic/GPT)
-  version: "8.2.0"
+  version: "8.2.1"
   description: |
     GPT-facing semantic API for athlete memory, planning context, workouts, physiometrics, and training-state signals.
     Use this spec for conversational decision support; use openapi.operations.yaml for operational and system endpoints.
@@ -315,7 +315,7 @@ paths:
     get:
       summary: Get planning context for training decisions
       description: Returns short-horizon coaching context for planning decisions. Zone totals are stored in seconds but surfaced as minutes. The endpoint read-repairs OneDrive, Garmin, Withings, and Intervals sources; hydrated sources stay fresh for 60 minutes unless `force=true`.
-      operationId: planningContext
+      operationId: getPlanningContext
       security:
         - FunctionKey: []
       parameters:
@@ -499,7 +499,7 @@ paths:
   /api/rollups/weekly:
     get:
       summary: Get weekly rollup data
-      operationId: weeklyRollups
+      operationId: listWeeklyRollups
       security:
         - FunctionKey: []
       parameters:
@@ -531,7 +531,7 @@ paths:
   /api/analysis/zones:
     get:
       summary: Get time-in-zone distribution
-      operationId: zoneDistribution
+      operationId: getZoneDistribution
       security:
         - FunctionKey: []
       parameters:
@@ -562,7 +562,7 @@ paths:
   /api/analysis/efficiency:
     get:
       summary: Get aerobic efficiency and decoupling trends
-      operationId: efficiencyTrends
+      operationId: getEfficiencyTrends
       security:
         - FunctionKey: []
       parameters:

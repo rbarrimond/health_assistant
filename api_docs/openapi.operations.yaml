@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Operations)
-  version: "4.8.0"
+  version: "4.8.1"
   description: |
     Operational and administrative API for ingestion, configuration, integrations, and plugin assets.
     Complements the semantic GPT-facing specification with platform control-plane and runtime support endpoints.
@@ -283,7 +283,7 @@ paths:
   /api/.well-known/ai-plugin.json:
     get:
       summary: Retrieve the ChatGPT plugin manifest
-      operationId: getPluginManifest
+      operationId: getAiPluginManifest
       responses:
         '200':
           description: Plugin manifest JSON
@@ -394,7 +394,7 @@ paths:
   /api/withings/webhook:
     get:
       summary: Receive Withings webhook notifications
-      operationId: withingsWebhookGet
+      operationId: getWithingsWebhook
       parameters:
         - name: userid
           in: query
@@ -431,7 +431,7 @@ paths:
                 type: string
     post:
       summary: Receive Withings webhook notifications
-      operationId: withingsWebhook
+      operationId: postWithingsWebhook
       requestBody:
         required: true
         content:
@@ -544,7 +544,7 @@ paths:
   /api/config/history:
     get:
       summary: Get physiometrics configuration change history
-      operationId: configHistory
+      operationId: getConfigHistory
       security:
         - FunctionKey: []
       parameters:
