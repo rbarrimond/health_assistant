@@ -122,7 +122,7 @@ class WorkoutStorage:
             )
             return workout_id
         except HttpResponseError as e:
-            logger.error(
+            logger.exception(
                 "Error storing workout",
                 extra={
                     "athlete_id": athlete_id,
@@ -130,7 +130,6 @@ class WorkoutStorage:
                     "error_type": "HttpResponseError",
                     "error": str(e),
                 },
-                exc_info=True,
             )
             raise StorageError("Failed to store workout") from e
 
@@ -171,7 +170,7 @@ class WorkoutStorage:
                 },
             )
         except HttpResponseError as e:
-            logger.error(
+            logger.exception(
                 "Error recording ingestion state",
                 extra={
                     "athlete_id": athlete_id,
@@ -180,7 +179,6 @@ class WorkoutStorage:
                     "error_type": "HttpResponseError",
                     "error": str(e),
                 },
-                exc_info=True,
             )
             raise StorageError("Failed to record ingestion state") from e
 
@@ -198,7 +196,7 @@ class WorkoutStorage:
             # Entity doesn't exist yet - not an error
             return None
         except HttpResponseError as e:
-            logger.error(
+            logger.exception(
                 "Error checking ingestion state",
                 extra={
                     "athlete_id": athlete_id,
@@ -206,7 +204,6 @@ class WorkoutStorage:
                     "error_type": "HttpResponseError",
                     "error": str(e),
                 },
-                exc_info=True,
             )
             raise StorageError("Failed to retrieve ingestion state") from e
 

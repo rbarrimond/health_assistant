@@ -324,21 +324,51 @@ class WorkoutQueryService:
         metadata_blob: Dict,
     ) -> Dict:
         """Load canonical records and compute analytics metrics for detail response."""
-        blob_name = workout_entity.canonical_records_blob or entity.get("canonical_records_blob")
-        ingestion_id = workout_entity.ingestion_id or entity.get("ingestion_id")
-        if not blob_name and ingestion_id:
-            blob_name = f"{ingestion_id}/canonical.parquet"
-
+        blob_name = self._resolve_canonical_blob_name(workout_entity, entity)
         if not blob_name:
             raise WorkoutDetailUnavailableError(
                 "No canonical records blob available for workout detail"
             )
 
+        canonical_metadata = self._build_canonical_metadata(workout_entity, metadata_blob)
+        physiometrics_context = self._resolve_workout_physiometrics_context(
+            workout_entity, metadata_blob
+        )
+        if physiometrics_context:
+            canonical_metadata.update(physiometrics_context)
+
+        df = self._load_canonical_records_for_detail(blob_name, workout_entity)
+        if df.empty:
+            raise WorkoutDetailUnavailableError("Canonical records parquet is empty")
+
+        df = self._hydrate_detail_df_if_needed(df, workout_entity, entity)
+        metrics = self._compute_detail_metrics(df, canonical_metadata, workout_entity)
+        return self._merge_physiometric_detail_overrides(metrics, physiometrics_context)
+
+    @staticmethod
+    def _resolve_canonical_blob_name(
+        workout_entity: WorkoutEntity,
+        entity: Dict,
+    ) -> Optional[str]:
+        """Resolve the canonical parquet pointer for a workout detail request."""
+        blob_name = workout_entity.canonical_records_blob or entity.get("canonical_records_blob")
+        if blob_name:
+            return blob_name
+
+        ingestion_id = workout_entity.ingestion_id or entity.get("ingestion_id")
+        if ingestion_id:
+            return f"{ingestion_id}/canonical.parquet"
+        return None
+
+    def _build_canonical_metadata(
+        self,
+        workout_entity: WorkoutEntity,
+        metadata_blob: Dict,
+    ) -> Dict:
+        """Prepare canonical metadata with authoritative workout identity fields."""
         canonical_metadata = utils.prepare_rollup_metadata_for_canonical(
             metadata_blob, workout_entity
         )
-        # Ensure canonical analytics use authoritative workout identity classification.
-        # Some legacy metadata blobs can contain stale top-level sport fields.
         canonical_metadata["sport"] = (
             workout_entity.sport
             or metadata_blob.get("identity", {}).get("sport")
@@ -350,39 +380,52 @@ class WorkoutQueryService:
             or metadata_blob.get("enrichment", {}).get("sub_sport")
             or canonical_metadata.get("sub_sport")
         )
+        return canonical_metadata
 
-        # Resolve physiometrics baselines before analytics so HR/power zone
-        # computations use the values effective on the workout date.
-        physiometrics_context = self._resolve_workout_physiometrics_context(
-            workout_entity, metadata_blob
-        )
-        if physiometrics_context:
-            canonical_metadata.update(physiometrics_context)
-
+    def _load_canonical_records_for_detail(
+        self,
+        blob_name: str,
+        workout_entity: WorkoutEntity,
+    ) -> pd.DataFrame:
+        """Load canonical records for detail and surface a detail-specific storage error."""
         try:
-            df = self.storage.workouts.load_canonical_records(blob_name)
+            return self.storage.workouts.load_canonical_records(blob_name)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             raise WorkoutDetailUnavailableError(
                 f"Failed to load canonical records for workout detail: {exc}"
             ) from exc
 
-        if df.empty:
-            raise WorkoutDetailUnavailableError("Canonical records parquet is empty")
-
-        if self._needs_raw_fit_hydration(df):
-            try:
-                df = self._hydrate_missing_elevation_from_raw_fit(df, workout_entity, entity)
-            except Exception as exc:  # pylint: disable=broad-exception-caught
-                logger.warning(
-                    "Raw FIT elevation hydration failed",
-                    extra={
-                        "workout_id": workout_entity.workout_id,
-                        "error": str(exc),
-                    },
-                )
+    def _hydrate_detail_df_if_needed(
+        self,
+        df: pd.DataFrame,
+        workout_entity: WorkoutEntity,
+        entity: Dict,
+    ) -> pd.DataFrame:
+        """Hydrate missing elevation and GPS data when canonical rows are sparse."""
+        if not self._needs_raw_fit_hydration(df):
+            return df
 
         try:
-            metrics = self._compute_metrics_from_canonical(df, canonical_metadata)
+            return self._hydrate_missing_elevation_from_raw_fit(df, workout_entity, entity)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.warning(
+                "Raw FIT elevation hydration failed",
+                extra={
+                    "workout_id": workout_entity.workout_id,
+                    "error": str(exc),
+                },
+            )
+            return df
+
+    def _compute_detail_metrics(
+        self,
+        df: pd.DataFrame,
+        canonical_metadata: Dict,
+        workout_entity: WorkoutEntity,
+    ) -> Dict:
+        """Compute details metrics, using a basic fallback if canonical analytics fail."""
+        try:
+            return self._compute_metrics_from_canonical(df, canonical_metadata)
         except StorageError:
             raise
         except Exception as exc:  # pylint: disable=broad-exception-caught
@@ -393,11 +436,27 @@ class WorkoutQueryService:
                     "error": str(exc),
                 },
             )
-            metrics = utils.compute_basic_metrics_from_canonical(df)
+            return utils.compute_basic_metrics_from_canonical(df)
 
-        if physiometrics_context:
-            metrics.update(physiometrics_context)
+    @staticmethod
+    def _merge_physiometric_detail_overrides(
+        metrics: Dict,
+        physiometrics_context: Optional[Dict],
+    ) -> Dict:
+        """Apply physiometrics reference values without clobbering workout observed HR."""
+        if not physiometrics_context:
+            return metrics
 
+        metrics.update(
+            {
+                key: value
+                for key, value in physiometrics_context.items()
+                if key not in {"hr_max_bpm", "physiological_hr_max_bpm"}
+            }
+        )
+        physiological_max = physiometrics_context.get("physiological_hr_max_bpm")
+        if physiological_max is not None:
+            metrics["physiological_hr_max_bpm"] = physiological_max
         return metrics
 
     def _resolve_workout_physiometrics_context(
@@ -442,7 +501,7 @@ class WorkoutQueryService:
         for resolved_key, nested_key in (
             ("hr_lthr_bpm", "lthr_bpm"),
             ("hr_lthr_cycling_bpm", "lthr_cycling_bpm"),
-            ("hr_max_bpm", "hr_max_bpm"),
+            ("physiological_hr_max_bpm", "hr_max_bpm"),
             ("hr_resting_bpm", "resting_hr_bpm"),
         ):
             value = _resolve_physio_value(heart_rate, nested_key, physiometrics, resolved_key)
@@ -934,6 +993,9 @@ class WorkoutQueryService:
             "commute_flag": bool(metadata["enrichment"].get("commute_flag", False)),
             "ingestion_version": metadata["provenance"].get("ingestion_version"),
             "ingestion_timestamp_utc": metadata["provenance"].get("ingestion_timestamp_utc"),
+            "physiological_hr_max_bpm": metadata["session"].get("physiological_hr_max_bpm")
+            or metadata["identity"].get("physiological_hr_max_bpm")
+            or metadata["enrichment"].get("physiological_hr_max_bpm"),
         }
         projection_kwargs.update(capability_metrics)
         return projection_kwargs

@@ -1741,18 +1741,16 @@ class TestWeeklyRollupQueries:
         ):
             rollups = rollup_service_fixture._get_weekly_rollups("rob", days=14)
 
-        from pytest import approx
-        
         assert len(rollups) == 1
         assert rollups[0]["workouts_count"] == 2
-        assert rollups[0]["total_duration_min"] == approx(150.0)
-        assert rollups[0]["total_distance_km"] == approx(120.0)
-        assert rollups[0]["total_elev_m"] == approx(1600.0)
-        assert rollups[0]["total_hr_z2_min"] == approx(105.0)
-        assert rollups[0]["total_pwr_z2_min"] == approx(90.0)
-        assert rollups[0]["total_low_aerobic_min"] == approx(70.0)
-        assert rollups[0]["total_intensity_min"] == approx(17.0)
-        assert rollups[0]["avg_decoupling_pct"] == approx(2.5)
+        assert rollups[0]["total_duration_min"] == pytest.approx(150.0)
+        assert rollups[0]["total_distance_km"] == pytest.approx(120.0)
+        assert rollups[0]["total_elev_m"] == pytest.approx(1600.0)
+        assert rollups[0]["total_hr_z2_min"] == pytest.approx(105.0)
+        assert rollups[0]["total_pwr_z2_min"] == pytest.approx(90.0)
+        assert rollups[0]["total_low_aerobic_min"] == pytest.approx(70.0)
+        assert rollups[0]["total_intensity_min"] == pytest.approx(17.0)
+        assert rollups[0]["avg_decoupling_pct"] == pytest.approx(2.5)
         assert rollups[0]["hard_days_count"] == 2
         assert rollups[0]["long_rides_count"] == 1
 
@@ -2247,7 +2245,7 @@ class TestWeeklyRollupTimerComputation:
             "ftp_watts": 245,
             "hr_lthr_bpm": 165,
             "hr_lthr_cycling_bpm": 172,
-            "hr_max_bpm": 191,
+            "physiological_hr_max_bpm": 191,
             "hr_resting_bpm": 47,
         }
 
@@ -3142,6 +3140,23 @@ class TestWorkoutProjection:
 
         assert projection.hr_avg_bpm == pytest.approx(165.0)
         assert projection.hr_max_bpm == pytest.approx(182.0)
+
+    def test_extract_workout_baseline_overrides_keeps_physiological_hr_max_separate(
+        self, workout_service_fixture
+    ):
+        """Physiological HR max should not be merged into workout-observed hr_max_bpm."""
+        physiometrics = {
+            "heart_rate": {
+                "hr_max_bpm": 196,
+                "resting_hr_bpm": 52,
+            }
+        }
+
+        resolved = workout_service_fixture._extract_workout_baseline_overrides(physiometrics)
+
+        assert resolved["physiological_hr_max_bpm"] == pytest.approx(196)
+        assert "hr_max_bpm" not in resolved
+        assert resolved["hr_resting_bpm"] == pytest.approx(52)
 
     def test_build_projection_power_peaks_populated_when_has_power(
         self, workout_service_fixture, sample_table_entity, sample_metadata_full, mock_storage

@@ -94,6 +94,12 @@ class WorkoutMetricsModel(BaseModel):
     zones_hr: Optional[HRZonesModel] = None
     zones_power: Optional[PowerZonesModel] = None
     hr_resting_bpm: Optional[float] = Field(None, ge=0, le=300)
+    physiological_hr_max_bpm: Optional[float] = Field(
+        None,
+        ge=0,
+        le=300,
+        description="Physiological HR max baseline for the athlete as of the workout date",
+    )
     training_load: Optional[TrainingLoadMetricsModel] = None
     power_duration: Optional[PowerDurationAnchorsModel] = None
     envelope: Optional[EnvelopeScoresModel] = None
@@ -147,6 +153,7 @@ class WorkoutMetricsModel(BaseModel):
             zones_hr=zones_hr,
             zones_power=zones_power,
             hr_resting_bpm=metadata.get("hr_resting_bpm"),
+            physiological_hr_max_bpm=metadata.get("physiological_hr_max_bpm"),
             training_load=training_load,
             power_duration=power_duration,
             envelope=envelope,
@@ -480,7 +487,13 @@ class WorkoutProjection(BaseModel):
     
     # Sport-Specific Peaks (capability-dependent, Optional)
     hr_avg_bpm: Optional[float] = Field(None, ge=30, le=240, description="Average heart rate (bpm) - populated if has_hr=True")
-    hr_max_bpm: Optional[float] = Field(None, ge=30, le=240, description="Max heart rate (bpm) - populated if has_hr=True")
+    hr_max_bpm: Optional[float] = Field(None, ge=30, le=240, description="Observed workout max heart rate (bpm) - populated if has_hr=True")
+    physiological_hr_max_bpm: Optional[float] = Field(
+        None,
+        ge=30,
+        le=240,
+        description="Athlete physiological max heart rate baseline as of the workout date",
+    )
     pwr_avg_watts: Optional[float] = Field(None, ge=0, description="Average power (watts) - populated if has_power=True")
     pwr_max_watts: Optional[float] = Field(None, ge=0, description="Max power (watts) - populated if has_power=True")
     pwr_normalized_watts: Optional[float] = Field(None, ge=0, description="Normalized power (watts) - populated if has_power=True")
@@ -1788,7 +1801,8 @@ class CanonicalAnalyticsEngine(BaseModel):  # pylint: disable=too-many-public-me
             or cls._as_float(heart_rate.get("lthr_cycling_bpm"))
         )
         hr_max_bpm = (
-            cls._as_float(metadata.get("hr_max_bpm"))
+            cls._as_float(metadata.get("physiological_hr_max_bpm"))
+            or cls._as_float(metadata.get("hr_max_bpm"))
             or cls._as_float(heart_rate.get("hr_max_bpm"))
             or hr_cfg.hr_max_bpm
         )

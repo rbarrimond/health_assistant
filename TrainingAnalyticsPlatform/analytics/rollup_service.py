@@ -692,7 +692,7 @@ class RollupService:
         for resolved_key, nested_key in (
             ("hr_lthr_bpm", "lthr_bpm"),
             ("hr_lthr_cycling_bpm", "lthr_cycling_bpm"),
-            ("hr_max_bpm", "hr_max_bpm"),
+            ("physiological_hr_max_bpm", "hr_max_bpm"),
             ("hr_resting_bpm", "resting_hr_bpm"),
         ):
             value = _resolve_physio_value(
