@@ -37,8 +37,8 @@ This document covers memory storage semantics. Behavior authority lives in:
 ┌────────▼────────────────────────────────────────┐
 │ Agent Memory Handler                            │
 │                                                 │
-│  • Retrieves active preference items            │
-│  • Retrieves active observations                │
+│  • Retrieves non-archived preference items      │
+│  • Retrieves non-archived observations          │
 │  • Builds instruction addendum                  │
 └────────┬────────────────────────────────────────┘
          │
@@ -103,6 +103,8 @@ Memory endpoint families:
 - agent context retrieval
 - preference item lifecycle operations
 - observation lifecycle operations
+
+Default list/query behavior excludes records with `status=archived`. To include archived items, use `status=all` on memory read endpoints.
 
 ## Future Enhancements
 

@@ -8,6 +8,17 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-11-17
+
+### Agent Memory Default Archive Exclusion + API Contract Update [application v3.22.0, semantic API v8.3.0]
+
+- **Why this is a MINOR bump**: this release introduces new default filtering behavior for agent-memory reads and adds a new optional context query parameter, without changing persisted storage schema.
+- **Changed (default memory read behavior)**: `GET /api/agent/context`, `GET /api/agent/preferences`, and `GET /api/agent/observations` now exclude `status=archived` records by default.
+- **Added (explicit archive inclusion)**: memory read endpoints now support `status=all` to include archived records, while preserving explicit single-status filters (`active`, `resolved`, `archived`).
+- **Added (context filtering parity)**: `GET /api/agent/context` now accepts optional `status` for consistent read filtering across all agent-memory endpoints.
+- **Updated (semantic OpenAPI contract)**: `api_docs/openapi.yaml` now documents archive-exclusion defaults and context `status` filtering.
+- **Added (tests)**: agent memory handler coverage now verifies default archive exclusion, `status=all` inclusion, and status-filter validation paths.
+
 ## 2026-06-03
 
 ### Documentation Rationalization: OpenAPI-First Contract Authority [docs v1.0.0]

@@ -173,6 +173,82 @@ class TestAgentMemoryHandler:
         assert status == 400
         assert "error" in result
 
+    def test_get_preferences_default_excludes_archived(self, handler, mock_table_storage):
+        """Test default preference read excludes archived items."""
+        mock_client = MagicMock()
+        mock_table_storage.infrastructure.get_table_client.return_value = mock_client
+        mock_client.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "pref-1",
+                "category": "goal",
+                "summary": "Build base",
+                "priority": "high",
+                "status": "active",
+                "created_at": "2026-02-01T00:00:00+00:00",
+            },
+            {
+                "PartitionKey": "rob",
+                "RowKey": "pref-2",
+                "category": "goal",
+                "summary": "Past block",
+                "priority": "normal",
+                "status": "archived",
+                "created_at": "2026-01-01T00:00:00+00:00",
+            },
+            {
+                "PartitionKey": "rob",
+                "RowKey": "pref-3",
+                "category": "constraint",
+                "summary": "No Tuesday doubles",
+                "priority": "normal",
+                "status": "resolved",
+                "created_at": "2026-02-03T00:00:00+00:00",
+            },
+        ]
+
+        result, status = handler.get_preferences("rob")
+
+        assert status == 200
+        assert result["count"] == 2
+        assert all(pref["status"] != "archived" for pref in result["preferences"])
+
+    def test_get_preferences_status_all_includes_archived(self, handler, mock_table_storage):
+        """Test status=all preference read includes archived items."""
+        mock_client = MagicMock()
+        mock_table_storage.infrastructure.get_table_client.return_value = mock_client
+        mock_client.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "pref-1",
+                "category": "goal",
+                "summary": "Build base",
+                "status": "active",
+                "created_at": "2026-02-01T00:00:00+00:00",
+            },
+            {
+                "PartitionKey": "rob",
+                "RowKey": "pref-2",
+                "category": "goal",
+                "summary": "Past block",
+                "status": "archived",
+                "created_at": "2026-01-01T00:00:00+00:00",
+            },
+        ]
+
+        result, status = handler.get_preferences("rob", status="all")
+
+        assert status == 200
+        assert result["count"] == 2
+        assert any(pref["status"] == "archived" for pref in result["preferences"])
+
+    def test_get_preferences_invalid_status(self, handler, mock_table_storage):
+        """Test invalid preference status filter returns 400."""
+        result, status = handler.get_preferences("rob", status="invalid")
+
+        assert status == 400
+        assert "Invalid status" in result["error"]
+
     # ========================================================================
     # update_preferences tests
     # ========================================================================
@@ -426,6 +502,159 @@ class TestAgentMemoryHandler:
         # Assert
         assert status == 400
         assert "error" in result
+
+    def test_list_observations_default_excludes_archived(self, handler, mock_table_storage):
+        """Test default observation read excludes archived items."""
+        mock_client = MagicMock()
+        mock_table_storage.infrastructure.get_table_client.return_value = mock_client
+        mock_client.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "obs-1",
+                "category": "pattern",
+                "summary": "Pattern 1",
+                "details": None,
+                "referenced_workout_ids": "",
+                "priority": "high",
+                "status": "active",
+                "created_at": "2026-02-01T00:00:00+00:00",
+                "expires_at": None
+            },
+            {
+                "PartitionKey": "rob",
+                "RowKey": "obs-2",
+                "category": "pattern",
+                "summary": "Pattern 2",
+                "details": None,
+                "referenced_workout_ids": "",
+                "priority": "normal",
+                "status": "archived",
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "expires_at": None
+            },
+        ]
+
+        result, status = handler.list_observations("rob")
+
+        assert status == 200
+        assert result["count"] == 1
+        assert result["observations"][0]["status"] != "archived"
+
+    def test_get_context_default_excludes_archived(self, handler, mock_table_storage):
+        """Test context read excludes archived preferences and observations by default."""
+        mock_prefs_client = MagicMock()
+        mock_obs_client = MagicMock()
+
+        def get_table_client(table_name):
+            if table_name == "AgentPreferences":
+                return mock_prefs_client
+            return mock_obs_client
+
+        mock_table_storage.infrastructure.get_table_client.side_effect = get_table_client
+        mock_prefs_client.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "pref-1",
+                "category": "goal",
+                "summary": "Build base",
+                "status": "active",
+                "created_at": "2026-02-01T00:00:00+00:00",
+            },
+            {
+                "PartitionKey": "rob",
+                "RowKey": "pref-2",
+                "category": "goal",
+                "summary": "Old block",
+                "status": "archived",
+                "created_at": "2026-01-01T00:00:00+00:00",
+            },
+        ]
+        mock_obs_client.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "obs-1",
+                "category": "pattern",
+                "summary": "Fresh insight",
+                "status": "active",
+                "created_at": "2026-02-01T00:00:00+00:00",
+                "referenced_workout_ids": "",
+            },
+            {
+                "PartitionKey": "rob",
+                "RowKey": "obs-2",
+                "category": "pattern",
+                "summary": "Stale insight",
+                "status": "archived",
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "referenced_workout_ids": "",
+            },
+        ]
+
+        result, status = handler.get_context("rob")
+
+        assert status == 200
+        assert all(pref["status"] != "archived" for pref in result["preferences"])
+        assert all(
+            obs["status"] != "archived" for obs in result["active_observations"]
+        )
+
+    def test_get_context_status_all_includes_archived(self, handler, mock_table_storage):
+        """Test context status=all includes archived records."""
+        mock_prefs_client = MagicMock()
+        mock_obs_client = MagicMock()
+
+        def get_table_client(table_name):
+            if table_name == "AgentPreferences":
+                return mock_prefs_client
+            return mock_obs_client
+
+        mock_table_storage.infrastructure.get_table_client.side_effect = get_table_client
+        mock_prefs_client.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "pref-1",
+                "category": "goal",
+                "summary": "Build base",
+                "status": "active",
+                "created_at": "2026-02-01T00:00:00+00:00",
+            },
+            {
+                "PartitionKey": "rob",
+                "RowKey": "pref-2",
+                "category": "goal",
+                "summary": "Old block",
+                "status": "archived",
+                "created_at": "2026-01-01T00:00:00+00:00",
+            },
+        ]
+        mock_obs_client.query_entities.return_value = [
+            {
+                "PartitionKey": "rob",
+                "RowKey": "obs-1",
+                "category": "pattern",
+                "summary": "Fresh insight",
+                "status": "active",
+                "created_at": "2026-02-01T00:00:00+00:00",
+                "referenced_workout_ids": "",
+            },
+            {
+                "PartitionKey": "rob",
+                "RowKey": "obs-2",
+                "category": "pattern",
+                "summary": "Stale insight",
+                "status": "archived",
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "referenced_workout_ids": "",
+            },
+        ]
+
+        result, status = handler.get_context("rob", status="all")
+
+        assert status == 200
+        assert any(pref["status"] == "archived" for pref in result["preferences"])
+        assert any(
+            obs["status"] == "archived" for obs in result["active_observations"]
+        )
 
     # ========================================================================
     # update_observation_status tests

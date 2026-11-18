@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Health Assistant API (Semantic/GPT)
-  version: "8.2.1"
+  version: "8.3.0"
   description: |
     GPT-facing semantic API for athlete memory, planning context, workouts, physiometrics, and training-state signals.
     Use this spec for conversational decision support; use openapi.operations.yaml for operational and system endpoints.
@@ -33,9 +33,9 @@ paths:
                 $ref: '#/components/schemas/HealthStatus'
   /api/agent/context:
     get:
-      summary: Get agent memory context (preferences + active observations)
+      summary: Get agent memory context (preferences + non-archived observations)
       operationId: getAgentContext
-      description: Returns the assistant working memory used for conversational grounding. Call this at conversation start to load active preferences and observations before planning or recommendation endpoints.
+      description: Returns the assistant working memory used for conversational grounding. By default, archived memory is excluded. Use `status=all` to include archived entries.
       parameters:
         - name: athlete_id
           in: query
@@ -44,6 +44,13 @@ paths:
           schema:
             type: string
             default: rob
+        - name: status
+          in: query
+          required: false
+          description: Optional filter. Omit to return non-archived memory only.
+          schema:
+            type: string
+            enum: [active, resolved, archived, all]
       security:
         - FunctionKey: []
       responses:
@@ -64,7 +71,7 @@ paths:
     get:
       summary: List agent preferences
       operationId: getAgentPreferences
-      description: Returns ordered preference items for the athlete. Use `status=active` for current constraints and goals before recommendation generation.
+      description: Returns ordered preference items for the athlete. By default, archived items are excluded.
       parameters:
         - name: athlete_id
           in: query
@@ -76,11 +83,10 @@ paths:
         - name: status
           in: query
           required: false
-          description: Filter by status
+          description: Optional filter. Omit to return non-archived items only.
           schema:
             type: string
             enum: [active, resolved, archived, all]
-            default: active
         - name: limit
           in: query
           required: false
@@ -193,7 +199,7 @@ paths:
     get:
       summary: List training observations
       operationId: listAgentObservations
-      description: Returns observation items that capture constraints, flags, and patterns. Use active observations to adjust recommendations.
+      description: Returns observation items that capture constraints, flags, and patterns. By default, archived items are excluded.
       parameters:
         - name: athlete_id
           in: query
@@ -205,11 +211,10 @@ paths:
         - name: status
           in: query
           required: false
-          description: Filter by status
+          description: Optional filter. Omit to return non-archived items only.
           schema:
             type: string
             enum: [active, resolved, archived, all]
-            default: active
         - name: limit
           in: query
           required: false

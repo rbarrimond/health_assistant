@@ -869,14 +869,15 @@ def get_training_state_history(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="agent/context", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
 @endpoint
 def get_agent_context(req: func.HttpRequest) -> func.HttpResponse:
-    """Get complete agent context (preferences + active observations).
+    """Get complete agent context (preferences + non-archived observations).
     
     Use this at conversation start to provide context to the GPT agent.
     """
     athlete_id = req.params.get("athlete_id", "rob")
+    status_filter = req.params.get("status")
 
     handler = AgentMemoryHandler(dependencies.storage)
-    result, status = handler.get_context(athlete_id)
+    result, status = handler.get_context(athlete_id, status_filter)
 
     return _json_response(req, result, status)
 
@@ -886,7 +887,7 @@ def get_agent_context(req: func.HttpRequest) -> func.HttpResponse:
 def get_agent_preferences(req: func.HttpRequest) -> func.HttpResponse:
     """Get user preferences for the agent."""
     athlete_id = req.params.get("athlete_id", "rob")
-    status_filter = req.params.get("status", "active")
+    status_filter = req.params.get("status")
     limit = int(req.params.get("limit", "20"))
 
     handler = AgentMemoryHandler(dependencies.storage)
@@ -955,7 +956,7 @@ def update_agent_preference(req: func.HttpRequest) -> func.HttpResponse:
 def list_agent_observations(req: func.HttpRequest) -> func.HttpResponse:
     """List observations for an athlete."""
     athlete_id = req.params.get("athlete_id", "rob")
-    status_filter = req.params.get("status", "active")
+    status_filter = req.params.get("status")
     limit = int(req.params.get("limit", "20"))
 
     handler = AgentMemoryHandler(dependencies.storage)

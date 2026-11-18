@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 # Error messages
 ERR_MISSING_ATHLETE_ID = "Missing required parameter: athlete_id"
 ERR_MISSING_REQUIRED_PARAMS = "Missing required parameters"
+ERR_INVALID_STATUS = "Invalid status. Must be: active, resolved, archived, or all"
+_ALLOWED_STATUS_FILTERS = {"active", "resolved", "archived", "all"}
 
 
 class AgentMemoryHandler:
@@ -25,14 +27,19 @@ class AgentMemoryHandler:
         """
         self.table_storage = table_storage
 
-    def get_context(self, athlete_id: str) -> Tuple[Dict[str, Any], int]:
+    def get_context(
+        self,
+        athlete_id: str,
+        status: Optional[str] = None
+    ) -> Tuple[Dict[str, Any], int]:
         """Get complete agent context for an athlete.
 
-        Returns preferences and active observations to be used as context
+        Returns preferences and observations to be used as context
         by the GPT agent at conversation start.
 
         Args:
             athlete_id: Athlete identifier
+            status: Optional status filter. If omitted, excludes archived records.
 
         Returns:
             Tuple of (response_dict, status_code)
@@ -41,12 +48,20 @@ class AgentMemoryHandler:
             return {"error": "Missing required parameter: athlete_id"}, 400
 
         try:
-            # Fetch active preferences
-            preferences = self._get_active_preferences_from_storage(athlete_id)
+            status_filter, exclude_archived_by_default = self._resolve_status_filter(status)
 
-            # Fetch active observations
-            observations = self._get_active_observations_from_storage(
-                athlete_id
+            # Fetch preferences and observations, excluding archived by default.
+            preferences = self._get_preferences_from_storage(
+                athlete_id=athlete_id,
+                status=status_filter,
+                limit=10,
+                exclude_archived=exclude_archived_by_default
+            )
+            observations = self._get_observations_from_storage(
+                athlete_id=athlete_id,
+                status=status_filter,
+                limit=10,
+                exclude_archived=exclude_archived_by_default
             )
 
             # Build instruction addendum for GPT
@@ -100,6 +115,8 @@ class AgentMemoryHandler:
                 "retrieved_at": datetime.now(timezone.utc).isoformat()
             }, 200
 
+        except ValueError as exc:
+            return {"error": str(exc)}, 400
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Error getting agent context: %s", exc, exc_info=True)
             return {"error": "Failed to retrieve agent context"}, 500
@@ -107,14 +124,14 @@ class AgentMemoryHandler:
     def get_preferences(
         self,
         athlete_id: str,
-        status: str = "active",
+        status: Optional[str] = None,
         limit: int = 20
     ) -> Tuple[Dict[str, Any], int]:
         """List preferences for an athlete.
 
         Args:
             athlete_id: Athlete identifier
-            status: Filter by status (active, resolved, archived, all)
+            status: Optional status filter. If omitted, excludes archived records.
             limit: Maximum number of preferences to return
 
         Returns:
@@ -124,9 +141,11 @@ class AgentMemoryHandler:
             return {"error": ERR_MISSING_ATHLETE_ID}, 400
 
         try:
+            status_filter, exclude_archived_by_default = self._resolve_status_filter(status)
             preferences = self._get_preferences_from_storage(
                 athlete_id=athlete_id,
-                status=status if status != "all" else None,
+                status=status_filter,
+                exclude_archived=exclude_archived_by_default,
                 limit=limit
             )
 
@@ -136,6 +155,8 @@ class AgentMemoryHandler:
                 "count": len(preferences)
             }, 200
 
+        except ValueError as exc:
+            return {"error": str(exc)}, 400
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Error getting preferences: %s", exc, exc_info=True)
             return {"error": "Failed to retrieve preferences"}, 500
@@ -323,14 +344,14 @@ class AgentMemoryHandler:
     def list_observations(
         self,
         athlete_id: str,
-        status: str = "active",
+        status: Optional[str] = None,
         limit: int = 20
     ) -> Tuple[Dict[str, Any], int]:
         """List observations for an athlete.
 
         Args:
             athlete_id: Athlete identifier
-            status: Filter by status (active, resolved, archived, all)
+            status: Optional status filter. If omitted, excludes archived records.
             limit: Maximum number of observations to return
 
         Returns:
@@ -340,9 +361,11 @@ class AgentMemoryHandler:
             return {"error": ERR_MISSING_ATHLETE_ID}, 400
 
         try:
+            status_filter, exclude_archived_by_default = self._resolve_status_filter(status)
             observations = self._get_observations_from_storage(
                 athlete_id=athlete_id,
-                status=status if status != "all" else None,
+                status=status_filter,
+                exclude_archived=exclude_archived_by_default,
                 limit=limit
             )
 
@@ -352,6 +375,8 @@ class AgentMemoryHandler:
                 "count": len(observations)
             }, 200
 
+        except ValueError as exc:
+            return {"error": str(exc)}, 400
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Error listing observations: %s", exc, exc_info=True)
             return {"error": "Failed to list observations"}, 500
@@ -409,7 +434,8 @@ class AgentMemoryHandler:
         self,
         athlete_id: str,
         status: Optional[str] = None,
-        limit: int = 20
+        limit: int = 20,
+        exclude_archived: bool = False
     ) -> List[Dict]:
         """Fetch preferences from AgentPreferences table."""
         client = self.table_storage.infrastructure.get_table_client(  # pylint: disable=protected-access
@@ -432,6 +458,9 @@ class AgentMemoryHandler:
                     preference_items.append(
                         self._entity_to_preference_dict(entity)
                     )
+
+            if exclude_archived:
+                preference_items = self._exclude_archived(preference_items)
 
             if preference_items:
                 preference_items = self._sort_preferences(preference_items)
@@ -493,35 +522,12 @@ class AgentMemoryHandler:
             logger.error("Error updating preference: %s", exc)
             return False, None
 
-    def _get_active_preferences_from_storage(
-        self,
-        athlete_id: str,
-        limit: int = 10
-    ) -> List[Dict]:
-        """Fetch active preferences from AgentPreferences table."""
-        return self._get_preferences_from_storage(
-            athlete_id=athlete_id,
-            status="active",
-            limit=limit
-        )
-
-    def _get_active_observations_from_storage(
-        self,
-        athlete_id: str,
-        limit: int = 10
-    ) -> List[Dict]:
-        """Fetch active observations from AgentObservations table."""
-        return self._get_observations_from_storage(
-            athlete_id=athlete_id,
-            status="active",
-            limit=limit
-        )
-
     def _get_observations_from_storage(
         self,
         athlete_id: str,
         status: Optional[str] = None,
-        limit: int = 20
+        limit: int = 20,
+        exclude_archived: bool = False
     ) -> List[Dict]:
         """Fetch observations from AgentObservations table."""
         client = self.table_storage.infrastructure.get_table_client(  # pylint: disable=protected-access
@@ -536,6 +542,8 @@ class AgentMemoryHandler:
             entities = client.query_entities(query, results_per_page=limit)
             observations = [
                 self._entity_to_observation_dict(e) for e in entities]
+            if exclude_archived:
+                observations = self._exclude_archived(observations)
 
             # Sort by priority (high first) then created_at
             priority_order = {"high": 0, "normal": 1, "low": 2}
@@ -550,6 +558,22 @@ class AgentMemoryHandler:
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Error querying observations: %s", exc)
             return []
+
+    @staticmethod
+    def _resolve_status_filter(status: Optional[str]) -> Tuple[Optional[str], bool]:
+        """Resolve status filter and whether archived records should be excluded by default."""
+        if status in (None, ""):
+            return None, True
+        if status not in _ALLOWED_STATUS_FILTERS:
+            raise ValueError(ERR_INVALID_STATUS)
+        if status == "all":
+            return None, False
+        return status, False
+
+    @staticmethod
+    def _exclude_archived(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Exclude archived records from item list."""
+        return [item for item in items if item.get("status", "active") != "archived"]
 
     def _store_observation(self, observation: AgentObservation):
         """Store observation to AgentObservations table."""
