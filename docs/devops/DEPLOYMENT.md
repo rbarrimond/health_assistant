@@ -435,3 +435,107 @@ For now, the publish profile method works and is simpler for personal projects.
 - ✅ **Azure Handles Build**: Oryx ensures dependencies match runtime
 - ✅ **Clean Deployments**: `.funcignore` keeps deployment package lean
 - ✅ **Manual Override**: Can trigger deployment via workflow dispatch
+
+---
+
+## Step 6: ChatGPT Plugin Registration
+
+After Function App deployment, register the plugin with ChatGPT.
+
+### Verify Plugin Endpoints
+
+```bash
+# Verify manifest endpoint
+curl https://health.azure.barrimond.net/.well-known/ai-plugin.json | jq .
+
+# Should return:
+# {
+#   "schema_version": "v1",
+#   "name_for_human": "Health Assistant",
+#   "auth": {
+#     "type": "service_http",
+#     "authorization_type": "bearer"
+#   },
+#   "api": {
+#     "type": "openapi",
+#     "url": "https://health.azure.barrimond.net/openapi.yaml"
+#   },
+#   ...
+# }
+
+# Verify OpenAPI spec
+curl https://health.azure.barrimond.net/openapi.yaml | head -20
+
+# Should return OpenAPI 3.1.0 spec with BearerToken security scheme
+```
+
+### Register Plugin in ChatGPT
+
+1. **Open ChatGPT**:
+   - Go to https://chatgpt.com
+   - Select "Explore" → "Create a GPT" → "Create my own"
+
+2. **Create New Action**:
+   - Click "Create new action"
+   - Choose "Import from URL"
+   - Paste: `https://health.azure.barrimond.net/.well-known/ai-plugin.json`
+   - ChatGPT auto-fetches the manifest and OpenAPI spec
+
+3. **Configure Authentication**:
+   - Auth type: `Bearer token`
+   - Token: (Obtain Function key from Azure)
+     ```bash
+     az functionapp keys list --name func-healthassistant-prod-59o7 \
+       --resource-group rg-health-assistant-prod \
+       --query "functionKeys.default" -o tsv
+     ```
+
+4. **Test Connection**:
+   - ChatGPT sends test request with bearer token
+   - Should return 200 OK from health check endpoint
+
+5. **Upload Agent Knowledge**:
+   - Scroll down to "Knowledge"
+   - Add all files from `docs/gpt/` folder (7 core files)
+   - Optionally add files from `docs/gpt/context/` folder (3 context files)
+
+6. **Save & Publish**:
+   - Click "Save" (saves as draft)
+   - Click "Create GPT" to finalize
+   - Choose visibility: Private (default) or Public
+
+### Verify Plugin Works
+
+- **In ChatGPT**, start a conversation and test endpoints:
+  ```
+  "Tell me about my current fitness status"
+  ```
+  - Should call `/api/agent/context` and `/api/workouts`
+  - Chat should understand your training history
+
+- **Monitor in Azure**:
+  - Application Insights: Check for plugin requests
+  - Should see bearer token in auth headers
+  - Response latency should be < 500ms
+
+### Bearer Token Rotation
+
+For production, rotate bearer tokens periodically:
+
+```bash
+# List current keys
+az functionapp keys list --name func-healthassistant-prod-59o7 \
+  --resource-group rg-health-assistant-prod
+
+# Generate new key
+az functionapp keys create --name func-healthassistant-prod-59o7 \
+  --resource-group rg-health-assistant-prod \
+  --key-name new-key
+
+# Update ChatGPT plugin: Paste new key into plugin authentication settings
+# Delete old key after verification
+
+az functionapp keys delete --name func-healthassistant-prod-59o7 \
+  --resource-group rg-health-assistant-prod \
+  --key-name default
+```

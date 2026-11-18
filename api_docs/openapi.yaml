@@ -1,10 +1,12 @@
 openapi: 3.1.0
 info:
-  title: Health Assistant API (Semantic/GPT)
-  version: "8.3.0"
+  title: Health Assistant API (Semantic/ChatGPT)
+  version: "4.0.0"
   description: |
     GPT-facing semantic API for athlete memory, planning context, workouts, physiometrics, and training-state signals.
     Use this spec for conversational decision support; use openapi.operations.yaml for operational and system endpoints.
+
+    **Authentication**: Bearer token (ChatGPT Plugin authentication)
 
     Response compression contract:
     - Clients may request gzip by sending `Accept-Encoding: gzip`.
@@ -52,7 +54,7 @@ paths:
             type: string
             enum: [active, resolved, archived, all]
       security:
-        - FunctionKey: []
+        - BearerToken: []
       responses:
         '200':
           description: Agent context with preferences and observations
@@ -96,7 +98,7 @@ paths:
             default: 20
             maximum: 100
       security:
-        - FunctionKey: []
+        - BearerToken: []
       responses:
         '200':
           description: List of preferences
@@ -125,7 +127,7 @@ paths:
               default:
                 $ref: '#/components/examples/CreatePreferenceRequestExample'
       security:
-        - FunctionKey: []
+        - BearerToken: []
       responses:
         '201':
           description: Preference created successfully
@@ -178,7 +180,7 @@ paths:
               resolvePreference:
                 $ref: '#/components/examples/UpdatePreferenceRequestExample'
       security:
-        - FunctionKey: []
+        - BearerToken: []
       responses:
         '200':
           description: Preference updated
@@ -224,7 +226,7 @@ paths:
             default: 20
             maximum: 100
       security:
-        - FunctionKey: []
+        - BearerToken: []
       responses:
         '200':
           description: List of observations
@@ -253,7 +255,7 @@ paths:
               default:
                 $ref: '#/components/examples/CreateObservationRequestExample'
       security:
-        - FunctionKey: []
+        - BearerToken: []
       responses:
         '201':
           description: Observation created successfully
@@ -299,7 +301,7 @@ paths:
               resolveObservation:
                 $ref: '#/components/examples/UpdateObservationStatusRequestExample'
       security:
-        - FunctionKey: []
+        - BearerToken: []
       responses:
         '200':
           description: Observation updated
@@ -322,7 +324,7 @@ paths:
       description: Returns short-horizon coaching context for planning decisions. Zone totals are stored in seconds but surfaced as minutes. The endpoint read-repairs OneDrive, Garmin, Withings, and Intervals sources; hydrated sources stay fresh for 60 minutes unless `force=true`.
       operationId: getPlanningContext
       security:
-        - FunctionKey: []
+        - BearerToken: []
       parameters:
         - name: athlete_id
           in: query
@@ -365,7 +367,7 @@ paths:
       description: Lists workouts for an athlete/date window as compact projections for sorting and filtering. Use this for retrieval and triage; call workout detail endpoints only when deeper metrics are needed.
       operationId: listWorkouts
       security:
-        - FunctionKey: []
+        - BearerToken: []
       parameters:
         - name: athlete_id
           in: query
@@ -418,7 +420,7 @@ paths:
       operationId: getWorkout
       description: Returns a deep workout record for one session, including identity fields and nested metric families for analysis. Use this endpoint only when projection data is insufficient for the decision.
       security:
-        - FunctionKey: []
+        - BearerToken: []
       parameters:
         - name: workout_id
           in: path
@@ -470,7 +472,7 @@ paths:
       summary: Get lap summary detail
       operationId: getWorkoutLap
       security:
-        - FunctionKey: []
+        - BearerToken: []
       parameters:
         - name: workout_id
           in: path
@@ -506,7 +508,7 @@ paths:
       summary: Get weekly rollup data
       operationId: listWeeklyRollups
       security:
-        - FunctionKey: []
+        - BearerToken: []
       parameters:
         - name: athlete_id
           in: query
@@ -538,7 +540,7 @@ paths:
       summary: Get time-in-zone distribution
       operationId: getZoneDistribution
       security:
-        - FunctionKey: []
+        - BearerToken: []
       parameters:
         - name: athlete_id
           in: query
@@ -569,7 +571,7 @@ paths:
       summary: Get aerobic efficiency and decoupling trends
       operationId: getEfficiencyTrends
       security:
-        - FunctionKey: []
+        - BearerToken: []
       parameters:
         - name: athlete_id
           in: query
@@ -609,7 +611,7 @@ paths:
             type: string
             default: rob
       security:
-        - FunctionKey: []
+        - BearerToken: []
       responses:
         '200':
           description: Current snapshot of metrics
@@ -657,7 +659,7 @@ paths:
             items:
               type: string
       security:
-        - FunctionKey: []
+        - BearerToken: []
       responses:
         '200':
           description: Time-series data for requested metrics
@@ -686,7 +688,7 @@ paths:
             type: string
             default: rob
       security:
-        - FunctionKey: []
+        - BearerToken: []
       responses:
         '200':
           description: Current training state snapshot
@@ -738,7 +740,7 @@ paths:
             type: string
             format: date
       security:
-        - FunctionKey: []
+        - BearerToken: []
       responses:
         '200':
           description: Time-series training state data
@@ -2564,8 +2566,12 @@ components:
         - athlete_id
         - samples
   securitySchemes:
+    BearerToken:
+      type: http
+      scheme: bearer
+      description: Bearer token authentication for ChatGPT Plugin
     FunctionKey:
       type: apiKey
       in: query
       name: code
-      description: Azure Functions API key passed as `?code=...`
+      description: Azure Functions API key passed as `?code=...` (deprecated; use BearerToken instead)

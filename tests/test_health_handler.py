@@ -37,7 +37,11 @@ class TestHealthHandler:
             "api": {"url": "PLACEHOLDER_URL"},
             "logo_url": "https://example.com/logo.svg",
             "contact_email": "default@example.com",
-            "legal_info_url": "https://example.com/legal"
+            "legal_info_url": "https://example.com/legal",
+            "auth": {
+                "type": "service_http",
+                "authorization_type": "bearer"
+            }
         }''')
 
         # Create openapi.yaml
@@ -274,3 +278,31 @@ paths:
         assert status == 200
         # Should fall back to default from file (not generate from base_url)
         assert "logo" in result["logo_url"]
+
+    def test_get_plugin_manifest_chatgpt_plugin_auth_scheme(self, handler):
+        """Test plugin manifest declares service_http auth for ChatGPT Plugin."""
+        # Act
+        result, status = handler.get_plugin_manifest(
+            base_url="https://api.example.com",
+            env_overrides={}
+        )
+
+        # Assert
+        assert status == 200
+        assert "auth" in result
+        assert result["auth"]["type"] == "service_http"
+        assert result["auth"]["authorization_type"] == "bearer"
+
+    def test_get_plugin_manifest_openapi_url_format(self, handler):
+        """Test plugin manifest contains properly formatted OpenAPI URL."""
+        # Act
+        result, status = handler.get_plugin_manifest(
+            base_url="https://health.azure.barrimond.net",
+            env_overrides={}
+        )
+
+        # Assert
+        assert status == 200
+        assert "api" in result
+        assert "url" in result["api"]
+        assert result["api"]["url"] == "https://health.azure.barrimond.net/openapi.yaml"

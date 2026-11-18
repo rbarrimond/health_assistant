@@ -6,13 +6,30 @@ This directory contains all documentation for the Health Assistant / Workout Int
 
 Documentation is organized by audience:
 
-- **`gpt/`** — GPT Knowledge (upload to Custom GPT)
+- **`gpt/`** — Agent Knowledge (upload to ChatGPT Plugin or Custom GPT)
 - **`gpt/context/`** — Domain-specific context (optional upload)
-- **`devops/`** — Developer & operations reference (do not upload to GPT)
+- **`devops/`** — Developer & operations reference (do not upload to ChatGPT)
 
 ---
 
-## GPT Knowledge (Upload to Custom GPT)
+## ChatGPT Plugin Integration
+
+**Active integration**: ChatGPT Plugin (native ChatGPT ecosystem)
+
+The plugin is served via:
+- **Manifest endpoint**: `GET /.well-known/ai-plugin.json` (served dynamically by Azure Functions)
+- **OpenAPI spec**: `GET /openapi.yaml`
+
+**Setup**:
+1. Deploy this codebase (manifest and OpenAPI endpoints are auto-served)
+2. Register plugin in ChatGPT: https://chatgpt.com → Explore → Create a GPT → Use custom action
+3. Enter manifest URL: `https://health.azure.barrimond.net/.well-known/ai-plugin.json`
+4. ChatGPT auto-fetches OpenAPI spec and bearer token auth
+5. Configure authentication: use bearer token (Function key from Azure)
+
+---
+
+## Agent Knowledge (Upload to ChatGPT)
 
 Core agent behavior and API contracts for ChatGPT:
 
@@ -26,7 +43,7 @@ Core agent behavior and API contracts for ChatGPT:
 
 ---
 
-## Domain Context (Optional GPT Upload)
+## Domain Context (Optional ChatGPT Upload)
 
 Athlete-specific and training-specific knowledge:
 
@@ -38,7 +55,7 @@ Athlete-specific and training-specific knowledge:
 
 ## Developer & Operations Reference
 
-**Do not upload to Custom GPT. For developers only.**
+**Do not upload to ChatGPT. For developers only.**
 
 ### Operations & Infrastructure
 
@@ -50,7 +67,8 @@ Athlete-specific and training-specific knowledge:
 
 ### API Contract Source of Truth
 
-- **`api_docs/openapi.yaml`** — Normative GPT-facing API contract (paths, params, schemas, auth, canonical examples)
+- **`api_docs/openapi.yaml`** — Normative ChatGPT Plugin API contract (paths, params, schemas, auth, canonical examples)
+- **`api_docs/ai-plugin.json`** — ChatGPT Plugin manifest (served at `/.well-known/ai-plugin.json`)
 - **`api_docs/openapi.operations.yaml`** — Normative operations/admin API contract
 
 ### Development
@@ -69,11 +87,20 @@ Athlete-specific and training-specific knowledge:
 
 ## Quick Start
 
-### For Custom GPT Setup
+### For ChatGPT Plugin Setup
 
-1. Upload all files from `gpt/` folder (7 core files)
-2. Optionally upload files from `gpt/context/` folder (3 context files)
-3. Configure ChatGPT Actions using `api_docs/openapi.yaml`
+1. Deploy this application to Azure Functions (see [devops/DEPLOYMENT.md](./devops/DEPLOYMENT.md))
+2. Verify manifest endpoint: `curl https://health.azure.barrimond.net/.well-known/ai-plugin.json`
+3. Register plugin in ChatGPT:
+   - Go to https://chatgpt.com
+   - Select "Explore" → "Create a GPT" → "Create my own"
+   - Click "Create new action"
+   - Paste manifest URL: `https://health.azure.barrimond.net/.well-known/ai-plugin.json`
+   - ChatGPT auto-fetches OpenAPI spec
+   - Configure bearer token authentication (use Function key from Azure)
+4. Upload agent knowledge files from `gpt/` folder (7 core files)
+5. Optionally upload context files from `gpt/context/` folder (3 files)
+6. Save and publish plugin
 
 ### For Developers
 

@@ -8,6 +8,27 @@ Change history for the Health Assistant / Workout Intelligence Agent system. Ent
 - Version bumps noted as: `[component vX.Y.Z]`
 - Related changes grouped under common themes
 
+## 2026-11-17 (Current)
+
+### BREAKING: Custom GPT Removal + ChatGPT Plugin Migration [application v4.0.0, semantic API v4.0.0]
+
+- **Why this is a MAJOR bump**: this release removes support for Custom GPT (ChatGPT Actions) authentication and replaces it with ChatGPT Plugin authentication, which is a backward-incompatible change for existing Custom GPT users.
+- **BREAKING (authentication scheme)**: plugin manifest now declares `auth.type: "service_http"` instead of `auth.type: "user_http"`. Custom GPT integrations using the old manifest will fail to authenticate.
+- **Changed (security scheme)**: OpenAPI spec now uses `BearerToken` (HTTP bearer authentication) instead of `FunctionKey` (Azure Functions query-param key). Clients must switch from `?code=...` to `Authorization: Bearer ...` headers.
+- **Added (ChatGPT Plugin support)**: endpoint `/.well-known/ai-plugin.json` now serves plugin manifest compatible with OpenAI's ChatGPT Plugin ecosystem. Plugins registered via ChatGPT's plugin creation interface will automatically load from this endpoint.
+- **Changed (manifest endpoint)**: `GET /.well-known/ai-plugin.json` returns plugin manifest with dynamic URLs (OpenAPI spec URL, logo, contact email, legal info) populated from request context and environment overrides.
+- **Deprecated (Custom GPT)**: Custom GPT configuration and ChatGPT Actions-based integrations are no longer supported. Users must re-register the plugin via ChatGPT's plugin interface.
+- **Added (OpenAPI spec updates)**: `api_docs/openapi.yaml` now declares `BearerToken` as primary security scheme; legacy `FunctionKey` scheme retained for backward compatibility but all endpoints migrated to bearer token.
+- **Added (backward compatibility path)**: Azure Functions continue to accept `?code=...` query-param authentication for direct API calls; ChatGPT Plugin exclusively uses bearer token auth.
+- **Migration path**: Existing Custom GPT users must:
+  1. Wait for deployment of v4.0.0
+  2. Add plugin to ChatGPT using manifest URL: `https://health.azure.barrimond.net/.well-known/ai-plugin.json`
+  3. Remove old Custom GPT configuration from ChatGPT
+  4. Obtain bearer token and update ChatGPT plugin authentication settings
+- **Preserved (endpoint contracts)**: all API endpoint paths, request/response schemas, and business logic remain unchanged; this is an authentication-layer migration only.
+- **Updated (documentation)**: `docs/README.md` and `docs/devops/DEPLOYMENT.md` now document ChatGPT Plugin setup, manifest serving, and bearer token authentication flow.
+- **Added (tests)**: new unit tests verify manifest endpoint returns valid ChatGPT Plugin schema with correct security scheme declaration.
+
 ## 2026-11-17
 
 ### Agent Memory Default Archive Exclusion + API Contract Update [application v3.22.0, semantic API v8.3.0]
