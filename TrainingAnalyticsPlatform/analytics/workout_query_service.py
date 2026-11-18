@@ -337,7 +337,7 @@ class WorkoutQueryService:
         if physiometrics_context:
             canonical_metadata.update(physiometrics_context)
 
-        df = self._load_canonical_records_for_detail(blob_name, workout_entity)
+        df = self._load_canonical_records_for_detail(blob_name)
         if df.empty:
             raise WorkoutDetailUnavailableError("Canonical records parquet is empty")
 
@@ -385,7 +385,6 @@ class WorkoutQueryService:
     def _load_canonical_records_for_detail(
         self,
         blob_name: str,
-        workout_entity: WorkoutEntity,
     ) -> pd.DataFrame:
         """Load canonical records for detail and surface a detail-specific storage error."""
         try:
